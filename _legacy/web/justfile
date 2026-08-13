@@ -1,0 +1,12 @@
+
+export PATH := "./node_modules/.bin:" + env("PATH")
+
+# check typings and coding style
+check:
+    biome check && (tsgo --noEmit --ignoreConfig ./static/scripts/*.ts | wtsc)
+
+# fix formatting across the whole project
+format:
+    biome format --write
+    biome lint --write
+    biome check --write --formatter-enabled=false --linter-enabled=false
