@@ -55,26 +55,44 @@ export interface Relation {
   /** Restrict the rows produced by this relation according to a condition. */
   where?: Expression
 
-  // Write mode is only read when POSTing data and handles how the data of this particular relation in the query is to be handled.
+  /**
+    Write mode is only read when POSTing data and handles how the data of this particular relation in the query is to be handled.
+
+    Delete-bearing modes (`merge`, `merge-new`, `merge-update`, `deleteonly`) only make sense on an
+    _incoming_ relation : one whose rows are exclusively owned/scoped by the parent row through the FK
+    (this is what "rows not in the payload, matching the FK to the parent" even means). An _outgoing_
+    relation (a to-one "belongs to", e.g. `user.manager_id -> manager.id`) is not exclusively owned by
+    the current row - the referenced row may be pointed to by any number of other rows - so there is no
+    coherent set of "rows not in the payload" to delete. Using a delete-bearing mode on an outgoing
+    relation is a validation error, raised when the query is prepared.
+
+    Defaults : `insert` for the outermost/root relation, `merge` for an incoming subquery, `upsert` for
+    an outgoing subquery (never a delete-bearing mode, since that would be an error by the rule above).
+
+    If you need delete-on-absence semantics for what looks like a to-one relationship (e.g. a `settings`
+    row exclusively owned by a user but modeled with the FK on the `settings` side for nullability), model
+    it as an incoming relation instead (put the FK on the other table) rather than trying to force it
+    through an outgoing embed.
+  */
   write_mode?:
     /** Delete rows not in the payload that match the where condition as well as foreign key relationships with a parent row if this query is a subquery, insert new ones and update existing ones.
      *
-     This is the default for a subquery.
+     This is the default for an incoming subquery. Not valid on an outgoing relation (see above).
      */
     | "merge"
     /** Do NOT update this particular table. This disables its own subqueries as well. */
     | "readonly"
     /** Insert new rows and do not touch the already exiting ones. This is the default for the outermost resource. */
     | "insert"
-    /** Insert or update (... on conflict do update), but do not delete non-matching rows of the where condition. */
+    /** Insert or update (... on conflict do update), but do not delete non-matching rows of the where condition. This is the default for an outgoing subquery. */
     | "upsert"
-    /** Delete and insert but do not update rows matching those of the payload. */
+    /** Delete and insert but do not update rows matching those of the payload. Not valid on an outgoing relation (see above). */
     | "merge-new"
-    /** Delete and update, but do not insert rows of the payload with no equivalent on the unique conditions. */
+    /** Delete and update, but do not insert rows of the payload with no equivalent on the unique conditions. Not valid on an outgoing relation (see above). */
     | "merge-update"
     /** Only update existing rows but ignore new ones and don't delete non-matching rows. */
     | "update"
-    /** Delete only rows matching the where condition and not in data. */
+    /** Delete only rows matching the where condition and not in data. Not valid on an outgoing relation (see above). */
     | "deleteonly"
 
   /** When provided,
@@ -126,7 +144,7 @@ export interface Relation {
     | ["asc" | "desc" | "asc-nulls-first" | "desc-nulls-last", Expression]
   )[]
 
-  // The following two clauses are SQL's clauses. When used in a subquery, applies them for each parent-row  
+  // The following two clauses are SQL's clauses. When used in a subquery, applies them for each parent-row
   offset?: number
   limit?: number
 
@@ -200,7 +218,7 @@ export type BinaryOperator =
   | "@@"
 
 export type Expression<K extends string = string> =
-  | null 
+  | null
   | true
   | false
   | number
@@ -222,27 +240,32 @@ export type Expression<K extends string = string> =
 
   // avoid having to create ["arr", ...] for the contained expression
   // here is an exception : candidates literal strings are here treated as literal strings and not columns. Column comparison should be performed by other operators
-  | ["in" | "not-in", subject: Expression, canditates: ...(string | Expression)[]]
+  | ["in" | "not-in", subject: Expression, ...canditates: (string | Expression)[]]
   | ["any" | "all", op: FoldedOperator | BinaryOperator, subject: Expression, array_or_list: Expression]
-  
+
   | ["concat_ws", separator: Expression, ...Expression[]]
   | ["coalesce", ...Expression[]]
   | ["format", format: string, ...Expression[]]
 
-  /** Aggregate an expression. The first expression must resolve to an allowed aggregate function. The second expression is the expression to aggregate. It must be an incoming relation. The last expression, if given, is a filter expression. Aggregates can only be called from a parent relation. */
+  /** Aggregate an expression. `identifier` must be an allowed aggregate function, schema-qualified (`schema.func`). The second expression is the expression to aggregate. It must be an incoming relation. The last expression, if given, is a filter expression. Aggregates can only be called from a parent relation.
+
+  `identifier` is a literal string, not an Expression : function/operator allowlisting (see querying.md ### Scoping) has to be checkable at query-compile time against a static, schema-qualified name, which isn't possible if the identifier could itself be a computed expression. */
   | [
       "agg" | "aggregate",
-      identifier: Expression,
+      identifier: string,
       arguments: Expression[],
       filter?: Expression
     ]
-  /** A function call. Expression must resolve to an allowed function */
-  | ["call", identifier: Expression, ...arguments: Expression[]]
+  /** A function call. `identifier` must be an allowed function, schema-qualified (`schema.func`) — see the note on "agg" above ; the same constraint applies here. */
+  | ["call", identifier: string, ...arguments: Expression[]]
 
   // Expressions that produce objects
   /* an inline object that will become an object expression */
   | { [name: string]: Expression }
 
+  // Neither own nor full add computed columns by default ; yet, they're selectable
+  // there are functions that take the table's type as first argument and reply a result that can thus be integrated this way
+  // these columns can NEVER be written to.
   | ["own"] // an object with all the columns of the current relation
   | ["full"] // a variant ; includes the joined rels. This is select's "default" value
   /* Similar, but omits columns */
@@ -256,7 +279,7 @@ export type Expression<K extends string = string> =
   | ["index", array: Expression, index: Expression] // 1-indexed, just like PG
   | ["slice", array: Expression, from: Expression, to: Expression] // 1-indexed, just like PG
   | ["lst" | "list", ...Expression[]] // may need to be behind a flag ?
-  
+
   // More granular field selection.
   // The default expression may be the "default" keyword if the column has a default value
   | ["get-set", column: K, default_get?: Expression, default_set?: Expression] // this is to set default values instead of null in read or write
