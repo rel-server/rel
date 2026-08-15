@@ -2,29 +2,23 @@
 This file specifies the shape of the JSON queries that rel is to understand.
 */
 
-export type Query = WriteQuery | Relation
+// A query to the server can be a single query or a sequence of queries.
+// A query sequence is run in order in the same transaction ; an error in one of them fails the transaction.
+// For more complex scenarii, it is recommended to use a function
+export type Query = WriteQuery | Relation | WellKnownQuery | Query[]
 
-export interface Join {
-  /**
-   The columns to join on. The keys of the object refer to columns of the relation in the same object, while the values refer to columns of the relation in the "from" property of the enclosing query.
-
-   Joining is limited to columns that are part of a foreign key constraint, or to distant indexed columns where a unique constraint exists on either the local columns or the parent columns.
-  */
-  on: { [local_column: string]: string }
+/* Call a query that's registered in rel. This can be seen as a view, except it's a rel's signature bi-directional query that's both readable and writable. */
+export interface WellKnownQuery {
+  query_name: string
+  params?: any
+  data?: any
 }
-
-export type SelectExpression =
-  | Expression
-  | {
-      [name: string]: SelectExpression
-    }
 
 export interface WriteQuery {
   query: Relation
 
   /**
-  The data to modify the database with. If empty, the query is just a selection.
-  If provided, it must conform to the shape of the select expression.
+  The data to modify the database with. It must conform to the shape of the query.
   */
   data: any
 
@@ -34,11 +28,25 @@ export interface Relation {
   // Identifying fields for the relation :
   /** The relation name, or the function name in the case of functions */
   relation: string
+
   /** If not provided, the relation will be looked for in the search path. */
   schema?: string
 
+  // give an alias to the relation in the query, usable by children and sibling relations' expressions
+  // it is _not_ the same as the object keys in join ; those are accessible by the _parent_ relation to select
+  alias?: string
+
   /**
-    If arguments is provided, then call a table-valued function. Joining can be performed just like if the query is about the type of the returned table. When writing back, writes into the underlying table if it is actually writable (not a view, not a plain type ; physical table or a view with instead-of).
+   The columns to join on. The keys of the object refer to columns of the relation in the relation being described here, while the values refer to columns of the relation of the enclosing query. This field is mandatory on joined relations.
+
+   Joining is limited to columns that are part of a foreign key constraint, or to distant indexed columns where a unique constraint exists on either the local columns or the parent columns.
+  */
+  on?: { [local_column: string]: string }
+
+  /**
+    If arguments is provided, then the current relation is a function.
+
+    If it is table-valued, joining can be performed just like if the query is about the type of the returned table. When writing back, writes into the underlying table if it is actually writable (not a view, not a plain type ; physical table or a view with instead-of).
 
     Note: this *might* be a problem to leave it writable, but I can't think _why_.
   */
@@ -69,10 +77,19 @@ export interface Relation {
     /** Delete only rows matching the where condition and not in data. */
     | "deleteonly"
 
-  /** When provided, the constraint name or columns with UNIQUE or PRIMARY KEY that will be used for conflict resolution when inserting. By default, on_conflict will be performed on PRIMARY KEY or a UNIQUE constraint if there is only one defined on the table. */
-  on_conflict?: string[]
+  /** When provided,
+    when a single string: the constraint name
+    when an array : the columns
+    with UNIQUE or PRIMARY KEY that will be used for conflict resolution when inserting/updating/merging.
 
-  /** When writing, limits which physical columns will be considered from the payload. If update_column is not specified, also apply to updates. If unspecified, insert will be performed on all columns with their default values. */
+    By default, on_conflict will be performed on the PRIMARY KEY only. While UNIQUE constraints _can_ be used, they are not used by default when there is no PRIMARY KEY. */
+  on_conflict?: string | string[]
+
+  /**
+    When writing, limits which physical columns will be considered from the payload.
+    If update_columns is not specified, also apply to updates.
+    If unspecified, insert will be performed on all writable columns.
+  */
   insert_columns?: string[]
 
   /** Limit the columns that are to be updated if a row already existed. If unspecified, all columns will be updated with provided values. */
@@ -87,83 +104,127 @@ export interface Relation {
 
   */
   join?: {
-    [alias: string]: Relation & Join
+    [alias: string]: Relation
   }
 
   /**
-   The fields to select from the relation and its joins.
-
-   By default, all fields are selected and joined relations are included as their aliases. Otherwise, the subqueries are available as if they were a field name in the select expression.
+   The shape of what will be returned by the select.
+   I not specified, then it will be equivalent to select * from the relation, as well as the embeds defined by join if any.
 
    An error is raised when there is no select clause and a join alias conflicts with a column name.
   */
-  select?: SelectExpression
+  select?: Expression
 
-  /** Similar to SQL's OFFSET clause */
+  distinct?: boolean
+
+  distinct_on?: Expression[]
+
+  // if not supplied, "asc" is the default, just like in SQL
+  order_by?: (
+    | Expression
+    // asc and desc are nulls last by default
+    | ["asc" | "desc" | "asc-nulls-first" | "desc-nulls-last", Expression]
+  )[]
+
+  // The following two clauses are SQL's clauses. When used in a subquery, applies them for each parent-row  
   offset?: number
-
-  /** Similar to SQL's LIMIT clause */
   limit?: number
 
 }
 
-export type UnaryOperator = "-" | "not" | "~"
+export type UnaryOperator =
+  | "-"
+  | "not"
+  | "~"
+  | "is-null"
+  | "is-true"
+  | "is-false"
+  | "is-not-null"
+  | "is-not-true"
+  | "is-not-false"
+  | "|/" // square root
+  | "||/" // cube root
 
-export type BinaryOperator =
-  | "="
-  | "<>"
-  | ">"
-  | ">="
-  | "<"
-  | "<="
-  | "distinct"
-  | "not distinct"
+// These operators are binary operators but that can be applied over a long list starting from the left and two by two
+// ["-", 4, 3, 2, 1] -> ["-", ["-", ["-", 4, 3], 2], 1]
+// Boolean operators are treated as and
+// ["<", 1, 2, 3, 4] -> ["and", ["<", 1, 2], ["<", 2, 3], ["<", 3, 4]]
+export type FoldedOperator =
   | "and"
   | "or"
-  | "in"
-  | "not in"
-  | "is"
-  | "is not"
-  // | "any"
-  // | "all"
+  | "+"
+  | "-"
+  | "*"
+  | "/"
+  | "^"
+  | "%"
+  | "|"
+  | "&"
+  | "->"
+  | "->>"
+  | "#>"
+  | "#>>"
+  | "."
+  | "||" // does NOT coalesce
+  | "||?" // coalescing ||, not a postgres operator, synonymous with concat : coalesces individual operands with ''
+  | "??" // alias for coalesce, borrowed from javascript
+  | "<="
+  | ">="
+  | "<"
+  | ">"
+  | "="
+  | "<>" | "!="
+  | "is-distinct-from" | "!==" // javascript alias
+  | "is-not-distinct-from" | "===" // javascript alias
+
+// Here are all binary for who folding makes little sense
+export type BinaryOperator =
   | "like" // warning : need configuration as they can be abused for DDoS attacks
   | "ilike" // warning : need configuration as they can be abused for DDoS attacks
   | "~" // warning : need configuration as they can be abused for DDoS attacks
   | "~*" // warning : need configuration as they can be abused for DDoS attacks
   | "::" // type cast
-  | "+"
-  | "-"
-  | "*"
-  | "/"
-  | "%"
   | "&&"
+  | "<->"
+  | "-|-"
   | "<<"
   | ">>"
-  | "&"
-  | "|"
-  | "^"
-  | "."
-  | "->"
-  | "->>"
-  | "??"
+  | "@>"
+  | "<@"
+  | "?"
   | "?|"
+  | "&<"
+  | "&>"
   | "?&"
   | "?:"
+  | "@@"
 
 export type Expression<K extends string = string> =
-  | null
+  | null 
+  | true
+  | false
   | number
+  | "*" // select all fields of the current relation + aliases
   /** strings always refer to aliases and column names, since they are much more likely to appear than actual strings */
-  | "*"
   | string
-  | boolean
-  | { [name: string]: Expression }
+  /** a string literal is an array of only one string */
+  | [string]
   | [UnaryOperator, Expression]
   | [BinaryOperator, left: Expression, right: Expression]
   | ["between", min: Expression, exp: Expression, max: Expression]
-  | ["not between", min: Expression, exp: Expression, max: Expression]
-  /** Concatenate. Coalesces all operands and makes sure there always is a string result. */
-  | ["concat", ...Expression[]]
+  | ["not-between", min: Expression, exp: Expression, max: Expression]
+
+  // explicit bigint support for queries. in responses, the user can choose to have another parser than JSON.parse _if_ they absolutely need bigints
+  | ["bigint", value: string]
+  | ["numeric", value: string] // for really big numbers
+
+  | [FoldedOperator, ...Expression[]]
+
+  // avoid having to create ["arr", ...] for the contained expression
+  // here is an exception : candidates literal strings are here treated as literal strings and not columns. Column comparison should be performed by other operators
+  | ["in" | "not-in", subject: Expression, canditates: ...(string | Expression)[]]
+  | ["any" | "all", op: FoldedOperator | BinaryOperator, subject: Expression, array_or_list: Expression]
+  
   | ["concat_ws", separator: Expression, ...Expression[]]
   | ["coalesce", ...Expression[]]
   | ["format", format: string, ...Expression[]]
@@ -175,39 +236,55 @@ export type Expression<K extends string = string> =
       arguments: Expression[],
       filter?: Expression
     ]
-  | ["call", identifier: Expression, ...arguments: Expression[]]
-  | ["*", ...exclude: string[]] // the star operator. Only applies to the table of the current query.
-
   /** A function call. Expression must resolve to an allowed function */
-  | ["arr" | "array", ...Expression[]] // may need to be behind a flag ?
-  | ["lst" | "list", ...Expression[]] // may need to be behind a flag ?
+  | ["call", identifier: Expression, ...arguments: Expression[]]
 
-  // Field selection. col allows writing, while get only allows reading and set only writing - the associated column will not appear in the result.
+  // Expressions that produce objects
+  /* an inline object that will become an object expression */
+  | { [name: string]: Expression }
+
+  | ["own"] // an object with all the columns of the current relation
+  | ["full"] // a variant ; includes the joined rels. This is select's "default" value
+  /* Similar, but omits columns */
+  | ["own-except" | "full-except", except: string[]]
+  /* Similar, but adds computed columns */
+  | ["own-and" | "full-and", and: {[name: string]: Expression}]
+  /* Select all except omitted_keys and add the computed keys in merge_with. merge_with can specify keys that were omitted ; they shall override it. merge_with cannot shadow keys implicitely ; this is an error */
+  | ["own-except-and" | "full-except-and", except: string[], and: {[name: string]: Expression}]
+
+  | ["arr" | "array", ...Expression[]] // may need to be behind a flag ?
+  | ["index", array: Expression, index: Expression] // 1-indexed, just like PG
+  | ["slice", array: Expression, from: Expression, to: Expression] // 1-indexed, just like PG
+  | ["lst" | "list", ...Expression[]] // may need to be behind a flag ?
+  
+  // More granular field selection.
   // The default expression may be the "default" keyword if the column has a default value
-  | ["col", column: K, default_get?: Expression, default_set?: Expression]
-  | ["get", column: K, default_value?: Expression]
-  | ["set", column: K, default_value?: Expression]
-  | [column: string]
+  | ["get-set", column: K, default_get?: Expression, default_set?: Expression] // this is to set default values instead of null in read or write
+  | ["get", column: K, default_value?: Expression] // this column will not be looked for / modified in write mode
+  | ["set", column: K, default_value?: Expression] // this column is not fetched in query mode, but is expected there in write mode.
+
+  | ["$param", name: string, cast?: string] // for use with well known queries
 
 /**
   Example :
 
 {
-  name: "movie",
+  relation: "movie",
   schema: "api",
-  where: [
-    [">=", "year", 1999]
+  where: ["and",
+    [">=", "year", 1999],
+    ["like", "name", ["%needle%"]]
   ],
   join: {
-    actor: {
+    actors: {
       name: "actor",
       schema: "api",
       on: {"actor_id": "movie_id"},
     },
   }
   select: {
-    movie: ["omit", "movie_id", "year"],
-    actors: "actor",
+    movie: ["full-except", ["movie_id", "year"]],
+    actors: "actors",
   }
 }
 */
