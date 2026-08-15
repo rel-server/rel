@@ -7,7 +7,7 @@
 - Explain the code through comments when implementing
 
 - Maintain `./docs` <-> code relevance
-- In specs, put rationale/justification for a rule in a blockquote right after it, starting with `> Why:`. Treat everything outside such a blockquote as a binding rule ; treat the blockquote itself as optional context to skip when implementing, and consult only when a rule seems ambiguous or you want to check a judgment call. Consider you're the target audience (besides the > Why), instructions and questions may be submitted to you in the text ; address these.
+- In specs, put rationale/justification for a rule in a blockquote right after it, starting with `> Why:`. Treat everything outside such a blockquote as a binding rule ; treat the blockquote itself as optional context to skip when implementing, and consult only when a rule seems ambiguous or you want to check a judgment call. Consider you're the target audience (besides the > Why), instructions and questions may be submitted to you in the text ; address these. For lingering questions you need answers to, use `> Question:`.
 
 # Golang code
 

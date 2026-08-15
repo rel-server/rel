@@ -49,20 +49,28 @@ A query or several queries (in one HTTP request) run in a single transaction ; a
 
 Proper scoping is to be enforced when walking the json query tree ; it is an error to refer to unknown columns or relations, and this MUST be caught by the "compiler". Aliases must be correctly propagated in the right scopes ; subqueries and parent queries do not see the same identifiers.
 
-Functions may be blacklisted for use in the query through config : `functions.blacklist.<schema>.<function_name_or_operator>` with `y` or `true` to effectively disable them for use in the query builder. Rel must be aware of the search path when inspecting functions being called.
+The scope will handle look-up for ; relations, functions, but also local relation aliases and columns, regular and computed.
 
-The database role rel connects with must never be `postgres` or superuser, and must never be a member of `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, or `pg_signal_backend`.
+Functions may be blacklisted for use in the query through config : `blacklist.functions.<schema>.<function_name_or_operator or *>` with `y` or `true` to effectively disable them for use in the query builder. Rel must be aware of the search path when inspecting functions being called.
+
+Similarly, relations may be blacklisted for the same reason. Default blacklist :
+- `blacklist.relations.pg_catalog.*` : `y`
+- `blacklist.relations.information_schema.*` : `y`
+
+Default functions blacklist :
+- `blacklist.functions.pg_catalog.set_config` : `y`
+- `blacklist.functions.pg_catalog.pg_sleep` : `y`
+- `blacklist.functions.pg_catalog.pg_terminate_backend` : `y`
+- `blacklist.functions.pg_catalog.pg_cancel_backend` : `y`
+- `blacklist.functions.pg_catalog.pg_advisory_lock` : `y` (and the rest of the `pg_advisory_*lock*` family, minus the `_unlock` variants, which are harmless) — `PUBLIC`-executable by default, and holding a session/transaction advisory lock indefinitely is a cheap way to wedge a connection or contend with any advisory locks rel's own runtime might use internally.
+
+
+> Why these two and why wildcarded : this is what closes the open question raised in an earlier draft of this section — both schemas are readable by `PUBLIC` by default (`pg_settings`, `pg_stat_activity`, `information_schema.tables`, ...) and reachable through the ordinary `relation`/`schema` fields on a query, same as any table. Wildcarding the whole schema rather than naming individual views is deliberate here, unlike the function blacklist above : Postgres ships and changes the exact set of catalog/information_schema views across versions, so pinning specific names would need to be kept in sync with every version rel supports, whereas "nothing in these two schemas is a valid query target" is a version-independent rule that never needs updating. A user who genuinely wants to query one of these (introspection tooling, say) can still override the specific entry back to `n`.
+
+The database role rel connects with to server requests must never be `postgres` or superuser, and must never be a member of `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, or `pg_signal_backend`. (It should connect as a superusers to run migrations, however.) The user must be incited to create a 'reluser' role of some kind that will receive grants for all subroles that shall exist within the database.
 
 > Why this still matters alongside the blacklist : the blacklist can only stop what it already knows the name of. It's a maintained list, not a closed one — a newly `CREATE EXTENSION`'d function (which defaults to `PUBLIC EXECUTE` the moment it's created, e.g. `dblink`, `postgres_fdw`) isn't covered until someone notices and adds it. The role restrictions above are the backstop for exactly that gap : as long as the role never holds those privileges/memberships, most of what makes a *newly discovered* dangerous function actually dangerous (arbitrary file/network/process access) stays unreachable regardless of whether the blacklist has caught up yet.
 
-Default blacklist :
-- `functions.blacklist.pg_catalog.set_config` : `y`
-- `functions.blacklist.pg_catalog.pg_sleep` : `y`
-- `functions.blacklist.pg_catalog.pg_terminate_backend` : `y`
-- `functions.blacklist.pg_catalog.pg_cancel_backend` : `y`
-- `functions.blacklist.pg_catalog.pg_advisory_lock` : `y` (and the rest of the `pg_advisory_*lock*` family, minus the `_unlock` variants, which are harmless) — `PUBLIC`-executable by default, and holding a session/transaction advisory lock indefinitely is a cheap way to wedge a connection or contend with any advisory locks rel's own runtime might use internally.
-
-Open question, not answered here : should rel also restrict which *relations* (not just functions) are queryable — specifically `pg_catalog` / `information_schema` system views, most of which are `SELECT`-able by `PUBLIC` by default (e.g. `pg_settings`, `pg_stat_activity`) and reachable through the ordinary `relation`/`schema` fields on a query, going through the same GRANT-based `401` path as any other table (`## Configuration`). Nothing in this section currently restricts that — it's a distinct attack surface (information disclosure via readable catalog views) from the function/operator blacklist above, and needs its own decision : leave it to the same "harden the role's grants" story, or have rel refuse `pg_catalog`/`information_schema` as query targets outright regardless of grants ?
 
 ## Reading Algorithm
 
@@ -73,47 +81,63 @@ Much simpler than writing : no phases, no `_data` temp table, no dependency orde
 Per node, recursively :
 
 1. Build the node's own select list from its `select` expression (`own`/`full` and defaulting to `full` when unspecified, `own-except`/`full-and`/etc., or explicit column/expression references), resolved against the node's relation.
-2. For each `join` entry, recurse to build the child node's own query, then embed it via `LEFT JOIN LATERAL ... ON TRUE`, correlated on `on` (`child.<key> = parent.<value>`, AND'd across a composite `on`, same mapping direction regardless of which side ends up being array or object — see below). `LEFT` so a child with no matching rows doesn't drop the parent row.
+2. For each `join` entry, recurse to build the child node's own query, then embed it as a plain correlated scalar subquery in the parent's select list — correlated on `on` (`child.<key> = parent.<value>`, AND'd across a composite `on`, same mapping direction regardless of which side ends up being array or object — see below). No `JOIN`, and no `LATERAL`, needed for this : a subquery in the `SELECT` list can already reference the outer row's columns without it, since `LATERAL` is only required syntax for a *`FROM`-clause* subquery that needs to do the same thing (see the exception in step 5).
 3. Whether the embed is a single object or an array follows from whether the join can produce more than one row, not from the outgoing/incoming vocabulary itself — that vocabulary is a proxy for it. Per `query.ts`, a join is also allowed against "distant indexed columns where a unique constraint exists on either the local columns or the parent columns", so a unique constraint on the *joined* side is what actually makes it to-one, and this coincides with (but isn't identical to) "outgoing" for a plain FK join :
-   - unique on the joined side → `row_to_json` of the child's own single-row subquery, giving one object (or `null`, from the `LEFT JOIN`, if there's no match).
-   - not unique on the joined side → `json_agg(row_to_json(t))` over the child's own subquery (which carries its own `where`/`order_by`/`limit`/`offset`), wrapped in `coalesce(..., '[]'::json)` so "no matches" is an empty array, not `null`.
-4. `where`, `order_by`, `distinct`/`distinct_on`, `limit`, `offset` on a node apply directly as ordinary clauses on that node's own subquery. Because the subquery is `LATERAL`-correlated to its parent, a `limit`/`offset` on an embedded (to-many) relation is naturally applied *per parent row* — this is the mechanism behind the note in `query.ts` ("When used in a subquery, applies them for each parent-row").
-5. A relation with `arguments` (a function call rather than a table) is handled the same way once its result set is known : table-valued and multi-row behaves like any other joined relation (object vs. array per step 3) ; a scalar, non-set-returning function contributes its result directly, with no `row_to_json`/`json_agg` wrapping — this is also the case referenced in `## Response Shape` ("the scalar of the result of a scalar function").
-6. The root node's rows are what get streamed out per `## Response Shape` (`row_to_json` per row, manually delimited) — the root itself never gets its own `json_agg` wrapper, unlike every embedded to-many relation below it.
+   - unique on the joined side → `(select row_to_json(t) from other_relation t where ...)`, giving one object, or SQL `NULL` if there's no match. No `LIMIT 1` needed and no hedging about it : uniqueness here comes from an actual database constraint, so Postgres itself guarantees at most one row — if it didn't, a scalar subquery returning more than one row is a runtime error, which is the correct behaviour for a join rel believes is to-one but the schema doesn't actually back up.
+   - not unique on the joined side → `(select coalesce(json_agg(row_to_json(t)), '[]'::json) from (child's own where/order_by/limit/offset) t)`, so "no matches" is an empty array, not `null`.
+4. `where`, `order_by`, `distinct`/`distinct_on`, `limit`, `offset` on a node apply directly as ordinary clauses on that node's own subquery. Because it's correlated to its parent row regardless of whether it's phrased as a `SELECT`-list subquery or a `LATERAL` join, a `limit`/`offset` on an embedded (to-many) relation is naturally applied *per parent row* either way — this is the mechanism behind the note in `query.ts` ("When used in a subquery, applies them for each parent-row").
+5. **Exception : `LATERAL` is needed when a child relation's rows feed more than one output expression at the parent level.** This happens when an `agg`/`aggregate` expression (`query.ts` : "the expression to aggregate... must be an incoming relation") targets the same relation that's also embedded as an array, or when a node's `select` uses more than one `agg` over the same incoming relation. A `SELECT`-list subquery can only yield a single column, so it can't be reused for both the embedded array and a separate aggregate — and independently re-running the child's subquery for each one isn't just wasteful, it can genuinely disagree with itself : with a `limit`/`offset` and a non-total `order_by`, two separate evaluations of "the same" subquery aren't guaranteed to pick the same rows. In that case, materialize the child's row set once as `LEFT JOIN LATERAL (child subquery, with its own where/order_by/limit/offset applied) t ON TRUE`, and derive every parent-level expression that needs it (the embedded array, each `agg`) from that single `t`, so they're all looking at the same filtered/limited/ordered row set.
+6. A relation with `arguments` (a function call rather than a table) is handled the same way once its result set is known : table-valued and multi-row behaves like any other joined relation (object vs. array per step 3) ; a scalar, non-set-returning function contributes its result directly, with no `row_to_json`/`json_agg` wrapping — this is also the case referenced in `## Response Shape` ("the scalar of the result of a scalar function").
+7. The root node's rows are what get streamed out per `## Response Shape` (`row_to_json` per row, manually delimited) — the root itself never gets its own `json_agg` wrapper, unlike every embedded to-many relation below it.
 
 ```sql
+-- default case : no aggregate also needs this child's rows, so plain correlated subqueries suffice
 select
   -- own/full columns of this node, resolved from introspection
   m.col1, m.col2, /* ... */,
   -- to-one embed : unique on the joined side
-  to_one.obj as alias1,
+  (select row_to_json(t) from other_relation t where t.child_col = m.parent_col /* + t's own where */) as alias1,
   -- to-many embed : not unique on the joined side
-  coalesce(to_many.arr, '[]'::json) as alias2
+  (
+    select coalesce(json_agg(row_to_json(t)), '[]'::json)
+    from (
+      select /* t's own select expression */
+      from other_relation t
+      where t.child_col = m.parent_col -- from `on`, same mapping direction as above
+      order by /* t's own order_by */
+      limit /* t's own limit */ offset /* t's own offset */
+    ) t
+  ) as alias2
 from target_relation m
-left join lateral (
-  select row_to_json(t) as obj
-  from other_relation t
-  where t.child_col = m.parent_col -- from `on`, and any of the child's own `where`
-  -- t's own order_by/limit/offset, if meaningful for a single row
-) to_one on true
-left join lateral (
-  select json_agg(row_to_json(t)) as arr
-  from (
-    select /* t's own select expression */
-    from other_relation t
-    where t.child_col = m.parent_col -- from `on`, same mapping direction as above
-    order by /* t's own order_by */
-    limit /* t's own limit */ offset /* t's own offset */
-  ) t
-) to_many on true
 where /* m's own where */
 order by /* m's own order_by */
 limit /* m's own limit, root only */ offset /* m's own offset, root only */
 ```
 
+```sql
+-- exception : an `agg` at the parent level also needs `orders`' rows, so they're materialized once via LATERAL
+select
+  m.col1, m.col2, /* ... */,
+  coalesce(o.arr, '[]'::json) as orders,   -- the embedded array
+  o.total                                  -- e.g. ["agg", "sum", ["orders", "amount"]]
+from target_relation m
+left join lateral (
+  select json_agg(row_to_json(t)) as arr, sum(t.amount) as total
+  from (
+    select /* orders' own select expression */
+    from orders t
+    where t.parent_col = m.pk -- from `on`
+    order by /* orders' own order_by */
+    limit /* orders' own limit */ offset /* orders' own offset */
+  ) t
+) o on true
+```
+
 ### Computed columns
 
 `own`/`full` (and their `-except`/`-and` variants) enumerate physical columns only, sourced from `pg_attribute` at introspection time — they never implicitly pull in a computed column (a function taking the relation's row type as its argument, callable via `alias.func_name` or `func_name(alias)` in Postgres). A computed column is only included when named explicitly in `select`, at which point it resolves through the same function-identifier path — and is subject to the same `## Scoping` rules — as any other `["call", ...]`. It is never a candidate for writability (`## Configuration`), since it isn't a real column to begin with.
+
+Expression columns are not write candidates for similarly obvious reasons.
 
 ## Writing Algorithm
 
