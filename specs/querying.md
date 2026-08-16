@@ -80,7 +80,7 @@ The database role rel connects with to the server in order to perform requests s
 
 ### Join eligibility : indexing, not just correctness
 
-A join's `on` mapping (see `query.ts`) must be backed by a foreign key constraint, or — for a non-FK join — by a unique constraint on whichever side is the "one" side. Either way, the **child's own `on` columns** (the relation being described, per `query.ts` — i.e. whichever side isn't the enclosing/parent query) MUST be covered by an index on those exact columns, or rel refuses to compile the query.
+A join's `on` mapping (see `query.ts`) must be backed by a foreign key constraint, or — for a non-FK join — by a unique constraint on whichever side is the "one" side. Either way, the **child's own `on` columns** (the relation being described, per `query.ts` — i.e. whichever side isn't the enclosing/parent query) MUST be covered by an index on those exact columns, or rel refuses to compile the query. This is a hard, unconditional compile-time error, with no config escape hatch — consistent with the rest of this section defaulting to strict (mandatory `on`, no ambiguity, blacklist-by-default).
 
 > Why : the Reading Algorithm (`## Reading Algorithm`) runs a correlated subquery per node, executed once per parent row — always scanning the *child* relation, filtered by its own `on` columns, regardless of which side ends up being the "one" or the "many" side of the resulting embed. An earlier draft of this rule said "whichever side is the many side," which is usually right but isn't quite precise : the child side is what actually gets scanned either way, and when the child side is unique that scan is already indexed for free (a unique constraint always creates its own supporting index) — so stating the rule as "the child's columns, always" subsumes the many-side case rather than being a separate rule from it. Without an index backing them, that's a sequential scan per parent row — silently, since nothing about the query *looks* wrong, it's just a performance cliff waiting for the table to grow. This is not only a non-FK-join concern : Postgres does **not** automatically index the referencing side of a foreign key (only the referenced/unique side is guaranteed an index, because the constraint requires one). `customers → orders` via `orders.customer_id` is exactly as capable of degrading to a per-parent-row seq scan as any ad-hoc join would be if nobody thought to add `CREATE INDEX ON orders(customer_id)`. So this check applies uniformly, FK-backed or not — it is not a special case bolted onto the non-FK path.
 
@@ -93,8 +93,6 @@ What counts as "covered by an index," precisely, given a set of columns to check
 - A unique constraint's supporting index already satisfies this for whichever side is unique — no separate index check is needed on that side, only on the many side.
 
 This requires introspecting `pg_index` itself (`indkey`, `indnkeyatts`, `indisunique`, `indpred`, `indexprs`) as its own capability, independent of named constraints — a table's index inventory and its constraint inventory are related but distinct facts, and rel needs both.
-
-Resolved : this is a hard compile-time error, unconditionally — no config escape hatch. Consistent with the rest of this section defaulting to strict (mandatory `on`, no ambiguity, blacklist-by-default).
 
 > Question : the non-FK eligibility path ("unique constraint on either side") currently checks each side's column *set* independently, with no requirement that the two sides actually correspond to each other. A composite FK's target is required to be backed by a unique constraint on exactly its column set, so this means any permutation of a pairing over that same set is accepted as eligible via the non-FK path — *even when a real FK exists between the same two relations and that permutation contradicts its actual, declared correspondence*. Found while writing `pg.Relation.ResolveJoin`'s test suite : a same-column-sets-but-swapped `on` mapping against a table with a genuine (differently-paired) composite FK to the same target is accepted, not rejected, because the non-FK branch never checks it against the FK's pairing. Should `ResolveJoin` additionally require, specifically when such an FK exists between the two relations, that `on` match its pairing rather than falling through to the permutation-blind unique-set check ? Left unresolved — this is a narrow, checkable rule, not a design overhaul, but it's a real semantics call and not decided here.
 
@@ -315,7 +313,7 @@ join dml on dml.conflict_col = resolved.conflict_col
 where _data.__row_id = resolved.__row_id;
 ```
 
-> Note: there is no `insert ... on conflict do update` against `_data` itself anywhere in this section — `_data`'s rows already exist from the `COPY` in step 2 of `### Implementation`, so writing `keys` back into it is always a plain `update`, never an upsert.
+There is no `insert ... on conflict do update` against `_data` itself anywhere in this section — `_data`'s rows already exist from the `COPY` in step 2 of `### Implementation`, so writing `keys` back into it is always a plain `update`, never an upsert.
 
 ### Note about merges
 
