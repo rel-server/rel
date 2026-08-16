@@ -39,7 +39,9 @@ export interface Relation {
   /**
    The columns to join on. The keys of the object refer to columns of the relation in the relation being described here, while the values refer to columns of the relation of the enclosing query. This field is mandatory on joined relations.
 
-   Joining is limited to columns that are part of a foreign key constraint, or to distant indexed columns where a unique constraint exists on either the local columns or the parent columns.
+   Joining is limited to columns that are part of a foreign key constraint, or to distant columns where a unique constraint exists on either the local columns or the parent columns.
+
+   Whichever side of the join is the "many" side (the side without the unique constraint — for a plain FK join, this is always the referencing/local side, since the referenced/parent side is unique by construction) MUST additionally be covered by an index on those exact columns, or the query is rejected — see `querying.md` ### Scoping. This applies uniformly to FK-backed and non-FK joins alike : Postgres does not automatically index the referencing side of a foreign key, so an FK-backed to-many embed is just as capable of silently compiling into a per-parent-row sequential scan as an ad-hoc one.
   */
   on?: { [local_column: string]: string }
 

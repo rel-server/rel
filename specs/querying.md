@@ -78,6 +78,24 @@ The database role rel connects with to the server in order to perform requests s
 
 > Why this still matters alongside the blacklist : the blacklist can only stop what it already knows the name of. It's a maintained list, not a closed one — a newly `CREATE EXTENSION`'d function (which defaults to `PUBLIC EXECUTE` the moment it's created, e.g. `dblink`, `postgres_fdw`) isn't covered until someone notices and adds it. The role restrictions above are the backstop for exactly that gap : as long as the role never holds those privileges/memberships, most of what makes a *newly discovered* dangerous function actually dangerous (arbitrary file/network/process access) stays unreachable regardless of whether the blacklist has caught up yet.
 
+### Join eligibility : indexing, not just correctness
+
+A join's `on` mapping (see `query.ts`) must be backed by a foreign key constraint, or — for a non-FK join — by a unique constraint on whichever side is the "one" side. Either way, whichever side is the **many** side (the side without the unique constraint) MUST be covered by an index on those exact columns, or rel refuses to compile the query.
+
+> Why : the Reading Algorithm (`## Reading Algorithm`) runs a correlated subquery per node, executed once per parent row. Without an index backing the many side's join columns, that's a sequential scan per parent row — silently, since nothing about the query *looks* wrong, it's just a performance cliff waiting for the table to grow. This is not only a non-FK-join concern : Postgres does **not** automatically index the referencing side of a foreign key (only the referenced/unique side is guaranteed an index, because the constraint requires one). `customers → orders` via `orders.customer_id` is exactly as capable of degrading to a per-parent-row seq scan as any ad-hoc join would be if nobody thought to add `CREATE INDEX ON orders(customer_id)`. So this check applies uniformly, FK-backed or not — it is not a special case bolted onto the non-FK path.
+
+What counts as "covered by an index," precisely, given a set of columns to check against a relation's indexes :
+
+- Every key in `on` becomes an equality predicate, so a btree index serves it regardless of the order those columns were declared in — the check is whether the candidate columns, as a *set*, equal the *leading key columns* of some index on that relation, also taken as a set. Order within that prefix doesn't matter ; only that every one of them is a genuine leading key column.
+- Only the index's first `indnkeyatts` columns count. An `INCLUDE`d column (Postgres 11+ covering indexes) sits in `indkey` past that boundary and is not usable for the lookup itself, only for avoiding a heap fetch — verified directly : `CREATE INDEX ... (customer_id) INCLUDE (total)` gives `indkey = "2 3"` but `indnkeyatts = 1` ; only `customer_id` counts.
+- A **partial** index (`indpred IS NOT NULL`) does not count. It only guarantees coverage for rows matching its predicate, which rel has no way to verify subsumes the query's actual row set at compile time.
+- An **expression** index does not count for this check ; `indkey` carries a `0` at any expression position (verified directly), and `on` only ever joins on plain columns, never on the result of an expression.
+- A unique constraint's supporting index already satisfies this for whichever side is unique — no separate index check is needed on that side, only on the many side.
+
+This requires introspecting `pg_index` itself (`indkey`, `indnkeyatts`, `indisunique`, `indpred`, `indexprs`) as its own capability, independent of named constraints — a table's index inventory and its constraint inventory are related but distinct facts, and rel needs both.
+
+> Question : should a query that fails this check be a hard compile-time error (consistent with the rest of this section defaulting to strict — mandatory `on`, no ambiguity, blacklist-by-default) or a warning, with a config escape hatch (e.g. `query.requireindexedjoins`) for cases where it genuinely doesn't matter, like a small lookup table? Leaning towards hard error by default, undecided.
+
 
 ## Reading Algorithm
 
