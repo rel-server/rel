@@ -174,8 +174,10 @@ Expression columns are not write candidates for similarly obvious reasons.
 
 * node : a relation in the query tree, assigned by position in the tree
 * current relation : the relation being examined by the algorithm
-* _outgoing_ relationship : the current relation has a foreign key that points to another relation
-* _incoming_ relationship : a relation has a foreign key on the primary key or another unique set of columns to the current relation
+* _outgoing_ relationship : the current relation's own `on` columns point at a unique set of columns on the other relation. A foreign key is the common way this happens, but not the only one — see `### Scoping` / `### Join eligibility` : rel's actual eligibility rule is uniqueness + indexing, not "is there a declared FK". The current relation's own columns need no index of their own for this to be valid ; the mandatory index requirement below always falls on the *other* side.
+* _incoming_ relationship : the current relation's own `on` columns are the unique side, and the other relation's `on` columns — which point at them — are covered by an index. Again, commonly but not necessarily a declared FK.
+
+These two are exactly `ResolveJoin`'s existing `isToOne` result, viewed from the current node's side of a given edge : outgoing when the *other* side's columns are unique, incoming when *this* side's own columns are unique. They are not a redundant restatement of "is there a foreign key here" — a join can be eligible (and thus be one or the other) without any real FK backing it at all, as long as the uniqueness/indexing shape holds.
 
 Nodes included through `join` in the query are _either_ incoming OR outgoing.
 
@@ -188,7 +190,7 @@ Nodes included through `join` in the query are _either_ incoming OR outgoing.
   - For each node and once the columns are known, it will create the corresponding `INSERT` / `UPDATE` / `DELETE` statement that will have to be executed.
   - Delete-bearing write modes (`merge`, `merge-new`, `merge-update`, `deleteonly`) are only valid on an incoming relation. Encountering one of these modes on an outgoing relation is a validation error at this stage. See `query.ts` for the write_mode defaults (root: `insert`, incoming: `merge`, outgoing: `upsert`).
 
-    > Why: only an incoming relation's rows are exclusively scoped to the parent by the FK — an outgoing relation's referenced row may be pointed to by any number of other rows, so there's no coherent set of "rows not in the payload" to delete.
+    > Why: only an incoming relation's rows are exclusively scoped to the parent by that indexed reference (FK-backed or not) — an outgoing relation's referenced row may be pointed to by any number of other rows, so there's no coherent set of "rows not in the payload" to delete.
 
 2. denormalize the input ; walk the extractors alongside given data and create one big flat JSON array that will contain all the data to be inserted to the server, using the extractors previously created.
 
@@ -235,7 +237,7 @@ Insert and update statements should only include the columns they intend to modi
 
 They will use a rehydrated row from `jsonb_populate_record` that they will re-explode column by column.
 
-Most of the time, they will just use the column as is, but when using a column that is a FK to another relation (to a parent, or to an outgoing relation), OR when the JSON does not specify a column that has a default value OR when the JSON has a `null` value for a `NOT NULL` column that has a default value, then we use this value instead.
+Most of the time, they will just use the column as is, but when using a column that's part of an outgoing join's `on` mapping (to a parent, or to an outgoing relation — whether or not it's backed by a declared foreign key), OR when the JSON does not specify a column that has a default value OR when the JSON has a `null` value for a `NOT NULL` column that has a default value, then we use this value instead.
 
 #### Recovering keys : insert vs. update vs. upsert
 

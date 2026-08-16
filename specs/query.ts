@@ -61,20 +61,22 @@ export interface Relation {
     Write mode is only read when POSTing data and handles how the data of this particular relation in the query is to be handled.
 
     Delete-bearing modes (`merge`, `merge-new`, `merge-update`, `deleteonly`) only make sense on an
-    _incoming_ relation : one whose rows are exclusively owned/scoped by the parent row through the FK
-    (this is what "rows not in the payload, matching the FK to the parent" even means). An _outgoing_
-    relation (a to-one "belongs to", e.g. `user.manager_id -> manager.id`) is not exclusively owned by
-    the current row - the referenced row may be pointed to by any number of other rows - so there is no
-    coherent set of "rows not in the payload" to delete. Using a delete-bearing mode on an outgoing
-    relation is a validation error, raised when the query is prepared.
+    _incoming_ relation : one whose rows are exclusively owned/scoped by the parent row through the join
+    (this is what "rows not in the payload, matching the parent" even means) — commonly, but not
+    necessarily, backed by a declared foreign key ; see `querying.md` `### Definitions` and
+    `### Join eligibility`. An _outgoing_ relation (a to-one "belongs to", e.g. `user.manager_id ->
+    manager.id`) is not exclusively owned by the current row - the referenced row may be pointed to by
+    any number of other rows - so there is no coherent set of "rows not in the payload" to delete. Using
+    a delete-bearing mode on an outgoing relation is a validation error, raised when the query is
+    prepared.
 
     Defaults : `insert` for the outermost/root relation, `merge` for an incoming subquery, `upsert` for
     an outgoing subquery (never a delete-bearing mode, since that would be an error by the rule above).
 
     If you need delete-on-absence semantics for what looks like a to-one relationship (e.g. a `settings`
     row exclusively owned by a user but modeled with the FK on the `settings` side for nullability), model
-    it as an incoming relation instead (put the FK on the other table) rather than trying to force it
-    through an outgoing embed.
+    it as an incoming relation instead (put the FK, or the unique/indexed columns, on the other table)
+    rather than trying to force it through an outgoing embed.
   */
   write_mode?:
     /** Delete rows not in the payload that match the where condition as well as foreign key relationships with a parent row if this query is a subquery, insert new ones and update existing ones.
