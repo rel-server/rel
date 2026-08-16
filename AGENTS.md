@@ -12,8 +12,7 @@
 
 - Maintain `./docs` <-> code relevance
 
-
-# When writing specs
+# When writing specs or code
 
 The redactor(s) write specs with you as a mirror, to help shape them as best as possible for a prompt implementation by a low/medium thinking agent.
 
@@ -28,9 +27,15 @@ Blockquote types :
 
 The redactor may also leave a question inline, outside any blockquote (e.g. a parenthetical) while redacting, for commodity. Address it like if it were `> Advise:`.
 
+# When writing code
+
+Similarly to spec work ; leave questions/dialogue with a marker, like //> Question: so that I can find items to go back to more easily by grepping.
+
 # Golang code
 
 - Errors MUST use github.com/samber/oops and be provided relevant context. Always forward/wrap as needed.
+- JSON parsing uses github.com/bytedance/sonic/ast (query/expression_parse.go). When reading a value off an ast.Node where the JSON type matters (deciding what kind of thing a value is, not just extracting it once its type is already known), use the Strict* accessors (StrictString/StrictBool/StrictFloat64/...), never the lenient String()/Bool()/Float64() ones — those coerce across JSON types (a JSON number's .String() silently returns "42"), which will silently corrupt any tag-dispatch or type-detection logic built on top of them.
+- All JSON work MUST be done with github.com/bytedance/sonic
 
 # Typescript
 

@@ -67,7 +67,7 @@ type QueryNode struct {
 	Distinct   bool
 	DistinctOn []Expression
 
-	OrderBy OrderByExpression
+	OrderBy []OrderByTerm
 
 	// nil indicates absence
 	Offset *int
