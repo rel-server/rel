@@ -119,9 +119,13 @@ SELECT json_agg(S) FROM	(SELECT
 			SELECT
 				argnb AS "Index",
 				p.proargnames[argnb] AS "Name",
-				p.proargmodes[argnb] AS "PgMode",
-				p.proallargtypes[argnb]::integer AS "PgTypeOid"
-			FROM generate_series(1, array_length(proallargtypes, 1)) argnb
+				coalesce(p.proargmodes[argnb], 'i') AS "PgMode",
+				-- proallargtypes/proargmodes are NULL whenever every argument is a plain IN
+				-- argument (the common case) ; fall back to proargtypes (always populated) then.
+				-- proargtypes is an oidvector with 0-based subscripts, unlike a normal array,
+				-- so it's renormalized to 1-based via unnest/array before indexing by argnb.
+				(coalesce(p.proallargtypes, array(select unnest(p.proargtypes))))[argnb]::integer AS "PgTypeOid"
+			FROM generate_series(1, array_length(coalesce(p.proallargtypes, array(select unnest(p.proargtypes))), 1)) argnb
 		) S) AS "Arguments"
   FROM pg_proc p
   LEFT JOIN pg_namespace n ON p.pronamespace = n.oid

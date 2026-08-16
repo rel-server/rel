@@ -19,7 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"gitlab.com/tozd/go/errors"
+	"github.com/samber/oops"
 )
 
 // Introspection of the database.
@@ -62,7 +62,7 @@ func (d *DbInfos) GetRelationByType(typeOid int) *Relation {
 func NewInfos(uri string) (*DbInfos, error) {
 	pool, err := pgxpool.New(context.Background(), uri)
 	if err != nil {
-		return nil, errors.Errorf("failed to create pool: %w", err)
+		return nil, oops.Wrapf(err, "failed to create pool")
 	}
 
 	var db = &DbInfos{
@@ -73,7 +73,7 @@ func NewInfos(uri string) (*DbInfos, error) {
 
 	conn, err := pool.Acquire(context.Background())
 	if err != nil {
-		panic(err)
+		return nil, oops.Wrapf(err, "failed to acquire a connection to introspect the database")
 	}
 	defer conn.Release()
 
@@ -86,11 +86,6 @@ func NewInfos(uri string) (*DbInfos, error) {
 
 // Fill informations from the database
 func (db *DbInfos) Fill(conn *pgx.Conn) error {
-
-	// for _, t := range db.Types {
-	// 	db.TypeMap[t.oid] = &t
-	// }
-
 	if err := FillFunctionInformations(db, conn); err != nil {
 		return err
 	}
@@ -99,17 +94,21 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 		return err
 	}
 
-	if err := FillTypeInformations(db, conn); err != nil {
+	// Constraints and indexes both need relations already resolved
+	// (correlated by PgRelId), but are independent of each other.
+	if err := FillConstraintInformations(db, conn); err != nil {
 		return err
 	}
 
-	// for _, f := range db.Functions {
-	// 	db.FunctionMap[f.Identifier.String()] = &f
-	// }
+	if err := FillIndexInformations(db, conn); err != nil {
+		return err
+	}
 
-	// if err := FillRelationInformations(infos, conn); err != nil {
-	// 	return err
-	// }
+	// Types-filling reads back into both Functions and Relations, so it must
+	// run after both are populated.
+	if err := FillTypeInformations(db, conn); err != nil {
+		return err
+	}
 
 	return nil
 }

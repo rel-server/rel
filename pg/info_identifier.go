@@ -25,7 +25,10 @@ type SqlIdentifier struct {
 	escapedName string
 }
 
-func (f SqlIdentifier) EscapedString(schema string) string {
+// EscapedString returns the full, escaped identifier ("schema"."name"). It is
+// cached because it will be used a lot — a pointer receiver is required for
+// that caching to actually stick between calls.
+func (f *SqlIdentifier) EscapedString() string {
 	if f.escapedName != "" {
 		return f.escapedName
 	}
@@ -34,8 +37,8 @@ func (f SqlIdentifier) EscapedString(schema string) string {
 	return f.escapedName
 }
 
-// Return the full, escaped identifier. It is cached because it will be used a lot.
+// String returns the plain, unescaped "schema.name" form — used as a Go
+// map/comparison key, never interpolated directly into SQL.
 func (f SqlIdentifier) String() string {
-
 	return f.Schema + "." + f.Name
 }

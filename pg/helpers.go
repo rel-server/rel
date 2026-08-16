@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"gitlab.com/tozd/go/errors"
+	"github.com/samber/oops"
 )
 
 func escapeQuotes(s string) string {
@@ -29,26 +29,34 @@ func escapeQuotes(s string) string {
 
 // Scan the result of a json_agg query into a target, because the json deserialization is actually easier to use that defining custom types with pgx, and since we only do it once to refresh the schema information, we don't bother.
 func scanIntoThroughJsonAgg(conn *pgx.Conn, query string, target any) error {
+	oc := oops.With("query", query)
+
 	rows, err := conn.Query(context.Background(), query)
 	if err != nil {
-		return errors.Errorf("failed to query: %w", err)
+		return oc.Wrapf(err, "failed to query")
 	}
 	defer rows.Close()
 
-	var jsonstr string
+	// json_agg over zero rows is SQL NULL, not '[]' — scan into a *string so an
+	// empty result set doesn't error, and leave target at its zero value.
+	var jsonstr *string
 
 	if !rows.Next() {
-		return errors.Errorf("no rows found")
+		return oc.Errorf("no rows found")
 	}
 
 	err = rows.Scan(&jsonstr)
 	if err != nil {
-		return errors.Errorf("failed to scan json: %w", err)
+		return oc.Wrapf(err, "failed to scan json")
 	}
 
-	err = json.Unmarshal([]byte(jsonstr), &target)
+	if jsonstr == nil {
+		return nil
+	}
+
+	err = json.Unmarshal([]byte(*jsonstr), &target)
 	if err != nil {
-		return errors.Errorf("failed to unmarshal: %w", err)
+		return oc.Wrapf(err, "failed to unmarshal")
 	}
 	return nil
 }

@@ -94,7 +94,7 @@ What counts as "covered by an index," precisely, given a set of columns to check
 
 This requires introspecting `pg_index` itself (`indkey`, `indnkeyatts`, `indisunique`, `indpred`, `indexprs`) as its own capability, independent of named constraints — a table's index inventory and its constraint inventory are related but distinct facts, and rel needs both.
 
-> Question : should a query that fails this check be a hard compile-time error (consistent with the rest of this section defaulting to strict — mandatory `on`, no ambiguity, blacklist-by-default) or a warning, with a config escape hatch (e.g. `query.requireindexedjoins`) for cases where it genuinely doesn't matter, like a small lookup table? Leaning towards hard error by default, undecided.
+Resolved : this is a hard compile-time error, unconditionally — no config escape hatch. Consistent with the rest of this section defaulting to strict (mandatory `on`, no ambiguity, blacklist-by-default).
 
 
 ## Reading Algorithm

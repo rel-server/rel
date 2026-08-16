@@ -16,7 +16,7 @@ package pg
 
 import (
 	"github.com/jackc/pgx/v5"
-	"gitlab.com/tozd/go/errors"
+	"github.com/samber/oops"
 )
 
 type Type struct {
@@ -67,19 +67,19 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 	for _, t := range infos.Types {
 		if t.PgElemOid != 0 {
 			if t.ElementType, ok = infos.TypeMapByOid[t.PgElemOid]; !ok {
-				return errors.Errorf("failed to find element type %d (this should not happen)", t.PgElemOid)
+				return oops.With("type", t.PgIdentifier.String()).With("elemOid", t.PgElemOid).Errorf("failed to find element type (this should not happen)")
 			}
 		}
 
 		if t.PgArrayOid != 0 {
 			if t.ArrayType, ok = infos.TypeMapByOid[t.PgArrayOid]; !ok {
-				return errors.Errorf("failed to find array type %d (this should not happen)", t.PgArrayOid)
+				return oops.With("type", t.PgIdentifier.String()).With("arrayOid", t.PgArrayOid).Errorf("failed to find array type (this should not happen)")
 			}
 		}
 
 		if t.PgRealTypeId != 0 {
 			if t.BaseType, ok = infos.TypeMapByOid[t.PgRealTypeId]; !ok {
-				return errors.Errorf("failed to find base type %d (this should not happen)", t.PgRealTypeId)
+				return oops.With("type", t.PgIdentifier.String()).With("baseOid", t.PgRealTypeId).Errorf("failed to find base type (this should not happen)")
 			}
 		}
 
@@ -94,24 +94,24 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 		// Errors should never happen here
 		var ok bool
 		if f.ReturnType, ok = infos.TypeMapByOid[f.PgReturnTypeOid]; !ok {
-			return errors.Errorf("failed to find return type %d (this should not happen)", f.PgReturnTypeOid)
+			return oops.With("function", f.Identifier.String()).With("returnTypeOid", f.PgReturnTypeOid).Errorf("failed to find return type (this should not happen)")
 		}
 
 		for _, a := range f.Arguments {
 			if a.Type, ok = infos.TypeMapByOid[a.PgTypeOid]; !ok {
-				return errors.Errorf("failed to find argument type %d (this should not happen)", a.PgTypeOid)
+				return oops.With("function", f.Identifier.String()).With("argument", a.Name).With("typeOid", a.PgTypeOid).Errorf("failed to find argument type (this should not happen)")
 			}
 		}
 	}
 
 	for _, r := range infos.Relations {
 		if r.Type, ok = type_by_relid[r.PgRelId]; !ok {
-			return errors.Errorf("failed to find type for relation %d (this should not happen)", r.PgRelId)
+			return oops.With("relation", r.Identifier.String()).With("relId", r.PgRelId).Errorf("failed to find type for relation (this should not happen)")
 		}
 
 		for _, c := range r.Columns {
 			if c.Type, ok = infos.TypeMapByOid[c.PgTypeOid]; !ok {
-				return errors.Errorf("failed to find type %d for column %s (this should not happen) in table %s", c.PgTypeOid, c.Name, r.Identifier.String())
+				return oops.With("relation", r.Identifier.String()).With("column", c.Name).With("typeOid", c.PgTypeOid).Errorf("failed to find type for column (this should not happen)")
 			}
 		}
 	}

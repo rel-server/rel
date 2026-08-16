@@ -30,45 +30,25 @@ type Relation struct {
 
 	Type *Type // The related type
 
-	AllConstraints []*DBConstraint // all constraints coming from the database before resolving them
-
 	PrimaryKey          *Constraint
-	UniqueColumnGroups  map[string]*Constraint
 	IncomingForeignKeys []*Constraint
 	OutgoingForeignKeys []*Constraint
-	Indexes             []*Constraint
 
-	/** Map of constraints by name where column names are stored in alphabetical order. Will also map constraints names with and without schema prefix. There is a (low) risk of name collisions for tables referencing each other from different schemas but similar names where auto-generated constraints names are the same. */
-	ConstraintsByName    map[string]*Constraint
-	AmbiguousConstraints map[string][]*Constraint
+	// Indexes is kept even though only IsIndexed below consumes it today —
+	// it's a distinct capability (query-plan safety) from constraints (data
+	// integrity), and useful on its own for future diagnostics/tooling.
+	Indexes []*Index
+
+	// Unexported : callers go through the lookup API (FindConstraintByName,
+	// FindUniqueConstraint, RelationshipsTo, ResolveJoin, IsIndexed) instead of
+	// building canonical keys themselves. See info_constraint.go / info_index.go.
+	byName             map[string]*Constraint
+	uniqueColumnGroups map[string]*Constraint
+	byOtherRelation    map[int][]*Constraint
+	indexCoverage      map[string]struct{}
 
 	PgRelId   int
 	PgTypeOid int
-}
-
-func (r *Relation) addAmbiguousConstraint(name string, c *Constraint) {
-	if _, ok := r.AmbiguousConstraints[name]; ok {
-		r.AmbiguousConstraints[name] = append(r.AmbiguousConstraints[name], c)
-		return
-	} else {
-		r.AmbiguousConstraints[name] = []*Constraint{c}
-	}
-}
-
-// AddConstraint adds a constraint to the relation and sets up the appropriate names. If there is already a constraint with the same name, an ambiguity will be stored to create the relevant errors for the user.
-func (r *Relation) AddConstraintByName(name string, c *Constraint) {
-
-	if _, ok := r.AmbiguousConstraints[name]; ok {
-		r.addAmbiguousConstraint(name, c)
-		return
-	}
-
-	if _, ok := r.ConstraintsByName[name]; ok {
-		r.addAmbiguousConstraint(name, c)
-		r.ConstraintsByName[name] = nil
-	}
-
-	r.ConstraintsByName[name] = c
 }
 
 func FillRelationInformations(infos *DbInfos, conn *pgx.Conn) error {
@@ -76,12 +56,11 @@ func FillRelationInformations(infos *DbInfos, conn *pgx.Conn) error {
 		return err
 	}
 
-	// Build the map because we're gonna use it a lot when processing constraints.
 	for _, relation := range infos.Relations {
 		relation.ColumnsMap = make(map[string]*Column)
-		relation.ConstraintsByName = make(map[string]*Constraint)
-		relation.AmbiguousConstraints = make(map[string][]*Constraint)
-		relation.UniqueColumnGroups = make(map[string]*Constraint)
+		relation.byName = make(map[string]*Constraint)
+		relation.uniqueColumnGroups = make(map[string]*Constraint)
+		relation.byOtherRelation = make(map[int][]*Constraint)
 
 		infos.RelationMapByRelid[relation.PgRelId] = relation
 		for _, column := range relation.Columns {
@@ -89,51 +68,10 @@ func FillRelationInformations(infos *DbInfos, conn *pgx.Conn) error {
 		}
 	}
 
-	if err := processConstraints(infos); err != nil {
-		return err
-	}
-
 	return nil
 }
 
 var INFO_QUERY_RELATIONS = /* sql */ `
-
-WITH constraints AS (
-	SELECT
-    tc.constraint_type as "Type",
-    tc.constraint_name as "Name",
-		tc.table_schema,
-		tc.table_name,
-
-    "source"."SourceColumns" as "Columns",
-		"source"."SourceColumnsSortedName" as "ColumnsSortedName",
-    -- For foreign keys: referenced table and columns
-		"target"."RelId" as "TargetRelId",
-    "target"."TargetColumns",
-		"target"."TargetColumnsSortedName" as "TargetColumnsSortedName"
-	FROM information_schema.table_constraints tc
-	JOIN LATERAL (
-		SELECT
-		  json_agg(kcu.column_name::TEXT ORDER BY kcu.ordinal_position) AS "SourceColumns",
-			string_agg(kcu.column_name::TEXT, ',' ORDER BY kcu.column_name) AS "SourceColumnsSortedName"
-
-		FROM information_schema.key_column_usage kcu
-		WHERE kcu.constraint_name = tc.constraint_name AND tc.table_schema = kcu.table_schema
-	) AS "source" ON TRUE
-	LEFT JOIN LATERAL (
-		SELECT
-			cl.oid::integer AS "RelId",
-			json_agg(ccu.column_name::text order by ccu.column_name) AS "TargetColumns",
-			string_agg(ccu.column_name::text, ','  order by ccu.column_name) AS "TargetColumnsSortedName"
-		FROM information_schema.constraint_column_usage ccu
-		INNER JOIN pg_class cl ON ccu.table_schema::text = cl.relnamespace::regnamespace::text AND ccu.table_name = cl.relname
-		WHERE ccu.constraint_name = tc.constraint_name AND tc.constraint_schema = ccu.constraint_schema
-		GROUP BY cl.oid
-	) AS "target" ON TRUE
-	WHERE tc.constraint_type IN ('FOREIGN KEY', 'PRIMARY KEY', 'UNIQUE')
-	ORDER BY tc.table_schema, tc.table_name, tc.constraint_type, tc.constraint_name
-)
-
 SELECT json_agg(R) FROM (SELECT
 
 	pg_class.oid::integer AS "PgRelId",
@@ -160,12 +98,13 @@ SELECT json_agg(R) FROM (SELECT
 				'Name', domain_name
 			) END
 		) ORDER BY ordinal_position
-	) AS "Columns",
-
-  (SELECT coalesce(json_agg(c), '[]'::json) FROM constraints c WHERE c.table_schema::regnamespace = pg_class.relnamespace AND c.table_name = pg_class.relname) AS "AllConstraints"
+	) AS "Columns"
 
 FROM information_schema.columns col
 INNER JOIN pg_class ON pg_class.relname = col.table_name AND pg_class.relnamespace = col.table_schema::regnamespace
+-- system catalogs are never valid query targets (see querying.md ### Scoping) ;
+-- excluding them here avoids introspecting thousands of irrelevant relations.
+WHERE col.table_schema NOT IN ('pg_catalog', 'information_schema')
 
 GROUP BY
 pg_class.oid, pg_class.relnamespace, pg_class.relname
