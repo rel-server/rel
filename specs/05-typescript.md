@@ -4,6 +4,8 @@ At its core, rel was thought up to be queried by javascript clients ; web browse
 
 As such, it provides a few things to help developers with typescript code bases for querying rel in a typesafe manner.
 
+Generated code may output comments telling biome/prettier to deactivate a few checks as it might not conform to all its settings.
+
 ## Schema endpoints
 
 - `/rel/db.json`
@@ -11,7 +13,7 @@ As such, it provides a few things to help developers with typescript code bases 
 - `/rel/db.ts`
 - `/rel/db/<schema>.{json,js,ts}`
 
-
+These expose the database introspection, although their format differs from the internal introspection ; their role is to help a typescript API type queries and their results correctly, but also eventual libraries that would want to 
 
 ## query API endpoint
 
