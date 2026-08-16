@@ -8,7 +8,14 @@ Unlike GraphQL, there are no "mutations" to describe ; unlike PostgresT, the com
 
 Selecting is based on a relation. Foreign keys allow embedding of a distant resource into the result : whether from the table to another or in reverse. When embedding a remote relation that has multiple rows to the current one, embeds an array. Otherwise, stays as a simple object.
 
+## Search path
+
+Roles we switch to when requests are made are NOT respected, because that would mean having to query them every time. The only enforced search path will be the one of the base user we connect the database to.
+
 ## Configuration
+
+* `query.user` (default : `dmut.user` if provided) the login role rel will connect with. This is the role from which `set role` to all other roles will be executed from. 
+* `query.password` (default: `dmut.password` if provided) its password
 
 * `query.maxdepth` (default `6`) : maximum depth a query can specify
 
@@ -67,7 +74,7 @@ Default functions blacklist :
 
 > Why these two and why wildcarded : this is what closes the open question raised in an earlier draft of this section — both schemas are readable by `PUBLIC` by default (`pg_settings`, `pg_stat_activity`, `information_schema.tables`, ...) and reachable through the ordinary `relation`/`schema` fields on a query, same as any table. Wildcarding the whole schema rather than naming individual views is deliberate here, unlike the function blacklist above : Postgres ships and changes the exact set of catalog/information_schema views across versions, so pinning specific names would need to be kept in sync with every version rel supports, whereas "nothing in these two schemas is a valid query target" is a version-independent rule that never needs updating. A user who genuinely wants to query one of these (introspection tooling, say) can still override the specific entry back to `n`.
 
-The database role rel connects with to server requests must never be `postgres` or superuser, and must never be a member of `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, or `pg_signal_backend`. (It should connect as a superusers to run migrations, however.) The user must be incited to create a 'reluser' role of some kind that will receive grants for all subroles that shall exist within the database.
+The database role rel connects with to the server in order to perform requests should never be `postgres` or superuser, and should never be a member of `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, or `pg_signal_backend` - a stark warning must be printed if this is the case. The developer must be incited to create a role of some kind that will receive grants for all subroles that shall exist within the database and give it to `query.user`.
 
 > Why this still matters alongside the blacklist : the blacklist can only stop what it already knows the name of. It's a maintained list, not a closed one — a newly `CREATE EXTENSION`'d function (which defaults to `PUBLIC EXECUTE` the moment it's created, e.g. `dblink`, `postgres_fdw`) isn't covered until someone notices and adds it. The role restrictions above are the backstop for exactly that gap : as long as the role never holds those privileges/memberships, most of what makes a *newly discovered* dangerous function actually dangerous (arbitrary file/network/process access) stays unreachable regardless of whether the blacklist has caught up yet.
 
