@@ -97,7 +97,11 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 			return oops.With("function", f.Identifier.String()).With("returnTypeOid", f.PgReturnTypeOid).Errorf("failed to find return type (this should not happen)")
 		}
 
-		for _, a := range f.Arguments {
+		// Arguments is a value slice ; index into it directly rather than
+		// ranging by value, or the assignment below would silently mutate a
+		// throwaway copy and never stick on the real element.
+		for i := range f.Arguments {
+			a := &f.Arguments[i]
 			if a.Type, ok = infos.TypeMapByOid[a.PgTypeOid]; !ok {
 				return oops.With("function", f.Identifier.String()).With("argument", a.Name).With("typeOid", a.PgTypeOid).Errorf("failed to find argument type (this should not happen)")
 			}

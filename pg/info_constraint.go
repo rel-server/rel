@@ -286,6 +286,14 @@ func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constrai
 	}
 
 	if constraint == nil {
+		// Open question (see querying.md ### Scoping, join eligibility) : this
+		// checks column SETS independently on each side, with no correspondence
+		// between them. A composite FK's target is required to be backed by a
+		// unique constraint on exactly its column set, so any permutation of a
+		// pairing over that same set passes here even when it contradicts the
+		// FK's actual, declared correspondence (pairingMatches above already
+		// rejected it for the FK itself). Unresolved whether that should also be
+		// disallowed here when such an FK exists between r and parent.
 		if u := r.FindUniqueConstraint(localCols); u != nil {
 			constraint = u
 		} else if u := parent.FindUniqueConstraint(parentCols); u != nil {

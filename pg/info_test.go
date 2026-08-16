@@ -1,0 +1,293 @@
+// Copyright 2025 Christophe Eymard
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package pg tests. These are a first pass exercising the specific bugs and
+// behaviours worked out while building the introspection layer — meant to be
+// folded into a more complete suite later on, not to be exhaustive now.
+package pg
+
+import (
+	"context"
+	"testing"
+
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+)
+
+var testDb *DbInfos
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+
+	container, err := postgres.Run(ctx, "postgres:16-alpine",
+		postgres.WithInitScripts("testdata/schema.sql"),
+		postgres.BasicWaitStrategies(),
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		_ = container.Terminate(ctx)
+	}()
+
+	uri, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		panic(err)
+	}
+
+	testDb, err = NewInfos(uri)
+	if err != nil {
+		panic(err)
+	}
+
+	m.Run()
+}
+
+func relationByName(t *testing.T, name string) *Relation {
+	t.Helper()
+	for _, r := range testDb.Relations {
+		if r.Identifier.Name == name {
+			return r
+		}
+	}
+	t.Fatalf("relation %q not found in introspected schema", name)
+	return nil
+}
+
+// ---- regression : function arguments for a plain all-IN function -----------
+
+func TestFunctionArguments_PlainInArgs(t *testing.T) {
+	var fn *Function
+	for _, f := range testDb.Functions {
+		if f.Identifier.Name == "fn_plain_add" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatalf("function fn_plain_add not found in introspected schema")
+	}
+
+	if len(fn.Arguments) != 2 {
+		t.Fatalf("expected 2 arguments, got %d (%+v) — this is the proallargtypes/proargmodes NULL regression if it comes back empty", len(fn.Arguments), fn.Arguments)
+	}
+
+	if fn.Arguments[0].Name != "a" || fn.Arguments[1].Name != "b" {
+		t.Errorf("expected argument names [a b], got [%s %s]", fn.Arguments[0].Name, fn.Arguments[1].Name)
+	}
+	if !fn.Arguments[0].IsIn() || !fn.Arguments[1].IsIn() {
+		t.Errorf("expected both arguments to default to IN mode, got %q and %q", fn.Arguments[0].PgMode, fn.Arguments[1].PgMode)
+	}
+	if fn.Arguments[0].Type == nil || fn.Arguments[0].Type.PgIdentifier.Name != "int4" {
+		t.Errorf("expected argument a to resolve to int4, got %+v", fn.Arguments[0].Type)
+	}
+}
+
+// ---- regression : composite FK column pairing -------------------------------
+
+func TestForeignKey_CompositePairing(t *testing.T) {
+	src := relationByName(t, "src_t")
+	target := relationByName(t, "target_t")
+
+	rels := src.RelationshipsTo(target)
+	if len(rels) != 1 {
+		t.Fatalf("expected exactly 1 relationship src_t -> target_t, got %d", len(rels))
+	}
+	c := rels[0]
+
+	if len(c.Columns) != 2 || len(c.Target.Columns) != 2 {
+		t.Fatalf("expected 2 columns on each side, got %d local / %d target", len(c.Columns), len(c.Target.Columns))
+	}
+
+	// True declared pairing is b<->y, a<->x (see testdata/schema.sql). If the
+	// target side were independently alphabetized instead of following the
+	// true conkey/confkey correspondence, this would come back as b<->x, a<->y.
+	if c.Columns[0].Name != "b" || c.Target.Columns[0].Name != "y" {
+		t.Errorf("expected first pair b<->y, got %s<->%s", c.Columns[0].Name, c.Target.Columns[0].Name)
+	}
+	if c.Columns[1].Name != "a" || c.Target.Columns[1].Name != "x" {
+		t.Errorf("expected second pair a<->x, got %s<->%s", c.Columns[1].Name, c.Target.Columns[1].Name)
+	}
+
+	// ResolveJoin must accept the true pairing...
+	if _, _, err := src.ResolveJoin(target, map[string]string{"b": "y", "a": "x"}); err != nil {
+		t.Errorf("expected the true pairing to resolve, got error: %v", err)
+	}
+
+	// ...and reject a mapping onto columns with no relationship at all (target_t.z
+	// is unconstrained). Note this is deliberately NOT a same-set-different-order
+	// swap ({b:x, a:y}) : target_t(x,y) being unique means ANY permutation of a
+	// 2-column pairing onto {x,y} passes the independent non-FK unique-side
+	// eligibility check regardless of pairingMatches rejecting it for the FK
+	// itself — that's a real, separate, open question (see querying.md /
+	// ResolveJoin's comment), not something this test is trying to cover.
+	if _, _, err := src.ResolveJoin(target, map[string]string{"b": "z", "a": "x"}); err == nil {
+		t.Errorf("expected a mapping through the unconstrained column z to be rejected, but it resolved")
+	}
+}
+
+// ---- ResolveJoin : cardinality follows the child's own uniqueness ----------
+
+func TestResolveJoin_OutgoingIsToMany(t *testing.T) {
+	movie := relationByName(t, "movie")
+	director := relationByName(t, "director")
+
+	c, isToOne, err := movie.ResolveJoin(director, map[string]string{"director_id": "id"})
+	if err != nil {
+		t.Fatalf("expected movie -> director to resolve, got error: %v", err)
+	}
+	if isToOne {
+		t.Errorf("expected movie -> director to be to-many (movie.director_id is not unique), got to-one")
+	}
+	if !c.Type.IsOutgoingForeignKey() {
+		t.Errorf("expected an outgoing foreign key constraint, got %v", c.Type)
+	}
+}
+
+func TestResolveJoin_IncomingIsToOne(t *testing.T) {
+	movie := relationByName(t, "movie")
+	director := relationByName(t, "director")
+
+	// Same relationship, opposite tree orientation : director embedded as a
+	// child of movie. Cardinality flips because it's now director's own
+	// column (id, the PK) that's being checked for uniqueness, not movie's.
+	c, isToOne, err := director.ResolveJoin(movie, map[string]string{"id": "director_id"})
+	if err != nil {
+		t.Fatalf("expected director -> movie to resolve, got error: %v", err)
+	}
+	if !isToOne {
+		t.Errorf("expected director -> movie (as child) to be to-one (director.id is the PK), got to-many")
+	}
+	if !c.Type.IsIncomingForeignKey() {
+		t.Errorf("expected an incoming foreign key constraint, got %v", c.Type)
+	}
+}
+
+// ---- ResolveJoin : unindexed FK is a hard error -----------------------------
+
+func TestResolveJoin_UnindexedIsHardError(t *testing.T) {
+	child := relationByName(t, "unindexed_child")
+	parent := relationByName(t, "unindexed_parent")
+
+	_, _, err := child.ResolveJoin(parent, map[string]string{"parent_id": "id"})
+	if err == nil {
+		t.Fatalf("expected an unindexed join to be rejected, but it resolved")
+	}
+}
+
+// ---- RelationshipsTo : two distinct FKs to the same other relation ---------
+
+func TestRelationshipsTo_MultipleDistinctFKs(t *testing.T) {
+	orderT := relationByName(t, "order_t")
+	customer := relationByName(t, "customer")
+
+	rels := orderT.RelationshipsTo(customer)
+	if len(rels) != 2 {
+		t.Fatalf("expected 2 distinct relationships order_t -> customer, got %d", len(rels))
+	}
+
+	if _, _, err := orderT.ResolveJoin(customer, map[string]string{"customer_id": "id"}); err != nil {
+		t.Errorf("expected on:{customer_id:id} to resolve, got error: %v", err)
+	}
+	if _, _, err := orderT.ResolveJoin(customer, map[string]string{"billing_customer_id": "id"}); err != nil {
+		t.Errorf("expected on:{billing_customer_id:id} to resolve, got error: %v", err)
+	}
+}
+
+// ---- ResolveJoin : non-FK path, unique on the parent side only ------------
+
+func TestResolveJoin_NonFKUniqueOnParentSide(t *testing.T) {
+	account := relationByName(t, "account")
+	profile := relationByName(t, "profile")
+
+	// No FK backs this ; eligibility comes from profile.user_email being
+	// unique, and it's indexed on account's side (idx_account_email).
+	// Cardinality must still be to-many : account.email itself is not unique,
+	// even though the join is eligible via the *parent's* uniqueness.
+	_, isToOne, err := account.ResolveJoin(profile, map[string]string{"email": "user_email"})
+	if err != nil {
+		t.Fatalf("expected the non-FK unique+indexed join to resolve, got error: %v", err)
+	}
+	if isToOne {
+		t.Errorf("expected to-many (account.email is not unique, only profile.user_email is), got to-one")
+	}
+}
+
+// ---- FindConstraintByName / FindUniqueConstraint ---------------------------
+
+func TestFindConstraintByName(t *testing.T) {
+	movie := relationByName(t, "movie")
+	if movie.PrimaryKey == nil {
+		t.Fatalf("expected movie to have a primary key")
+	}
+	if c := movie.FindConstraintByName(movie.PrimaryKey.Name); c != movie.PrimaryKey {
+		t.Errorf("FindConstraintByName(%q) did not return the primary key constraint", movie.PrimaryKey.Name)
+	}
+}
+
+func TestFindUniqueConstraint(t *testing.T) {
+	target := relationByName(t, "target_t")
+
+	if u := target.FindUniqueConstraint([]string{"x", "y"}); u == nil {
+		t.Errorf("expected a unique constraint on (x, y)")
+	}
+	// Order shouldn't matter — it's a set match.
+	if u := target.FindUniqueConstraint([]string{"y", "x"}); u == nil {
+		t.Errorf("expected a unique constraint on (y, x), order-independent")
+	}
+	if u := target.FindUniqueConstraint([]string{"x"}); u != nil {
+		t.Errorf("expected no unique constraint on (x) alone")
+	}
+}
+
+// ---- index introspection : INCLUDE / partial / expression exclusion -------
+
+func TestIsIndexed_CoveringIndexIgnoresIncludeColumns(t *testing.T) {
+	orders := relationByName(t, "orders")
+
+	if !orders.IsIndexed([]string{"customer_id"}) {
+		t.Errorf("expected customer_id to be indexed (idx_covering / idx_plain)")
+	}
+	if !orders.IsIndexed([]string{"customer_id", "total"}) {
+		t.Errorf("expected (customer_id, total) to be indexed (idx_plain)")
+	}
+	if orders.IsIndexed([]string{"total"}) {
+		t.Errorf("total alone must not be considered indexed : it's only a trailing/INCLUDE column, never a leading key column")
+	}
+}
+
+func TestIsIndexed_ExcludesPartialIndex(t *testing.T) {
+	orders := relationByName(t, "orders")
+
+	if orders.IsIndexed([]string{"flag"}) {
+		t.Errorf("flag is only covered by a partial index (idx_partial_only) and must not count")
+	}
+}
+
+func TestIsIndexed_ExcludesExpressionIndex(t *testing.T) {
+	orders := relationByName(t, "orders")
+
+	if orders.IsIndexed([]string{"note"}) {
+		t.Errorf("note is only covered by an expression index (idx_expr_only) and must not count")
+	}
+}
+
+func TestIndexes_RawListExcludesPartialAndExpression(t *testing.T) {
+	orders := relationByName(t, "orders")
+
+	for _, idx := range orders.Indexes {
+		if idx.Name == "idx_partial_only" || idx.Name == "idx_expr_only" {
+			t.Errorf("expected %s to be excluded from introspection entirely, but it's present in Indexes", idx.Name)
+		}
+	}
+}
