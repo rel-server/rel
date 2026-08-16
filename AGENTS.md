@@ -6,6 +6,7 @@
 - Implementations MUST always be the most efficient CPU/RAM wise. If a compromise is to be made, prompt the user
 - Always prompt the user whenever you deem an important architectural decision is to be made (adding/removing a library, implementation details/philosophy, performance concerns)
 - Explain the code through comments when implementing
+- If there is a TODO.md file somewhere, keep it updated with what's been done
 
 - Maintain `./docs` <-> code relevance
 

@@ -291,3 +291,67 @@ func TestIndexes_RawListExcludesPartialAndExpression(t *testing.T) {
 		}
 	}
 }
+
+// ---- introspection must be complete, pg_catalog/information_schema included ----
+
+func TestIntrospection_IncludesPgCatalog(t *testing.T) {
+	found := false
+	for _, r := range testDb.Relations {
+		if r.Identifier.Schema == "pg_catalog" && r.Identifier.Name == "pg_class" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected pg_catalog.pg_class to be introspected as an ordinary relation — introspection must see the whole database ; excluding pg_catalog/information_schema is a query-compile-time concern (querying.md ### Scoping), not an introspection-time one")
+	}
+}
+
+func TestIntrospection_IncludesInformationSchema(t *testing.T) {
+	found := false
+	for _, r := range testDb.Relations {
+		if r.Identifier.Schema == "information_schema" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected at least one information_schema relation to be introspected")
+	}
+}
+
+// ---- regression : composite type <-> relation resolution ------------------
+
+func TestType_CompositeResolvesBackToRelation(t *testing.T) {
+	movie := relationByName(t, "movie")
+
+	if movie.Type == nil {
+		t.Fatalf("expected movie to have a resolved composite Type")
+	}
+	if !movie.Type.IsComposite() {
+		t.Errorf("expected movie's Type.IsComposite() to be true")
+	}
+	if movie.Type.Relation != movie {
+		t.Errorf("expected movie's Type.Relation to point back to movie itself")
+	}
+}
+
+func TestType_ArrayResolution(t *testing.T) {
+	var intArray *Type
+	for i := range testDb.Types {
+		ty := &testDb.Types[i]
+		if ty.PgIdentifier.Schema == "pg_catalog" && ty.PgIdentifier.Name == "_int4" {
+			intArray = ty
+			break
+		}
+	}
+	if intArray == nil {
+		t.Fatalf("expected pg_catalog._int4 (the array type of int4) to be introspected")
+	}
+	if !intArray.IsArray() {
+		t.Errorf("expected _int4.IsArray() to be true")
+	}
+	if intArray.ElementType == nil || intArray.ElementType.PgIdentifier.Name != "int4" {
+		t.Errorf("expected _int4's ElementType to resolve to int4, got %+v", intArray.ElementType)
+	}
+}

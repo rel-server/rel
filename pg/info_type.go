@@ -58,13 +58,21 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 		return err
 	}
 
-	for _, t := range infos.Types {
-		infos.TypeMapByOid[t.PgOid] = &t
+	// Index into infos.Types directly throughout, never range-by-value : a
+	// fresh loop ranging over infos.Types by value would mutate a throwaway
+	// copy on every assignment below, distinct from whatever infos.TypeMapByOid
+	// points to, and none of it would stick (the same class of bug as the
+	// f.Arguments fix above, just easier to miss because nothing failed loudly
+	// — every type silently reported IsArray()/IsDomain()/IsComposite() false).
+	for i := range infos.Types {
+		infos.TypeMapByOid[infos.Types[i].PgOid] = &infos.Types[i]
 	}
 
 	var type_by_relid map[int]*Type = make(map[int]*Type)
 
-	for _, t := range infos.Types {
+	for i := range infos.Types {
+		t := &infos.Types[i]
+
 		if t.PgElemOid != 0 {
 			if t.ElementType, ok = infos.TypeMapByOid[t.PgElemOid]; !ok {
 				return oops.With("type", t.PgIdentifier.String()).With("elemOid", t.PgElemOid).Errorf("failed to find element type (this should not happen)")
@@ -85,7 +93,19 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 
 		// We'll use this when filling the relations
 		if t.PgRelId > 0 {
-			type_by_relid[t.PgRelId] = &t
+			type_by_relid[t.PgRelId] = t
+		}
+	}
+
+	// A composite type's backing relation, resolved now that both maps exist —
+	// needs the relation to actually have been introspected, which is why
+	// introspection must never exclude pg_catalog/information_schema : a
+	// function returning a pg_catalog composite type (or SETOF a system view)
+	// still needs IsComposite()/.Relation to resolve correctly.
+	for i := range infos.Types {
+		t := &infos.Types[i]
+		if t.PgRelId > 0 {
+			t.Relation = infos.GetRelation(t.PgRelId)
 		}
 	}
 

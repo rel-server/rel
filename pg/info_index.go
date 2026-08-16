@@ -41,7 +41,7 @@ func FillIndexInformations(infos *DbInfos, conn *pgx.Conn) error {
 		idx := raw[i]
 		relation := infos.GetRelation(idx.RelId)
 		if relation == nil {
-			continue // index on a relation we didn't introspect (e.g. a system catalog) ; irrelevant, skip
+			continue // index on a relation outside information_schema.columns's relkinds (e.g. a TOAST table) ; irrelevant, skip
 		}
 		relation.Indexes = append(relation.Indexes, &idx)
 		relation.registerIndexCoverage(idx.Columns)
@@ -80,10 +80,10 @@ SELECT json_agg(I) FROM (SELECT
 		FROM unnest(i.indkey[0:i.indnkeyatts - 1]) WITH ORDINALITY AS k(attnum, ord)
 		JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
 	) AS "Columns"
+-- Deliberately unfiltered by schema — see info_relation.go's INFO_QUERY_RELATIONS
+-- comment : introspection needs the complete picture, pg_catalog included.
 FROM pg_index i
 JOIN pg_class cl ON cl.oid = i.indexrelid
-JOIN pg_class tbl ON tbl.oid = i.indrelid
-JOIN pg_namespace n ON n.oid = tbl.relnamespace
 WHERE i.indisready AND i.indisvalid
 	-- a partial index only guarantees coverage for rows matching its predicate,
 	-- which rel has no way to verify subsumes a query's actual row set
@@ -91,5 +91,4 @@ WHERE i.indisready AND i.indisvalid
 	-- an expression index's indkey carries a 0 at the expression's position ;
 	-- on only ever joins on plain columns, never on an expression's result
 	AND i.indexprs IS NULL
-	AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 ) I;`

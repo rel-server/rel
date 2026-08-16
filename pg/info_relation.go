@@ -102,9 +102,11 @@ SELECT json_agg(R) FROM (SELECT
 
 FROM information_schema.columns col
 INNER JOIN pg_class ON pg_class.relname = col.table_name AND pg_class.relnamespace = col.table_schema::regnamespace
--- system catalogs are never valid query targets (see querying.md ### Scoping) ;
--- excluding them here avoids introspecting thousands of irrelevant relations.
-WHERE col.table_schema NOT IN ('pg_catalog', 'information_schema')
+-- Deliberately unfiltered : introspection needs the complete picture of the
+-- database, pg_catalog/information_schema included (e.g. a function returning
+-- a pg_catalog composite type still needs that type resolved). Restricting
+-- pg_catalog/information_schema as *query targets* is a compile-time concern
+-- (querying.md ### Scoping's relation blacklist), not an introspection-time one.
 
 GROUP BY
 pg_class.oid, pg_class.relnamespace, pg_class.relname

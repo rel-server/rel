@@ -190,11 +190,10 @@ SELECT json_agg(C) FROM (SELECT
 		FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
 		JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum
 	) AS "TargetColumns"
+-- Deliberately unfiltered by schema — see info_relation.go's INFO_QUERY_RELATIONS
+-- comment : introspection needs the complete picture, pg_catalog included.
 FROM pg_constraint c
-JOIN pg_class cl ON cl.oid = c.conrelid
-JOIN pg_namespace n ON n.oid = cl.relnamespace
 WHERE c.contype IN ('p', 'u', 'f')
-  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 ) C;`
 
 // ---- lookup API ---------------------------------------------------------------
