@@ -124,15 +124,20 @@ func TestForeignKey_CompositePairing(t *testing.T) {
 		t.Errorf("expected the true pairing to resolve, got error: %v", err)
 	}
 
-	// ...and reject a mapping onto columns with no relationship at all (target_t.z
-	// is unconstrained). Note this is deliberately NOT a same-set-different-order
-	// swap ({b:x, a:y}) : target_t(x,y) being unique means ANY permutation of a
-	// 2-column pairing onto {x,y} passes the independent non-FK unique-side
-	// eligibility check regardless of pairingMatches rejecting it for the FK
-	// itself — that's a real, separate, open question (see querying.md /
-	// ResolveJoin's comment), not something this test is trying to cover.
+	// ...reject a mapping onto columns with no relationship at all (target_t.z
+	// is unconstrained)...
 	if _, _, err := src.ResolveJoin(target, map[string]string{"b": "z", "a": "x"}); err == nil {
 		t.Errorf("expected a mapping through the unconstrained column z to be rejected, but it resolved")
+	}
+
+	// ...and reject the same-set-different-order swap ({b:x, a:y}) even though
+	// target_t(x,y) being unique and src_t(b,a) being indexed would otherwise
+	// make it pass the generic non-FK eligibility check : it reuses exactly
+	// fk_composite's column set with an inverted pairing, which ResolveJoin
+	// treats as near-certainly a mistake rather than a deliberate second
+	// relationship.
+	if _, _, err := src.ResolveJoin(target, map[string]string{"b": "x", "a": "y"}); err == nil {
+		t.Errorf("expected the inverted pairing over fk_composite's own column set to be rejected, but it resolved")
 	}
 }
 

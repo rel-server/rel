@@ -104,6 +104,14 @@ func sortedColumnKey(columns []string) string {
 	return strings.Join(sorted, ",")
 }
 
+func columnNames(columns []*Column) []string {
+	names := make([]string, len(columns))
+	for i, c := range columns {
+		names[i] = c.Name
+	}
+	return names
+}
+
 func resolveColumns(relation *Relation, names []string) []*Column {
 	cols := make([]*Column, len(names))
 	for i, name := range names {
@@ -285,14 +293,21 @@ func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constrai
 	}
 
 	if constraint == nil {
-		// Open question (see querying.md ### Scoping, join eligibility) : this
-		// checks column SETS independently on each side, with no correspondence
-		// between them. A composite FK's target is required to be backed by a
-		// unique constraint on exactly its column set, so any permutation of a
-		// pairing over that same set passes here even when it contradicts the
-		// FK's actual, declared correspondence (pairingMatches above already
-		// rejected it for the FK itself). Unresolved whether that should also be
-		// disallowed here when such an FK exists between r and parent.
+		// A real FK between r and parent over exactly this column set exists,
+		// but its declared pairing didn't match `on` (pairingMatches above
+		// already rejected it) : that's near-certainly a swapped/typo'd `on`,
+		// not a deliberate second relationship, so refuse rather than silently
+		// falling through to the set-only unique+indexed check below. rel
+		// otherwise doesn't care about FKs as such — eligibility is fundamentally
+		// "unique value, indexed access" — this is narrowly about not accepting
+		// a pairing that contradicts one a real FK already claims.
+		for _, c := range r.RelationshipsTo(parent) {
+			if sortedColumnKey(columnNames(c.Columns)) == sortedColumnKey(localCols) &&
+				sortedColumnKey(columnNames(c.Target.Columns)) == sortedColumnKey(parentCols) {
+				return nil, false, oc.With("constraint", c.Name).Errorf("on's columns match foreign key %q but the pairing is inverted relative to its declared correspondence", c.Name)
+			}
+		}
+
 		if u := r.FindUniqueConstraint(localCols); u != nil {
 			constraint = u
 		} else if u := parent.FindUniqueConstraint(parentCols); u != nil {
