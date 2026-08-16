@@ -22,6 +22,10 @@ Introspection is deliberately unfiltered by schema — `pg_catalog` and `informa
 
 `Column` carries `Name`, `PgTypeOid`/`Type`, `DefaultExpression` (already resolved to a spliceable SQL expression — see below), `IsIdentity`, `IsNullable`, `IsUpdatable`.
 
+Relations, columns, functions, and types (`### Types`, below) each carry their own `Comment string`, sourced from `COMMENT ON` (`obj_description`/`col_description`), empty when unset. These exist for the TypeScript export to surface as doc comments on the generated types — not consumed by anything else yet. Constraints and indexes do not carry comments — nothing surfaces them in TypeScript output, so there was no reason to introspect them.
+
+> Why `col_description` is indexed by `information_schema.columns.ordinal_position` directly, with no separate `pg_attribute` join for the real `attnum` : verified directly against Postgres 16, including with a dropped column ahead of the target one, that `ordinal_position` already **is** the real `attnum` (gaps from drops included, not renumbered) — so the two are interchangeable for this lookup, and the extra join isn't needed.
+
 `Column.IsPrimaryKey`, `IsGenerated`, `IsParOfUnique`, and `IsNotNull` are declared fields that nothing currently populates — they read as their zero value always. `IsReallyNotNull()` is consequently incomplete : it only reflects `Type.PgDomainNotNull` (a domain's own not-null constraint), never the column's own `NOT NULL`. The introspection query also computes a `DomainIdentifier` object with no corresponding `Column` field to land in, silently dropped by `json.Unmarshal`.
 
 > Question : should these four fields be wired up (`IsNotNull` from `information_schema.columns.is_nullable`, `IsPrimaryKey`/`IsParOfUnique` from the relation's own constraints, `IsGenerated` from `is_generated`/`generation_expression`), or are they dead and should be removed ? Nothing built so far depends on them either way.
@@ -83,4 +87,4 @@ func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constrai
 
 ## Testing
 
-`pg/testdata/schema.sql` plus `pg/info_test.go` is the first instance of the testcontainers pattern `AGENTS.md` requires — one shared Postgres container per test run (`TestMain`), a fixture schema built to exercise specific known-tricky cases (composite FK pairing, `INCLUDE`/partial/expression index exclusion, multiple distinct FKs between the same two relations, the non-FK eligibility path, `pg_catalog` inclusion, composite/array type resolution) rather than a generic sample schema. Not yet written up as a general convention for the rest of the project — see `TODO.md`, "Testing conventions."
+`pg/testdata/schema.sql` plus `pg/info_test.go` is the first instance of the testcontainers pattern `AGENTS.md` requires — one shared Postgres container per test run (`TestMain`), a fixture schema built to exercise specific known-tricky cases (composite FK pairing, `INCLUDE`/partial/expression index exclusion, multiple distinct FKs between the same two relations, the non-FK eligibility path, `pg_catalog` inclusion, composite/array type resolution, comment introspection) rather than a generic sample schema. Not yet written up as a general convention for the rest of the project — see `TODO.md`, "Testing conventions."

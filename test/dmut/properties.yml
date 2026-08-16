@@ -1,0 +1,27 @@
+# yaml-embedded-languages: sql
+
+hotel.properties:
+  needs: [hotel.chains]
+  sql:
+    - |
+      create table hotel.properties (
+        id bigint generated always as identity primary key,
+        chain_id bigint references hotel.chains (id),
+        name text not null,
+        location point,
+        star_rating smallint check (star_rating between 1 and 5),
+        description text,
+        created_at timestamptz not null default now()
+      );
+
+    # a stored generated column, kept separate from `description` itself so the
+    # FTS index below has something cheap to index directly
+    - alter table hotel.properties add column description_search tsvector
+        generated always as (to_tsvector('english', coalesce(description, ''))) stored;
+
+    - create index properties_description_search_idx on hotel.properties using gin (description_search);
+
+  meta:
+    - up: |
+        comment on table hotel.properties is 'A single hotel property belonging to a chain.';
+      down:

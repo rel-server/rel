@@ -1,0 +1,16 @@
+# yaml-embedded-languages: sql
+
+hotel.booking_guests:
+  needs: [hotel.bookings, hotel.guests]
+  sql:
+    - |
+      create table hotel.booking_guests (
+        booking_id uuid not null references hotel.bookings (id),
+        guest_id bigint not null references hotel.guests (id),
+        primary key (booking_id, guest_id)
+      );
+
+  meta:
+    - up: |
+        comment on table hotel.booking_guests is 'Many-to-many: every guest actually staying on a booking, beyond just the primary booker on hotel.bookings.guest_id.';
+      down:

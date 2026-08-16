@@ -1,0 +1,37 @@
+# yaml-embedded-languages: sql
+
+hotel.address:
+  needs: [hotel]
+  sql:
+    - |
+      create type hotel.address as (
+        street text,
+        city text,
+        region text,
+        postal_code text,
+        country text
+      );
+
+hotel.guests:
+  needs: [hotel.loyalty_tiers, hotel.address]
+  sql:
+    - |
+      create table hotel.guests (
+        id bigint generated always as identity primary key,
+        email text not null unique,
+        first_name text not null,
+        last_name text not null,
+        phone text,
+        date_of_birth date,
+        billing_address hotel.address,
+        loyalty_tier_id bigint references hotel.loyalty_tiers (id),
+        created_at timestamptz not null default now()
+      );
+
+  meta:
+    - up: |
+        comment on table hotel.guests is 'A person who can book a room.';
+      down:
+    - up: |
+        comment on column hotel.guests.billing_address is 'Composite-typed column (hotel.address), not a join to a separate table - a guest only ever has one current billing address.';
+      down:

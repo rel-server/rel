@@ -1,0 +1,16 @@
+# yaml-embedded-languages: sql
+#
+# Computed column : derived purely from the row's own `stay` range.
+
+hotel.booking_nights:
+  needs: [hotel.bookings]
+  meta:
+    - |
+      create function hotel.booking_nights(booking hotel.bookings) returns integer
+      language sql immutable strict as $$
+        select extract(day from upper(booking.stay) - lower(booking.stay))::integer
+      $$;
+
+    - up: |
+        comment on function hotel.booking_nights(hotel.bookings) is 'Computed column : length of stay, in nights.';
+      down:

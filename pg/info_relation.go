@@ -22,6 +22,10 @@ import (
 type Relation struct {
 	Identifier SqlIdentifier
 
+	// The relation's own COMMENT ON, if any — meant primarily for the
+	// TypeScript export to surface as a doc comment ; empty string if unset.
+	Comment string
+
 	IsView             bool
 	IsMaterializedView bool
 
@@ -81,9 +85,12 @@ SELECT json_agg(R) FROM (SELECT
 		'Name', pg_class.relname
 	) AS "Identifier",
 
+	obj_description(pg_class.oid, 'pg_class') AS "Comment",
+
 	json_agg(json_build_object(
 		'Name', column_name,
 		'Index', ordinal_position,
+		'Comment', col_description(pg_class.oid, ordinal_position),
 		'DefaultExpression', CASE WHEN is_identity = 'YES' AND pg_get_serial_sequence(col.table_schema || '.' || col.table_name, col.column_name) IS NOT NULL
 			THEN 'nextval(''' || pg_get_serial_sequence(col.table_schema || '.' || col.table_name, col.column_name) || ''')'
 			ELSE column_default

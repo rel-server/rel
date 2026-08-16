@@ -58,6 +58,10 @@ func (f *FunctionArgument) IsVariadic() bool {
 type Function struct {
 	Identifier SqlIdentifier
 
+	// The function's own COMMENT ON, if any — meant primarily for the
+	// TypeScript export to surface as a doc comment ; empty string if unset.
+	Comment string
+
 	Arguments []FunctionArgument
 
 	ReturnsSet      bool // Whether this function returns a table() or a setof ReturnType
@@ -106,6 +110,7 @@ SELECT json_agg(S) FROM	(SELECT
     'Schema', n.nspname,
     'Name', p.proname
   ) AS "Identifier",
+	obj_description(p.oid, 'pg_proc') AS "Comment",
 	p.prorettype::integer as "PgReturnTypeOid",
   l.lanname AS "Language",
   p.proretset AS "ReturnsSet",

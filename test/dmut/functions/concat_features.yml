@@ -1,0 +1,12 @@
+# yaml-embedded-languages: sql
+#
+# Test-purpose : exercises VARIADIC argument-mode introspection.
+
+hotel.concat_features:
+  needs: [hotel]
+  meta:
+    - |
+      create function hotel.concat_features(sep text, variadic parts text[]) returns text
+      language sql immutable as $$
+        select array_to_string(parts, sep)
+      $$;

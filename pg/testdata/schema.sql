@@ -4,6 +4,7 @@
 
 -- plain all-IN function (regression : proallargtypes/proargmodes are NULL here)
 create function fn_plain_add(a int, b int) returns int language sql as $$ select a + b $$;
+comment on function fn_plain_add(int, int) is 'adds two numbers';
 
 -- composite FK with non-alphabetical true pairing (regression : conkey/confkey
 -- ordering vs information_schema's independently-alphabetized target order)
@@ -17,7 +18,10 @@ create table src_t (
 create index idx_src_composite on src_t (b, a);
 
 -- classic to-many : one director has many movies, referencing column indexed
+-- (also carries COMMENT ON, regression for comment introspection)
 create table director (id serial primary key, name text not null);
+comment on table director is 'a film director';
+comment on column director.name is 'the director''s full name';
 create table movie (
 	id serial primary key,
 	director_id int not null references director (id),

@@ -1,0 +1,26 @@
+# yaml-embedded-languages: sql
+
+hotel.room_status:
+  needs: [hotel]
+  sql:
+    - create type hotel.room_status as enum ('clean', 'dirty', 'maintenance', 'out_of_order');
+
+hotel.rooms:
+  needs: [hotel.room_types, hotel.room_status]
+  sql:
+    - |
+      create table hotel.rooms (
+        id bigint generated always as identity primary key,
+        property_id bigint not null references hotel.properties (id),
+        room_type_id bigint not null references hotel.room_types (id),
+        room_number text not null,
+        floor smallint,
+        status hotel.room_status not null default 'clean',
+        features text[] not null default '{}',
+        unique (property_id, room_number)
+      );
+
+  meta:
+    - up: |
+        comment on table hotel.rooms is 'A single physical room within a property.';
+      down:

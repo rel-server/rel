@@ -1,0 +1,13 @@
+# yaml-embedded-languages: sql
+#
+# The hotel/booking test fixture (see specs/ discussion) : a schema deep
+# enough in relationships and Postgres types to exercise rel's query engine
+# against something more demanding than a handful of flat tables.
+
+hotel:
+  sql:
+    - create schema hotel;
+
+btree_gist:
+  sql:
+    - create extension btree_gist;

@@ -1,0 +1,17 @@
+# yaml-embedded-languages: sql
+#
+# Computed column : simplest possible case, a pure function of the row's own
+# columns.
+
+hotel.guest_full_name:
+  needs: [hotel.guests]
+  meta:
+    - |
+      create function hotel.guest_full_name(guest hotel.guests) returns text
+      language sql immutable strict as $$
+        select guest.first_name || ' ' || guest.last_name
+      $$;
+
+    - up: |
+        comment on function hotel.guest_full_name(hotel.guests) is 'Computed column : the guest''s display name.';
+      down:

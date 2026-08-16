@@ -1,0 +1,29 @@
+# yaml-embedded-languages: sql
+
+hotel.booking_status:
+  needs: [hotel]
+  sql:
+    - create type hotel.booking_status as enum ('confirmed', 'cancelled', 'checked_in', 'checked_out');
+
+hotel.bookings:
+  needs: [hotel.guests, hotel.rooms, hotel.booking_status, btree_gist]
+  sql:
+    - |
+      create table hotel.bookings (
+        id uuid primary key default gen_random_uuid(),
+        guest_id bigint not null references hotel.guests (id),
+        room_id bigint not null references hotel.rooms (id),
+        stay tstzrange not null,
+        status hotel.booking_status not null default 'confirmed',
+        created_at timestamptz not null default now(),
+
+        -- no two bookings may claim the same room for overlapping periods ;
+        -- needs btree_gist for the "=" operator class on room_id (bigint) to be
+        -- usable inside a GiST exclusion constraint at all
+        exclude using gist (room_id with =, stay with &&)
+      );
+
+  meta:
+    - up: |
+        comment on table hotel.bookings is 'A guest''s reservation of a room for a period. UUID-keyed (unlike most other tables here) since bookings are the kind of entity a real system would expose externally by id.';
+      down:

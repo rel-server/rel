@@ -336,6 +336,46 @@ func TestType_CompositeResolvesBackToRelation(t *testing.T) {
 	}
 }
 
+// ---- regression : comments (relation, column, function) are introspected --
+
+func TestComments_RelationAndColumn(t *testing.T) {
+	director := relationByName(t, "director")
+
+	if director.Comment != "a film director" {
+		t.Errorf("expected director's Comment to be %q, got %q", "a film director", director.Comment)
+	}
+
+	name := director.ColumnsMap["name"]
+	if name == nil {
+		t.Fatalf("expected director.name column to exist")
+	}
+	if name.Comment != "the director's full name" {
+		t.Errorf("expected director.name's Comment to be %q, got %q", "the director's full name", name.Comment)
+	}
+
+	// A column with no COMMENT ON should read as an empty string, not error.
+	id := director.ColumnsMap["id"]
+	if id == nil || id.Comment != "" {
+		t.Errorf("expected director.id to have an empty Comment, got %q", id.Comment)
+	}
+}
+
+func TestComments_Function(t *testing.T) {
+	var fn *Function
+	for _, f := range testDb.Functions {
+		if f.Identifier.Name == "fn_plain_add" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatalf("function fn_plain_add not found in introspected schema")
+	}
+	if fn.Comment != "adds two numbers" {
+		t.Errorf("expected fn_plain_add's Comment to be %q, got %q", "adds two numbers", fn.Comment)
+	}
+}
+
 func TestType_ArrayResolution(t *testing.T) {
 	var intArray *Type
 	for i := range testDb.Types {

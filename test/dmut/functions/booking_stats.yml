@@ -1,0 +1,28 @@
+# yaml-embedded-languages: sql
+#
+# Test-purpose : RETURNS TABLE(...), a genuinely different case from a named
+# composite type. Postgres implements this via OUT-mode pseudo-arguments with
+# prorettype = record, not a registered pg_type/pg_class composite the way
+# Type.IsComposite()/Type.Relation resolve for an ordinary table's row type —
+# worth finding out how this actually introspects rather than assuming.
+#
+# The function's own parameter is named property_id, same as the column it
+# filters on (hotel.rooms.property_id) — qualifying with the function's own
+# name (booking_stats.property_id) disambiguates the two.
+
+hotel.booking_stats:
+  needs: [hotel.properties, hotel.bookings, hotel.payments, hotel.rooms]
+  meta:
+    - |
+      create function hotel.booking_stats(property_id bigint)
+      returns table (total_bookings bigint, total_revenue numeric, avg_nights numeric)
+      language sql stable as $$
+        select
+          count(distinct b.id),
+          coalesce(sum(p.amount), 0),
+          avg(extract(day from upper(b.stay) - lower(b.stay)))
+        from hotel.bookings b
+        join hotel.rooms r on r.id = b.room_id
+        left join hotel.payments p on p.booking_id = b.id and p.status = 'completed'
+        where r.property_id = booking_stats.property_id
+      $$;

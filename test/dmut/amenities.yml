@@ -1,0 +1,30 @@
+# yaml-embedded-languages: sql
+
+hotel.amenities:
+  needs: [hotel]
+  sql:
+    - |
+      create table hotel.amenities (
+        id bigint generated always as identity primary key,
+        name text not null unique
+      );
+
+  meta:
+    - up: |
+        comment on table hotel.amenities is 'A catalog of amenities a property can offer (pool, gym, parking, ...).';
+      down:
+
+hotel.property_amenities:
+  needs: [hotel.properties, hotel.amenities]
+  sql:
+    - |
+      create table hotel.property_amenities (
+        property_id bigint not null references hotel.properties (id),
+        amenity_id bigint not null references hotel.amenities (id),
+        primary key (property_id, amenity_id)
+      );
+
+  meta:
+    - up: |
+        comment on table hotel.property_amenities is 'Many-to-many: which amenities a property offers. Deliberately parallel to rooms.features (a plain array) - same kind of fact, modeled two different ways.';
+      down:

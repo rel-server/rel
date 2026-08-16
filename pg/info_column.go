@@ -20,6 +20,10 @@ type Column struct {
 
 	Type *Type
 
+	// The column's own COMMENT ON, if any — meant primarily for the
+	// TypeScript export to surface as a doc comment ; empty string if unset.
+	Comment string
+
 	DefaultExpression string
 
 	IsPrimaryKey  bool

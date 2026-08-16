@@ -22,6 +22,12 @@ import (
 type Type struct {
 	PgIdentifier SqlIdentifier
 
+	// The type's own COMMENT ON, if any — meant primarily for the TypeScript
+	// export to surface as a doc comment ; empty string if unset. Most useful
+	// for domains and composite types ; built-in scalar types are never
+	// commented in practice.
+	Comment string
+
 	ArrayType   *Type     // The array type of this type
 	ElementType *Type     // The element type of this type, yielded by subscripting - does not implicate that this is an array
 	BaseType    *Type     // only not nil if this is a domain
@@ -157,7 +163,8 @@ SELECT json_agg(T) FROM (SELECT
 	json_build_object(
 		'Schema', n.nspname,
 		'Name', t.typname
-	) as "PgIdentifier"
+	) as "PgIdentifier",
+	obj_description(t.oid, 'pg_type') AS "Comment"
 FROM
   pg_type t
   INNER JOIN pg_namespace n ON n.oid = t.typnamespace
