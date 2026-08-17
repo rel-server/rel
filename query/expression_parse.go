@@ -34,7 +34,7 @@ func ParseExpression(data []byte) (Expression, error) {
 }
 
 func parseNode(n *ast.Node) (Expression, error) {
-	switch n.Type() {
+	switch n.TypeSafe() {
 	case ast.V_NULL:
 		return NullLiteral{}, nil
 
@@ -76,7 +76,7 @@ func parseNode(n *ast.Node) (Expression, error) {
 		return nil, fmt.Errorf("query: invalid expression JSON: %w", n.Check())
 
 	default:
-		return nil, fmt.Errorf("query: unexpected JSON value in expression position (type %d)", n.Type())
+		return nil, fmt.Errorf("query: unexpected JSON value in expression position (type %d)", n.TypeSafe())
 	}
 }
 

@@ -16,6 +16,9 @@ Roles we switch to when requests are made are NOT respected, because that would 
 
 * `query.user` (default : `dmut.user` if provided) the login role rel will connect with. This is the role from which `set role` to all other roles will be executed from. 
 * `query.password` (default: `dmut.password` if provided) its password
+* `dmut.user` / `dmut.password` : the login rel uses to connect to the database to perform migrations with dmut ; also the default for `query.user` / `query.password` when those aren't otherwise provided.
+* `query.host` / `query.port` : the Postgres host/port rel connects to.
+* `query.anonymous_role` : the role rel switches to for requests without credentials of their own.
 
 * `query.maxdepth` (default `6`) : maximum depth a query can specify
 

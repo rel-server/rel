@@ -26,4 +26,18 @@ package query
 // composite sub-fields, and reaching an otherwise-blacklisted relation this
 // way is allowed by design : the developer may want to expose it in a
 // controlled way precisely by routing access through a specific column.
+//
+// This same walk also has to build what querying.md's Writing Algorithm
+// calls the node's "extractor" (### Implementation, step 1) : not just each
+// writable column's *name* in the exported shape, but *where* to find its
+// value in an actual data payload shaped like that select — i.e. a
+// column -> JSON-path-within-`data` map, since a payload's shape mirrors the
+// select (renamed/nested/omitted) rather than raw column names. That map is
+// what step 2 (denormalizing `data` into the flat `_data` array) walks
+// alongside the payload for every node. Building it is a natural side effect
+// of the same shape resolution above — a leaf that resolves to a plain
+// writable column records its current JSON path as that column's
+// extraction site — but it's a distinct output from ShapeField itself
+// (a column's read location, not the type of thing found there), so it'll
+// likely need its own small type alongside this one, not be folded into it.
 type ShapeField any
