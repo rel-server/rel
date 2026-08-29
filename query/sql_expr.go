@@ -1,0 +1,748 @@
+// Pass 3, expression compilation : turns one already-resolved Expression
+// (query/expression.go, resolved by pass 2 — see expression_resolve.go) into
+// SQL text via the shared sqlCompiler (sql.go). One case per Expression
+// type, mirroring resolveExpr's own switch in expression_resolve.go.
+package query
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/ceymard/rel/pg"
+	"github.com/ceymard/rel/writer"
+)
+
+// compileExpr writes e's SQL text into c.w. n is the node e was resolved
+// against (needed for own/full/except/and's implicit column list, and to
+// know which alias a bare, self-referencing column belongs to when e itself
+// carries no ColumnPath.Node of its own — e.g. an "own" field's plain
+// pg.Column).
+func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
+	switch v := e.(type) {
+	case nil:
+		c.w.Write("null")
+		return nil
+
+	case NullLiteral:
+		c.w.Write("null")
+		return nil
+
+	case BoolLiteral:
+		if v.Value {
+			c.w.Write("true")
+		} else {
+			c.w.Write("false")
+		}
+		return nil
+
+	case NumberLiteral:
+		c.w.Bind(v.Value)
+		return nil
+
+	case StringLiteral:
+		c.w.Bind(v.Value)
+		return nil
+
+	case BigIntLiteral:
+		c.w.Write(v.Value).Write("::bigint")
+		return nil
+
+	case NumericLiteral:
+		c.w.Write(v.Value).Write("::numeric")
+		return nil
+
+	case DefaultKeyword:
+		// Only ever reached as a GetExpr/GetSetExpr default position, handled
+		// directly by compileColumnRead — reaching this generic case means a
+		// caller forwarded it somewhere else, which is a codegen bug, not a
+		// user-facing error.
+		return fmt.Errorf("sql: DefaultKeyword reached outside a get/get-set default position")
+
+	case Star:
+		return fmt.Errorf("sql: \"*\" is not a value-position expression")
+
+	case *Identifier:
+		return c.compileResolvedField(v.Resolved)
+
+	case UnaryExpr:
+		return c.compileUnary(v, n)
+
+	case BinaryExpr:
+		return c.compileBinary(v, n)
+
+	case FoldedExpr:
+		return c.compileFolded(v, n)
+
+	case BetweenExpr:
+		if err := c.compileOperand(v.Exp, n); err != nil {
+			return err
+		}
+		if v.Negate {
+			c.w.Write(" not between ")
+		} else {
+			c.w.Write(" between ")
+		}
+		if err := c.compileOperand(v.Min, n); err != nil {
+			return err
+		}
+		c.w.Write(" and ")
+		return c.compileOperand(v.Max, n)
+
+	case InExpr:
+		return c.compileIn(v, n)
+
+	case AnyAllExpr:
+		return c.compileAnyAll(v, n)
+
+	case ConcatWsExpr:
+		c.w.Write("concat_ws")
+		return c.compileArgList(append([]Expression{v.Separator}, v.Args...), n)
+
+	case CoalesceExpr:
+		c.w.Write("coalesce")
+		return c.compileArgList(v.Args, n)
+
+	case FormatExpr:
+		c.w.Write("format")
+		return c.compileArgList(append([]Expression{StringLiteral{Value: v.Format}}, v.Args...), n)
+
+	case *AggExpr:
+		return c.compileAgg(v, n)
+
+	case *CallExpr:
+		if v.ResolvedFunction == nil {
+			return fmt.Errorf("sql: call to %q has no resolved function", v.Identifier.Name)
+		}
+		c.w.Write(v.ResolvedFunction.Identifier.EscapedString())
+		return c.compileArgList(v.Arguments, n)
+
+	case ObjectExpr:
+		return c.compileObjectLiteral(v.Fields, n)
+
+	case OwnExpr, FullExpr, OwnExceptExpr, FullExceptExpr, OwnAndExpr, FullAndExpr, OwnExceptAndExpr, FullExceptAndExpr:
+		// A shape-producing construct reached as a VALUE (nested inside
+		// another expression, e.g. an object literal field), as opposed to
+		// being a node's own top-level select (compileSelectList's job) :
+		// build it the same way, as a single jsonb value.
+		return c.compileShapeAsJsonObject(e, n)
+
+	case ArrExpr:
+		return c.compileArray(v.Items, n)
+
+	case LstExpr:
+		return c.compileArray(v.Items, n)
+
+	case IndexExpr:
+		if err := c.compileOperand(v.Array, n); err != nil {
+			return err
+		}
+		c.w.Write("[")
+		if err := c.compileExpr(v.Index, n); err != nil {
+			return err
+		}
+		c.w.Write("]")
+		return nil
+
+	case SliceExpr:
+		if err := c.compileOperand(v.Array, n); err != nil {
+			return err
+		}
+		c.w.Write("[")
+		if err := c.compileExpr(v.From, n); err != nil {
+			return err
+		}
+		c.w.Write(":")
+		if err := c.compileExpr(v.To, n); err != nil {
+			return err
+		}
+		c.w.Write("]")
+		return nil
+
+	case *GetSetExpr:
+		return c.compileColumnRead(v.ResolvedColumn, n, v.DefaultGet)
+
+	case *GetExpr:
+		return c.compileColumnRead(v.ResolvedColumn, n, v.DefaultValue)
+
+	case *SetExpr:
+		// Write-only : never fetched in query mode (query.ts's own note).
+		c.w.Write("null")
+		return nil
+
+	case ParamExpr:
+		return fmt.Errorf("sql: $param (well-known query parameters) are not yet supported by codegen")
+
+	default:
+		return fmt.Errorf("sql: no codegen case for %T", e)
+	}
+}
+
+// compileResolvedField emits whatever an *Identifier resolved to — the
+// common landing spot for both a first-hop scope lookup and the terminus of
+// a "." chain (see resolveChain/resolveHopInto, expression_resolve.go).
+func (c *sqlCompiler) compileResolvedField(field ResolvedField) error {
+	switch r := field.(type) {
+	case ColumnPath:
+		return c.compileColumnPath(r)
+	case *QueryNode:
+		return fmt.Errorf("sql: embedding a child/self alias as a bare expression value is not yet supported")
+	case Shape:
+		return fmt.Errorf("sql: a literal-object landing reached as a bare expression value is not yet supported")
+	default:
+		return fmt.Errorf("sql: identifier resolved to nothing (opaque), cannot compile as a value")
+	}
+}
+
+// compileColumnPath emits the SQL text for a ColumnPath — a plain qualified
+// column reference (len(Path)==1), or Postgres's row-value parenthesization
+// for a composite sub-field (len(Path)>1) : "t.a.b" isn't legal syntax for
+// "column a, sub-field b", it must be "(t.a).b", and further nested,
+// "((t.a).b).c". Built recursively (innermost first) : compileColumnPathN
+// emits Path[:i+1], wrapping the i-1 prefix in Paren before appending
+// Path[i]'s own ".name" — Paren's callback-based shape is exactly what
+// makes building this inside-out correct without re-emitting anything.
+func (c *sqlCompiler) compileColumnPath(cp ColumnPath) error {
+	alias, ok := c.alias[cp.Node]
+	if !ok {
+		return fmt.Errorf("sql: no alias assigned for node owning column %q — compiled out of order", cp.Path[0].Name)
+	}
+	c.compileColumnPathN(alias, cp.Path, len(cp.Path)-1)
+	return nil
+}
+
+func (c *sqlCompiler) compileColumnPathN(alias string, path []*pg.Column, i int) {
+	if i == 0 {
+		c.qualify(alias, path[0].Name)
+		return
+	}
+	c.w.Paren(func() {
+		c.compileColumnPathN(alias, path, i-1)
+	})
+	c.w.Write(".")
+	c.w.Id(path[i].Name)
+}
+
+// ---- operators --------------------------------------------------------------------
+
+// compileOperand compiles e as a sub-expression operand : always
+// parenthesized when e is itself a BinaryExpr/FoldedExpr, never otherwise —
+// deliberately no operator-precedence table (see the plan this was designed
+// under). A few harmless redundant parens in exchange for zero risk of a
+// subtly wrong precedence rule, and no precedence-table testing surface at
+// all.
+func (c *sqlCompiler) compileOperand(e Expression, n *QueryNode) error {
+	switch e.(type) {
+	case BinaryExpr, FoldedExpr:
+		var err error
+		c.w.Paren(func() {
+			err = c.compileExpr(e, n)
+		})
+		return err
+	default:
+		return c.compileExpr(e, n)
+	}
+}
+
+func (c *sqlCompiler) compileUnary(v UnaryExpr, n *QueryNode) error {
+	switch v.Op {
+	case UnaryNeg:
+		c.w.Write("-")
+		return c.compileOperand(v.Expr, n)
+	case UnaryNot:
+		c.w.Write("not ")
+		return c.compileOperand(v.Expr, n)
+	case UnaryBitNot:
+		c.w.Write("~")
+		return c.compileOperand(v.Expr, n)
+	case UnarySqrt:
+		c.w.Write("|/")
+		return c.compileOperand(v.Expr, n)
+	case UnaryCubeRoot:
+		c.w.Write("||/")
+		return c.compileOperand(v.Expr, n)
+	case UnaryIsNull:
+		return c.compilePostfix(v.Expr, n, " is null")
+	case UnaryIsTrue:
+		return c.compilePostfix(v.Expr, n, " is true")
+	case UnaryIsFalse:
+		return c.compilePostfix(v.Expr, n, " is false")
+	case UnaryIsNotNull:
+		return c.compilePostfix(v.Expr, n, " is not null")
+	case UnaryIsNotTrue:
+		return c.compilePostfix(v.Expr, n, " is not true")
+	case UnaryIsNotFalse:
+		return c.compilePostfix(v.Expr, n, " is not false")
+	default:
+		return fmt.Errorf("sql: unknown unary operator %q", v.Op)
+	}
+}
+
+func (c *sqlCompiler) compilePostfix(e Expression, n *QueryNode, suffix string) error {
+	if err := c.compileOperand(e, n); err != nil {
+		return err
+	}
+	c.w.Write(suffix)
+	return nil
+}
+
+// foldOpText/binaryOpText map an operator constant to its SQL infix text.
+// Almost all constants ARE their own Postgres operator spelling already
+// (query.ts deliberately reuses Postgres's own tokens where one exists) —
+// only the entries below need translating.
+var foldOpTextOverrides = map[FoldedOperator]string{
+	FoldAnd:               " and ",
+	FoldOr:                " or ",
+	FoldIsDistinctFrom:    " is distinct from ",
+	FoldIsNotDistinctFrom: " is not distinct from ",
+}
+
+func (c *sqlCompiler) compileFolded(v FoldedExpr, n *QueryNode) error {
+	switch v.Op {
+	case FoldDot:
+		// Resolved away entirely by pass 2 into a ColumnPath on Right's
+		// Identifier — the whole FoldedExpr collapses to one composite-path
+		// emission, never a recursive Left/Right compile (Left is only ever
+		// the static navigation prefix, not a value in its own right).
+		id, ok := v.Right.(*Identifier)
+		if !ok {
+			return fmt.Errorf("sql: \".\" hop's right side is not an identifier (%T)", v.Right)
+		}
+		return c.compileResolvedField(id.Resolved)
+
+	case FoldCoalesceAlias:
+		c.w.Write("coalesce")
+		return c.compileArgList([]Expression{v.Left, v.Right}, n)
+
+	case FoldConcatCoalescing:
+		// Postgres's own concat() already treats NULL as '' — exactly
+		// query.ts's "coalesces individual operands with ''" note, no
+		// hand-rolled coalescing needed on top of it.
+		c.w.Write("concat")
+		return c.compileArgList([]Expression{v.Left, v.Right}, n)
+
+	default:
+		opText, ok := foldOpTextOverrides[v.Op]
+		if !ok {
+			opText = " " + string(v.Op) + " "
+		}
+		if err := c.compileOperand(v.Left, n); err != nil {
+			return err
+		}
+		c.w.Write(opText)
+		return c.compileOperand(v.Right, n)
+	}
+}
+
+func (c *sqlCompiler) compileBinary(v BinaryExpr, n *QueryNode) error {
+	if v.Op == BinaryCast {
+		if err := c.compileOperand(v.Left, n); err != nil {
+			return err
+		}
+		typeName, err := castTypeName(v.Right)
+		if err != nil {
+			return err
+		}
+		c.w.Write("::")
+		c.w.Write(typeName)
+		return nil
+	}
+	if err := c.compileOperand(v.Left, n); err != nil {
+		return err
+	}
+	c.w.Write(" ")
+	c.w.Write(string(v.Op))
+	c.w.Write(" ")
+	return c.compileOperand(v.Right, n)
+}
+
+// castTypeName extracts a literal Postgres type name from a "::" cast's
+// right-hand side. This is currently DEAD CODE for any type name that
+// isn't also a real column of the current relation : pass 2 resolves
+// BinaryExpr's Left AND Right uniformly (expression_resolve.go doesn't
+// special-case BinaryCast the way the jsonb operator family's Right is
+// deliberately left unresolved), so a bare identifier here has already
+// gone through ordinary scope resolution against the CURRENT relation's
+// columns and pass 2 hard-errors ("unresolvable identifier") before this
+// function ever runs — reading v.Name directly cannot help once that's
+// already failed. Fixing this requires pass 2 to special-case BinaryCast's
+// Right the way it already does for the jsonb operators ; not done here.
+func castTypeName(e Expression) (string, error) {
+	switch v := e.(type) {
+	case *Identifier:
+		return v.Name, nil
+	case StringLiteral:
+		return v.Value, nil
+	default:
+		return "", fmt.Errorf("sql: unsupported cast target %T — expected a bare type name", e)
+	}
+}
+
+func (c *sqlCompiler) compileIn(v InExpr, n *QueryNode) error {
+	if err := c.compileOperand(v.Subject, n); err != nil {
+		return err
+	}
+	if v.Negate {
+		c.w.Write(" not in ")
+	} else {
+		c.w.Write(" in ")
+	}
+	var err error
+	c.w.Paren(func() {
+		for i, cand := range v.Candidates {
+			if i > 0 {
+				c.w.Write(", ")
+			}
+			if cand.IsLiteral {
+				c.w.Bind(cand.Literal)
+				continue
+			}
+			if e := c.compileExpr(cand.Expr, n); e != nil {
+				err = e
+				return
+			}
+		}
+	})
+	return err
+}
+
+func (c *sqlCompiler) compileAnyAll(v AnyAllExpr, n *QueryNode) error {
+	if err := c.compileOperand(v.Subject, n); err != nil {
+		return err
+	}
+	opText, ok := foldOpTextOverrides[FoldedOperator(v.Op)]
+	if ok {
+		c.w.Write(opText[:len(opText)-1]) // drop the trailing space, " any"/"all" adds its own
+	} else {
+		c.w.Write(" ")
+		c.w.Write(v.Op)
+	}
+	if v.All {
+		c.w.Write(" all")
+	} else {
+		c.w.Write(" any")
+	}
+	var err error
+	c.w.Paren(func() {
+		if e := c.compileExpr(v.Array, n); e != nil {
+			err = e
+			return
+		}
+		// A literal array (["arr"/"lst", ...bound values]) needs an
+		// explicit element-type cast here : Postgres's parameter-type
+		// inference for bare $N placeholders inside an ARRAY[...]
+		// constructor doesn't reliably propagate back from the surrounding
+		// "= ANY(...)" comparison the way it does for a plain "x = $1"
+		// comparison, and silently defaults to text — verified directly
+		// (an integer column compared via "= any(array[$1,$2])" with no
+		// cast errors "operator does not exist: integer = text"). Casting
+		// to the SUBJECT's own already-known type (when it's a plain
+		// column) closes exactly that gap ; an array containing genuine
+		// sub-expressions (column refs, not just bound literals) doesn't
+		// need this at all, Postgres infers those fine.
+		switch v.Array.(type) {
+		case ArrExpr, LstExpr:
+			if typ := subjectPgType(v.Subject); typ != nil {
+				c.w.Write("::")
+				c.w.Write(typ.PgIdentifier.EscapedString())
+				c.w.Write("[]")
+			}
+		}
+	})
+	return err
+}
+
+// subjectPgType returns e's Postgres type when e is a plain column
+// reference (an *Identifier landing on a ColumnPath) — nil otherwise. Used
+// by compileAnyAll to cast a literal array's element type to match.
+func subjectPgType(e Expression) *pg.Type {
+	id, ok := e.(*Identifier)
+	if !ok {
+		return nil
+	}
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok {
+		return nil
+	}
+	return cp.CurrentType()
+}
+
+// ---- arg lists / function calls ----------------------------------------------------
+
+func (c *sqlCompiler) compileArgList(args []Expression, n *QueryNode) error {
+	var err error
+	writer.SurroundList(c.w.Writer, "(", ", ", ")", args, func(a Expression) {
+		if err != nil {
+			return
+		}
+		err = c.compileExpr(a, n)
+	})
+	return err
+}
+
+func (c *sqlCompiler) compileExprParenList(args []Expression, n *QueryNode) error {
+	return c.compileArgList(args, n)
+}
+
+// compileAgg emits one "agg" reference — reached only from the CONSUMING
+// node's own select-list (via compileExpr's *AggExpr case), never used to
+// emit the aggregate's own definition inside a LATERAL wrapper (that's
+// compileAggFunctionCall, called directly by compileLateralJoin instead,
+// bypassing this shared-vs-not branch entirely — see its own comment for
+// why the two must stay separate).
+//
+// Two cases : the target child is LATERAL-shared (analyzeLaterals found
+// more than one consumer), in which case the value is already computed —
+// just reference the lateral wrapper's own column for it ; otherwise this
+// agg is the child's ONLY consumer, so it compiles as its own correlated
+// scalar subquery, structurally identical to a to-one embed's row_to_json
+// wrapping except aggregating instead (compileEmbedField, sql.go).
+func (c *sqlCompiler) compileAgg(v *AggExpr, n *QueryNode) error {
+	if v.ResolvedFunction == nil {
+		return fmt.Errorf("sql: agg %q has no resolved function", v.Identifier.Name)
+	}
+	target := aggTargetChild(v)
+	if target == nil {
+		return fmt.Errorf("sql: agg %q's argument doesn't reference an incoming relation (query.ts : the expression to aggregate must be an incoming relation)", v.Identifier.Name)
+	}
+
+	if plan, shared := c.laterals[target]; shared {
+		for _, a := range plan.aggs {
+			if a.expr == v {
+				c.w.Write(plan.alias)
+				c.w.Write(".")
+				c.w.Write(a.alias)
+				return nil
+			}
+		}
+		return fmt.Errorf("sql: internal error : agg not found in its own node's LATERAL plan")
+	}
+
+	parentAlias, ok := c.alias[n]
+	if !ok {
+		return fmt.Errorf("sql: no alias assigned for node — compiled out of order")
+	}
+	childAlias := c.allocAlias()
+	c.alias[target] = childAlias
+
+	var err error
+	c.w.Paren(func() {
+		c.w.Write("select ")
+		if e := c.compileAggFunctionCall(v, target, childAlias); e != nil {
+			err = e
+			return
+		}
+		c.w.Write(" from (\n")
+		c.w.Indented(func() {
+			if e := c.compileNodeCorrelated(target, childAlias, parentAlias); e != nil {
+				err = e
+			}
+		})
+		c.w.Write("\n) ")
+		c.w.Write(childAlias)
+	})
+	return err
+}
+
+// compileAggFunctionCall emits ONLY the aggregate function call itself —
+// "fn(args...) filter (where ...)" — with args compiled against target's
+// alias. Used both by compileAgg's own non-shared subquery wrapper above
+// and by compileLateralJoin (sql.go), which needs the bare function-call
+// form for each agg it materializes — never compileAgg itself there, since
+// that would re-trigger the shared-vs-not lookup for the very agg currently
+// being DEFINED, not referenced.
+func (c *sqlCompiler) compileAggFunctionCall(v *AggExpr, target *QueryNode, targetAlias string) error {
+	c.w.Write(v.ResolvedFunction.Identifier.EscapedString())
+	var err error
+	writer.SurroundList(c.w.Writer, "(", ", ", ")", v.Arguments, func(a Expression) {
+		if err != nil {
+			return
+		}
+		// A bare reference to the target relation itself (as opposed to a
+		// "." chain into one of its columns) means "this relation's rows" —
+		// e.g. ["agg", "count", ["movies"]] for a plain row count — which
+		// has no ColumnPath to compile ; emit the aliased subquery's own
+		// row value instead ("t.*"), Postgres's own way to reference a
+		// whole FROM-item's row.
+		if qn, isBare := a.(*Identifier); isBare {
+			if resolved, _ := qn.Resolved.(*QueryNode); resolved == target {
+				c.w.Write(targetAlias)
+				c.w.Write(".*")
+				return
+			}
+		}
+		err = c.compileExpr(a, target)
+	})
+	if err != nil {
+		return err
+	}
+	if v.Filter != nil {
+		c.w.Write(" filter ")
+		c.w.Paren(func() {
+			c.w.Write("where ")
+			if e := c.compileExpr(v.Filter, target); e != nil {
+				err = e
+			}
+		})
+	}
+	return err
+}
+
+func (c *sqlCompiler) compileFunctionCall(fn *pg.Function, positional []Expression, named map[string]Expression, argScope *QueryNode) error {
+	c.w.Write(fn.Identifier.EscapedString())
+	return c.compileFunctionArgs(positional, named, argScope)
+}
+
+// compileFunctionArgs writes a function-rooted node's own call arguments —
+// positional or named (Postgres's "arg_name => value" syntax) — used both
+// for a FROM-clause table-valued call and a bare scalar function root/embed.
+func (c *sqlCompiler) compileFunctionArgs(positional []Expression, named map[string]Expression, argScope *QueryNode) error {
+	if named != nil {
+		keys := make([]string, 0, len(named))
+		for k := range named {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var err error
+		c.w.Paren(func() {
+			for i, k := range keys {
+				if i > 0 {
+					c.w.Write(", ")
+				}
+				c.w.Write(k)
+				c.w.Write(" => ")
+				if e := c.compileExpr(named[k], argScope); e != nil {
+					err = e
+					return
+				}
+			}
+		})
+		return err
+	}
+	return c.compileArgList(positional, argScope)
+}
+
+// ---- object literals / own-full-as-value / arrays ----------------------------------
+
+func (c *sqlCompiler) compileObjectLiteral(fields map[string]Expression, n *QueryNode) error {
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	c.w.Write("jsonb_build_object")
+	var err error
+	c.w.Paren(func() {
+		for i, k := range keys {
+			if i > 0 {
+				c.w.Write(", ")
+			}
+			c.w.Bind(k)
+			c.w.Write("::text, ")
+			if e := c.compileExpr(fields[k], n); e != nil {
+				err = e
+				return
+			}
+		}
+	})
+	return err
+}
+
+// compileShapeAsJsonObject builds one jsonb value for a shape-producing
+// construct (own/full and their -except/-and variants) reached as a VALUE —
+// nested inside another expression — rather than as a node's own top-level
+// select (compileSelectList's job, which emits plain columns instead, per
+// sql.go). Reuses selectFieldsFor's own/full/except/and inventory logic
+// against n (the resolving node), so both places agree on what each variant
+// means.
+func (c *sqlCompiler) compileShapeAsJsonObject(e Expression, n *QueryNode) error {
+	saved := n.Select
+	n.Select = e
+	fields, err := selectFieldsFor(n)
+	n.Select = saved
+	if err != nil {
+		return err
+	}
+
+	c.w.Write("jsonb_build_object")
+	c.w.Paren(func() {
+		for i, f := range fields {
+			if i > 0 {
+				c.w.Write(", ")
+			}
+			c.w.Bind(f.key)
+			c.w.Write("::text, ")
+			if e := c.compileSelectFieldValue(n, f); e != nil {
+				err = e
+				return
+			}
+		}
+	})
+	return err
+}
+
+// compileSelectFieldValue is compileSelectField (sql.go) minus the "AS key"
+// suffix — used by compileShapeAsJsonObject, where the field's SQL key
+// comes from a bound jsonb_build_object argument instead of an "AS" alias.
+func (c *sqlCompiler) compileSelectFieldValue(n *QueryNode, f selectField) error {
+	alias, ok := c.alias[n]
+	if !ok {
+		return fmt.Errorf("sql: no alias assigned for node — compiled out of order")
+	}
+	return c.compileSelectField(n, alias, f)
+}
+
+func (c *sqlCompiler) compileArray(items []Expression, n *QueryNode) error {
+	c.w.Write("array")
+	var err error
+	c.w.Surround("[", "]", func() {
+		for i, item := range items {
+			if i > 0 {
+				c.w.Write(", ")
+			}
+			if e := c.compileExpr(item, n); e != nil {
+				err = e
+				return
+			}
+		}
+	})
+	return err
+}
+
+// ---- get / get-set --------------------------------------------------------------
+
+// compileColumnRead emits a plain column read, or — when def is present —
+// that value coalesced with the default : DefaultKeyword means "the
+// column's own DB-level default expression" (pg.Column.DefaultExpression,
+// already-introspected raw SQL text, safe to splice verbatim — it came from
+// pg_attrdef via pg's own introspection, never from the query payload),
+// anything else compiles normally as the fallback value.
+func (c *sqlCompiler) compileColumnRead(col *pg.Column, n *QueryNode, def Expression) error {
+	if col == nil {
+		return fmt.Errorf("sql: get/get-set has no resolved column")
+	}
+	alias, ok := c.alias[n]
+	if !ok {
+		return fmt.Errorf("sql: no alias assigned for node owning column %q — compiled out of order", col.Name)
+	}
+	if def == nil {
+		c.qualify(alias, col.Name)
+		return nil
+	}
+	c.w.Write("coalesce")
+	var err error
+	c.w.Paren(func() {
+		c.qualify(alias, col.Name)
+		c.w.Write(", ")
+		if _, isDefault := def.(DefaultKeyword); isDefault {
+			if col.DefaultExpression == "" {
+				err = fmt.Errorf("sql: \"default\" keyword used on column %q, which has no DB-level default", col.Name)
+				return
+			}
+			c.w.Write(col.DefaultExpression)
+			return
+		}
+		err = c.compileExpr(def, n)
+	})
+	return err
+}

@@ -1,4 +1,0 @@
-#!/usr/bin/with-contenv sh
-# copy to allow for dev to overwrite the server
-# also, watch the executable file with entr to restart it if it changed
-echo /server/server | entr -n -r sh -c "cp /server/server /tmp/server && exec su user -c /tmp/server"
