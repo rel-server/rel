@@ -149,11 +149,10 @@ func SurroundList[T any](w *Writer, start, sep, end string, items []T, fn func(T
 }
 
 // Bind appends value as the next positional placeholder ($1, $2, ...) and
-// writes the placeholder, never the value itself — generated SQL text must
-// stay value-independent so that two calls building the same query shape
-// with different values produce byte-identical text, which is what a
-// statement cache would key on. Params are expected to be encountered and
-// bound in tree-walk order; there's no name-based dedup here. A "well-known"
+// writes the placeholder, never the value itself — standard parameterized
+// SQL, so pgx sends values out-of-band instead of interpolating them into
+// the query text. Params are expected to be encountered and bound in
+// tree-walk order; there's no name-based dedup here. A "well-known"
 // precompiled query with reusable named placeholders is a distinct concern
 // with its own mechanism, not yet designed — this is deliberately just
 // positional.

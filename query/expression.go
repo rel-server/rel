@@ -285,15 +285,29 @@ type FormatExpr struct {
 	Args   []Expression
 }
 
+// FunctionRef names a function/aggregate for AggExpr/CallExpr. query.ts
+// accepts either a bare string (Name only, Schema "") or an explicit
+// {schema, name} object for this position — never a single "schema.name"
+// string. A bare string is never split on "." to guess at a schema :
+// Postgres allows a quoted identifier to itself contain a literal dot (e.g.
+// `"my.schema".func`), so splitting would need a real quote-aware identifier
+// parser — the inverse of EscapeId (writer/writer.go), which nothing here
+// implements — to be correct in general. Schema == "" means unqualified :
+// resolved against the configured search path at pass 2, never guessed from
+// the string.
+type FunctionRef struct {
+	Schema string
+	Name   string
+}
+
 // AggExpr is ["agg"|"aggregate", identifier, arguments, filter?]. Identifier
-// is a literal string, not an Expression, deliberately : query.ts's own note
-// is that function/operator allowlisting has to be checkable at
-// query-compile time against a static, schema-qualified name, which isn't
-// possible if the identifier could itself be computed. Filter is nil if
-// absent.
+// is a FunctionRef, not an Expression, deliberately : query.ts's own note is
+// that function/operator allowlisting has to be checkable at query-compile
+// time against a static, schema-qualified name, which isn't possible if the
+// identifier could itself be computed. Filter is nil if absent.
 type AggExpr struct {
 	notYetValidated
-	Identifier string
+	Identifier FunctionRef
 	Arguments  []Expression
 	Filter     Expression
 }
@@ -302,7 +316,7 @@ type AggExpr struct {
 // constraint as AggExpr.
 type CallExpr struct {
 	notYetValidated
-	Identifier string
+	Identifier FunctionRef
 	Arguments  []Expression
 }
 

@@ -7,7 +7,7 @@
 - Always prompt the user whenever you deem an important architectural decision is to be made (adding/removing a library, implementation details/philosophy, performance concerns)
 - Explain the code through comments when implementing
 - If there is a TODO.md file somewhere, keep it updated with what's been done
-- When writing specs / docs / comments, use plain english over lingo and buzzwords ; stay clear and legible by non-senior developers.
+- When replying or writing specs / docs / comments, use plain english over lingo and buzzwords ; stay clear and legible by non-senior developers.
 - When alerting me on problems or inconsistencies, use examples if the explanation is complex
 
 - Maintain `./docs` <-> code relevance

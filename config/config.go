@@ -16,6 +16,8 @@ type Query struct {
 	// MaxDepth is query.maxdepth : the maximum depth a query can specify.
 	// querying.md's default is 6.
 	MaxDepth int
+
+	WellKnownDirs string
 }
 
 type Login struct {

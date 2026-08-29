@@ -264,9 +264,9 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		if len(rest) < 2 || len(rest) > 3 {
 			return nil, fmt.Errorf("query: %q needs 2 or 3 operands, got %d", tag, len(rest))
 		}
-		ident, err := rest[0].StrictString()
+		ident, err := parseFunctionRef(&rest[0])
 		if err != nil {
-			return nil, fmt.Errorf("query: %q identifier must be a string: %w", tag, err)
+			return nil, fmt.Errorf("query: %q identifier: %w", tag, err)
 		}
 		argItems, err := rest[1].ArrayUseNode()
 		if err != nil {
@@ -289,9 +289,9 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		if len(rest) < 1 {
 			return nil, fmt.Errorf("query: %q needs an identifier", tag)
 		}
-		ident, err := rest[0].StrictString()
+		ident, err := parseFunctionRef(&rest[0])
 		if err != nil {
-			return nil, fmt.Errorf("query: %q identifier must be a string: %w", tag, err)
+			return nil, fmt.Errorf("query: %q identifier: %w", tag, err)
 		}
 		args, err := parseExpressionList(rest[1:])
 		if err != nil {
@@ -581,6 +581,43 @@ func parseExpressionObjectArg(tag string, rest []ast.Node) (map[string]Expressio
 		return nil, fmt.Errorf("query: %q needs exactly one object argument, got %d", tag, len(rest))
 	}
 	return parseObjectFields(&rest[0])
+}
+
+// parseFunctionRef parses AggExpr/CallExpr's identifier position : either a
+// bare string (unqualified Name, resolved via search path at pass 2 — never
+// split on "."), or an explicit {schema, name} object. See FunctionRef's doc
+// comment for why a single "schema.name" string was deliberately not made
+// the way to spell a qualified name.
+func parseFunctionRef(n *ast.Node) (FunctionRef, error) {
+	switch n.TypeSafe() {
+	case ast.V_STRING:
+		name, err := n.StrictString()
+		if err != nil {
+			return FunctionRef{}, fmt.Errorf("must be a string or {schema, name} object: %w", err)
+		}
+		return FunctionRef{Name: name}, nil
+
+	case ast.V_OBJECT:
+		nameNode := n.Get("name")
+		if !nameNode.Exists() {
+			return FunctionRef{}, fmt.Errorf(`object form needs a "name"`)
+		}
+		name, err := nameNode.StrictString()
+		if err != nil {
+			return FunctionRef{}, fmt.Errorf(`"name" must be a string: %w`, err)
+		}
+		var schema string
+		if schemaNode := n.Get("schema"); schemaNode.Exists() {
+			schema, err = schemaNode.StrictString()
+			if err != nil {
+				return FunctionRef{}, fmt.Errorf(`"schema" must be a string: %w`, err)
+			}
+		}
+		return FunctionRef{Schema: schema, Name: name}, nil
+
+	default:
+		return FunctionRef{}, fmt.Errorf("must be a string or {schema, name} object, got type %d", n.TypeSafe())
+	}
 }
 
 func parseStringArgLiteral(tag string, rest []ast.Node, build func(string) Expression) (Expression, error) {

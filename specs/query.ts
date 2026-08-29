@@ -9,7 +9,7 @@ export type Query = WriteQuery | Relation | WellKnownQuery | Query[]
 
 /* Call a query that's registered in rel. This can be seen as a view, except it's a rel's signature bi-directional query that's both readable and writable. */
 export interface WellKnownQuery {
-  query_name: string
+  wellknown: string
   params?: any
   data?: any
 }
@@ -221,6 +221,16 @@ export type BinaryOperator =
   | "?:"
   | "@@"
 
+/** Names a function/aggregate for "call"/"agg" — a bare string (an
+unqualified name, resolved against the configured search path) or an
+explicit { schema, name } object. Never a single "schema.name" string : a
+schema-qualified Postgres identifier can itself contain a literal dot when
+quoted (`"my.schema".func`), so splitting a combined string apart would need
+a real quote-aware identifier parser rather than a plain string split. A bare
+string here is never split looking for a schema — it's always the whole,
+unqualified name. */
+export type FunctionIdentifier = string | { schema: string, name: string }
+
 export type Expression<K extends string = string> =
   | null
   | true
@@ -251,17 +261,17 @@ export type Expression<K extends string = string> =
   | ["coalesce", ...Expression[]]
   | ["format", format: string, ...Expression[]]
 
-  /** Aggregate an expression. `identifier` must be an allowed aggregate function, schema-qualified (`schema.func`). The second expression is the expression to aggregate. It must be an incoming relation. The last expression, if given, is a filter expression. Aggregates can only be called from a parent relation.
+  /** Aggregate an expression. `identifier` must be an allowed aggregate function. The second expression is the expression to aggregate. It must be an incoming relation. The last expression, if given, is a filter expression. Aggregates can only be called from a parent relation.
 
-  `identifier` is a literal string, not an Expression : function/operator allowlisting (see querying.md ### Scoping) has to be checkable at query-compile time against a static, schema-qualified name, which isn't possible if the identifier could itself be a computed expression. */
+  `identifier` is a FunctionIdentifier, not an Expression : function/operator allowlisting (see querying.md ### Scoping) has to be checkable at query-compile time against a static, schema-qualified name, which isn't possible if the identifier could itself be a computed expression. */
   | [
       "agg" | "aggregate",
-      identifier: string,
+      identifier: FunctionIdentifier,
       arguments: Expression[],
       filter?: Expression
     ]
-  /** A function call. `identifier` must be an allowed function, schema-qualified (`schema.func`) — see the note on "agg" above ; the same constraint applies here. */
-  | ["call", identifier: string, ...arguments: Expression[]]
+  /** A function call. `identifier` must be an allowed function — see the note on "agg" above ; the same constraint applies here. */
+  | ["call", identifier: FunctionIdentifier, ...arguments: Expression[]]
 
   // Expressions that produce objects
   /* an inline object that will become an object expression */

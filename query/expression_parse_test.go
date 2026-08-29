@@ -134,16 +134,21 @@ func TestParseExpression_GetSetDefaultKeyword(t *testing.T) {
 }
 
 func TestParseExpression_AggAndCall(t *testing.T) {
-	agg, ok := mustParse(t, `["agg", "api.array_agg", ["name"], [">=", "year", 1999]]`).(AggExpr)
+	// Bare string : unqualified Name, never split on "." — a literal dot in
+	// the name (however unlikely) stays part of Name rather than being
+	// mistaken for a schema separator.
+	agg, ok := mustParse(t, `["agg", "array_agg", ["name"], [">=", "year", 1999]]`).(AggExpr)
 	if !ok {
 		t.Fatalf("expected AggExpr, got %#v", agg)
 	}
-	if agg.Identifier != "api.array_agg" || len(agg.Arguments) != 1 || agg.Filter == nil {
+	if agg.Identifier != (FunctionRef{Name: "array_agg"}) || len(agg.Arguments) != 1 || agg.Filter == nil {
 		t.Errorf("unexpected AggExpr shape: %#v", agg)
 	}
 
-	call, ok := mustParse(t, `["call", "api.slugify", "name"]`).(CallExpr)
-	if !ok || call.Identifier != "api.slugify" || len(call.Arguments) != 1 {
+	// Explicit {schema, name} object : the only way to spell a qualified
+	// name.
+	call, ok := mustParse(t, `["call", {"schema": "api", "name": "slugify"}, "name"]`).(CallExpr)
+	if !ok || call.Identifier != (FunctionRef{Schema: "api", Name: "slugify"}) || len(call.Arguments) != 1 {
 		t.Errorf("unexpected CallExpr shape: %#v", call)
 	}
 }
