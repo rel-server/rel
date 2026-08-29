@@ -113,3 +113,25 @@ create table venue (
 	work addr_t,
 	metadata jsonb
 );
+
+-- domain over a composite type, used as a FIELD of another composite type
+-- (not a top-level table column) : information_schema.columns' udt_name
+-- already reports a domain-typed table COLUMN's base type directly, so
+-- top-level columns never actually exercise the gap — but a composite
+-- type's own field is introspected straight from pg_attribute.atttypid
+-- (see the relkind='c' branch above), which does NOT auto-unwrap domains.
+-- That's the real path Underlying()/CompositeRelation() exist for.
+create domain addr_domain as addr_t;
+create type nested_t as (label text, addr addr_domain);
+create table depot (
+	id serial primary key,
+	location nested_t
+);
+
+-- array of composite : ["index", "addresses", 1] then "." into the element
+-- should be chainable (Postgres supports this directly), distinct from
+-- plain composite navigation.
+create table warehouse (
+	id serial primary key,
+	addresses addr_t[]
+);

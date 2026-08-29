@@ -17,7 +17,7 @@ func mustResolveQuery(t *testing.T, src string) *QueryNode {
 	if err := ctx.ResolveExpressions(node); err != nil {
 		t.Fatalf("ResolveExpressions: %v", err)
 	}
-	if err := DeriveShapes(node); err != nil {
+	if err := ctx.DeriveShapes(node); err != nil {
 		t.Fatalf("DeriveShapes: %v", err)
 	}
 	return node
@@ -34,7 +34,7 @@ func resolveQueryExpectError(t *testing.T, src string) error {
 	if err := ctx.ResolveExpressions(node); err != nil {
 		return err
 	}
-	return DeriveShapes(node)
+	return ctx.DeriveShapes(node)
 }
 
 func TestResolveExpressions_BareColumn(t *testing.T) {
@@ -398,5 +398,254 @@ func TestDeriveShapes_ExplicitReadonlyChildDoesNotPropagate(t *testing.T) {
 	}`)
 	if !node.Shape.Writable {
 		t.Errorf("expected an explicitly readonly child to NOT force the parent unwritable")
+	}
+}
+
+func TestResolveExpressions_DomainWrappedComposite(t *testing.T) {
+	// depot.location is nested_t{label, addr}, and addr is addr_domain (a
+	// domain over addr_t) — regression for the domain-unwrap fix : composite
+	// navigation through a domain-typed composite FIELD (not a top-level
+	// column, which information_schema.columns already auto-unwraps) must
+	// still work.
+	node := mustResolveQuery(t, `{"relation": "depot", "schema": "public", "where": [".", [".", "location", "addr"], "city"]}`)
+	outer := node.Where.(FoldedExpr)
+	id := outer.Right.(*Identifier)
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || len(cp.Path) != 3 || cp.Path[0].Name != "location" || cp.Path[1].Name != "addr" || cp.Path[2].Name != "city" {
+		t.Fatalf("expected ColumnPath{location,addr,city}, got %#v", id.Resolved)
+	}
+}
+
+func TestResolveExpressions_ArrayIndexThenDot(t *testing.T) {
+	// ["index", "addresses", 1] lands with ElementType set (the array's
+	// element type, addr_t) ; the subsequent ".city" hop then appends "city"
+	// to Path using that element type for its composite check — the FINAL
+	// landing (city's own) is Path=[addresses, city], no longer needing the
+	// override since city's own Type is what a further hop would check.
+	node := mustResolveQuery(t, `{"relation": "warehouse", "schema": "public", "where": [".", ["index", "addresses", 1], "city"]}`)
+	outer := node.Where.(FoldedExpr)
+	id := outer.Right.(*Identifier)
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || len(cp.Path) != 2 || cp.Path[0].Name != "addresses" || cp.Path[1].Name != "city" {
+		t.Fatalf("expected ColumnPath{addresses,city}, got %#v", id.Resolved)
+	}
+}
+
+func TestResolveExpressions_IndexIntoNonArray_Error(t *testing.T) {
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "where": [".", ["index", "name", 1], "x"]}`)
+	if err == nil {
+		t.Fatalf("expected indexing a non-array column to be rejected")
+	}
+}
+
+func TestResolveExpressions_ComputedKeyHop(t *testing.T) {
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": ["own-and", {"t": "title"}]
+		}},
+		"where": [".", "movies", "t"]
+	}`)
+	folded := node.Where.(FoldedExpr)
+	id := folded.Right.(*Identifier)
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || cp.Path[0].Name != "title" {
+		t.Fatalf("expected the computed key \"t\" to land on movie.title, got %#v", id.Resolved)
+	}
+}
+
+func TestResolveExpressions_NestedObjectLiteralHop(t *testing.T) {
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": {"info": {"t": "title"}}
+		}},
+		"where": [".", [".", "movies", "info"], "t"]
+	}`)
+	outer := node.Where.(FoldedExpr)
+	id := outer.Right.(*Identifier)
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || cp.Path[0].Name != "title" {
+		t.Fatalf("expected the nested literal's \"t\" key to land on movie.title, got %#v", id.Resolved)
+	}
+}
+
+func TestResolveExpressions_OwnAndNestedInsideObjectLiteral(t *testing.T) {
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": {"info": ["own-and", {"t": "title"}]}
+		}},
+		"where": [".", [".", "movies", "info"], "t"]
+	}`)
+	outer := node.Where.(FoldedExpr)
+	id := outer.Right.(*Identifier)
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || cp.Path[0].Name != "title" {
+		t.Fatalf("expected own-and's computed key \"t\", nested inside an object literal, to land on movie.title, got %#v", id.Resolved)
+	}
+}
+
+func TestResolveExpressions_OwnAndNestedInsideObjectLiteral_BaseColumn(t *testing.T) {
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": {"info": ["own-and", {"t": "title"}]}
+		}},
+		"where": [".", [".", "movies", "info"], "id"]
+	}`)
+	outer := node.Where.(FoldedExpr)
+	id := outer.Right.(*Identifier)
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || cp.Path[0].Name != "id" {
+		t.Fatalf("expected own-and's base column \"id\", nested inside an object literal, to be reachable, got %#v", id.Resolved)
+	}
+}
+
+func TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn(t *testing.T) {
+	// query.ts's own-except-and/full-except-and comment : "and" MAY specify a
+	// key that was omitted via "except" — that's a legal override, not a
+	// build-time collision, since the base no longer has that column once
+	// omitted. (A parent hopping externally into "movies.title" afterwards
+	// is a separate question, and genuinely ambiguous — Scope always sees
+	// the real "title" column regardless of what select exports it as, so
+	// that name simultaneously means two different things from outside ;
+	// covered by TestResolveExpressions_AndKeyImplicitlyShadowsColumn_Error's
+	// sibling case below, not asserted successful here.)
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": ["own-except-and", ["title"], {"title": "id"}]
+		}}
+	}`)
+	movies := node.IncomingNodes[0]
+	field, ok := movies.Shape.Fields["title"]
+	cp, isCol := field.(ColumnPath)
+	if !ok || !isCol || cp.Path[0].Name != "id" {
+		t.Fatalf("expected the overridden \"title\" export key to land on movie.id, got %#v", field)
+	}
+}
+
+func TestResolveExpressions_AndKeyImplicitlyShadowsColumn_Error(t *testing.T) {
+	// query.ts's comment : "merge_with cannot shadow keys implicitly ; this
+	// is an error" — a plain own-and colliding with a real, non-omitted
+	// column must be rejected, not silently overridden.
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": ["own-except-and", ["director_id"], {"title": "id"}]
+		}},
+		"where": [".", "movies", "title"]
+	}`)
+	if err == nil {
+		t.Fatalf("expected \"title\" (not omitted) colliding with the and key to be rejected as an implicit shadow")
+	}
+}
+
+func TestResolveExpressions_SelfHopInsideOwnSelect_Error(t *testing.T) {
+	// A node's own select referencing one of its own COMPUTED keys through a
+	// "." chain into its own alias must not see its own Shape (same "no
+	// forward-reference within one select object, no sibling access" rule
+	// that already applies elsewhere) — must be a clean hard error, not
+	// unbounded recursion (selectShape -> resolveChain -> self *QueryNode
+	// landing -> resolveExternalHop -> selectShape again). A self-hop into a
+	// plain physical column (as opposed to a computed key) is NOT this case
+	// — that's ordinary Scope access, same as any other self-reference, and
+	// resolves fine regardless of select's own state ; see
+	// TestResolveExpressions_SelfAlias.
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"alias": "d",
+		"select": ["own-and", {"x": "name", "y": [".", "d", "x"]}]
+	}`)
+	if err == nil {
+		t.Fatalf("expected a select hopping into one of its own node's computed keys via a self-alias to be rejected, not silently resolved or to hang")
+	}
+}
+
+func TestResolveExpressions_SelfHopFromWhereIntoOwnShape_Error(t *testing.T) {
+	// Same rule as TestResolveExpressions_SelfHopInsideOwnSelect_Error, but
+	// reached from "where" instead of "select" : where resolves BEFORE
+	// select (ResolveExpressions), so without ctx.resolvingOwn this hop
+	// would reach selectShape while node.Select is still fully unresolved
+	// scope-only (LookupInScope finds nothing for a name that only exists
+	// as an own-and computed key), silently returning the computed value
+	// instead of being rejected — a node's own where must not see its own
+	// select's computed keys, regardless of resolution order between them.
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"alias": "d",
+		"select": ["own-and", {"x": "name"}],
+		"where": [".", "d", "x"]
+	}`)
+	if err == nil {
+		t.Fatalf("expected where hopping into its own node's computed select key via a self-alias to be rejected")
+	}
+}
+
+func TestResolveExpressions_ExceptAndOverrideAmbiguousFromOutside_Error(t *testing.T) {
+	// The except-and override in TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn
+	// is legal to BUILD (the base no longer has "title" once omitted, so no
+	// collision), but that key is still unreferenceable from a PARENT's
+	// where/order_by under that same name : Scope always sees the real
+	// "title" column regardless of what select exports it as, so an
+	// external hop by "title" is genuinely ambiguous between the real
+	// column and the overridden export value — must stay a hard error via
+	// resolveExternalHop's scope/shape disagreement check.
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": ["own-except-and", ["title"], {"title": "id"}]
+		}},
+		"where": [".", "movies", "title"]
+	}`)
+	if err == nil {
+		t.Fatalf("expected hopping into \"movies.title\" (real column vs. overridden export key) to be rejected as ambiguous")
+	}
+}
+
+func TestResolveExpressions_ComputedKeyCollidesWithColumn_Error(t *testing.T) {
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": ["own-and", {"title": "id"}]
+		}},
+		"where": [".", "movies", "title"]
+	}`)
+	if err == nil {
+		t.Fatalf("expected a computed key colliding with a real column name to be rejected as ambiguous")
+	}
+}
+
+func TestResolveExpressions_UnknownComputedKey_Error(t *testing.T) {
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+			"select": ["own-and", {"t": "title"}]
+		}},
+		"where": [".", "movies", "no_such_key"]
+	}`)
+	if err == nil {
+		t.Fatalf("expected an unknown key (neither a column, alias, nor computed key) to be rejected")
 	}
 }

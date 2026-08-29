@@ -18,19 +18,21 @@
 // step 2.
 package query
 
-import "github.com/ceymard/rel/pg"
+import (
+	"github.com/ceymard/rel/pg"
+	"github.com/samber/oops"
+)
 
 // NodeShape is pass 2's derived-shape output for one QueryNode, attached as
 // QueryNode.Shape.
 type NodeShape struct {
-	// Fields maps this node's exported select keys to what they resolve to
-	// — best-effort : own/full column expansion and get/get-set/object-
-	// literal keys are fully typed (ColumnPath/*QueryNode), a computed
-	// (own-and/full-and) key whose expression isn't itself a directly
-	// resolved identifier is left nil (opaque ; nothing needs it to be more
-	// than that for writability/extraction purposes, and dot-chaining into
-	// a child's computed keys isn't implemented yet — see
-	// expression_resolve.go's resolveHopInto doc comment).
+	// Fields is node.Select's resolved Shape (see selectShape,
+	// expression_resolve.go) — own/full column expansion, child aliases, and
+	// computed (own-and/full-and/object-literal) keys uniformly, at any
+	// nesting depth. nil for a computed key whose expression isn't itself
+	// chainable (e.g. arithmetic), which is a legitimately opaque terminal,
+	// not a gap ; empty entirely if Select isn't a shape-producing
+	// expression (e.g. a bare get/get-set or a scalar expression).
 	Fields map[string]ResolvedField
 
 	// Extractors is only populated when WriteMode != READONLY — see
@@ -57,19 +59,20 @@ type Extractor struct {
 // DeriveShapes computes NodeShape for root and its entire subtree,
 // bottom-up (children before parent — tree-level writability propagation
 // needs each child's Shape already computed).
-func DeriveShapes(root *QueryNode) error {
+func (ctx *ResolveContext) DeriveShapes(root *QueryNode) error {
 	for _, c := range root.OutgoingNodes {
-		if err := DeriveShapes(c); err != nil {
+		if err := ctx.DeriveShapes(c); err != nil {
 			return err
 		}
 	}
 	for _, c := range root.IncomingNodes {
-		if err := DeriveShapes(c); err != nil {
+		if err := ctx.DeriveShapes(c); err != nil {
 			return err
 		}
 	}
 
-	shape, err := deriveNodeShape(root)
+	oc := oops.With("node", root.InnerName)
+	shape, err := ctx.deriveNodeShape(root, oc)
 	if err != nil {
 		return err
 	}
@@ -77,8 +80,11 @@ func DeriveShapes(root *QueryNode) error {
 	return nil
 }
 
-func deriveNodeShape(node *QueryNode) (*NodeShape, error) {
-	fields := deriveExportedFields(node)
+func (ctx *ResolveContext) deriveNodeShape(node *QueryNode, oc oops.OopsErrorBuilder) (*NodeShape, error) {
+	fields, err := ctx.selectShape(node, oc)
+	if err != nil {
+		return nil, err
+	}
 	shape := &NodeShape{Fields: fields, Writable: true}
 
 	if node.WriteMode == READONLY {
@@ -147,87 +153,6 @@ func identityIsWritable(node *QueryNode, accum *writeAccum) bool {
 		}
 	}
 	return true
-}
-
-// deriveExportedFields walks node's (already-resolved) Select structurally
-// to determine what named keys it exports and what each resolves to.
-func deriveExportedFields(node *QueryNode) map[string]ResolvedField {
-	fields := map[string]ResolvedField{}
-	switch v := node.Select.(type) {
-	case OwnExpr:
-		addOwnFields(node, nil, fields)
-	case FullExpr:
-		addOwnFields(node, nil, fields)
-		addChildAliasFields(node, fields)
-	case OwnExceptExpr:
-		addOwnFields(node, v.Except, fields)
-	case FullExceptExpr:
-		addOwnFields(node, v.Except, fields)
-		addChildAliasFields(node, fields)
-	case OwnAndExpr:
-		addOwnFields(node, nil, fields)
-		addComputedFields(v.And, fields)
-	case FullAndExpr:
-		addOwnFields(node, nil, fields)
-		addChildAliasFields(node, fields)
-		addComputedFields(v.And, fields)
-	case OwnExceptAndExpr:
-		addOwnFields(node, v.Except, fields)
-		addComputedFields(v.And, fields)
-	case FullExceptAndExpr:
-		addOwnFields(node, v.Except, fields)
-		addChildAliasFields(node, fields)
-		addComputedFields(v.And, fields)
-	case ObjectExpr:
-		addComputedFields(v.Fields, fields)
-		return fields
-	case *GetSetExpr:
-		fields[v.Column] = ColumnPath{Node: node, Path: []*pg.Column{v.ResolvedColumn}}
-		return fields
-	case *GetExpr:
-		fields[v.Column] = ColumnPath{Node: node, Path: []*pg.Column{v.ResolvedColumn}}
-		return fields
-	default:
-		// A scalar select (a single expression, no keyed shape) or a form
-		// not yet handled here : no named fields to export.
-		return map[string]ResolvedField{}
-	}
-	return fields
-}
-
-func addOwnFields(node *QueryNode, except []string, fields map[string]ResolvedField) {
-	if node.Relation == nil {
-		return
-	}
-	excluded := map[string]bool{}
-	for _, e := range except {
-		excluded[e] = true
-	}
-	for _, c := range node.Relation.Columns {
-		if excluded[c.Name] {
-			continue
-		}
-		fields[c.Name] = ColumnPath{Node: node, Path: []*pg.Column{c}}
-	}
-}
-
-func addChildAliasFields(node *QueryNode, fields map[string]ResolvedField) {
-	for _, c := range node.OutgoingNodes {
-		fields[c.OuterAlias] = c
-	}
-	for _, c := range node.IncomingNodes {
-		fields[c.OuterAlias] = c
-	}
-}
-
-func addComputedFields(and map[string]Expression, fields map[string]ResolvedField) {
-	for k, expr := range and {
-		if id, ok := expr.(*Identifier); ok {
-			fields[k] = id.Resolved
-		} else {
-			fields[k] = nil // opaque : a computed expression, not a direct reference
-		}
-	}
 }
 
 // writeAccum tracks, per ColumnPath (keyed by ColumnPath.Key(), since

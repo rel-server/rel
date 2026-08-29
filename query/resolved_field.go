@@ -21,6 +21,25 @@ import (
 type ColumnPath struct {
 	Node *QueryNode
 	Path []*pg.Column
+
+	// ElementType overrides CurrentType()'s result when set — used after an
+	// ["index", ...] hop unwraps one level of array : further "." navigation
+	// must check the array's ELEMENT type, not Path's last column's own
+	// declared (array) type. nil in the ordinary (non-indexed) case.
+	ElementType *pg.Type
+}
+
+// CurrentType is the type further "." navigation from this path should
+// check for compositeness — Path's last column's own type, unless
+// ElementType overrides it (after an array-index hop).
+func (c ColumnPath) CurrentType() *pg.Type {
+	if c.ElementType != nil {
+		return c.ElementType
+	}
+	if len(c.Path) == 0 {
+		return nil
+	}
+	return c.Path[len(c.Path)-1].Type
 }
 
 // Key returns a canonical, comparable string identifying this path — Go map
@@ -36,39 +55,41 @@ func (c ColumnPath) Key() string {
 	return b.String()
 }
 
-// LiteralField is the inline-object-literal-backed ResolvedField variant :
-// Node is the QueryNode whose select this literal lives in — its Fields
-// values are themselves unresolved Expression trees, resolved against
-// Node's scope on demand as each key is actually chained into, not
-// pre-resolved when the literal itself is first reached.
-type LiteralField struct {
-	Node   *QueryNode
-	Fields map[string]Expression
-}
+// Shape is the "produces a map of named fields" ResolvedField variant — the
+// landing of ANY select-shape-producing expression, uniformly : own/full
+// (and their -except/-and variants), an inline object literal, or one
+// nested inside another of these. There's no distinction here between "the
+// top-level select of a node" and "a shape-producing expression appearing
+// anywhere else in the tree" — own-and nested three levels inside an object
+// literal builds and is chained into exactly the same way own-and used as a
+// node's whole select is. Built eagerly (every key's own landing resolved
+// as part of producing the Shape, via resolveChain — see buildShape in
+// expression_resolve.go), so a later hop into it is just a map lookup, no
+// further resolution needed at that point.
+type Shape map[string]ResolvedField
 
 // ResolvedField is what resolving an Identifier (or a later hop in a
 // ./->/->>/#>/#>> chain) produces — see specs/query-compiler.md's
 // "Identifier resolution" section for the full reasoning. Three concrete
 // variants :
-//   - ColumnPath   : a physical column, or a composite sub-field reached by
+//   - ColumnPath : a physical column, or a composite sub-field reached by
 //     walking *pg.Type.Relation.ColumnsMap off one. Already fully
 //     introspected by pg ; no new DB-side work needed for the composite
 //     case. A leaf in "." chain terms unless the terminal column is itself
 //     composite.
-//   - *QueryNode   : an embedded join alias (OuterAlias), or a
-//     self-reference (a node's own InnerName resolving to itself). A
-//     further hop resolves against its full Scope (LookupInScope) — this is
-//     "into a child from itself," not "into a sibling," so it doesn't
-//     violate the no-sibling-access rule.
-//   - LiteralField : a key into a nested inline object literal from the
-//     select JSON ; purely syntactic, no DB lookup, each key recurses into
-//     whichever of the above it turns out to be once resolved.
+//   - *QueryNode : an embedded join alias (OuterAlias), or a self-reference
+//     (a node's own InnerName resolving to itself). A further hop resolves
+//     against its full Scope (LookupInScope) — this is "into a child from
+//     itself," not "into a sibling," so it doesn't violate the
+//     no-sibling-access rule.
+//   - Shape : a key into a select-shape-producing expression, as above.
 //
 // nil means "opaque" — the landing spot of a ->/->>/#>/#>> hop (jsonb
 // field/path extraction, or composite-row dot access via those operators is
-// not how "." itself works here). An opaque landing contributes nothing to
-// shape/writability and can only be chained further via more of the same
-// JSON operators, never a "." hop.
+// not how "." itself works here), or of any expression that isn't one of
+// the three shapes above (arithmetic, a plain function call, ...). An
+// opaque landing contributes nothing to shape/writability and can only be
+// chained further via more of the same JSON operators, never a "." hop.
 //
 // No cycle detection needed to resolve any of this : with sibling visibility
 // excluded, a "." chain only ever travels downward into a node's own

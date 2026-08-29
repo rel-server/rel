@@ -31,6 +31,30 @@ import (
 type ResolveContext struct {
 	Db     *pg.DbInfos
 	Config *config.Config
+
+	// shapeInProgress marks nodes whose selectShape (expression_resolve.go)
+	// is currently being computed — detects a select that hops into its own
+	// node's Shape via a self-reference (e.g. select: {"x": [".", "self",
+	// "id"]}), which would otherwise recurse : selectShape -> resolveChain
+	// (still unresolved) -> Identifier "self" -> *QueryNode landing on this
+	// same node -> resolveExternalHop -> selectShape again, forever. Lazily
+	// allocated ; nil is a valid, empty map to read from.
+	shapeInProgress map[*QueryNode]bool
+
+	// resolvingOwn marks nodes currently resolving their OWN where/select/
+	// distinct_on/order_by (set for that block's duration in
+	// ResolveExpressions) — resolveExternalHop consults this to refuse a
+	// self-alias hop into a node's own Shape from within its own
+	// expressions (only an *external* hop, from a parent, may see a target's
+	// computed select keys). Distinct from shapeInProgress : that one guards
+	// selectShape's own reentrancy (the "select" position specifically,
+	// e.g. nested inside a literal) ; this one enforces the broader
+	// no-self-shape-visibility rule across where/select/distinct_on/
+	// order_by alike, including the case where selectShape has ALREADY
+	// finished caching node.Shape by the time a later sibling field (e.g.
+	// where, resolved before select) reaches the same hop. Lazily
+	// allocated ; nil is a valid, empty map to read from.
+	resolvingOwn map[*QueryNode]bool
 }
 
 // ResolveQuery resolves one decoded Relation (the root of a bare query or a

@@ -54,6 +54,30 @@ func (t *Type) IsDomain() bool {
 	return t != nil && t.BaseType != nil
 }
 
+// Underlying unwraps t through any chain of domains, returning the first
+// non-domain type — t itself if t isn't a domain. A domain's own PgRelId is
+// always 0 (only the base type carries one), so IsComposite()/IsArray()
+// naively checked directly on a domain type report false even when the
+// domain wraps a composite/array type ; callers that need to know the
+// actual represented shape should check Underlying() instead of t directly.
+func (t *Type) Underlying() *Type {
+	for t != nil && t.IsDomain() {
+		t = t.BaseType
+	}
+	return t
+}
+
+// CompositeRelation returns the *Relation t represents as a composite value,
+// unwrapping any domain wrapping first — nil if t isn't composite even after
+// unwrapping.
+func (t *Type) CompositeRelation() *Relation {
+	u := t.Underlying()
+	if u == nil {
+		return nil
+	}
+	return u.Relation
+}
+
 //----------------------------------------------------------------------------------
 
 // Query the database and fill the infos
