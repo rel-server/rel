@@ -248,7 +248,12 @@ export type Expression<K extends string = string> =
   | "*" // select all fields of the current relation + aliases
   /** strings always refer to aliases and column names, since they are much more likely to appear than actual strings */
   | string
-  /** a string literal is an array of only one string */
+  /** a string literal is an array of only one string. Exception : the
+  strings "own" and "full" always dispatch to the ["own"]/["full"] forms
+  below instead — those are the only two one-element-string-array tags
+  that take zero further arguments, so the literal string values "own" and
+  "full" cannot be produced this way ; there is currently no way to express
+  them as a string-literal Expression at all. */
   | [string]
   | [UnaryOperator, Expression]
   | [BinaryOperator, left: Expression, right: Expression]
@@ -289,8 +294,8 @@ export type Expression<K extends string = string> =
   // Neither own nor full add computed columns by default ; yet, they're selectable
   // there are functions that take the table's type as first argument and reply a result that can thus be integrated this way
   // these columns can NEVER be written to.
-  | ["own"] // an object with all the columns of the current relation
-  | ["full"] // a variant ; includes the joined rels. This is select's "default" value
+  | ["own"] // an object with all the columns of the current relation ; takes precedence over the [string] literal form above
+  | ["full"] // a variant ; includes the joined rels. This is select's "default" value ; also takes precedence over [string]
   /* Similar, but omits columns */
   | ["own-except" | "full-except", except: string[]]
   /* Similar, but adds computed columns */

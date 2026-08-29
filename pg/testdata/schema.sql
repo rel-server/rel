@@ -53,6 +53,17 @@ create table profile (id serial primary key, user_email text not null unique);
 create table account (id serial primary key, email text not null);
 create index idx_account_email on account (email);
 
+-- an incoming child whose parent (profile) is written with a non-PK
+-- on_conflict target (user_email) : exercises the write path's
+-- keysColumns/recoverKeys mechanism, which must recover profile's real id
+-- (not just the on_conflict column) for this child to correlate against.
+create table profile_note (
+	id serial primary key,
+	profile_id int not null references profile (id),
+	note text not null
+);
+create index idx_profile_note_profile on profile_note (profile_id);
+
 -- index shapes : covering (INCLUDE), partial, expression, plain composite
 create table orders (
 	id serial primary key,

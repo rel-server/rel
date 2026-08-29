@@ -160,6 +160,14 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 			return nil, err
 		}
 		v.Left = left
+		if v.Op == BinaryCast {
+			// "::" : Right is a type name (e.g. "text", "int[]"), never a
+			// column/alias to scope-resolve — same treatment as the jsonb
+			// operator family's Right above. Left untouched so sql_expr.go's
+			// castTypeName can read it directly as a bare Identifier/
+			// StringLiteral.
+			return v, nil
+		}
 		right, err := ctx.resolveExpr(v.Right, n, oc)
 		if err != nil {
 			return nil, err

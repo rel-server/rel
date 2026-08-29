@@ -197,6 +197,8 @@ Nodes included through `join` in the query are _either_ incoming OR outgoing.
 
 2. denormalize the input ; walk the extractors alongside given data and create one big flat JSON array that will contain all the data to be inserted to the server, using the extractors previously created.
 
+  The request payload's root is always an array of row objects, one per root-level row being written — unlike a nested embed, whose cardinality (a single object vs. an array) comes from its outgoing/incoming classification against its parent, the root has no parent to derive that from : a write request is inherently "here are N rows to write", plural, even when N is 1.
+
   The temporary table that will house them will be like create temp table _data ( `__node_id` int, `__row_id` int, `__parent_id` int, `data` jsonb, `keys` jsonb ), where `__node_id` is the node index in the query, `__row_id` is an absolute row counter and `__parent_id` is the row_id of the parent node containing the current object. This temporary table should exist for all connections of a pool and be properly truncated whenever a query ends. (I'm torn on indexing this table ; maybe the indices on node_id and row_id could be created once COPY is done if there are many rows in this table - sometimes seq scanning is faster. maybe a configuration option like `query.tempindexthreshold` ?)
 
   keys will have null initially, but will be populated once the DML statement runs for a given node_id - and will be so _only_ with the needed columns and no more. Depending on the statement (see `### Insertion / Updates` below), this is either the `RETURNING` clause of the DML itself, or a separate `UPDATE ... FROM` against `_data`. `data` itself is never touched.
@@ -241,6 +243,13 @@ Insert and update statements should only include the columns they intend to modi
 They will use a rehydrated row from `jsonb_populate_record` that they will re-explode column by column.
 
 Most of the time, they will just use the column as is, but when using a column that's part of an outgoing join's `on` mapping (to a parent, or to an outgoing relation — whether or not it's backed by a declared foreign key), OR when the JSON does not specify a column that has a default value OR when the JSON has a `null` value for a `NOT NULL` column that has a default value, then we use this value instead.
+
+> **Two distinct join directions, not one.** "A column that's part of an outgoing join's `on` mapping" covers two different physical column placements, and the `_data` self-join each needs is a mirror image of the other :
+>
+> - **This node is itself an incoming child of its own parent** (the common case, e.g. `movie.director_id` referencing `director.id`) : the FK column lives on THIS node, and the value comes from the parent's already-written `keys` — the parent's own `_data` row is found via `par.__row_id = tmp.__parent_id` (the shape shown in the `resolved` CTE example below), an inner join, since a child's row always has a parent row by construction.
+> - **This node has an OUTGOING child of its own** (e.g. `user.manager_id` referencing `manager.id`, where `manager` is a value nested inside `user`'s own payload) : the FK column lives on THIS node (the parent, `user`), but the value comes from the CHILD's (`manager`'s) already-written `keys` — found via a left join on the CHILD's own `_data` rows, `oc.__node_id = <child's node id> and oc.__parent_id = tmp.__row_id` (left, not inner : the outgoing relation may be nullable, so the child object may be legitimately absent from the payload).
+>
+> Both directions read from `keys`, but the join target is different (the literal JSON-tree parent vs. a specific named child), and a node can need either, both, or several of the second kind at once (one per outgoing child actually referenced by a column).
 
 #### Recovering keys : insert vs. update vs. upsert
 
@@ -318,6 +327,30 @@ where _data.__row_id = resolved.__row_id;
 ```
 
 There is no `insert ... on conflict do update` against `_data` itself anywhere in this section — `_data`'s rows already exist from the `COPY` in step 2 of `### Implementation`, so writing `keys` back into it is always a plain `update`, never an upsert.
+
+#### `write_mode` → DML mechanism
+
+The three mechanisms above are named for their SQL shape (`insert`/`update`/`upsert`), not 1:1 for the seven `write_mode` values `query.ts` defines — several modes share a mechanism, and one (`merge-new`) needs a fourth shape none of the three above cover :
+
+| `write_mode` | phase 1 mechanism | phase 2 delete |
+|---|---|---|
+| `readonly` | none — node and its subtree are skipped entirely for writing | no |
+| `insert` | plain insert | no |
+| `update` | plain update | no |
+| `upsert` | upsert (`on conflict ... do update`) | no |
+| `merge` | upsert | yes |
+| `merge-update` | plain update | yes |
+| `merge-new` | insert `on conflict (...) do nothing` (see below) | yes |
+| `deleteonly` | none | yes |
+
+**`merge-new`'s insert-do-nothing shape.** "Insert new ones, don't update existing ones" can't reuse the plain-insert mechanism as-is : an existing conflicting row would otherwise raise a unique-violation error rather than being left alone. It needs `on conflict (identity columns) do nothing`, plus a wrinkle the other three mechanisms don't have — a conflicting row contributes no `RETURNING` output at all, so its `resolved.colname` values (including any freshly precomputed sequence default) are never actually applied and must not be trusted as `keys`. Two things follow :
+
+1. `insert ... on conflict (...) do nothing returning <identity + whatever a child needs>` still lets a genuinely-new row's keys be recovered correctly (a row that WAS inserted does return them), joined back to `_data` the same way the plain-insert case joins its `resolved` CTE.
+2. A conflicting row's keys must be recovered separately, by matching `_data`'s own payload (the on_conflict columns, always present verbatim — see the writability note below) against the real, already-existing row in the target table directly — not through `resolved` at all, since `resolved`'s precomputed values for that row are exactly the phantom (never-applied) ones from point 1.
+
+Both scans are needed because neither one alone sees every row : the `RETURNING`-based one only sees rows that were actually inserted, the table-matching one only reliably identifies rows via columns known before the insert ran (i.e. the payload's own on_conflict columns) — a freshly-inserted row's *other* identity columns (e.g. a generated primary key when `on_conflict` targets a different unique column) aren't yet knowable that way until the row exists, which is exactly what the `RETURNING` scan already gives you for free.
+
+**Recovered `keys` isn't always just the identity/on_conflict columns.** If a node has an outgoing child of its own (see the two-join-directions note above), that child needs THIS node's keys to include whichever column ITS `on` mapping targets — which is not necessarily this node's `on_conflict` set (e.g. `on_conflict: [user_email]` while a child instead correlates via the primary key `id`). `keys` must be the union of the identity/on_conflict set and every column any child's own `on` mapping targets on this node, or that child's own recovery reads `NULL` for a value that does exist. The symmetric case also holds : when this node is itself an outgoing child, its OWN `keys` must include whichever of its own columns its parent's `on` mapping names, even when that isn't this node's own identity/on_conflict column either.
 
 ### Note about merges
 

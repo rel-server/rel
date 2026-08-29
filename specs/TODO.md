@@ -23,15 +23,28 @@ Grouped by how much they block implementation, not by file.
   `query/scope.go`) — identifier/`.`-chain resolution, `call`/`agg` catalog resolution,
   writability with the extractor, including chaining into a computed/renamed key exported
   by a child's own `select` at any nesting depth (unified into one recursive mechanism,
-  no remaining gap here). `query/sql.go` doesn't exist yet — SQL codegen (pass 3) off the
-  resolved tree hasn't started. `writer/` (a target-agnostic text-building writer, plus a
-  Postgres-specific `SQLWriter` wrapper for bind-params/identifier-escaping) is built and
-  tested ahead of it, ready for pass 3 to consume.
-- **Connection pool / transaction lifecycle.** Never given its own spec, but three other
+  no remaining gap here). Pass 3 (Reading Algorithm SQL codegen, `query/sql.go`/
+  `query/sql_expr.go`) and pass 4 (Writing Algorithm, `query/write.go`/
+  `query/write_denormalize.go`/`query/write_dml.go`) are now both implemented and tested
+  against real Postgres — the full per-node recursive SELECT compilation including the
+  LATERAL-sharing exception, and phased INSERT/UPDATE/UPSERT/DELETE with per-node key
+  recovery across all seven `write_mode` values. Both are scoped to codegen+execution
+  only ; see the connection-pool/lifecycle item directly below for what's still missing
+  before either can run inside a real request. `writer/` (the target-agnostic
+  text-building writer, plus a Postgres-specific `SQLWriter` wrapper for
+  bind-params/identifier-escaping) underpins both passes.
+- **Connection pool / transaction lifecycle.** Never given its own spec, but several other
   documents assume it exists : `SET LOCAL ROLE` timing (`jwt-roles-and-http.md`), the
   commit-before-select response design (`querying.md ## Response Shape`), and `_data`
   being a session-scoped temp table that must be guaranteed clean across pooled
-  connection reuse.
+  connection reuse. This is now the concrete gating item for wiring pass 3/4 into an
+  actual HTTP handler : both were deliberately built and tested against a single
+  already-acquired connection with `_data` pre-created (test setup does this directly,
+  see `query/sql_test.go`/`query/write_test.go`), not against a real pool — the
+  per-connection `_data` creation policy and end-of-request truncation timing this
+  section describes are unresolved, and nothing currently enforces or even models one
+  physical connection being pinned for a whole request the way the write path already
+  needs.
 - **`dmut` / migrations** (`03-dmut.md`, 14 lines). Legacy's `dmut` is a DAG/content-hash
   migration tool, a separate vendored module (`github.com/ceymard/dmut`) — not a
   sequential up/down tool. The current spec doesn't say whether rel keeps using that

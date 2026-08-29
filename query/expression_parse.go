@@ -142,9 +142,13 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 	// tried first since every other form requires a leading string tag and
 	// this is the only one that doesn't dispatch on it. StrictString, not
 	// String : a single-element number/bool array must not be silently
-	// coerced into a string literal.
+	// coerced into a string literal. Excludes "own"/"full" : those are also
+	// valid one-element-string-array tags (the only zero-argument ones —
+	// every other tag needs at least one more element), so without this
+	// exclusion ["own"]/["full"] would always parse as a StringLiteral and
+	// OwnExpr{}/FullExpr{} would be unreachable through the JSON grammar.
 	if len(items) == 1 {
-		if s, err := items[0].StrictString(); err == nil {
+		if s, err := items[0].StrictString(); err == nil && s != "own" && s != "full" {
 			return StringLiteral{Value: s}, nil
 		}
 	}

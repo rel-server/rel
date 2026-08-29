@@ -32,6 +32,24 @@ func TestParseExpression_Atoms(t *testing.T) {
 	}
 }
 
+func TestParseExpression_OwnFullVsStringLiteralEscapeHatch(t *testing.T) {
+	// ["own"]/["full"] are the only zero-argument tags, so they collide
+	// syntactically with the [string] literal escape hatch — tag dispatch
+	// must win for exactly these two strings, or OwnExpr{}/FullExpr{}
+	// become unreachable through the JSON grammar.
+	if _, ok := mustParse(t, `["own"]`).(OwnExpr); !ok {
+		t.Errorf(`["own"] did not parse as OwnExpr, got %#v`, mustParse(t, `["own"]`))
+	}
+	if _, ok := mustParse(t, `["full"]`).(FullExpr); !ok {
+		t.Errorf(`["full"] did not parse as FullExpr, got %#v`, mustParse(t, `["full"]`))
+	}
+	// Every other one-element string array still falls through to the
+	// literal escape hatch, "own"/"full" aren't special anywhere else.
+	if s, ok := mustParse(t, `["ownership"]`).(StringLiteral); !ok || s.Value != "ownership" {
+		t.Errorf(`["ownership"] did not parse as StringLiteral{ownership}, got %#v`, mustParse(t, `["ownership"]`))
+	}
+}
+
 func TestParseExpression_UnaryVsFoldedMinusDisambiguation(t *testing.T) {
 	// ["-", x] : exactly one operand -> unary negate, not a degenerate fold.
 	if u, ok := mustParse(t, `["-", 1]`).(UnaryExpr); !ok || u.Op != UnaryNeg {

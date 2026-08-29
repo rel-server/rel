@@ -348,23 +348,34 @@ func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f select
 	case f.column != nil:
 		c.qualify(alias, f.column.Name)
 		return nil
-	case f.embed != nil:
-		return c.compileEmbedField(f.embed, node, alias)
 	default:
-		// An explicit computed field (an "and"/object-literal entry) can
-		// itself be a bare alias reference to a child (e.g. {"movies":
-		// "movies"}) — resolved by pass 2 to the same *QueryNode landing
-		// "full"'s implicit inclusion produces, just reached through an
-		// ordinary Identifier instead of selectFieldsFor's addAliases path.
-		// Route it through compileEmbedField too, rather than letting
-		// compileExpr's generic Identifier case reject it.
-		if id, ok := f.expr.(*Identifier); ok {
-			if child, ok := id.Resolved.(*QueryNode); ok {
-				return c.compileEmbedField(child, node, alias)
-			}
+		if child := embedChildOf(f); child != nil {
+			return c.compileEmbedField(child, node, alias)
 		}
 		return c.compileExpr(f.expr, node)
 	}
+}
+
+// embedChildOf returns the child node f actually refers to — either
+// selectFieldsFor's own/full alias inclusion (f.embed), or an explicit
+// computed field (an "and"/object-literal entry) that's itself a bare alias
+// reference to a child (e.g. {"movies": "movies"}), resolved by pass 2 to
+// the same *QueryNode landing "full"'s implicit inclusion produces, just
+// reached through an ordinary Identifier instead. nil if f is a plain
+// column/computed value, not a child embed at all. Shared between the read
+// path (compileSelectField) and the write path's denormalizer
+// (write_denormalize.go), which both need the same answer to "does this
+// select key point at a child node".
+func embedChildOf(f selectField) *QueryNode {
+	if f.embed != nil {
+		return f.embed
+	}
+	if id, ok := f.expr.(*Identifier); ok {
+		if child, ok := id.Resolved.(*QueryNode); ok {
+			return child
+		}
+	}
+	return nil
 }
 
 // ---- embeds : default (correlated subquery) and LATERAL-shared cases --------------

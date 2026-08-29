@@ -51,7 +51,7 @@ func TestCompileSelect_BareOwn(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own-except", []], "where": ["=", "name", ["Denis Villeneuve"]]}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "where": ["=", "name", ["Denis Villeneuve"]]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -60,6 +60,84 @@ func TestCompileSelect_BareOwn(t *testing.T) {
 	}
 	if rows[0]["name"] != "Denis Villeneuve" {
 		t.Errorf("expected name=Denis Villeneuve, got %#v", rows[0])
+	}
+}
+
+func TestCompileSelect_Cast(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Cast Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// ["::", "id", "text"] : the type name (an unquoted identifier, "text")
+	// must NOT be scope-resolved as a column of the current relation — it's
+	// data, not a name. Also covers ["ilike"] not-needed here; the real
+	// point is that pass 2 leaves BinaryCast's Right alone (see
+	// expression_resolve.go's BinaryExpr case and sql_expr.go's
+	// castTypeName).
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"id_text": ["::", "id", "text"]},
+		"where": ["=", "name", ["Cast Director"]]
+	}`)
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if _, ok := rows[0]["id_text"].(string); !ok {
+		t.Errorf("expected id_text to decode as a JSON string (text cast), got %#v (sql: %s)", rows[0]["id_text"], sql)
+	}
+
+	// castTypeName's other branch : a quoted type name arrives as a
+	// StringLiteral, not a bare Identifier — e.g. an array type where the
+	// caller writes it as a JSON string rather than a bare identifier.
+	node2 := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"tags": ["::", ["arr", ["a"], ["b"]], ["text[]"]]},
+		"where": ["=", "name", ["Cast Director"]]
+	}`)
+	sql2, args2 := mustCompileSelect(t, node2)
+	rows2 := runSelect(t, sql2, args2)
+	if len(rows2) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows2), sql2)
+	}
+	tags, ok := rows2[0]["tags"].([]any)
+	if !ok || len(tags) != 2 || tags[0] != "a" || tags[1] != "b" {
+		t.Errorf("expected tags=[a b], got %#v (sql: %s)", rows2[0]["tags"], sql2)
+	}
+}
+
+func TestCompileSelect_Cast_MultiWordTypeName(t *testing.T) {
+	// Multi-word standard SQL type names ("character varying") must still
+	// compile — validCastTypeName's whole point is to distinguish these
+	// from injected SQL, not to reject them.
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"n": ["::", "name", "character varying"]}
+	}`)
+	sql, args := mustCompileSelect(t, node)
+	if !strings.Contains(sql, "::character varying") {
+		t.Fatalf("expected ::character varying in generated SQL, got: %s", sql)
+	}
+	rows := runSelect(t, sql, args)
+	_ = rows
+}
+
+func TestCompileSelect_Cast_RejectsInjectedTypeName(t *testing.T) {
+	// castTypeName's Right is never scope-resolved (BinaryCast is special-
+	// cased in pass 2 precisely so a legitimate type name doesn't error as
+	// an unresolvable column) — that unresolved string then gets written
+	// straight into the generated SQL after "::", so it must be validated
+	// here or it's a raw injection point. Assert on the compile-time error,
+	// not execution : the point is the fragment never reaches the database.
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"x": ["::", "id", "text) or (1=1"]}
+	}`)
+	_, err := CompileSelect(node)
+	if err == nil {
+		t.Fatalf("expected CompileSelect to reject an invalid cast type name, got success")
 	}
 }
 

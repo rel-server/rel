@@ -6,6 +6,7 @@ package query
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 
 	"github.com/ceymard/rel/pg"
@@ -355,26 +356,38 @@ func (c *sqlCompiler) compileBinary(v BinaryExpr, n *QueryNode) error {
 	return c.compileOperand(v.Right, n)
 }
 
+// validCastTypeName matches Postgres type-name syntax : one or more
+// space-separated identifier words (covers multi-word standard types like
+// "character varying", "timestamp with time zone", "double precision"),
+// an optional (precision[,scale]), and any number of trailing "[]".
+var validCastTypeName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*(\s+[a-zA-Z_][a-zA-Z0-9_]*)*(\(\s*\d+(\s*,\s*\d+)?\s*\))?(\s*\[\s*\])*$`)
+
 // castTypeName extracts a literal Postgres type name from a "::" cast's
-// right-hand side. This is currently DEAD CODE for any type name that
-// isn't also a real column of the current relation : pass 2 resolves
-// BinaryExpr's Left AND Right uniformly (expression_resolve.go doesn't
-// special-case BinaryCast the way the jsonb operator family's Right is
-// deliberately left unresolved), so a bare identifier here has already
-// gone through ordinary scope resolution against the CURRENT relation's
-// columns and pass 2 hard-errors ("unresolvable identifier") before this
-// function ever runs — reading v.Name directly cannot help once that's
-// already failed. Fixing this requires pass 2 to special-case BinaryCast's
-// Right the way it already does for the jsonb operators ; not done here.
+// right-hand side. Pass 2 (expression_resolve.go's BinaryExpr case)
+// special-cases BinaryCast the same way it does the jsonb operator family :
+// Right is left unresolved, since it's a type name (e.g. "text", "int[]"),
+// never a column/alias to scope-resolve. So Right always arrives here as
+// whatever parseNode produced — a bare *Identifier for an unquoted type
+// name, or a StringLiteral for a quoted one — straight from user JSON,
+// unresolved and therefore unvetted by pass 2's usual scope check. It gets
+// written into the SQL text verbatim (EscapeSQLId would mis-quote multi-word
+// types like "timestamp with time zone" into garbage), so this function is
+// the only gate standing between it and the query : validate against
+// validCastTypeName rather than just passing it through.
 func castTypeName(e Expression) (string, error) {
+	var name string
 	switch v := e.(type) {
 	case *Identifier:
-		return v.Name, nil
+		name = v.Name
 	case StringLiteral:
-		return v.Value, nil
+		name = v.Value
 	default:
 		return "", fmt.Errorf("sql: unsupported cast target %T — expected a bare type name", e)
 	}
+	if !validCastTypeName.MatchString(name) {
+		return "", fmt.Errorf("sql: invalid cast type name %q", name)
+	}
+	return name, nil
 }
 
 func (c *sqlCompiler) compileIn(v InExpr, n *QueryNode) error {
