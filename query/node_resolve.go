@@ -86,7 +86,11 @@ var writeModeByString = map[string]WriteMode{
 // node.Relation, which may be nil for a function node whose return type
 // isn't a known relation.
 func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, outerAlias string, depth int) (*QueryNode, error) {
-	oc := oops.With("relation", raw.Relation).With("schema", raw.Schema).With("alias", raw.Alias).With("depth", depth)
+	name := raw.Relation
+	if raw.IsFunction {
+		name = raw.Function
+	}
+	oc := oops.With("relation", name).With("schema", raw.Schema).With("alias", raw.Alias).With("depth", depth)
 
 	if depth > ctx.Config.Query.MaxDepth {
 		return nil, oc.Errorf("query exceeds the configured maximum depth (%d)", ctx.Config.Query.MaxDepth)
@@ -266,7 +270,7 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 // AcceptsArity. More than one surviving candidate is an ambiguity error,
 // not a guess.
 func (ctx *ResolveContext) resolveFunction(raw *rawRelation, oc oops.OopsErrorBuilder) (*pg.Function, error) {
-	return resolveFunctionCandidate(ctx.Db, ctx.Config.Blacklist, raw.Schema, raw.Relation,
+	return resolveFunctionCandidate(ctx.Db, ctx.Config.Blacklist, raw.Schema, raw.Function,
 		raw.ArgumentsPositional, raw.ArgumentsNamed, (*pg.Function).IsPlainFunction, oc)
 }
 

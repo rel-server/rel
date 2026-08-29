@@ -61,27 +61,41 @@ func TestParseRawRelation_Join(t *testing.T) {
 	}
 }
 
-func TestParseRawRelation_ArgumentsTriState(t *testing.T) {
-	// no "arguments" key at all : not a function
+func TestParseRawRelation_RelationVsFunction(t *testing.T) {
+	// "relation" alone : not a function.
 	pq, err := ParseQuery([]byte(`{"relation": "movie"}`))
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}
 	if pq.Relation.IsFunction {
-		t.Errorf("expected IsFunction=false when \"arguments\" is absent")
+		t.Errorf("expected IsFunction=false for a \"relation\"-named node")
 	}
 
-	// present but empty array : still a function, zero args
-	pq, err = ParseQuery([]byte(`{"relation": "fn", "arguments": []}`))
+	// "function" with no "arguments" key at all : still a function, zero
+	// args — unlike the old "relation"+"arguments" scheme, "function" alone
+	// already says this node is a call, no empty-array trick needed.
+	pq, err = ParseQuery([]byte(`{"function": "fn"}`))
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}
-	if !pq.Relation.IsFunction || len(pq.Relation.ArgumentsPositional) != 0 {
-		t.Fatalf("expected IsFunction=true with 0 positional args, got %#v", pq.Relation)
+	if !pq.Relation.IsFunction || pq.Relation.Function != "fn" {
+		t.Fatalf("expected IsFunction=true with Function=\"fn\", got %#v", pq.Relation)
+	}
+	if pq.Relation.ArgumentsPositional != nil || pq.Relation.ArgumentsNamed != nil {
+		t.Errorf("expected no arguments at all when \"arguments\" is absent, got %#v", pq.Relation)
+	}
+
+	// "function" with a positional "arguments" array.
+	pq, err = ParseQuery([]byte(`{"function": "fn", "arguments": [1]}`))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if !pq.Relation.IsFunction || len(pq.Relation.ArgumentsPositional) != 1 {
+		t.Fatalf("expected IsFunction=true with 1 positional arg, got %#v", pq.Relation)
 	}
 
 	// named form
-	pq, err = ParseQuery([]byte(`{"relation": "fn", "arguments": {"a": 1}}`))
+	pq, err = ParseQuery([]byte(`{"function": "fn", "arguments": {"a": 1}}`))
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}
@@ -90,6 +104,33 @@ func TestParseRawRelation_ArgumentsTriState(t *testing.T) {
 	}
 	if _, ok := pq.Relation.ArgumentsNamed["a"].(NumberLiteral); !ok {
 		t.Errorf("expected arguments.a to be a NumberLiteral, got %#v", pq.Relation.ArgumentsNamed["a"])
+	}
+}
+
+func TestParseRawRelation_RelationAndFunctionMutuallyExclusive(t *testing.T) {
+	// The "neither" case is TestParseRawRelation_MissingRelationKey, below.
+	if _, err := ParseQuery([]byte(`{"relation": "movie", "function": "fn"}`)); err == nil {
+		t.Fatalf("expected supplying both \"relation\" and \"function\" to be rejected")
+	}
+}
+
+func TestParseRawRelation_ArgumentsRequiresFunction(t *testing.T) {
+	if _, err := ParseQuery([]byte(`{"relation": "movie", "arguments": [1]}`)); err == nil {
+		t.Fatalf("expected \"arguments\" alongside \"relation\" (not \"function\") to be rejected")
+	}
+}
+
+func TestParseRawRelation_EmptyNameRejected(t *testing.T) {
+	// Presence alone isn't enough : rawRelation's own doc comment claims
+	// "exactly one of Relation/Function is NON-EMPTY" as a real invariant,
+	// so an empty string for whichever key was given must be rejected here
+	// rather than silently flowing through to a function/relation lookup
+	// for name "".
+	if _, err := ParseQuery([]byte(`{"relation": ""}`)); err == nil {
+		t.Fatalf("expected an empty \"relation\" to be rejected")
+	}
+	if _, err := ParseQuery([]byte(`{"function": ""}`)); err == nil {
+		t.Fatalf("expected an empty \"function\" to be rejected")
 	}
 }
 
@@ -175,7 +216,7 @@ func TestParseRawRelation_MissingRelationKey(t *testing.T) {
 }
 
 func TestParseRawRelation_ArgumentsWrongType(t *testing.T) {
-	if _, err := ParseQuery([]byte(`{"relation": "fn", "arguments": "not an array or object"}`)); err == nil {
+	if _, err := ParseQuery([]byte(`{"function": "fn", "arguments": "not an array or object"}`)); err == nil {
 		t.Fatalf("expected a non-array/object \"arguments\" to be rejected")
 	}
 }

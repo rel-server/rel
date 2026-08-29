@@ -869,7 +869,7 @@ func TestResolveExpressions_SliceSubExpressionsResolve(t *testing.T) {
 func TestResolveExpressions_RootFunctionArgumentBareIdentifier_Error(t *testing.T) {
 	// A root-level function call (no parent) has nothing to correlate a bare
 	// identifier against — only literals/params are legal there.
-	err := resolveQueryExpectError(t, `{"relation": "fn_plain_add", "schema": "public", "arguments": ["no_such_column", 2]}`)
+	err := resolveQueryExpectError(t, `{"function": "fn_plain_add", "schema": "public", "arguments": ["no_such_column", 2]}`)
 	if err == nil {
 		t.Fatalf("expected a bare identifier in a root function call's arguments to be rejected (no parent scope)")
 	}
@@ -887,7 +887,7 @@ func TestResolveExpressions_CorrelatedFunctionArgumentResolvesAgainstParentScope
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {
-			"relation": "fn_movies_by_director", "schema": "public",
+			"function": "fn_movies_by_director", "schema": "public",
 			"arguments": ["id"],
 			"on": {"director_id": "id"}
 		}}
@@ -914,7 +914,7 @@ func TestResolveExpressions_CorrelatedFunctionArgumentUnresolvable_Error(t *test
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {
-			"relation": "fn_movies_by_director", "schema": "public",
+			"function": "fn_movies_by_director", "schema": "public",
 			"arguments": ["no_such_column"],
 			"on": {"director_id": "id"}
 		}}
@@ -934,7 +934,7 @@ func TestResolveExpressions_CorrelatedNamedFunctionArgumentResolvesAgainstParent
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {
-			"relation": "fn_movies_by_director", "schema": "public",
+			"function": "fn_movies_by_director", "schema": "public",
 			"arguments": {"p_director_id": "id"},
 			"on": {"director_id": "id"}
 		}}
@@ -959,7 +959,7 @@ func TestResolveExpressions_CorrelatedNamedFunctionArgumentUnresolvable_Error(t 
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {
-			"relation": "fn_movies_by_director", "schema": "public",
+			"function": "fn_movies_by_director", "schema": "public",
 			"arguments": {"p_director_id": "no_such_column"},
 			"on": {"director_id": "id"}
 		}}
@@ -974,7 +974,7 @@ func TestResolveExpressions_GetSetOnRelationlessFunctionNode_Error(t *testing.T)
 	// so a "select" trying to get/set a column has nothing to resolve
 	// against — must be a clean error, not a nil-pointer panic.
 	err := resolveQueryExpectError(t, `{
-		"relation": "fn_plain_add", "schema": "public", "arguments": [1, 2],
+		"function": "fn_plain_add", "schema": "public", "arguments": [1, 2],
 		"select": {"x": ["get", "id"]}
 	}`)
 	if err == nil {

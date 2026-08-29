@@ -136,21 +136,29 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 }
 
 // rawRelation is query.ts's Relation, decoded one field at a time but not
-// yet resolved against pg — Relation/Schema stay plain strings, On stays a
-// plain map, Join recurses. See node_resolve.go for what turns this into a
-// *QueryNode.
+// yet resolved against pg — Relation/Function/Schema stay plain strings, On
+// stays a plain map, Join recurses. See node_resolve.go for what turns this
+// into a *QueryNode.
 type rawRelation struct {
-	Relation string
-	Schema   string // "" : unqualified, resolved via search path
-	Alias    string
+	// Exactly one of Relation/Function is non-empty (IsFunction says which)
+	// — query.ts's "relation" and "function" keys are mutually exclusive, so
+	// a node names either a table/view or a function call, never both and
+	// never neither ; parseRawRelation rejects an empty string for whichever
+	// key was given, so this holds as a real invariant, not just "whichever
+	// key was present, however it decoded."
+	Relation   string
+	Function   string
+	IsFunction bool
+
+	Schema string // "" : unqualified, resolved via search path
+	Alias  string
 
 	On map[string]string // nil if absent
 
-	// Exactly one of these is meaningful when IsFunction ; IsFunction itself
-	// is set by key presence, not by either being non-empty, so a
-	// zero-argument function call ("arguments": [] or {}) is never
-	// misread as a plain relation.
-	IsFunction          bool
+	// Only meaningful when IsFunction. Absent entirely (both nil) for a
+	// function call taking no arguments — unlike the old "relation"+
+	// "arguments" scheme, there's no ambiguity to guard against here, since
+	// "function" alone already says this node is a call.
 	ArgumentsPositional []Expression
 	ArgumentsNamed      map[string]Expression
 
@@ -186,15 +194,34 @@ var orderByDirectionTags = map[string]OrderByDirection{
 
 func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 	relNode := n.Get("relation")
-	if !relNode.Exists() {
-		return nil, fmt.Errorf(`query: relation object needs "relation"`)
-	}
-	relation, err := relNode.StrictString()
-	if err != nil {
-		return nil, fmt.Errorf(`query: "relation" must be a string: %w`, err)
+	fnNode := n.Get("function")
+	if relNode.Exists() == fnNode.Exists() {
+		if relNode.Exists() {
+			return nil, fmt.Errorf(`query: relation object must have exactly one of "relation" or "function", not both`)
+		}
+		return nil, fmt.Errorf(`query: relation object needs exactly one of "relation" or "function"`)
 	}
 
-	raw := &rawRelation{Relation: relation}
+	raw := &rawRelation{}
+	var err error
+	if relNode.Exists() {
+		raw.Relation, err = relNode.StrictString()
+		if err != nil {
+			return nil, fmt.Errorf(`query: "relation" must be a string: %w`, err)
+		}
+		if raw.Relation == "" {
+			return nil, fmt.Errorf(`query: "relation" must not be empty`)
+		}
+	} else {
+		raw.IsFunction = true
+		raw.Function, err = fnNode.StrictString()
+		if err != nil {
+			return nil, fmt.Errorf(`query: "function" must be a string: %w`, err)
+		}
+		if raw.Function == "" {
+			return nil, fmt.Errorf(`query: "function" must not be empty`)
+		}
+	}
 
 	if s := n.Get("schema"); s.Exists() {
 		raw.Schema, err = s.StrictString()
@@ -217,7 +244,9 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 	}
 
 	if args := n.Get("arguments"); args.Exists() {
-		raw.IsFunction = true
+		if !raw.IsFunction {
+			return nil, fmt.Errorf(`query: "arguments" is only valid alongside "function", not "relation"`)
+		}
 		switch args.TypeSafe() {
 		case ast.V_ARRAY:
 			items, err := args.ArrayUseNode()

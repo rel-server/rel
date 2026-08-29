@@ -25,11 +25,22 @@ export interface WriteQuery {
 }
 
 export interface Relation {
-  // Identifying fields for the relation :
-  /** The relation name, or the function name in the case of functions */
-  relation: string
+  // Identifying fields for the relation : exactly one of `relation` or
+  // `function` must be given ; supplying both, or neither, is an error.
+  /** The name of a table or view to query. Mutually exclusive with `function`. */
+  relation?: string
 
-  /** If not provided, the relation will be looked for in the search path. */
+  /**
+    The name of a function to call, instead of querying a table/view directly.
+    Mutually exclusive with `relation`.
+
+    If the function is table-valued, joining can be performed just like if the query is about the type of the returned table. When writing back, writes into the underlying table if it is actually writable (not a view, not a plain type ; physical table or a view with instead-of).
+
+    Note: this *might* be a problem to leave it writable, but I can't think _why_.
+  */
+  function?: string
+
+  /** If not provided, the relation/function will be looked for in the search path. */
   schema?: string
 
   // give an alias to the relation in the query, usable by children and sibling relations' expressions
@@ -46,11 +57,9 @@ export interface Relation {
   on?: { [local_column: string]: string }
 
   /**
-    If arguments is provided, then the current relation is a function.
-
-    If it is table-valued, joining can be performed just like if the query is about the type of the returned table. When writing back, writes into the underlying table if it is actually writable (not a view, not a plain type ; physical table or a view with instead-of).
-
-    Note: this *might* be a problem to leave it writable, but I can't think _why_.
+    Positional or named arguments to pass to `function`. Only valid alongside
+    `function` ; an error if given alongside `relation`. Absent (or an empty
+    array/object) for a function that takes no arguments.
   */
   arguments?: Expression[] | { [name: string]: Expression }
 

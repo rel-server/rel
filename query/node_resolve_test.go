@@ -176,7 +176,7 @@ func TestResolveQuery_RelationBlacklist(t *testing.T) {
 
 func TestResolveQuery_FunctionBlacklist(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	raw := mustParseRelation(t, `{"relation": "pg_sleep", "schema": "pg_catalog", "arguments": [1]}`)
+	raw := mustParseRelation(t, `{"function": "pg_sleep", "schema": "pg_catalog", "arguments": [1]}`)
 	if _, err := ctx.ResolveQuery(raw); err == nil {
 		t.Fatalf("expected pg_catalog.pg_sleep to be rejected by the default blacklist")
 	}
@@ -184,7 +184,7 @@ func TestResolveQuery_FunctionBlacklist(t *testing.T) {
 
 func TestResolveQuery_FunctionOverloadResolution(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	raw := mustParseRelation(t, `{"relation": "fn_overload", "schema": "public", "arguments": [1]}`)
+	raw := mustParseRelation(t, `{"function": "fn_overload", "schema": "public", "arguments": [1]}`)
 	node, err := ctx.ResolveQuery(raw)
 	if err != nil {
 		t.Fatalf("ResolveQuery: %v", err)
@@ -193,7 +193,7 @@ func TestResolveQuery_FunctionOverloadResolution(t *testing.T) {
 		t.Fatalf("expected the 1-arg overload, got %#v", node.Function)
 	}
 
-	raw2 := mustParseRelation(t, `{"relation": "fn_overload", "schema": "public", "arguments": [1, 2]}`)
+	raw2 := mustParseRelation(t, `{"function": "fn_overload", "schema": "public", "arguments": [1, 2]}`)
 	node2, err := ctx.ResolveQuery(raw2)
 	if err != nil {
 		t.Fatalf("ResolveQuery: %v", err)
@@ -229,7 +229,7 @@ func TestResolveQuery_UnknownRelation(t *testing.T) {
 
 func TestResolveQuery_UnknownFunction(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	raw := mustParseRelation(t, `{"relation": "no_such_function", "schema": "public", "arguments": []}`)
+	raw := mustParseRelation(t, `{"function": "no_such_function", "schema": "public"}`)
 	if _, err := ctx.ResolveQuery(raw); err == nil {
 		t.Fatalf("expected an unknown function to be rejected")
 	}
@@ -242,7 +242,7 @@ func TestResolveQuery_FunctionNamedArguments(t *testing.T) {
 	// the exact case functionAcceptsNames had a bug on : it originally only
 	// checked that given names were valid, never that required names were
 	// covered.
-	raw := mustParseRelation(t, `{"relation": "fn_overload", "schema": "public", "arguments": {"a": 1}}`)
+	raw := mustParseRelation(t, `{"function": "fn_overload", "schema": "public", "arguments": {"a": 1}}`)
 	node, err := ctx.ResolveQuery(raw)
 	if err != nil {
 		t.Fatalf("ResolveQuery: %v", err)
@@ -254,7 +254,7 @@ func TestResolveQuery_FunctionNamedArguments(t *testing.T) {
 
 func TestResolveQuery_AmbiguousFunction(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	raw := mustParseRelation(t, `{"relation": "fn_ambig", "schema": "public", "arguments": [1]}`)
+	raw := mustParseRelation(t, `{"function": "fn_ambig", "schema": "public", "arguments": [1]}`)
 	if _, err := ctx.ResolveQuery(raw); err == nil {
 		t.Fatalf("expected fn_ambig(int)/fn_ambig(text) to be rejected as ambiguous by arity-only matching")
 	}
@@ -263,9 +263,8 @@ func TestResolveQuery_AmbiguousFunction(t *testing.T) {
 func TestResolveQuery_TableValuedFunctionRoot(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{
-		"relation": "fn_directors",
-		"schema": "public",
-		"arguments": []
+		"function": "fn_directors",
+		"schema": "public"
 	}`)
 	node, err := ctx.ResolveQuery(raw)
 	if err != nil {
@@ -281,9 +280,8 @@ func TestResolveQuery_TableValuedFunctionRoot(t *testing.T) {
 	// and it must be genuinely joinable into, not just carry a Relation
 	// pointer that nothing else uses
 	rawWithJoin := mustParseRelation(t, `{
-		"relation": "fn_directors",
+		"function": "fn_directors",
 		"schema": "public",
-		"arguments": [],
 		"join": {
 			"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}
 		}
