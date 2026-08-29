@@ -96,6 +96,14 @@ create function fn_ambig(a text) returns text language sql as $$ select a $$;
 -- GetRelationByType and be joinable into, exactly like the table itself
 create function fn_directors() returns setof director language sql as $$ select * from director $$;
 
+-- parameterized table-valued function, embeddable as a JOIN child : exercises
+-- pass 2's correlated function-argument resolution (a function node's own
+-- "arguments" resolve against its PARENT's scope, since node.Parent != nil
+-- once embedded — see ResolveExpressions in expression_resolve.go). Takes
+-- the same director_id the plain movie table itself carries, purely so a
+-- query can pass the parent's own "id" as a correlated argument here.
+create function fn_movies_by_director(p_director_id int) returns setof movie language sql as $$ select * from movie where director_id = p_director_id $$;
+
 -- no primary key at all : on_conflict must be left unresolved (not panic)
 -- when unspecified and there's no PK to default to
 create table no_pk_t (a int, b int);

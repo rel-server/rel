@@ -875,6 +875,100 @@ func TestResolveExpressions_RootFunctionArgumentBareIdentifier_Error(t *testing.
 	}
 }
 
+func TestResolveExpressions_CorrelatedFunctionArgumentResolvesAgainstParentScope(t *testing.T) {
+	// fn_movies_by_director(p_director_id int) returns setof movie, embedded
+	// as a JOIN child of director : its own "arguments" resolve against its
+	// PARENT's scope (correlating to the enclosing query, same as any
+	// subquery's arguments would), NOT against the function node's own
+	// scope (which is movie's, via "on") — the counterpart to
+	// TestResolveExpressions_RootFunctionArgumentBareIdentifier_Error's
+	// no-parent case, this is the actual correlated success path.
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "fn_movies_by_director", "schema": "public",
+			"arguments": ["id"],
+			"on": {"director_id": "id"}
+		}}
+	}`)
+	child := node.IncomingNodes[0]
+	if len(child.FunctionArguments) != 1 {
+		t.Fatalf("expected exactly one FunctionArgument, got %#v", child.FunctionArguments)
+	}
+	id, ok := child.FunctionArguments[0].(*Identifier)
+	if !ok {
+		t.Fatalf("expected the argument to stay an *Identifier, got %#v", child.FunctionArguments[0])
+	}
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || cp.Node != node || cp.Path[0].Name != "id" {
+		t.Fatalf("expected the argument to resolve to the PARENT director's own \"id\" column, got %#v", id.Resolved)
+	}
+}
+
+func TestResolveExpressions_CorrelatedFunctionArgumentUnresolvable_Error(t *testing.T) {
+	// Correlation reaches the parent's scope, not an unbounded one : a name
+	// that isn't a real column/alias/self of the PARENT must still be
+	// rejected, exactly like any other scope lookup.
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "fn_movies_by_director", "schema": "public",
+			"arguments": ["no_such_column"],
+			"on": {"director_id": "id"}
+		}}
+	}`)
+	if err == nil {
+		t.Fatalf("expected an unresolvable identifier in a correlated function argument to be rejected")
+	}
+}
+
+func TestResolveExpressions_CorrelatedNamedFunctionArgumentResolvesAgainstParentScope(t *testing.T) {
+	// Same rule as the positional case above, but through
+	// FunctionArgumentMap — a separate loop in ResolveExpressions, with its
+	// own store-back, so coverage of one doesn't imply the other (if the
+	// named loop passed the function node's OWN scope instead of argScope,
+	// "id" would land on movie.id instead, and cp.Node would be the child).
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "fn_movies_by_director", "schema": "public",
+			"arguments": {"p_director_id": "id"},
+			"on": {"director_id": "id"}
+		}}
+	}`)
+	child := node.IncomingNodes[0]
+	arg, ok := child.FunctionArgumentMap["p_director_id"]
+	if !ok {
+		t.Fatalf("expected FunctionArgumentMap[\"p_director_id\"] to be present, got %#v", child.FunctionArgumentMap)
+	}
+	id, ok := arg.(*Identifier)
+	if !ok {
+		t.Fatalf("expected the argument to stay an *Identifier, got %#v", arg)
+	}
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || cp.Node != node || cp.Path[0].Name != "id" {
+		t.Fatalf("expected the named argument to resolve to the PARENT director's own \"id\" column, got %#v", id.Resolved)
+	}
+}
+
+func TestResolveExpressions_CorrelatedNamedFunctionArgumentUnresolvable_Error(t *testing.T) {
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {
+			"relation": "fn_movies_by_director", "schema": "public",
+			"arguments": {"p_director_id": "no_such_column"},
+			"on": {"director_id": "id"}
+		}}
+	}`)
+	if err == nil {
+		t.Fatalf("expected an unresolvable identifier in a correlated named function argument to be rejected")
+	}
+}
+
 func TestResolveExpressions_GetSetOnRelationlessFunctionNode_Error(t *testing.T) {
 	// fn_plain_add returns a scalar (int), not a relation : Relation is nil,
 	// so a "select" trying to get/set a column has nothing to resolve
