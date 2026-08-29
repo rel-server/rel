@@ -21,10 +21,12 @@ Grouped by how much they block implementation, not by file.
   enforcement. Pass 2 (expression resolution : scope, blacklist, shape, writability) is
   now also implemented and tested (`query/expression_resolve.go`, `query/shape.go`,
   `query/scope.go`) — identifier/`.`-chain resolution, `call`/`agg` catalog resolution,
-  writability with the extractor. One deliberate, flagged gap remains : chaining into a
-  computed/renamed key exported by a child's own `select` (see `query-compiler.md`'s
-  "Identifier resolution" section). `query/sql.go` is still a 26-line stub with empty
-  method bodies — SQL codegen off the resolved tree hasn't started.
+  writability with the extractor, including chaining into a computed/renamed key exported
+  by a child's own `select` at any nesting depth (unified into one recursive mechanism,
+  no remaining gap here). `query/sql.go` doesn't exist yet — SQL codegen (pass 3) off the
+  resolved tree hasn't started. `writer/` (a target-agnostic text-building writer, plus a
+  Postgres-specific `SQLWriter` wrapper for bind-params/identifier-escaping) is built and
+  tested ahead of it, ready for pass 3 to consume.
 - **Connection pool / transaction lifecycle.** Never given its own spec, but three other
   documents assume it exists : `SET LOCAL ROLE` timing (`jwt-roles-and-http.md`), the
   commit-before-select response design (`querying.md ## Response Shape`), and `_data`

@@ -2,13 +2,20 @@
 // and TypeScript code generators. The goal is that the *shape* of generated
 // code — blocks, lists, indentation — is visible directly in the Go source
 // that builds it, rather than buried in ad hoc string concatenation.
+//
+// Writer itself (this file) is target-language-agnostic : Write/Indent/
+// Surround/Paren/List/SurroundList have no Postgres- or TypeScript-specific
+// knowledge. Target-specific concerns (identifier-quoting rules, reserved
+// keywords, bind-parameter syntax) live in their own files/types wrapping
+// *Writer — see pg.go's SQLWriter for the Postgres/SQL side. A future
+// TypeScript generator gets its own such wrapper rather than adding more
+// methods to *Writer directly, so neither target's rules leak into the
+// other's dependency graph.
 package writer
 
 import (
 	"bytes"
-	"fmt"
 	"iter"
-	"regexp"
 	"strings"
 )
 
@@ -17,7 +24,6 @@ type Writer struct {
 	indentation int
 	indentUnit  string
 	atLineStart bool
-	args        []any
 }
 
 func New() *Writer {
@@ -88,6 +94,14 @@ func (w *Writer) Surround(start, end string, fn func()) *Writer {
 	return w
 }
 
+// Paren is Surround("(", ")", fn) — the convention every parenthesized
+// sub-expression should go through, rather than a bare Write("(") /
+// Write(")") pair : one call site can't forget its own matching close the
+// way two separate Write calls could drift apart under future edits.
+func (w *Writer) Paren(fn func()) *Writer {
+	return w.Surround("(", ")", fn)
+}
+
 // List writes items separated by sep, calling fn once per item.
 //
 //	writer.List(w, ", ", cols, func(c Column) { w.Write(c.Name) })
@@ -148,76 +162,6 @@ func SurroundList[T any](w *Writer, start, sep, end string, items []T, fn func(T
 	return w
 }
 
-// Bind appends value as the next positional placeholder ($1, $2, ...) and
-// writes the placeholder, never the value itself — standard parameterized
-// SQL, so pgx sends values out-of-band instead of interpolating them into
-// the query text. Params are expected to be encountered and bound in
-// tree-walk order; there's no name-based dedup here. A "well-known"
-// precompiled query with reusable named placeholders is a distinct concern
-// with its own mechanism, not yet designed — this is deliberately just
-// positional.
-func (w *Writer) Bind(value any) *Writer {
-	w.args = append(w.args, value)
-	return w.Write(fmt.Sprintf("$%d", len(w.args)))
-}
-
-// Args returns the bind values collected via Bind, in $N order — pass
-// alongside String() as the arguments to a prepared statement exec.
-func (w *Writer) Args() []any {
-	return w.args
-}
-
 func (w *Writer) String() string {
 	return w.buf.String()
-}
-
-var validUnquotedId = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
-
-// reservedKeywords are Postgres's fully "reserved" keywords — the ones that
-// are never valid as an unquoted identifier, regardless of position. Not
-// exhaustive of every keyword Postgres knows (unreserved/type/function-name
-// keywords are still fine unquoted); this is the set that actually matters
-// for correctness.
-var reservedKeywords = map[string]bool{
-	"all": true, "analyse": true, "analyze": true, "and": true, "any": true,
-	"array": true, "as": true, "asc": true, "asymmetric": true, "both": true,
-	"case": true, "cast": true, "check": true, "collate": true, "column": true,
-	"constraint": true, "create": true, "current_catalog": true, "current_date": true,
-	"current_role": true, "current_time": true, "current_timestamp": true,
-	"current_user": true, "default": true, "deferrable": true, "desc": true,
-	"distinct": true, "do": true, "else": true, "end": true, "except": true,
-	"false": true, "fetch": true, "for": true, "foreign": true, "from": true,
-	"grant": true, "group": true, "having": true, "in": true, "initially": true,
-	"intersect": true, "into": true, "lateral": true, "leading": true, "limit": true,
-	"localtime": true, "localtimestamp": true, "not": true, "null": true,
-	"offset": true, "on": true, "only": true, "or": true, "order": true,
-	"placing": true, "primary": true, "references": true, "returning": true,
-	"select": true, "session_user": true, "some": true, "symmetric": true,
-	"table": true, "then": true, "to": true, "trailing": true, "true": true,
-	"union": true, "unique": true, "user": true, "using": true, "variadic": true,
-	"when": true, "where": true, "window": true, "with": true,
-}
-
-// EscapeId escapes a Postgres identifier, quoting only when needed: a
-// "schema.name" input is split and each part quoted independently, so
-// hotel.rooms stays unquoted but hotel."order" gets quoted only where it
-// must be.
-func EscapeId(id string) string {
-	parts := strings.Split(id, ".")
-	for i, p := range parts {
-		parts[i] = escapeIdPart(p)
-	}
-	return strings.Join(parts, ".")
-}
-
-func escapeIdPart(p string) string {
-	if p != "" && validUnquotedId.MatchString(p) && !reservedKeywords[p] {
-		return p
-	}
-	return `"` + strings.ReplaceAll(p, `"`, `""`) + `"`
-}
-
-// Id writes an escaped identifier.
-func (w *Writer) Id(id string) *Writer {
-	return w.Write(EscapeId(id))
 }
