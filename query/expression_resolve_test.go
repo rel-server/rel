@@ -1,10 +1,33 @@
 package query
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/ceymard/rel/pg"
+	"github.com/samber/oops"
 )
+
+// ParseAndResolve parses a bare Expression JSON (not a full query) and
+// resolves it against a throwaway "director" relation node — for testing
+// resolveExpr's handling of wrapper node types (between/in/any/all/
+// concat_ws/arr/lst/slice) directly, without needing a full query to wrap
+// each one in.
+func ParseAndResolve(t *testing.T, exprJSON string) (Expression, error) {
+	t.Helper()
+	return parseAndResolveOn(t, "director", exprJSON)
+}
+
+func parseAndResolveOn(t *testing.T, relation, exprJSON string) (Expression, error) {
+	t.Helper()
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": %q, "schema": "public"}`, relation))
+	expr, err := ParseExpression([]byte(exprJSON))
+	if err != nil {
+		t.Fatalf("ParseExpression: %v", err)
+	}
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	return ctx.resolveExpr(expr, node, oops.With("test", relation))
+}
 
 func mustResolveQuery(t *testing.T, src string) *QueryNode {
 	t.Helper()
@@ -647,5 +670,372 @@ func TestResolveExpressions_UnknownComputedKey_Error(t *testing.T) {
 	}`)
 	if err == nil {
 		t.Fatalf("expected an unknown key (neither a column, alias, nor computed key) to be rejected")
+	}
+}
+
+func TestResolveExpressions_ChainPastJsonOpaque_Error(t *testing.T) {
+	// "->" lands opaque (jsonb navigation, not "." semantics) : chaining a
+	// "." hop off of it must be rejected, not silently treated as chaining
+	// off whatever "metadata" itself was.
+	err := resolveQueryExpectError(t, `{"relation": "venue", "schema": "public", "where": [".", ["->", "metadata", ["key"]], "x"]}`)
+	if err == nil {
+		t.Fatalf("expected chaining \".\" off a ->-opaque value to be rejected")
+	}
+}
+
+func TestResolveExpressions_IndexOpaqueExpression_NoError(t *testing.T) {
+	// Indexing something that isn't a known ColumnPath (here, an inline "arr"
+	// literal) must resolve successfully (its Items still get resolved) and
+	// simply produce an opaque (unchainable) landing — not an error. Only
+	// indexing a real, non-array COLUMN is an error (IndexIntoNonArray_Error).
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["index", ["arr", "id", "id"], 1]}`)
+	idx, ok := node.Where.(IndexExpr)
+	if !ok {
+		t.Fatalf("expected IndexExpr, got %#v", node.Where)
+	}
+	arr, ok := idx.Array.(ArrExpr)
+	if !ok || len(arr.Items) != 2 {
+		t.Fatalf("expected the inline array's Items to still be resolved, got %#v", idx.Array)
+	}
+	for i, item := range arr.Items {
+		if _, ok := item.(*Identifier).Resolved.(ColumnPath); !ok {
+			t.Errorf("expected arr.Items[%d] to still resolve to a ColumnPath, got %#v", i, item)
+		}
+	}
+}
+
+func TestResolveExpressions_FullAndKeyCollidesWithChildAlias_Error(t *testing.T) {
+	// buildShape's collision check must catch an "and" key colliding with a
+	// CHILD ALIAS (only present in "full"'s base, not "own"'s), not just a
+	// physical column — ownFullBase folds aliases into the same base map a
+	// plain column would occupy, so the same collision rule must apply.
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}},
+		"select": ["full-and", {"movies": "name"}]
+	}`)
+	if err == nil {
+		t.Fatalf("expected an \"and\" key colliding with a child join alias (via full's base) to be rejected")
+	}
+}
+
+func TestResolveExpressions_BetweenSubExpressionsResolve(t *testing.T) {
+	// Min/Exp/Max are three distinct fields ; use three distinct queries,
+	// each with a bad identifier in exactly one position, to prove all three
+	// (not just Min, the first one, easy to typo-copy the other two from) are
+	// actually threaded through resolution.
+	if _, err := ParseAndResolve(t, `["between", "no_such_column", "id", "id"]`); err == nil {
+		t.Fatalf("expected an unresolvable Min to be rejected")
+	}
+	if _, err := ParseAndResolve(t, `["between", "id", "no_such_column", "id"]`); err == nil {
+		t.Fatalf("expected an unresolvable Exp to be rejected")
+	}
+	if _, err := ParseAndResolve(t, `["between", "id", "id", "no_such_column"]`); err == nil {
+		t.Fatalf("expected an unresolvable Max to be rejected")
+	}
+	expr, err := ParseAndResolve(t, `["between", "id", "name", "id"]`)
+	if err != nil {
+		t.Fatalf("ParseAndResolve: %v", err)
+	}
+	b := expr.(BetweenExpr)
+	if _, ok := b.Min.(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected Min resolved, got %#v", b.Min)
+	}
+	if _, ok := b.Exp.(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected Exp resolved, got %#v", b.Exp)
+	}
+	if _, ok := b.Max.(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected Max resolved, got %#v", b.Max)
+	}
+}
+
+func TestResolveExpressions_InCandidatesResolve(t *testing.T) {
+	// A bare JSON string candidate is ALWAYS a literal (query.ts's explicit
+	// carve-out) and must stay untouched, never scope-resolved even if it
+	// happens to spell a real column name ; a non-literal candidate (here,
+	// wrapped in a single-arg coalesce so it isn't a bare string) DOES
+	// resolve, and an unresolvable one is rejected.
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["in", "id", "name", ["coalesce", "id"]]}`)
+	in := node.Where.(InExpr)
+	if !in.Candidates[0].IsLiteral || in.Candidates[0].Literal != "name" {
+		t.Fatalf("expected candidate 0 to stay a literal \"name\", got %#v", in.Candidates[0])
+	}
+	coal, ok := in.Candidates[1].Expr.(CoalesceExpr)
+	if !ok {
+		t.Fatalf("expected candidate 1 to be a CoalesceExpr, got %#v", in.Candidates[1].Expr)
+	}
+	if _, ok := coal.Args[0].(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected candidate 1's inner identifier resolved, got %#v", coal.Args[0])
+	}
+
+	if _, err := ParseAndResolve(t, `["in", "id", ["coalesce", "no_such_column"]]`); err == nil {
+		t.Fatalf("expected an unresolvable non-literal candidate to be rejected")
+	}
+}
+
+func TestResolveExpressions_AnyAllSubExpressionsResolve(t *testing.T) {
+	if _, err := ParseAndResolve(t, `["any", "=", "no_such_column", "id"]`); err == nil {
+		t.Fatalf("expected an unresolvable Subject to be rejected")
+	}
+	if _, err := ParseAndResolve(t, `["any", "=", "id", "no_such_column"]`); err == nil {
+		t.Fatalf("expected an unresolvable Array to be rejected")
+	}
+	expr, err := ParseAndResolve(t, `["all", "=", "id", "name"]`)
+	if err != nil {
+		t.Fatalf("ParseAndResolve: %v", err)
+	}
+	a := expr.(AnyAllExpr)
+	if _, ok := a.Subject.(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected Subject resolved, got %#v", a.Subject)
+	}
+	if _, ok := a.Array.(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected Array resolved, got %#v", a.Array)
+	}
+}
+
+func TestResolveExpressions_ConcatWsSubExpressionsResolve(t *testing.T) {
+	// Separator is itself a generic Expression (not a raw string), so a bare
+	// JSON string there parses as an *Identifier* to resolve, same as
+	// anywhere else — ["x"] is query.ts's one-element-array escape hatch for
+	// an actual string literal, used below once Separator is meant to be a
+	// literal rather than deliberately a column reference under test.
+	if _, err := ParseAndResolve(t, `["concat_ws", "no_such_column", "id"]`); err == nil {
+		t.Fatalf("expected an unresolvable Separator to be rejected")
+	}
+	if _, err := ParseAndResolve(t, `["concat_ws", ["-"], "no_such_column"]`); err == nil {
+		t.Fatalf("expected an unresolvable Args entry to be rejected")
+	}
+	expr, err := ParseAndResolve(t, `["concat_ws", ["-"], "id", "name"]`)
+	if err != nil {
+		t.Fatalf("ParseAndResolve: %v", err)
+	}
+	c := expr.(ConcatWsExpr)
+	for i, a := range c.Args {
+		if _, ok := a.(*Identifier).Resolved.(ColumnPath); !ok {
+			t.Errorf("expected Args[%d] resolved, got %#v", i, a)
+		}
+	}
+}
+
+func TestResolveExpressions_ArrLstSubExpressionsResolve(t *testing.T) {
+	if _, err := ParseAndResolve(t, `["arr", "id", "no_such_column"]`); err == nil {
+		t.Fatalf("expected an unresolvable \"arr\" item to be rejected")
+	}
+	if _, err := ParseAndResolve(t, `["lst", "id", "no_such_column"]`); err == nil {
+		t.Fatalf("expected an unresolvable \"lst\" item to be rejected")
+	}
+}
+
+func TestResolveExpressions_SliceSubExpressionsResolve(t *testing.T) {
+	// Array/From/To are three distinct fields ; use an unresolvable
+	// identifier in each position individually (rather than a literal
+	// number, which resolveExpr's default no-op case would pass through
+	// whether or not it was ever actually threaded) to prove all three are
+	// actually resolved, not just Array (copy-paste risk on the other two).
+	// venue has no array column ; use warehouse.addresses (addr_t[]).
+	if _, err := parseAndResolveOn(t, "warehouse", `["slice", "no_such_column", "id", "id"]`); err == nil {
+		t.Fatalf("expected an unresolvable Array to be rejected")
+	}
+	if _, err := parseAndResolveOn(t, "warehouse", `["slice", "addresses", "no_such_column", "id"]`); err == nil {
+		t.Fatalf("expected an unresolvable From to be rejected")
+	}
+	if _, err := parseAndResolveOn(t, "warehouse", `["slice", "addresses", "id", "no_such_column"]`); err == nil {
+		t.Fatalf("expected an unresolvable To to be rejected")
+	}
+
+	expr, err := parseAndResolveOn(t, "warehouse", `["slice", "addresses", "id", "id"]`)
+	if err != nil {
+		t.Fatalf("ParseAndResolve: %v", err)
+	}
+	s := expr.(SliceExpr)
+	if _, ok := s.Array.(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected Array resolved, got %#v", s.Array)
+	}
+	if _, ok := s.From.(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected From resolved, got %#v", s.From)
+	}
+	if _, ok := s.To.(*Identifier).Resolved.(ColumnPath); !ok {
+		t.Errorf("expected To resolved, got %#v", s.To)
+	}
+
+	// A slice's landing is opaque : chaining "." past it must be rejected,
+	// same as any other non-composite/non-shape landing.
+	if _, err := parseAndResolveOn(t, "warehouse", `[".", ["slice", "addresses", 1, 2], "x"]`); err == nil {
+		t.Fatalf("expected chaining \".\" past a slice to be rejected")
+	}
+}
+
+func TestResolveExpressions_RootFunctionArgumentBareIdentifier_Error(t *testing.T) {
+	// A root-level function call (no parent) has nothing to correlate a bare
+	// identifier against — only literals/params are legal there.
+	err := resolveQueryExpectError(t, `{"relation": "fn_plain_add", "schema": "public", "arguments": ["no_such_column", 2]}`)
+	if err == nil {
+		t.Fatalf("expected a bare identifier in a root function call's arguments to be rejected (no parent scope)")
+	}
+}
+
+func TestResolveExpressions_GetSetOnRelationlessFunctionNode_Error(t *testing.T) {
+	// fn_plain_add returns a scalar (int), not a relation : Relation is nil,
+	// so a "select" trying to get/set a column has nothing to resolve
+	// against — must be a clean error, not a nil-pointer panic.
+	err := resolveQueryExpectError(t, `{
+		"relation": "fn_plain_add", "schema": "public", "arguments": [1, 2],
+		"select": {"x": ["get", "id"]}
+	}`)
+	if err == nil {
+		t.Fatalf("expected get/set on a relation-less function node to be rejected")
+	}
+}
+
+func TestResolveExpressions_SelfHopFromOrderByIntoOwnShape_Error(t *testing.T) {
+	// Same rule as the where/select self-hop cases, extended to order_by :
+	// ctx.resolvingOwn is set for node's ENTIRE own-expression block
+	// (where/select/distinct_on/order_by alike), not just where/select.
+	err := resolveQueryExpectError(t, `{
+		"relation": "director",
+		"schema": "public",
+		"alias": "d",
+		"select": ["own-and", {"x": "name"}],
+		"order_by": [[".", "d", "x"]]
+	}`)
+	if err == nil {
+		t.Fatalf("expected order_by hopping into its own node's computed select key via a self-alias to be rejected")
+	}
+}
+
+func TestDeriveShapes_BareCompositeChainIsWritable(t *testing.T) {
+	// Regression : a bare composite "." chain used directly as a select
+	// value (e.g. {"c": [".", "home", "city"]}) is ONE reference to the
+	// terminal sub-field, and must be writable on its own, same as any other
+	// single clean reference. The pre-fix walkSelectForWritability treated
+	// FoldDot like a generic binary fold — walking BOTH "home" (the
+	// navigation prefix) and "home.city" (the terminal) each with
+	// coalesceOnly forced false — which meant a composite chain used bare in
+	// select was NEVER writable, structurally, regardless of duplication.
+	node := mustResolveQuery(t, `{
+		"relation": "venue",
+		"schema": "public",
+		"write_mode": "update",
+		"select": {"id": "id", "c": [".", "home", "city"]}
+	}`)
+	homeCityKey := (ColumnPath{Node: node, Path: []*pg.Column{
+		node.Relation.ColumnsMap["home"],
+		node.Relation.ColumnsMap["home"].Type.Relation.ColumnsMap["city"],
+	}}).Key()
+	found := false
+	for _, ex := range node.Shape.Extractors {
+		if ex.Path.Key() == homeCityKey {
+			found = true
+			if len(ex.JsonPath) != 1 || ex.JsonPath[0] != "c" {
+				t.Errorf("expected JsonPath [c], got %v", ex.JsonPath)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a bare composite \".\" chain (home.city) to be a writable extractor")
+	}
+}
+
+func TestDeriveShapes_ChildHopChainIsNotParentWritable(t *testing.T) {
+	// Regression : a "." chain that hops INTO A CHILD (e.g.
+	// [".", "movies", "title"], as opposed to genuine same-node composite
+	// navigation like [".", "home", "city"]) lands on a ColumnPath whose
+	// Node is the CHILD, not the node doing the selecting. That write target
+	// belongs to the child's own Shape derivation, never the parent's —
+	// found while fixing TestDeriveShapes_BareCompositeChainIsWritable :  an
+	// early version of that fix recorded ANY FoldDot landing on a ColumnPath
+	// unconditionally, which spuriously attributed the CHILD's column as a
+	// clean, writable extractor of the PARENT.
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"write_mode": "update",
+		"select": {"id": "id", "t": [".", "movies", "title"]},
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
+	}`)
+	for _, ex := range node.Shape.Extractors {
+		if ex.Path.Node != node {
+			t.Errorf("expected no extractor attributed to a foreign node, got %#v (node=%p, expected=%p)", ex, ex.Path.Node, node)
+		}
+	}
+}
+
+func TestDeriveShapes_IndexedCompositeChainIsNotWritable(t *testing.T) {
+	// Conservative-by-design exclusion : a "." chain that hops through an
+	// ["index", ...] anywhere along the way (e.g.
+	// [".", ["index", "addresses", 1], "city"]) must NOT become a writable
+	// extractor, even as a single, otherwise-clean reference — ColumnPath's
+	// Key() carries no record of WHICH array element was navigated through
+	// (only ElementType, which a further "." hop clears again once it lands
+	// on the element's own field), so two different indices would otherwise
+	// collapse to the identical extractor key with no way for a write-side
+	// extractor to know which array element a value belongs to. Whether an
+	// indexed element should be a legal write target at all is an open
+	// design question, not something to default into silently.
+	node := mustResolveQuery(t, `{
+		"relation": "warehouse",
+		"schema": "public",
+		"write_mode": "update",
+		"select": {"id": "id", "c": [".", ["index", "addresses", 1], "city"]}
+	}`)
+	for _, ex := range node.Shape.Extractors {
+		if len(ex.JsonPath) == 1 && ex.JsonPath[0] == "c" {
+			t.Errorf("expected an indexed composite chain to NOT be a writable extractor, got %#v", ex)
+		}
+	}
+}
+
+func TestDeriveShapes_DuplicateCompositeChainIsNotWritable(t *testing.T) {
+	// Same sub-field referenced twice via a composite chain : must NOT be
+	// writable, same exactly-once rule as a plain column.
+	node := mustResolveQuery(t, `{
+		"relation": "venue",
+		"schema": "public",
+		"write_mode": "update",
+		"select": {"c1": [".", "home", "city"], "c2": [".", "home", "city"]}
+	}`)
+	homeCityKey := (ColumnPath{Node: node, Path: []*pg.Column{
+		node.Relation.ColumnsMap["home"],
+		node.Relation.ColumnsMap["home"].Type.Relation.ColumnsMap["city"],
+	}}).Key()
+	for _, ex := range node.Shape.Extractors {
+		if ex.Path.Key() == homeCityKey {
+			t.Errorf("expected home.city (referenced twice) to NOT be a writable extractor")
+		}
+	}
+}
+
+func TestDeriveShapes_CompositeChainAndContainingColumnAreIndependent(t *testing.T) {
+	// "home" (the whole composite column) and "home.city" (a sub-field of
+	// it) referenced as TWO DIFFERENT select keys are independent write
+	// targets (composite sub-fields are independently writable, this
+	// session's decision) — neither should count as an occurrence of the
+	// other, so both come out writable.
+	node := mustResolveQuery(t, `{
+		"relation": "venue",
+		"schema": "public",
+		"write_mode": "update",
+		"select": {"whole": "home", "sub": [".", "home", "city"]}
+	}`)
+	homeKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["home"]}}).Key()
+	homeCityKey := (ColumnPath{Node: node, Path: []*pg.Column{
+		node.Relation.ColumnsMap["home"],
+		node.Relation.ColumnsMap["home"].Type.Relation.ColumnsMap["city"],
+	}}).Key()
+	foundHome, foundHomeCity := false, false
+	for _, ex := range node.Shape.Extractors {
+		if ex.Path.Key() == homeKey {
+			foundHome = true
+		}
+		if ex.Path.Key() == homeCityKey {
+			foundHomeCity = true
+		}
+	}
+	if !foundHome {
+		t.Errorf("expected the whole \"home\" column to be independently writable")
+	}
+	if !foundHomeCity {
+		t.Errorf("expected \"home.city\" to be independently writable, unaffected by \"home\" also being selected")
 	}
 }

@@ -3,6 +3,11 @@ db_name := "hotel"
 db_user := "hotel"
 db_password := "test"
 
+# Run the full test suite (testcontainers spins up its own throwaway Postgres
+# per package — docker must be running, but `just db-up` is not required)
+test:
+    go test ./...
+
 # Launch a persistent Postgres dev database for manual testing (docker only, dynamic port)
 db-up:
     docker run -d --name {{db_container}} \

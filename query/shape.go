@@ -223,10 +223,52 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 		}
 
 	case FoldedExpr:
-		if v.Op == FoldCoalesceAlias || v.Op == FoldConcatCoalescing {
+		switch v.Op {
+		case FoldCoalesceAlias, FoldConcatCoalescing:
 			walkSelectForWritability(v.Left, node, jsonPath, coalesceOnly, accum)
 			walkSelectForWritability(v.Right, node, jsonPath, coalesceOnly, accum)
-		} else {
+		case FoldDot:
+			// A "." chain used bare as a select value (e.g. [".", "home",
+			// "city"]) is ONE reference to whatever it lands on — the
+			// terminal composite sub-field — not two : Left is only ever
+			// the static navigation prefix (another Identifier or nested
+			// "." FoldedExpr, never a value in its own right), so walking
+			// it as a separate occurrence (the pre-fix behavior) would
+			// spuriously record the containing composite column as touched
+			// too, permanently marking BOTH it and the sub-field dirty even
+			// on a single, otherwise-clean reference. Right is always an
+			// *Identifier (resolveHopInto's own invariant), whose Resolved
+			// already carries the FULL path (composite navigation is
+			// resolved eagerly, not lazily), so recording just Right,
+			// exactly like the bare *Identifier case above, would be
+			// complete IF the chain stayed within node's own relation — but
+			// a "." chain can also hop INTO A CHILD (e.g. [".", "movies",
+			// "title"]), landing on a ColumnPath whose Node is that CHILD,
+			// not node. That write target belongs to the child's own Shape
+			// derivation (walked separately, when DeriveShapes reaches that
+			// child), never smuggled into node's own accumulator — cp.Node
+			// == node is the guard that keeps this to genuine same-node
+			// composite navigation only.
+			//
+			// A chain that hops through an ["index", ...] anywhere along the
+			// way (e.g. [".", ["index", "addresses", 1], "city"]) is
+			// deliberately EXCLUDED here too, conservatively : ColumnPath
+			// carries no record of which array element was navigated
+			// through (only ElementType, cleared again the moment a further
+			// "." hop lands on the element's own field — see
+			// TestResolveExpressions_ArrayIndexThenDot), so two different
+			// indices collapse to the identical Key() and there is currently
+			// no way for a write-side extractor to know which array element
+			// a value belongs to. Whether an indexed element should be a
+			// legal write target at all is an open question for whoever
+			// designs the write extractor, not a default to silently opt
+			// into here.
+			if id, ok := v.Right.(*Identifier); ok && !chainHopsThroughIndex(v) {
+				if cp, ok := id.Resolved.(ColumnPath); ok && cp.Node == node {
+					accum.record(cp, jsonPath, coalesceOnly)
+				}
+			}
+		default:
 			walkSelectForWritability(v.Left, node, jsonPath, false, accum)
 			walkSelectForWritability(v.Right, node, jsonPath, false, accum)
 		}
@@ -338,6 +380,23 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 		// literals, Star, ParamExpr, DefaultKeyword, *QueryNode-typed
 		// embeds reached indirectly, etc. : nothing to record.
 	}
+}
+
+// chainHopsThroughIndex reports whether e (a "." FoldedExpr, or something
+// nested along its Left spine) passes through an ["index", ...] hop anywhere
+// along the way. Only Left is ever recursed into : Right, in a "." chain, is
+// always a plain *Identifier (resolveHopInto's own invariant), never another
+// hop-bearing sub-expression.
+func chainHopsThroughIndex(e Expression) bool {
+	switch v := e.(type) {
+	case IndexExpr:
+		return true
+	case FoldedExpr:
+		if v.Op == FoldDot {
+			return chainHopsThroughIndex(v.Left)
+		}
+	}
+	return false
 }
 
 func recordOwnColumns(node *QueryNode, except []string, jsonPath []string, accum *writeAccum) {

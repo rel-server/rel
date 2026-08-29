@@ -42,9 +42,15 @@ dmut test test/dmut
 dmut apply <postgres-uri> test/dmut
 ```
 
+Or, via the `justfile` at the repo root :
+
+```sh
+just test      # go test ./... — every package, including the testcontainer-backed ones
+```
+
 ### Manual testing : a database that stays up
 
-The above two are both throwaway — nothing to connect to afterwards. For poking around
+The above are all throwaway — nothing to connect to afterwards. For poking around
 with `psql`, a GUI client, or rel itself once it runs, use the `justfile` at the repo
 root instead : it manages a **long-lived** dev database, separate from the ephemeral
 containers `go test`/`dmut test` create and tear down for themselves.
