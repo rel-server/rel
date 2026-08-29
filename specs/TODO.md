@@ -96,5 +96,22 @@ Grouped by how much they block implementation, not by file.
 
 - CLI / entrypoint structure — no section on process structure, subcommands (is `dmut` a
   subcommand or purely signal-driven?), startup sequence, graceful shutdown.
+  **Partially resolved** : `cmd/rel/main.go` now implements the full `config` package
+  (`01-configuration.md`, koanf-based file/env/flag merge, `$FILE$`, "no arrays",
+  `ConfigReader`) and the `logging` package (`01-logging.md ## Configuration`/
+  `## Logger construction` only — request-scoped middleware, access logging, and the
+  `oops` `logging.Error` helper are still unimplemented, see those packages' own doc
+  comments), then serves `POST /rel` with graceful SIGINT/SIGTERM shutdown. Two things
+  this pass had to invent, not spec'd anywhere : `http.host`/`http.port` (the HTTP bind
+  address — no section defines one) and `pg.database` (`config.Pg` had no field naming
+  which database to connect to at all, needed to build a real connection URI). Also one
+  deliberate reading of `01-configuration.md ## Error handling and secrets` worth
+  recording : `ConfigReader`'s accessors do NOT log a plain "key absent" miss (only a
+  genuinely malformed — present but wrong-type — value is logged), since nearly every
+  call site uses an `*OrDefault` variant, for which "absent" is the expected, extremely
+  common case ; logging every unset optional key at Error level on every startup would
+  be pure noise unrelated to an actual problem. A malformed value is still fatal even
+  through an `*OrDefault` call (see `config.ConfigReader`'s own doc comment for how).
+  Still missing : `dmut` subcommand-vs-signal question, auth/`SET LOCAL ROLE` wiring.
 - Testing conventions — `AGENTS.md` mandates testcontainers ; no documented fixture/schema
   convention. `pg/testdata/schema.sql` is one ad hoc instance, not a written-down pattern.

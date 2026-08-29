@@ -30,6 +30,10 @@ func Test() *Config {
 		Query: Query{
 			MaxDepth: DefaultMaxDepth,
 		},
+		Logging: Logging{
+			Handler: DefaultLoggingHandler,
+			Level:   DefaultLoggingLevel,
+		},
 		Blacklist: DefaultBlacklist(),
 	}
 }

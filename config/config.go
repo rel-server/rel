@@ -6,11 +6,44 @@ package config
 // Writing Algorithm as a tentative option the redactor was "torn" on, isn't
 // here either — deliberately, since it was never actually settled).
 type Config struct {
-	Pg    Pg
-	Query Query
+	Pg      Pg
+	Query   Query
+	Logging Logging
+	Http    Http
 
 	Blacklist Blacklist
 }
+
+// Logging is specs/01-logging.md ## Configuration : logging.handler,
+// logging.level, logging.filter.*, logging.exclude.*.
+type Logging struct {
+	// Handler is logging.handler : "JSON" or "pretty" (default "pretty").
+	Handler string
+	// Level is logging.level : debug/info/warn/error (default "info").
+	Level string
+	// Filter is logging.filter.* : per-key regexp a log record's matching
+	// attribute value must contain to be displayed.
+	Filter map[string]string
+	// Exclude is logging.exclude.* : same shape as Filter, but suppresses a
+	// matching record instead, applied after Filter.
+	Exclude map[string]string
+}
+
+// Http is the HTTP listen address — invented for cmd/rel, since no spec
+// under specs/ defines the bind host/port. http.host / http.port.
+type Http struct {
+	Host string
+	Port int
+}
+
+// DefaultLoggingHandler/DefaultLoggingLevel/DefaultHttpPort are
+// specs/01-logging.md's own stated defaults (Handler/Level) and this
+// package's own invented default (Port — see Http's doc comment).
+const (
+	DefaultLoggingHandler = "pretty"
+	DefaultLoggingLevel   = "info"
+	DefaultHttpPort       = 8080
+)
 
 type Query struct {
 	// MaxDepth is query.maxdepth : the maximum depth a query can specify.
@@ -43,6 +76,11 @@ type Pg struct {
 
 	Host string
 	Port int
+
+	// Database is the database name to connect to — pg.database. Genuinely
+	// missing before this field was added : nothing in this struct could
+	// name which database to connect to at all.
+	Database string
 }
 
 // Blacklist holds the function/relation blacklist from querying.md's
