@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/huml"
@@ -247,10 +248,20 @@ func resolveFileIndirection(k *koanf.Koanf) error {
 // fallback, $GEN$ generate-and-write. filePath is resolved relative to the
 // process's current working directory (the spec's own rule) — that's
 // os.ReadFile's default behavior for a relative path, nothing extra needed.
+//
+// The marker is located via the LAST occurrence of "$DEFAULT$"/"$GEN$" in
+// the remainder, not the first : the spec's own syntax puts the marker
+// right before the fallback/length suffix at the END of the value, and a
+// real file PATH can itself legitimately contain either marker string as a
+// substring (e.g. a directory literally named "secrets_$GEN$_v2") — using
+// the first occurrence would misparse the path itself as the split point.
+// This isn't a full fix (an arbitrary $DEFAULT$ fallback string could in
+// principle also contain "$DEFAULT$"), but it correctly handles the much
+// more likely case : the path containing the marker, not the value.
 func resolveFileValue(raw string) (string, error) {
 	rest := strings.TrimPrefix(raw, "$FILE$")
 
-	if idx := strings.Index(rest, "$DEFAULT$"); idx >= 0 {
+	if idx := strings.LastIndex(rest, "$DEFAULT$"); idx >= 0 {
 		filePath, fallback := rest[:idx], rest[idx+len("$DEFAULT$"):]
 		data, err := os.ReadFile(filePath)
 		if err != nil {
@@ -259,24 +270,22 @@ func resolveFileValue(raw string) (string, error) {
 		return trimOneNewline(data), nil
 	}
 
-	if idx := strings.Index(rest, "$GEN$"); idx >= 0 {
+	// $GEN$'s own syntax requires a positive integer immediately after the
+	// marker (nothing else), unlike $DEFAULT$'s free-form fallback text —
+	// so unlike $DEFAULT$, a $GEN$-shaped split that DOESN'T parse as a
+	// valid length is treated as "this wasn't really a $GEN$ marker, just a
+	// path that happens to contain the substring" and falls through to the
+	// plain-path case below, rather than erroring immediately. This
+	// resolves the realistic case (a path segment literally named e.g.
+	// "secrets_$GEN$_v2") without needing an escape syntax the spec never
+	// defined ; a genuine $GEN$ typo (garbage after a real trailing marker)
+	// still ends up as an error either way, just via "file not found" on
+	// the whole string instead of "invalid length".
+	if idx := strings.LastIndex(rest, "$GEN$"); idx >= 0 {
 		filePath, lenStr := rest[:idx], rest[idx+len("$GEN$"):]
-		data, err := os.ReadFile(filePath)
-		if err == nil {
-			return trimOneNewline(data), nil
+		if n, cerr := parseGenLength(lenStr); cerr == nil {
+			return resolveGenValue(filePath, n)
 		}
-		n, cerr := parseGenLength(lenStr)
-		if cerr != nil {
-			return "", cerr
-		}
-		generated, gerr := generateRandom(n)
-		if gerr != nil {
-			return "", gerr
-		}
-		if werr := os.WriteFile(filePath, []byte(generated), 0o600); werr != nil {
-			return "", fmt.Errorf("writing generated value to %s: %w", filePath, werr)
-		}
-		return generated, nil
 	}
 
 	data, err := os.ReadFile(rest)
@@ -284,6 +293,35 @@ func resolveFileValue(raw string) (string, error) {
 		return "", fmt.Errorf("reading %s: %w", rest, err)
 	}
 	return trimOneNewline(data), nil
+}
+
+// resolveGenValue is $GEN$'s own branch, split out of resolveFileValue so
+// the "isn't shaped like $GEN$" fallthrough above stays a plain early
+// return.
+func resolveGenValue(filePath string, n int) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err == nil {
+		existing := trimOneNewline(data)
+		// A cheap, unambiguous safety check : two config keys pointing at
+		// the same $GEN$ path but declaring different lengths is almost
+		// certainly a config mistake (copy-paste, or two unrelated fields
+		// accidentally sharing a path), not an intentional "reuse
+		// whatever's there" — silently returning the wrong length would be
+		// exactly the kind of value-shaped surprise ## Error handling and
+		// secrets' "malformed value is fatal" posture is meant to catch.
+		if len(existing) != n {
+			return "", fmt.Errorf("$GEN$: %s already holds a %d-character value, but this key requested %d", filePath, len(existing), n)
+		}
+		return existing, nil
+	}
+	generated, gerr := generateRandom(n)
+	if gerr != nil {
+		return "", gerr
+	}
+	if werr := os.WriteFile(filePath, []byte(generated), 0o600); werr != nil {
+		return "", fmt.Errorf("writing generated value to %s: %w", filePath, werr)
+	}
+	return generated, nil
 }
 
 // trimOneNewline trims exactly one trailing "\n" or "\r\n" — the spec's own
@@ -299,9 +337,14 @@ func trimOneNewline(data []byte) string {
 	return s
 }
 
+// parseGenLength uses strconv.Atoi (full-string match), not fmt.Sscanf :
+// Sscanf("%d", ...) happily accepts "16xyz" as 16, silently ignoring the
+// trailing garbage instead of rejecting the malformed value — confirmed
+// empirically. A stray character after the number is a config typo that
+// deserves the same fatal treatment every other malformed value gets here.
 func parseGenLength(s string) (int, error) {
-	var n int
-	if _, err := fmt.Sscanf(s, "%d", &n); err != nil || n <= 0 {
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
 		return 0, fmt.Errorf("$GEN$: invalid length %q", s)
 	}
 	return n, nil

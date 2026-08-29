@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
+	"net"
 	"net/url"
+	"strconv"
 
 	"github.com/ceymard/rel/config"
 )
@@ -15,11 +16,15 @@ import (
 // encodes a space as "+", which is only meaningful in a query string, not
 // the userinfo component — a literal "+" in a password would round-trip
 // wrong. url.URL.String() escapes userinfo correctly for that component.
+// net.JoinHostPort (not fmt.Sprintf("%s:%d", ...)) for the host:port pair —
+// an IPv6 pg.Host needs bracketing ("::1" -> "[::1]:5432") or
+// pgconn.ParseConfig's own net.SplitHostPort call fails outright on the
+// unbracketed form ; confirmed empirically.
 func postgresURI(pg config.Pg) string {
 	u := &url.URL{
 		Scheme: "postgres",
 		User:   url.UserPassword(pg.Querier.User, pg.Querier.Password),
-		Host:   fmt.Sprintf("%s:%d", pg.Host, pg.Port),
+		Host:   net.JoinHostPort(pg.Host, strconv.Itoa(pg.Port)),
 		Path:   "/" + pg.Database,
 	}
 	return u.String()

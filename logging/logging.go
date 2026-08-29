@@ -93,6 +93,16 @@ func parseLevel(level string) (slog.Level, error) {
 //   - Exclude : the same mechanism inverted (a matching record is
 //     suppressed instead of required), applied after Filter.
 //
+// Caveat : only top-level attributes (a record's own Attrs() plus anything
+// attached via logger.With(...)) are checked — a key nested inside an
+// slog.Group is invisible to this check (the group as a whole stringifies
+// to a single opaque value under the group's own key), so filtering/
+// excluding on a grouped key silently behaves as "key absent" (passes
+// through) rather than matching inside the group. Not fixed here since
+// nothing in this package's current scope produces groups — worth
+// revisiting if ## Request-scoped logging's request-ID middleware (still
+// deferred, see this package's own doc comment) ever groups its attributes.
+//
 // attrs accumulates every attribute attached via logger.With(...)
 // (WithAttrs), since those never appear in a Record's own Attrs() at Handle
 // time — only attrs added directly to that specific call do. Without

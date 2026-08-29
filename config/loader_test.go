@@ -279,6 +279,56 @@ func TestResolveFileValue_GenGeneratesAndPersists(t *testing.T) {
 	}
 }
 
+// TestResolveFileValue_PathContainingMarkerSubstring covers a bug an
+// adversarial review caught : the marker search used to be the FIRST
+// occurrence of "$GEN$"/"$DEFAULT$" in the remainder, so a real, readable
+// file whose own path happens to contain "$GEN$" as a substring (e.g. a
+// directory literally named "secrets_$GEN$_v2") got misparsed — the path
+// was split at the substring instead of the real trailing marker, and the
+// leftover path fragment was rejected as an invalid $GEN$ length.
+func TestResolveFileValue_PathContainingMarkerSubstring(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "secrets_$GEN$_v2")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	p := writeFile(t, dir, "token.txt", "real value")
+	got, err := resolveFileValue("$FILE$" + p)
+	if err != nil {
+		t.Fatalf("resolveFileValue: %v", err)
+	}
+	if got != "real value" {
+		t.Errorf("expected the file's real content despite $GEN$ appearing in its path, got %q", got)
+	}
+}
+
+// TestResolveFileValue_GenLengthRejectsTrailingGarbage covers a bug an
+// adversarial review caught : parseGenLength used fmt.Sscanf("%d", ...),
+// which silently accepts "16xyz" as 16 instead of rejecting the malformed
+// trailing characters.
+func TestResolveFileValue_GenLengthRejectsTrailingGarbage(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "generated.txt")
+	if _, err := resolveFileValue("$FILE$" + p + "$GEN$16xyz"); err == nil {
+		t.Fatalf("expected an error for a $GEN$ length with trailing garbage, got nil")
+	}
+}
+
+// TestResolveFileValue_GenLengthMismatchIsFatal covers a bug an adversarial
+// review caught : two config keys pointing at the same $GEN$ path with
+// different declared lengths used to silently return whichever length was
+// generated first, with no error — a config keys copy-paste or path
+// collision would go completely unnoticed.
+func TestResolveFileValue_GenLengthMismatchIsFatal(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "generated.txt")
+	if _, err := resolveFileValue("$FILE$" + p + "$GEN$32"); err != nil {
+		t.Fatalf("first resolveFileValue: %v", err)
+	}
+	if _, err := resolveFileValue("$FILE$" + p + "$GEN$64"); err == nil {
+		t.Fatalf("expected an error when a second key requests a different length for the same $GEN$ path")
+	}
+}
+
 func TestRejectArrays(t *testing.T) {
 	k := koanf.New(".")
 	if err := k.Load(confmap.Provider(map[string]any{
