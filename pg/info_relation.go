@@ -117,4 +117,37 @@ INNER JOIN pg_class ON pg_class.relname = col.table_name AND pg_class.relnamespa
 
 GROUP BY
 pg_class.oid, pg_class.relnamespace, pg_class.relname
+
+UNION ALL
+
+-- information_schema.columns' own view definition filters to
+-- relkind IN ('r','v','m','f','p') — a bare CREATE TYPE ... AS (...)
+-- composite type (relkind 'c') never shows up there at all, so it's picked
+-- up here instead, straight from pg_attribute. No overlap with the branch
+-- above : a table's own row type lives on the table's pg_class row
+-- (relkind 'r'), never as a separate 'c' entry, so relkind = 'c' can only
+-- ever match a real standalone composite type.
+SELECT
+	pg_class.oid::integer AS "PgRelId",
+	json_build_object(
+		'Schema', pg_class.relnamespace::regnamespace,
+		'Name', pg_class.relname
+	) AS "Identifier",
+	obj_description(pg_class.oid, 'pg_class') AS "Comment",
+	json_agg(json_build_object(
+		'Name', a.attname,
+		'Index', a.attnum,
+		'Comment', col_description(pg_class.oid, a.attnum),
+		'DefaultExpression', NULL,
+		'IsNullable', true,
+		'IsSelfReferencing', false,
+		'IsIdentity', false,
+		'IsUpdatable', false,
+		'PgTypeOid', a.atttypid::integer,
+		'DomainIdentifier', NULL
+	) ORDER BY a.attnum) AS "Columns"
+FROM pg_class
+JOIN pg_attribute a ON a.attrelid = pg_class.oid AND a.attnum > 0 AND NOT a.attisdropped
+WHERE pg_class.relkind = 'c'
+GROUP BY pg_class.oid, pg_class.relnamespace, pg_class.relname
 ) R;`

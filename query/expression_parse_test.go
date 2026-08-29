@@ -24,7 +24,7 @@ func TestParseExpression_Atoms(t *testing.T) {
 	if _, ok := mustParse(t, `"*"`).(Star); !ok {
 		t.Errorf(`"*" did not parse as Star`)
 	}
-	if id, ok := mustParse(t, `"movie_id"`).(Identifier); !ok || id.Name != "movie_id" {
+	if id, ok := mustParse(t, `"movie_id"`).(*Identifier); !ok || id.Name != "movie_id" {
 		t.Errorf(`"movie_id" did not parse as Identifier{movie_id}`)
 	}
 	if s, ok := mustParse(t, `["hello"]`).(StringLiteral); !ok || s.Value != "hello" {
@@ -115,13 +115,13 @@ func TestParseExpression_Object(t *testing.T) {
 	if _, ok := obj.Fields["movie"].(FullExceptExpr); !ok {
 		t.Errorf("expected movie field to be FullExceptExpr, got %#v", obj.Fields["movie"])
 	}
-	if id, ok := obj.Fields["actors"].(Identifier); !ok || id.Name != "actors" {
+	if id, ok := obj.Fields["actors"].(*Identifier); !ok || id.Name != "actors" {
 		t.Errorf("expected actors field to be Identifier{actors}, got %#v", obj.Fields["actors"])
 	}
 }
 
 func TestParseExpression_GetSetDefaultKeyword(t *testing.T) {
-	expr, ok := mustParse(t, `["get-set", "id", "default", 0]`).(GetSetExpr)
+	expr, ok := mustParse(t, `["get-set", "id", "default", 0]`).(*GetSetExpr)
 	if !ok {
 		t.Fatalf("expected GetSetExpr, got %#v", expr)
 	}
@@ -137,7 +137,7 @@ func TestParseExpression_AggAndCall(t *testing.T) {
 	// Bare string : unqualified Name, never split on "." — a literal dot in
 	// the name (however unlikely) stays part of Name rather than being
 	// mistaken for a schema separator.
-	agg, ok := mustParse(t, `["agg", "array_agg", ["name"], [">=", "year", 1999]]`).(AggExpr)
+	agg, ok := mustParse(t, `["agg", "array_agg", ["name"], [">=", "year", 1999]]`).(*AggExpr)
 	if !ok {
 		t.Fatalf("expected AggExpr, got %#v", agg)
 	}
@@ -147,7 +147,7 @@ func TestParseExpression_AggAndCall(t *testing.T) {
 
 	// Explicit {schema, name} object : the only way to spell a qualified
 	// name.
-	call, ok := mustParse(t, `["call", {"schema": "api", "name": "slugify"}, "name"]`).(CallExpr)
+	call, ok := mustParse(t, `["call", {"schema": "api", "name": "slugify"}, "name"]`).(*CallExpr)
 	if !ok || call.Identifier != (FunctionRef{Schema: "api", Name: "slugify"}) || len(call.Arguments) != 1 {
 		t.Errorf("unexpected CallExpr shape: %#v", call)
 	}

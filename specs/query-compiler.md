@@ -14,15 +14,21 @@ A function-rooted node also gets `Relation` populated (via `GetRelationByType` o
 
 Expression-typed fields (`where`, `select`, `order_by`, `distinct_on`, function `arguments`) are parsed (`query/expression_parse.go`) but not resolved during pass 1 — bare strings stay opaque `Identifier` nodes.
 
-**Pass 2 — expression resolution.** Two steps, not one :
+**Pass 2 — expression resolution. Implemented** (`query/expression_resolve.go`'s resolution step, `query/shape.go`'s shape/writability step, `query/scope.go`'s `LookupInScope` — see those files' tests, plus `query/expression_resolve_test.go`, for coverage). Two steps, not one :
 
-1. **Resolution** : a generic walk, uniform across every Expression-typed field, that binds each bare identifier to a column/alias/param and blacklist-checks every `call`/`agg` identifier against `config.Blacklist`. Resolves *in place* — mutates the existing `Expression` tree rather than building a second, parallel `ResolvedExpression` tree isomorphic to the first.
+1. **Resolution** : a generic walk (`ResolveExpressions`), uniform across every Expression-typed field, that binds each bare identifier to a column/alias/param and blacklist-checks every `call`/`agg` identifier against `config.Blacklist`. Resolves *in place* — mutates the existing `Expression` tree rather than building a second, parallel `ResolvedExpression` tree isomorphic to the first. Runs bottom-up (children before parents) — a `.` chain into a child's `select` needs that child already resolved.
 
    > Why: a whole shadow tree duplicates memory for no benefit here — the original unresolved tree isn't needed again once resolution has run, so there's nothing gained by keeping both.
 
-   Resolved values live in mutable fields added to the node types that need them (`Identifier`, `AggExpr`/`CallExpr`'s `FunctionRef`, `GetExpr`/`SetExpr`/`GetSetExpr`'s `Column`) — not a second node type substituted in during resolution. This requires those node types to be held as pointers (`*Identifier`, not `Identifier`) wherever they sit in the tree, so a mutation made through a type-switched `*Identifier` is visible everywhere else that same node is referenced — currently `query/expression_parse.go` returns every node by value ; switching the constructors to return pointers is the concrete follow-on work this decision implies, not yet done.
+   Resolved values live in mutable fields added to the six node types that need them (`Identifier`, `AggExpr`/`CallExpr`'s `ResolvedFunction`, `GetExpr`/`SetExpr`/`GetSetExpr`'s `ResolvedColumn`) — not a second node type substituted in during resolution. Those six are constructed as pointers (`*Identifier`, etc.) ; every other node type stays value-constructed, since nothing else needs a mutable companion field — `resolveExpr` always *returns* a (possibly rebuilt) `Expression` and every caller stores it back into the field it read from, which is what actually makes this safe for both value- and pointer-constructed types (a value read out of an interface via type-switch is a copy ; mutating a pointer taken from that copy would not be visible through the original interface slot — the return-and-store discipline is what matters, independent of value vs. pointer).
 
-2. **Shape/writability derivation**, over the already-resolved `select` tree only — `where`/`order_by`/`distinct_on`/etc. don't produce an exported shape or writable columns, so this step doesn't touch them. Produces, per node : the exported shape (`query/resolved_field.go`'s `ResolvedField`), the extractor (column -> JSON path within a conforming `data` payload), and writability.
+   A bare name colliding across more than one thing in scope (a column, a child's join alias, and/or this node's own alias) is a **hard error** (`LookupInScope`), not silently resolved by precedence — picking one on a collision would let a query run and silently return data other than what the author meant.
+
+   A function-position node's own call `arguments` resolve against its **parent**'s scope (correlating to the enclosing query, same as any subquery's arguments would) ; a root-level function call (no parent) can only use literals/params.
+
+2. **Shape/writability derivation** (`DeriveShapes`), over the already-resolved `select` tree only — `where`/`order_by`/`distinct_on`/etc. don't produce an exported shape or writable columns, so this step doesn't touch them. Also bottom-up. Produces, per node (`query/node.go`'s `QueryNode.Shape`, a `*NodeShape`) : the exported shape (`query/resolved_field.go`'s `ResolvedField`), the extractor (column -> JSON path within a conforming `data` payload), and writability.
+
+   Composite sub-fields are independently writable (Postgres allows `UPDATE t SET comp.field = ...`) — occurrence-counting and the extractor key on the *full* `ColumnPath.Path`, not just the containing column, so `home` alone, `home.city`, and `work.city` (two columns sharing the same composite type) all track as distinct write targets, never colliding on the shared terminal `*pg.Column` pointer.
 
    **Writability is the last step, and is skipped entirely for read-only queries** — it only runs when the query is actually a write.
 
@@ -55,7 +61,9 @@ Resolving an `Identifier` (or a later hop in a `.`/`->`/`->>`/`#>`/`#>>` chain) 
 
 Not part of this : `$param`'s name. It already has its own AST node (`ParamExpr`) and resolves against a well-known query's declared param list, never through Scope — keep that boundary, don't fold it into identifier resolution later.
 
-`ResolvedField` itself needs (at least) three concrete variants to cover the above : a column-backed one wrapping `*pg.Column` (covers both a plain relation column and a composite sub-field — both are ultimately "this name is this physical column," just sourced from a different `ColumnsMap`), a node-backed one wrapping `*QueryNode` (an embed), and a literal-backed one wrapping a nested inline object literal's own field map. No separate "scalar leaf" variant is needed — that's the column-backed variant with nothing further to chain into ; attempting to chain past it is what produces the error, not a distinct type.
+`ResolvedField` has three concrete variants (`query/resolved_field.go`) : `ColumnPath{Node, Path}` (a plain relation column, or a composite sub-field — both are ultimately "this name is this physical column," just sourced from a different `ColumnsMap` ; `Node`+`Path` together, not the terminal `*pg.Column` alone, are the identity — two columns sharing a composite type yield the same terminal pointer once navigated into, which would otherwise collide), `*QueryNode` (an embed, self-reference included), and `LiteralField{Node, Fields}` (a nested inline object literal's own field map). No separate "scalar leaf" variant is needed — that's `ColumnPath` with nothing further to chain into ; attempting to chain past it is what produces the error, not a distinct type.
+
+> Question: a `.` hop into an embedded `*QueryNode` (`resolveHopInto`'s `*QueryNode` case) currently only reaches physical columns and child aliases, via `LookupInScope` — it does not fall back to a computed/renamed key from that node's own `select` (an `ObjectExpr`/`-and` key), which is exactly what `LiteralField` exists for. How a hop first *produces* a `LiteralField` (as opposed to only receiving one via an already-produced chain) was never pinned down during design. Deliberate, flagged gap — not yet implemented.
 
 Two Go-level domains do the actual resolving, and they're not the same mechanism :
 
@@ -66,4 +74,10 @@ Not identifier resolution, despite looking similar : the keys of `ObjectExpr.Fie
 
 ## Not yet wired
 
-- `query.maxdepth` (`config.Query.MaxDepth`) : no enforcement exists yet. Pure pass-1, tree-depth concern — unrelated to expression resolution, don't conflate the two.
+- Chaining into a computed/renamed key exported by a child's own `select` (the `LiteralField` gap noted above under "Identifier resolution").
+
+`query.maxdepth` enforcement, listed here as unwired in an earlier version of this doc, was actually implemented as part of pass 1 (`node_resolve.go`'s depth check, `TestResolveQuery_MaxDepth`) — corrected.
+
+## Fixed along the way : composite-type introspection
+
+Pass 2's composite-column chaining surfaced a real `pg` gap : `INFO_QUERY_RELATIONS` (`pg/info_relation.go`) sourced its columns entirely from `information_schema.columns`, whose own view definition filters to `relkind IN ('r','v','m','f','p')` — a bare `CREATE TYPE ... AS (...)` composite type (`relkind = 'c'`) was never introspected at all, so `pg.Type.IsComposite()`/`.Relation` silently reported `false`/`nil` for exactly the case `ResolvedField`'s composite-navigation design depends on. Fixed by unioning in a second branch sourced directly from `pg_attribute` for `relkind = 'c'` relations — no overlap with the existing branch, since a table's own row type lives on the table's `pg_class` row (`relkind = 'r'`), never as a separate `'c'` entry.

@@ -19,9 +19,12 @@ Grouped by how much they block implementation, not by file.
   resolution (search path + blacklist), `ResolveJoin` per join, write_mode
   defaulting/validation, `on_conflict`/insert/update-column resolution, `query.maxdepth`
   enforcement. Pass 2 (expression resolution : scope, blacklist, shape, writability) is
-  still only designed, in `query-compiler.md`, not implemented. `query/sql.go` is still
-  a 26-line stub with empty method bodies — SQL codegen off the resolved tree hasn't
-  started.
+  now also implemented and tested (`query/expression_resolve.go`, `query/shape.go`,
+  `query/scope.go`) — identifier/`.`-chain resolution, `call`/`agg` catalog resolution,
+  writability with the extractor. One deliberate, flagged gap remains : chaining into a
+  computed/renamed key exported by a child's own `select` (see `query-compiler.md`'s
+  "Identifier resolution" section). `query/sql.go` is still a 26-line stub with empty
+  method bodies — SQL codegen off the resolved tree hasn't started.
 - **Connection pool / transaction lifecycle.** Never given its own spec, but three other
   documents assume it exists : `SET LOCAL ROLE` timing (`jwt-roles-and-http.md`), the
   commit-before-select response design (`querying.md ## Response Shape`), and `_data`

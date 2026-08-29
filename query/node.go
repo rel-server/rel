@@ -86,6 +86,11 @@ type QueryNode struct {
 	// nil indicates absence
 	Offset *int
 	Limit  *int
+
+	// Shape is pass 2's shape/writability derivation output for this node,
+	// computed from the already-resolved Select — see DeriveShapes
+	// (shape.go). nil until pass 2's second step has run.
+	Shape *NodeShape
 }
 
 func (n *QueryNode) IsFunction() bool { return n.Function != nil }

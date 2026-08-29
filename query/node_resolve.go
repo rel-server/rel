@@ -242,28 +242,49 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 // AcceptsArity. More than one surviving candidate is an ambiguity error,
 // not a guess.
 func (ctx *ResolveContext) resolveFunction(raw *rawRelation, oc oops.OopsErrorBuilder) (*pg.Function, error) {
-	candidates := ctx.Db.ResolveFunctionCandidates(raw.Schema, raw.Relation)
+	return resolveFunctionCandidate(ctx.Db, ctx.Config.Blacklist, raw.Schema, raw.Relation,
+		raw.ArgumentsPositional, raw.ArgumentsNamed, (*pg.Function).IsPlainFunction, oc)
+}
 
-	plain := make([]*pg.Function, 0, len(candidates))
+// resolveFunctionCandidate picks the single *pg.Function candidate matching
+// schema/name and call shape, filtered by kindOK — (*pg.Function).
+// IsPlainFunction for a relation/function-position root or a "call"
+// expression, (*pg.Function).IsAggregate for an "agg" expression. Shared
+// core behind pass 1's resolveFunction (a node's own root) and pass 2's
+// AggExpr/CallExpr resolution (a function reference embedded inside an
+// expression) — same disambiguation rules either way : named-argument calls
+// match every given name against the candidate's IN/INOUT argument names
+// (functionAcceptsNames), positional calls match by arity (AcceptsArity).
+// More than one surviving candidate is an ambiguity error, not a guess.
+func resolveFunctionCandidate(
+	db *pg.DbInfos, bl config.Blacklist,
+	schema, name string,
+	positional []Expression, named map[string]Expression,
+	kindOK func(*pg.Function) bool,
+	oc oops.OopsErrorBuilder,
+) (*pg.Function, error) {
+	candidates := db.ResolveFunctionCandidates(schema, name)
+
+	filtered := make([]*pg.Function, 0, len(candidates))
 	for _, f := range candidates {
-		if f.IsPlainFunction() {
-			plain = append(plain, f)
+		if kindOK(f) {
+			filtered = append(filtered, f)
 		}
 	}
-	if len(plain) == 0 {
+	if len(filtered) == 0 {
 		return nil, oc.Errorf("unknown function")
 	}
 
 	var matches []*pg.Function
-	if raw.ArgumentsNamed != nil {
-		for _, f := range plain {
-			if functionAcceptsNames(f, raw.ArgumentsNamed) {
+	if named != nil {
+		for _, f := range filtered {
+			if functionAcceptsNames(f, named) {
 				matches = append(matches, f)
 			}
 		}
 	} else {
-		n := len(raw.ArgumentsPositional)
-		for _, f := range plain {
+		n := len(positional)
+		for _, f := range filtered {
 			if f.AcceptsArity(n) {
 				matches = append(matches, f)
 			}
@@ -271,14 +292,14 @@ func (ctx *ResolveContext) resolveFunction(raw *rawRelation, oc oops.OopsErrorBu
 	}
 
 	if len(matches) == 0 {
-		return nil, oc.Errorf("no overload of %q matches the given arguments", raw.Relation)
+		return nil, oc.Errorf("no overload of %q matches the given arguments", name)
 	}
 	if len(matches) > 1 {
-		return nil, oc.Errorf("ambiguous function %q : %d overloads match the given arguments", raw.Relation, len(matches))
+		return nil, oc.Errorf("ambiguous function %q : %d overloads match the given arguments", name, len(matches))
 	}
 
 	fn := matches[0]
-	if ctx.Config.Blacklist.IsFunctionBlacklisted(fn.Identifier.Schema, fn.Identifier.Name) {
+	if bl.IsFunctionBlacklisted(fn.Identifier.Schema, fn.Identifier.Name) {
 		return nil, oc.Errorf("function %q is blacklisted", fn.Identifier.String())
 	}
 	return fn, nil

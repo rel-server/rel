@@ -1,5 +1,7 @@
 package query
 
+import "github.com/ceymard/rel/pg"
+
 // Expression is implemented by every node produced by parsing query.ts's
 // `Expression` grammar (see ParseExpression in expression_parse.go). This is
 // pass 1's output for expression-typed fields (where/select/order_by/
@@ -74,10 +76,15 @@ type Star struct{ notYetValidated }
 // name or an alias, per query.ts : "strings always refer to aliases and
 // column names, since they are much more likely to appear than actual
 // strings". Left unresolved (not yet known to be a column vs. an alias vs.
-// invalid) until pass 2.
+// invalid) until pass 2, which sets Resolved via LookupInScope (or, for a
+// later hop in a "." chain, via resolveHopInto) — nil until then.
+//
+// Constructed as *Identifier (not a value), so pass 2 can set Resolved in
+// place on the exact node the tree already holds a pointer to.
 type Identifier struct {
 	notYetValidated
-	Name string
+	Name     string
+	Resolved ResolvedField
 }
 
 // StringLiteral is query.ts's one-element-array escape hatch for an actual
@@ -305,19 +312,28 @@ type FunctionRef struct {
 // that function/operator allowlisting has to be checkable at query-compile
 // time against a static, schema-qualified name, which isn't possible if the
 // identifier could itself be computed. Filter is nil if absent.
+//
+// ResolvedFunction is set by pass 2 (catalog-domain resolution — search path
+// + config.Blacklist.IsFunctionBlacklisted, filtered to pg.Function.
+// IsAggregate() for this position ; unrelated to any QueryNode's Scope).
+// Constructed as *AggExpr so pass 2 can set it in place.
 type AggExpr struct {
 	notYetValidated
-	Identifier FunctionRef
-	Arguments  []Expression
-	Filter     Expression
+	Identifier       FunctionRef
+	Arguments        []Expression
+	Filter           Expression
+	ResolvedFunction *pg.Function
 }
 
 // CallExpr is ["call", identifier, ...arguments]. Same static-identifier
-// constraint as AggExpr.
+// constraint as AggExpr. ResolvedFunction is the same catalog-domain
+// resolution as AggExpr's, filtered to IsPlainFunction() instead of
+// IsAggregate(). Constructed as *CallExpr so pass 2 can set it in place.
 type CallExpr struct {
 	notYetValidated
-	Identifier FunctionRef
-	Arguments  []Expression
+	Identifier       FunctionRef
+	Arguments        []Expression
+	ResolvedFunction *pg.Function
 }
 
 // ---- object / select-shape family ------------------------------------------------
@@ -408,27 +424,36 @@ type SliceExpr struct {
 
 // GetSetExpr is ["get-set", column, default_get?, default_set?]. DefaultGet/
 // DefaultSet are nil when absent, and may be DefaultKeyword.
+//
+// ResolvedColumn is set by pass 2 (scope-domain resolution — Column may only
+// land on a plain physical column of the current relation, never an alias
+// or embed). Constructed as *GetSetExpr so pass 2 can set it in place.
 type GetSetExpr struct {
 	notYetValidated
-	Column     string
-	DefaultGet Expression
-	DefaultSet Expression
+	Column         string
+	DefaultGet     Expression
+	DefaultSet     Expression
+	ResolvedColumn *pg.Column
 }
 
 // GetExpr is ["get", column, default_value?] : read-only granular field
 // selection — this column will not be looked for / modified in write mode.
+// ResolvedColumn is GetSetExpr's, same constraint. Constructed as *GetExpr.
 type GetExpr struct {
 	notYetValidated
-	Column       string
-	DefaultValue Expression
+	Column         string
+	DefaultValue   Expression
+	ResolvedColumn *pg.Column
 }
 
 // SetExpr is ["set", column, default_value?] : write-only granular field
 // selection — not fetched in query mode, but expected in write mode.
+// ResolvedColumn is GetSetExpr's, same constraint. Constructed as *SetExpr.
 type SetExpr struct {
 	notYetValidated
-	Column       string
-	DefaultValue Expression
+	Column         string
+	DefaultValue   Expression
+	ResolvedColumn *pg.Column
 }
 
 // ---- params -----------------------------------------------------------------------

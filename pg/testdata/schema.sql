@@ -99,3 +99,17 @@ create function fn_directors() returns setof director language sql as $$ select 
 -- no primary key at all : on_conflict must be left unresolved (not panic)
 -- when unspecified and there's no PK to default to
 create table no_pk_t (a int, b int);
+
+-- pass 2 fixtures : a composite type used by two distinct columns
+-- (regression : the same *pg.Column pointer is reachable via either
+-- column's composite navigation, so occurrence-counting/extraction must key
+-- on {node, column path}, not the terminal *pg.Column alone), plus a jsonb
+-- column for ->/->>/#>/#>> opaque-navigation tests.
+create type addr_t as (street text, city text);
+create table venue (
+	id serial primary key,
+	name text not null,
+	home addr_t,
+	work addr_t,
+	metadata jsonb
+);

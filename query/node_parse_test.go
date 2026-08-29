@@ -122,13 +122,13 @@ func TestParseRawRelation_OrderBy(t *testing.T) {
 	if pq.Relation.OrderBy[0].Direction != OrderAsc {
 		t.Errorf("expected bare expression to default OrderAsc, got %v", pq.Relation.OrderBy[0].Direction)
 	}
-	if id, ok := pq.Relation.OrderBy[0].Expr.(Identifier); !ok || id.Name != "year" {
+	if id, ok := pq.Relation.OrderBy[0].Expr.(*Identifier); !ok || id.Name != "year" {
 		t.Errorf("expected first term to be Identifier(year), got %#v", pq.Relation.OrderBy[0].Expr)
 	}
 	if pq.Relation.OrderBy[1].Direction != OrderDesc {
 		t.Errorf("expected second term OrderDesc, got %v", pq.Relation.OrderBy[1].Direction)
 	}
-	if id, ok := pq.Relation.OrderBy[1].Expr.(Identifier); !ok || id.Name != "title" {
+	if id, ok := pq.Relation.OrderBy[1].Expr.(*Identifier); !ok || id.Name != "title" {
 		t.Errorf("expected second term to be Identifier(title), got %#v", pq.Relation.OrderBy[1].Expr)
 	}
 }

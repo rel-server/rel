@@ -60,7 +60,7 @@ func parseNode(n *ast.Node) (Expression, error) {
 		if s == "*" {
 			return Star{}, nil
 		}
-		return Identifier{Name: s}, nil
+		return &Identifier{Name: s}, nil
 
 	case ast.V_OBJECT:
 		fields, err := parseObjectFields(n)
@@ -283,7 +283,7 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 				return nil, err
 			}
 		}
-		return AggExpr{Identifier: ident, Arguments: args, Filter: filter}, nil
+		return &AggExpr{Identifier: ident, Arguments: args, Filter: filter}, nil
 
 	case "call":
 		if len(rest) < 1 {
@@ -297,7 +297,7 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		if err != nil {
 			return nil, err
 		}
-		return CallExpr{Identifier: ident, Arguments: args}, nil
+		return &CallExpr{Identifier: ident, Arguments: args}, nil
 
 	case "own":
 		return OwnExpr{}, nil
@@ -499,7 +499,7 @@ func parseGetSet(rest []ast.Node) (Expression, error) {
 			return nil, err
 		}
 	}
-	return GetSetExpr{Column: column, DefaultGet: defaultGet, DefaultSet: defaultSet}, nil
+	return &GetSetExpr{Column: column, DefaultGet: defaultGet, DefaultSet: defaultSet}, nil
 }
 
 func parseGetOrSet(tag string, rest []ast.Node) (Expression, error) {
@@ -518,9 +518,9 @@ func parseGetOrSet(tag string, rest []ast.Node) (Expression, error) {
 		}
 	}
 	if tag == "get" {
-		return GetExpr{Column: column, DefaultValue: def}, nil
+		return &GetExpr{Column: column, DefaultValue: def}, nil
 	}
-	return SetExpr{Column: column, DefaultValue: def}, nil
+	return &SetExpr{Column: column, DefaultValue: def}, nil
 }
 
 // ---- small shared decode helpers -------------------------------------------------
