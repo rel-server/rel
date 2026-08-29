@@ -82,6 +82,34 @@ func TestResolveRelation_NotFound(t *testing.T) {
 	}
 }
 
+func TestResolveRelation_EmptySearchPath(t *testing.T) {
+	withSearchPath(t, []string{}, func() {
+		if r := testDb.ResolveRelation("", "director"); r != nil {
+			t.Errorf("expected nil for an unqualified lookup against an empty search path, got %v", r)
+		}
+	})
+	withSearchPath(t, nil, func() {
+		if r := testDb.ResolveRelation("", "director"); r != nil {
+			t.Errorf("expected nil for an unqualified lookup against a nil search path, got %v", r)
+		}
+	})
+	// explicit schema must still work regardless of an empty search path —
+	// it never consults SearchPath at all
+	withSearchPath(t, []string{}, func() {
+		if r := testDb.ResolveRelation("public", "director"); r == nil {
+			t.Errorf("expected explicit-schema lookup to succeed even with an empty search path")
+		}
+	})
+}
+
+func TestResolveFunctionCandidates_EmptySearchPath(t *testing.T) {
+	withSearchPath(t, []string{}, func() {
+		if fns := testDb.ResolveFunctionCandidates("", "fn_overload"); fns != nil {
+			t.Errorf("expected nil for an unqualified lookup against an empty search path, got %v", fns)
+		}
+	})
+}
+
 func TestResolveFunctionCandidates_OverloadSet(t *testing.T) {
 	fns := testDb.ResolveFunctionCandidates("public", "fn_overload")
 	if len(fns) != 2 {
@@ -118,6 +146,38 @@ func TestFunction_AcceptsArity_Variadic(t *testing.T) {
 	// a is required, rest is variadic (can absorb zero or many) : the
 	// minimum callable arity is 1 (just "a"), and there is no maximum.
 	cases := map[int]bool{0: false, 1: true, 2: true, 5: true}
+	for n, want := range cases {
+		if got := f.AcceptsArity(n); got != want {
+			t.Errorf("AcceptsArity(%d) = %v, want %v (PgNargs=%d PgNargsDefaults=%d)", n, got, want, f.PgNargs, f.PgNargsDefaults)
+		}
+	}
+}
+
+func TestFunction_AcceptsArity_PureVariadic(t *testing.T) {
+	fns := testDb.ResolveFunctionCandidates("public", "fn_pure_variadic")
+	if len(fns) != 1 {
+		t.Fatalf("expected exactly 1 fn_pure_variadic, got %d", len(fns))
+	}
+	f := fns[0]
+	// No required (non-variadic) argument at all : the variadic slot alone
+	// can absorb zero, so the minimum callable arity is 0, not PgNargs-1's
+	// naive floor of 0 by coincidence here — this specifically exercises
+	// the "no fixed arguments before the variadic one" case.
+	cases := map[int]bool{0: true, 1: true, 5: true}
+	for n, want := range cases {
+		if got := f.AcceptsArity(n); got != want {
+			t.Errorf("AcceptsArity(%d) = %v, want %v (PgNargs=%d PgNargsDefaults=%d)", n, got, want, f.PgNargs, f.PgNargsDefaults)
+		}
+	}
+}
+
+func TestFunction_AcceptsArity_AllDefaults(t *testing.T) {
+	fns := testDb.ResolveFunctionCandidates("public", "fn_all_defaults")
+	if len(fns) != 1 {
+		t.Fatalf("expected exactly 1 fn_all_defaults, got %d", len(fns))
+	}
+	f := fns[0]
+	cases := map[int]bool{0: true, 1: true, 2: true, 3: false}
 	for n, want := range cases {
 		if got := f.AcceptsArity(n); got != want {
 			t.Errorf("AcceptsArity(%d) = %v, want %v (PgNargs=%d PgNargsDefaults=%d)", n, got, want, f.PgNargs, f.PgNargsDefaults)

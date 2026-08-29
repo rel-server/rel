@@ -79,3 +79,23 @@ create function fn_overload(a int, b int) returns int language sql as $$ select 
 -- and removes the maximum
 create function fn_with_default(a int, b int default 10) returns int language sql as $$ select a + b $$;
 create function fn_variadic(a int, variadic rest int[]) returns int language sql as $$ select a + coalesce(array_length(rest, 1), 0) $$;
+-- purely variadic : no required arguments at all, minimum callable arity 0
+create function fn_pure_variadic(variadic rest int[]) returns int language sql as $$ select coalesce(array_length(rest, 1), 0) $$;
+-- every argument defaulted : minimum callable arity 0
+create function fn_all_defaults(a int default 1, b int default 2) returns int language sql as $$ select a + b $$;
+
+-- genuinely ambiguous overload : same arity, only distinguished by argument
+-- type, which pass 1's resolver deliberately does not match on (see
+-- specs/query-compiler.md's Open Question 1) — a positional call is
+-- expected to be rejected as ambiguous, not silently guessed
+create function fn_ambig(a int) returns int language sql as $$ select a $$;
+create function fn_ambig(a text) returns text language sql as $$ select a $$;
+
+-- table-valued function : returns SETOF a known relation, so a
+-- function-rooted node should resolve QueryNode.Relation via
+-- GetRelationByType and be joinable into, exactly like the table itself
+create function fn_directors() returns setof director language sql as $$ select * from director $$;
+
+-- no primary key at all : on_conflict must be left unresolved (not panic)
+-- when unspecified and there's no PK to default to
+create table no_pk_t (a int, b int);

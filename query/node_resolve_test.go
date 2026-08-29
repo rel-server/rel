@@ -211,6 +211,92 @@ func TestResolveQuery_InsertColumnsValidation(t *testing.T) {
 	}
 }
 
+func TestResolveQuery_UpdateColumnsValidation(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	raw := mustParseRelation(t, `{"relation": "director", "schema": "public", "update_columns": ["no_such_column"]}`)
+	if _, err := ctx.ResolveQuery(raw); err == nil {
+		t.Fatalf("expected an unknown update_columns entry to be rejected")
+	}
+}
+
+func TestResolveQuery_UnknownRelation(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	raw := mustParseRelation(t, `{"relation": "no_such_relation", "schema": "public"}`)
+	if _, err := ctx.ResolveQuery(raw); err == nil {
+		t.Fatalf("expected an unknown relation to be rejected")
+	}
+}
+
+func TestResolveQuery_UnknownFunction(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	raw := mustParseRelation(t, `{"relation": "no_such_function", "schema": "public", "arguments": []}`)
+	if _, err := ctx.ResolveQuery(raw); err == nil {
+		t.Fatalf("expected an unknown function to be rejected")
+	}
+}
+
+func TestResolveQuery_FunctionNamedArguments(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	// {a: 1} must resolve to the 1-arg overload only, not be misdetected as
+	// also matching the 2-arg overload (b required, not supplied) — this is
+	// the exact case functionAcceptsNames had a bug on : it originally only
+	// checked that given names were valid, never that required names were
+	// covered.
+	raw := mustParseRelation(t, `{"relation": "fn_overload", "schema": "public", "arguments": {"a": 1}}`)
+	node, err := ctx.ResolveQuery(raw)
+	if err != nil {
+		t.Fatalf("ResolveQuery: %v", err)
+	}
+	if node.Function == nil || node.Function.PgNargs != 1 {
+		t.Fatalf("expected the 1-arg overload via named args, got %#v", node.Function)
+	}
+}
+
+func TestResolveQuery_AmbiguousFunction(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	raw := mustParseRelation(t, `{"relation": "fn_ambig", "schema": "public", "arguments": [1]}`)
+	if _, err := ctx.ResolveQuery(raw); err == nil {
+		t.Fatalf("expected fn_ambig(int)/fn_ambig(text) to be rejected as ambiguous by arity-only matching")
+	}
+}
+
+func TestResolveQuery_TableValuedFunctionRoot(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	raw := mustParseRelation(t, `{
+		"relation": "fn_directors",
+		"schema": "public",
+		"arguments": []
+	}`)
+	node, err := ctx.ResolveQuery(raw)
+	if err != nil {
+		t.Fatalf("ResolveQuery: %v", err)
+	}
+	if node.Function == nil {
+		t.Fatalf("expected Function to be set for a function-rooted node")
+	}
+	if node.Relation == nil || node.Relation.Identifier.Name != "director" {
+		t.Fatalf("expected Relation to resolve to director via GetRelationByType, got %#v", node.Relation)
+	}
+
+	// and it must be genuinely joinable into, not just carry a Relation
+	// pointer that nothing else uses
+	rawWithJoin := mustParseRelation(t, `{
+		"relation": "fn_directors",
+		"schema": "public",
+		"arguments": [],
+		"join": {
+			"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}
+		}
+	}`)
+	nodeWithJoin, err := ctx.ResolveQuery(rawWithJoin)
+	if err != nil {
+		t.Fatalf("ResolveQuery with join under a function root: %v", err)
+	}
+	if len(nodeWithJoin.IncomingNodes) != 1 {
+		t.Fatalf("expected 1 incoming child joined under the function root, got %d", len(nodeWithJoin.IncomingNodes))
+	}
+}
+
 func TestResolveQuery_MaxDepth(t *testing.T) {
 	shallow := &ResolveContext{Db: testDb, Config: &config.Config{
 		Query:     config.Query{MaxDepth: 1},
@@ -231,5 +317,88 @@ func TestResolveQuery_MaxDepth(t *testing.T) {
 	}`)
 	if _, err := shallow.ResolveQuery(nested); err == nil {
 		t.Fatalf("expected a depth-2 query to exceed MaxDepth=1")
+	}
+}
+
+// JoinColumns must come out in a deterministic (sorted-by-local-column-name)
+// order regardless of Go's randomized map iteration — re-parses the JSON
+// fresh on every iteration (a fresh Go map each time, so a genuinely
+// different iteration order per run) and asserts the resolved order is the
+// same every time, rather than just asserting it once and hoping.
+func TestResolveQuery_JoinColumnsOrderIsDeterministic(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	src := `{
+		"relation": "target_t",
+		"schema": "public",
+		"join": {
+			"src": {"relation": "src_t", "schema": "public", "on": {"b": "y", "a": "x"}}
+		}
+	}`
+	for i := range 30 {
+		raw := mustParseRelation(t, src)
+		node, err := ctx.ResolveQuery(raw)
+		if err != nil {
+			t.Fatalf("iteration %d: ResolveQuery: %v", i, err)
+		}
+		if len(node.IncomingNodes) != 1 {
+			t.Fatalf("iteration %d: expected 1 incoming child, got %d", i, len(node.IncomingNodes))
+		}
+		cols := node.IncomingNodes[0].JoinColumns
+		if len(cols) != 2 || cols[0].Local.Name != "a" || cols[1].Local.Name != "b" {
+			t.Fatalf("iteration %d: expected JoinColumns sorted [a, b] by local name, got %#v", i, cols)
+		}
+	}
+}
+
+// Two children under the same parent, and the alias each self-registers
+// under, must also come out in deterministic (sorted-by-alias) order.
+func TestResolveQuery_MultipleChildrenUnderOneParent(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	src := `{
+		"relation": "director",
+		"schema": "public",
+		"join": {
+			"movies_b": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}},
+			"movies_a": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}
+		}
+	}`
+	for i := range 10 {
+		raw := mustParseRelation(t, src)
+		node, err := ctx.ResolveQuery(raw)
+		if err != nil {
+			t.Fatalf("iteration %d: ResolveQuery: %v", i, err)
+		}
+		if len(node.IncomingNodes) != 2 {
+			t.Fatalf("iteration %d: expected 2 incoming children, got %d", i, len(node.IncomingNodes))
+		}
+		if node.IncomingNodes[0].OuterAlias != "movies_a" || node.IncomingNodes[1].OuterAlias != "movies_b" {
+			t.Fatalf("iteration %d: expected children sorted by alias [movies_a, movies_b], got [%s, %s]",
+				i, node.IncomingNodes[0].OuterAlias, node.IncomingNodes[1].OuterAlias)
+		}
+	}
+}
+
+func TestResolveQuery_ExplicitWriteModeOverridesRootDefault(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	raw := mustParseRelation(t, `{"relation": "director", "schema": "public", "write_mode": "update"}`)
+	node, err := ctx.ResolveQuery(raw)
+	if err != nil {
+		t.Fatalf("ResolveQuery: %v", err)
+	}
+	if node.WriteMode != UPDATE {
+		t.Errorf("expected explicit write_mode \"update\" to override the root's INSERT default, got %v", node.WriteMode)
+	}
+}
+
+func TestResolveQuery_NoPrimaryKey_OnConflictLeftUnresolved(t *testing.T) {
+	ctx := &ResolveContext{Db: testDb, Config: testCfg}
+	raw := mustParseRelation(t, `{"relation": "no_pk_t", "schema": "public"}`)
+	node, err := ctx.ResolveQuery(raw)
+	if err != nil {
+		t.Fatalf("ResolveQuery: %v", err)
+	}
+	if node.OnConflictConstraintName != "" || len(node.OnConflictColumns) != 0 {
+		t.Errorf("expected no on_conflict to resolve to anything for a PK-less relation, got constraint=%q columns=%v",
+			node.OnConflictConstraintName, node.OnConflictColumns)
 	}
 }

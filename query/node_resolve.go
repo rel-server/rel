@@ -284,15 +284,31 @@ func (ctx *ResolveContext) resolveFunction(raw *rawRelation, oc oops.OopsErrorBu
 	return fn, nil
 }
 
+// functionAcceptsNames reports whether a named-argument call matches f :
+// every given name must be one of f's input parameter names, AND every
+// *required* input parameter (Postgres only allows defaults on the trailing
+// PgNargsDefaults input parameters, so the first PgNargs-PgNargsDefaults, in
+// declared order, are the required ones) must be present among the given
+// names. Checking only the first half (every given name is valid) isn't
+// enough : {a: 1} against fn(a int, b int) — both required, no default —
+// would wrongly count as a match if b's absence went unchecked.
 func functionAcceptsNames(f *pg.Function, named map[string]Expression) bool {
-	argNames := make(map[string]bool, len(f.Arguments))
+	inputNames := make([]string, 0, len(f.Arguments))
+	nameSet := make(map[string]bool, len(f.Arguments))
 	for i := range f.Arguments {
 		if f.Arguments[i].IsIn() || f.Arguments[i].IsInOut() {
-			argNames[f.Arguments[i].Name] = true
+			inputNames = append(inputNames, f.Arguments[i].Name)
+			nameSet[f.Arguments[i].Name] = true
 		}
 	}
 	for name := range named {
-		if !argNames[name] {
+		if !nameSet[name] {
+			return false
+		}
+	}
+	required := max(len(inputNames)-f.PgNargsDefaults, 0)
+	for i := range required {
+		if _, ok := named[inputNames[i]]; !ok {
 			return false
 		}
 	}

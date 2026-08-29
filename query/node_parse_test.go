@@ -145,3 +145,69 @@ func TestParseRawRelation_OffsetLimit(t *testing.T) {
 		t.Errorf("unexpected Limit: %#v", pq.Relation.Limit)
 	}
 }
+
+// A 2-element array whose first element is a string that ISN'T one of the
+// four direction tags must be parsed as a bare Expression, not misdetected
+// as an [direction, Expression] tuple — this is the exact ambiguity the
+// tag-membership check in parseOrderByTerm exists to avoid.
+func TestParseRawRelation_OrderBy_NoTagCollision(t *testing.T) {
+	pq, err := ParseQuery([]byte(`{"relation": "movie", "order_by": [["own-except", ["title"]]]}`))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if len(pq.Relation.OrderBy) != 1 {
+		t.Fatalf("expected 1 order_by term, got %d", len(pq.Relation.OrderBy))
+	}
+	term := pq.Relation.OrderBy[0]
+	if term.Direction != OrderAsc {
+		t.Errorf("expected OrderAsc (not mistaken for a direction tuple), got %v", term.Direction)
+	}
+	except, ok := term.Expr.(OwnExceptExpr)
+	if !ok || len(except.Except) != 1 || except.Except[0] != "title" {
+		t.Errorf("expected OwnExceptExpr{[title]}, got %#v", term.Expr)
+	}
+}
+
+func TestParseRawRelation_MissingRelationKey(t *testing.T) {
+	if _, err := ParseQuery([]byte(`{"schema": "public"}`)); err == nil {
+		t.Fatalf("expected a missing \"relation\" key to be rejected")
+	}
+}
+
+func TestParseRawRelation_ArgumentsWrongType(t *testing.T) {
+	if _, err := ParseQuery([]byte(`{"relation": "fn", "arguments": "not an array or object"}`)); err == nil {
+		t.Fatalf("expected a non-array/object \"arguments\" to be rejected")
+	}
+}
+
+func TestParseQuery_TopLevelWrongType(t *testing.T) {
+	if _, err := ParseQuery([]byte(`"not a query"`)); err == nil {
+		t.Fatalf("expected a bare string at the top level to be rejected")
+	}
+	if _, err := ParseQuery([]byte(`42`)); err == nil {
+		t.Fatalf("expected a bare number at the top level to be rejected")
+	}
+}
+
+func TestParseQuery_WriteQuery_MissingData(t *testing.T) {
+	if _, err := ParseQuery([]byte(`{"query": {"relation": "movie"}}`)); err == nil {
+		t.Fatalf("expected a WriteQuery without \"data\" to be rejected")
+	}
+}
+
+func TestParseQuery_MixedSequence(t *testing.T) {
+	pq, err := ParseQuery([]byte(`[
+		{"relation": "a"},
+		{"query": {"relation": "b"}, "data": {}},
+		{"wellknown": "c"}
+	]`))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if len(pq.Sequence) != 3 {
+		t.Fatalf("expected 3 sequence items, got %d", len(pq.Sequence))
+	}
+	if pq.Sequence[0].Relation == nil || pq.Sequence[1].Write == nil || pq.Sequence[2].WellKnown == nil {
+		t.Fatalf("expected [Relation, Write, WellKnown], got %#v", pq.Sequence)
+	}
+}
