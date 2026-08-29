@@ -29,13 +29,7 @@ func acquireWriteConn(t *testing.T) *pgxpool.Conn {
 	if _, err := conn.Exec(context.Background(), `drop table if exists _data`); err != nil {
 		t.Fatalf("drop _data: %v", err)
 	}
-	if _, err := conn.Exec(context.Background(), `create temp table _data (
-		__row_id int primary key,
-		__node_id int not null,
-		__parent_id int,
-		data jsonb not null,
-		keys jsonb
-	)`); err != nil {
+	if _, err := conn.Exec(context.Background(), DataTableDDL); err != nil {
 		t.Fatalf("create _data: %v", err)
 	}
 	return conn
@@ -204,6 +198,37 @@ func TestExecuteWrite_Update(t *testing.T) {
 	}
 	if name != "After Update" {
 		t.Errorf("expected name=After Update, got %q", name)
+	}
+}
+
+// TestExecuteWrite_UnwritableSelect_Rejected covers specs/querying.md
+// ## Configuration : a relation is writable only when its identity target's
+// columns are present, unique, and untransformed in the select output. A
+// select omitting the identity column (here, "id") must be rejected up
+// front, not silently write a phantom/mismatched identity — see write.go's
+// findUnwritableNode doc comment for why this matters (an update whose keys
+// are wrong can match zero rows, or the wrong row, and still return 200).
+func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var directorID int
+	if err := conn.QueryRow(ctx, `insert into director (name) values ('Before Unwritable Update') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"name": "name"}, "write_mode": "update"}`)
+	payload := []byte(`[{"name": "Renamed"}]`)
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err == nil {
+		t.Fatalf("expected ExecuteWrite to reject a write whose select omits the identity column")
+	}
+
+	var name string
+	if err := conn.QueryRow(ctx, `select name from director where id = $1`, directorID).Scan(&name); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if name != "Before Unwritable Update" {
+		t.Errorf("expected the row untouched, got name=%q", name)
 	}
 }
 
@@ -607,6 +632,95 @@ func TestKeysColumns_IncludesOutgoingChildsOwnJoinColumn(t *testing.T) {
 	cols := keysColumns(child)
 	if !slices.Contains(cols, nameCol) {
 		t.Errorf("expected keysColumns(child) to include nameCol (the outgoing join's own Local column), got %v", cols)
+	}
+}
+
+// runSelectOn is sql_test.go's runSelect, but against a specific pinned
+// connection instead of testDb.Pool — the write-then-reread tests below
+// need "_data" on the SAME connection ExecuteWrite just used.
+func runSelectOn(t *testing.T, conn *pgxpool.Conn, sql string, args []any) []map[string]any {
+	t.Helper()
+	rows, err := conn.Query(context.Background(), sql, args...)
+	if err != nil {
+		t.Fatalf("query: %v\nsql: %s", err, sql)
+	}
+	defer rows.Close()
+
+	var out []map[string]any
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatalf("unmarshal %s: %v", raw, err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+	return out
+}
+
+func TestCompileSelectForDataNode_ScopesToWrittenRows(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	// A pre-existing, untouched director must NOT appear in the reread —
+	// only rows this specific request wrote should.
+	if _, err := conn.Exec(ctx, `insert into director (name) values ('Untouched Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	payload := []byte(`[{"name": "Reread Director A"}, {"name": "Reread Director B"}]`)
+	result, err := ExecuteWrite(ctx, conn, node, payload)
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	w, err := CompileSelectForDataNode(node, result.NodeIDs[node])
+	if err != nil {
+		t.Fatalf("CompileSelectForDataNode: %v", err)
+	}
+	rows := runSelectOn(t, conn, w.String(), w.Args())
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows (only the ones just written), got %d : %#v (sql: %s)", len(rows), rows, w.String())
+	}
+	if rows[0]["name"] != "Reread Director A" || rows[1]["name"] != "Reread Director B" {
+		t.Errorf("expected payload order [A, B], got %#v", rows)
+	}
+}
+
+func TestCompileSelectForDataNode_WithEmbeddedChild(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"write_mode": "insert",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
+	}`)
+	payload := []byte(`[{"name": "Reread With Movies", "movies": [{"title": "Movie X"}, {"title": "Movie Y"}]}]`)
+	result, err := ExecuteWrite(ctx, conn, node, payload)
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	w, err := CompileSelectForDataNode(node, result.NodeIDs[node])
+	if err != nil {
+		t.Fatalf("CompileSelectForDataNode: %v", err)
+	}
+	rows := runSelectOn(t, conn, w.String(), w.Args())
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), w.String())
+	}
+	movies, ok := rows[0]["movies"].([]any)
+	if !ok || len(movies) != 2 {
+		t.Fatalf("expected 2 embedded movies, got %#v (sql: %s)", rows[0]["movies"], w.String())
 	}
 }
 

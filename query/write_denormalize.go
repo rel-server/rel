@@ -33,24 +33,30 @@ type dataRow struct {
 // an array) comes from its outgoing/incoming classification against its
 // parent, the root has no parent to derive that from — a write request is
 // inherently "here are N rows to write", plural.
-func denormalize(root *QueryNode, ids map[*QueryNode]int, payload []byte) ([]dataRow, error) {
+//
+// startRowID is assignNodeIDs' startAt counterpart for __row_id (the
+// primary key) — a caller running several ExecuteWrite calls against the
+// same "_data" table must continue numbering rows where the previous call
+// left off, or two items' rows collide on __row_id. Returns the next free
+// row id alongside the produced rows.
+func denormalize(root *QueryNode, ids map[*QueryNode]int, payload []byte, startRowID int) ([]dataRow, int, error) {
 	parsed, perr := ast.NewParser(string(payload)).Parse()
 	if perr != 0 {
-		return nil, fmt.Errorf("write: invalid payload JSON: %w", perr)
+		return nil, startRowID, fmt.Errorf("write: invalid payload JSON: %w", perr)
 	}
 
 	items, err := parsed.ArrayUseNode()
 	if err != nil {
-		return nil, fmt.Errorf("write: payload must be an array of root rows: %w", err)
+		return nil, startRowID, fmt.Errorf("write: payload must be an array of root rows: %w", err)
 	}
 
-	d := &denormalizer{ids: ids}
+	d := &denormalizer{ids: ids, nextID: startRowID}
 	for i := range items {
 		if err := d.walkNode(root, &items[i], nil); err != nil {
-			return nil, err
+			return nil, startRowID, err
 		}
 	}
-	return d.rows, nil
+	return d.rows, d.nextID, nil
 }
 
 type denormalizer struct {

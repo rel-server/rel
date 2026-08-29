@@ -32,6 +32,13 @@ type sqlCompiler struct {
 	// analyzeLaterals. Saved/restored around each recursive compileNode
 	// call so nested nodes don't see their parent's plan.
 	laterals map[*QueryNode]*lateralPlan
+
+	// dataScopeRoot/dataScopeNodeID/dataScopeAlias are set only by
+	// CompileSelectForDataNode, and checked only when compiling that exact
+	// node (never a descendant) — see its own doc comment.
+	dataScopeRoot   *QueryNode
+	dataScopeNodeID int
+	dataScopeAlias  string
 }
 
 func newSQLCompiler() *sqlCompiler {
@@ -77,6 +84,40 @@ func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 		}
 		return c.w, nil
 	}
+
+	alias := c.allocAlias()
+	c.w.Write("select row_to_json(").Write(alias).Write(") from (\n")
+	c.w.Indent()
+	err := c.compileNode(root, alias)
+	c.w.Unindent()
+	if err != nil {
+		return nil, err
+	}
+	c.w.Write("\n) ").Write(alias)
+	return c.w, nil
+}
+
+// CompileSelectForDataNode compiles root exactly like CompileSelect, with
+// one addition : restricted to the rows this write request actually
+// touched, via "_data" — nodeID is root's own assigned __node_id (see
+// ExecuteWrite/WriteResult.NodeIDs), and only its root-level rows
+// (__parent_id is null) are in scope. Used for the write-then-reread
+// response (specs/querying.md ## Response Shape : the response is built by
+// a separate, read-only statement issued after the write transaction's
+// commit, never from inside it) — "_data" must already exist and hold this
+// request's rows on the connection this statement later runs against.
+//
+// A function-rooted node is rejected : functions aren't writable
+// (query/node.go), so there's never a "_data" row for one to scope against.
+func CompileSelectForDataNode(root *QueryNode, nodeID int) (*writer.SQLWriter, error) {
+	if root.IsFunction() {
+		return nil, fmt.Errorf("sql: a function-rooted node can't be write-scoped — functions aren't writable")
+	}
+
+	c := newSQLCompiler()
+	c.dataScopeRoot = root
+	c.dataScopeNodeID = nodeID
+	c.dataScopeAlias = "__wq"
 
 	alias := c.allocAlias()
 	c.w.Write("select row_to_json(").Write(alias).Write(") from (\n")
@@ -186,16 +227,28 @@ func (c *sqlCompiler) compileFrom(node *QueryNode, alias string) error {
 		return fmt.Errorf("sql: node has no relation to select from")
 	}
 	c.w.Write(node.Relation.Identifier.EscapedString()).Write(" ").Write(alias)
+	if c.dataScopeRoot != nil && node == c.dataScopeRoot {
+		c.w.Write(" inner join _data ")
+		c.w.Write(c.dataScopeAlias)
+		c.w.Write(" on ")
+		c.w.Write(c.dataScopeAlias)
+		c.w.Write(".__node_id = ")
+		c.w.Write(fmt.Sprintf("%d", c.dataScopeNodeID))
+		c.w.Write(" and ")
+		c.w.Write(c.dataScopeAlias)
+		c.w.Write(".__parent_id is null")
+	}
 	return nil
 }
 
 func (c *sqlCompiler) compileWhere(node *QueryNode, alias string, onParentAlias string) error {
 	hasOn := onParentAlias != "" && len(node.JoinColumns) > 0
-	if !hasOn && node.Where == nil {
+	hasDataScope := c.dataScopeRoot != nil && node == c.dataScopeRoot
+	if !hasOn && !hasDataScope && node.Where == nil {
 		return nil
 	}
 	c.w.Write(" where ")
-	wroteOn := false
+	wrote := false
 	if hasOn {
 		for i, jc := range node.JoinColumns {
 			if i > 0 {
@@ -205,10 +258,32 @@ func (c *sqlCompiler) compileWhere(node *QueryNode, alias string, onParentAlias 
 			c.w.Write(" = ")
 			c.qualify(onParentAlias, jc.Distant.Name)
 		}
-		wroteOn = true
+		wrote = true
+	}
+	if hasDataScope {
+		if wrote {
+			c.w.Write(" and ")
+		}
+		cols := identityColumns(node)
+		if len(cols) == 0 {
+			return fmt.Errorf("sql: %q has no identity (on_conflict or primary key) column set to scope the reread by", node.InnerName)
+		}
+		for i, col := range cols {
+			if i > 0 {
+				c.w.Write(" and ")
+			}
+			c.qualify(alias, col.Name)
+			c.w.Write(" = (")
+			c.w.Write(c.dataScopeAlias)
+			c.w.Write(".keys->>")
+			c.w.Bind(col.Name)
+			c.w.Write("::text)::")
+			c.w.Write(col.Type.PgIdentifier.EscapedString())
+		}
+		wrote = true
 	}
 	if node.Where != nil {
-		if wroteOn {
+		if wrote {
 			c.w.Write(" and ")
 		}
 		if err := c.compileOperand(node.Where, node); err != nil {
@@ -220,6 +295,14 @@ func (c *sqlCompiler) compileWhere(node *QueryNode, alias string, onParentAlias 
 
 func (c *sqlCompiler) compileOrderBy(node *QueryNode) error {
 	if len(node.OrderBy) == 0 {
+		if c.dataScopeRoot != nil && node == c.dataScopeRoot {
+			// Default to payload order when the write query specified no
+			// order_by of its own — an explicit one is a read-shape choice
+			// independent of write scoping, so it's left untouched below.
+			c.w.Write(" order by ")
+			c.w.Write(c.dataScopeAlias)
+			c.w.Write(".__row_id")
+		}
 		return nil
 	}
 	c.w.Write(" order by ")

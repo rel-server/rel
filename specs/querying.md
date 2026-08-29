@@ -55,6 +55,8 @@ To avoid paying for parsing and preparing statements all the time, rel offers a 
 
 A query or several queries (in one HTTP request) run in a single transaction ; any error stops and rollbacks everything.
 
+**Implementation note (server/rel.go)** : this only actually opens/commits a transaction around the write phase (`begin` before phase 1/2 of every write item, `commit` after the last one — see `## Response Shape`). A `Sequence` made entirely of plain reads never opens a transaction at all ; each read runs as its own autocommit statement. This means several *pure reads* in one Sequence do not currently share a snapshot with each other, only writes-vs-writes (and a write's own reread) get that guarantee. If cross-read snapshot consistency for a read-only Sequence turns out to matter, wrapping the whole request (not just its write phase) in one transaction is the fix.
+
 ## Scoping
 
 Proper scoping is to be enforced when walking the json query tree ; it is an error to refer to unknown columns or relations, and this MUST be caught by the "compiler". Aliases must be correctly propagated in the right scopes ; subqueries and parent queries do not see the same identifiers.

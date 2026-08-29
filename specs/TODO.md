@@ -37,14 +37,18 @@ Grouped by how much they block implementation, not by file.
   documents assume it exists : `SET LOCAL ROLE` timing (`jwt-roles-and-http.md`), the
   commit-before-select response design (`querying.md ## Response Shape`), and `_data`
   being a session-scoped temp table that must be guaranteed clean across pooled
-  connection reuse. This is now the concrete gating item for wiring pass 3/4 into an
-  actual HTTP handler : both were deliberately built and tested against a single
-  already-acquired connection with `_data` pre-created (test setup does this directly,
-  see `query/sql_test.go`/`query/write_test.go`), not against a real pool — the
-  per-connection `_data` creation policy and end-of-request truncation timing this
-  section describes are unresolved, and nothing currently enforces or even models one
-  physical connection being pinned for a whole request the way the write path already
-  needs.
+  connection reuse. **Resolved for the current `POST /rel` vertical slice**
+  (`server/rel.go`) : one connection is acquired from the pool per request and pinned for
+  its whole lifetime (`db.Pool.Acquire`, `defer conn.Release()`) ; `_data` is
+  `create temp table if not exists` at acquire time, immediately followed by an explicit
+  `truncate _data` so this request's correctness never depends on the *previous*
+  request's own end-of-request cleanup having actually run (killed process, swallowed
+  error) ; a second `truncate _data` runs at the very end via `defer`, against a fresh
+  `context.Background()` so a client disconnect/cancelled request doesn't skip it. Still
+  open : `SET LOCAL ROLE` / auth timing (no auth exists yet at all, see the auth item
+  below) ; whether a read-only `Sequence` (no write item at all) should also share one
+  transaction across its queries — right now it doesn't, see the note added to
+  `querying.md ## Transactions`.
 - **`dmut` / migrations** (`03-dmut.md`, 14 lines). Legacy's `dmut` is a DAG/content-hash
   migration tool, a separate vendored module (`github.com/ceymard/dmut`) — not a
   sequential up/down tool. The current spec doesn't say whether rel keeps using that
