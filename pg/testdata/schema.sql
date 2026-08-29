@@ -65,3 +65,17 @@ create index idx_covering on orders (customer_id) include (total);
 create index idx_plain on orders (customer_id, total);
 create unique index idx_partial_only on orders (flag) where note is not null;
 create index idx_expr_only on orders (lower(note));
+
+-- search path / name-index resolution : a second schema with a same-named
+-- relation, to exercise search-path ordering
+create schema alt_schema;
+create table alt_schema.director (id serial primary key, name text not null);
+
+-- function overload set, by arity
+create function fn_overload(a int) returns int language sql as $$ select a $$;
+create function fn_overload(a int, b int) returns int language sql as $$ select a + b $$;
+
+-- AcceptsArity : defaults shrink the minimum, variadic shrinks it further
+-- and removes the maximum
+create function fn_with_default(a int, b int default 10) returns int language sql as $$ select a + b $$;
+create function fn_variadic(a int, variadic rest int[]) returns int language sql as $$ select a + coalesce(array_length(rest, 1), 0) $$;

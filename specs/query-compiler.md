@@ -6,7 +6,9 @@ Tracks the `query` package's compiler architecture as it's being decided — see
 
 Compiling a query JSON tree happens in two passes.
 
-**Pass 1 — tree inflation + DB resolution.** Builds the `QueryNode` tree from JSON and resolves every DB-facing reference against `pg` introspection : `relation`/`schema`/`arguments` -> `*pg.Relation`/`*pg.Function`, `on` -> `ResolveJoin`, `on_conflict` -> a real constraint. The relation/function-as-root blacklist check belongs here, at the point each node's own relation/function is resolved — not in pass 2.
+**Pass 1 — tree inflation + DB resolution. Implemented** (`query/node_parse.go`'s decode step, `query/node_resolve.go`'s resolve step, plus `pg/info_searchpath.go` and `pg/info_lookup.go` for the search-path/by-name lookups it needed that `pg` didn't have yet — see those files' tests for coverage). Builds the `QueryNode` tree from JSON and resolves every DB-facing reference against `pg` introspection : `relation`/`schema`/`arguments` -> `*pg.Relation`/`*pg.Function`, `on` -> `ResolveJoin`, `on_conflict` -> a real constraint. The relation/function-as-root blacklist check belongs here, at the point each node's own relation/function is resolved — not in pass 2.
+
+A function-rooted node also gets `Relation` populated (via `GetRelationByType` on its return type, nil if the return type isn't a known relation) — decided during implementation, since a table-valued function is joinable/writable exactly like the type it returns. `QueryNode`'s "either Relation or Function" doc comment was updated accordingly : `Function != nil` decides *kind*, `Relation` is what descendants/writes resolve against, and a function node legitimately has both set.
 
 > Why: a node's own relation/function is resolved against `pg` the same way `on`/`on_conflict` are, not against an `Expression` tree, so its blacklist check naturally sits next to that resolution rather than being duplicated into expression walking.
 

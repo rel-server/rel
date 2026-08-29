@@ -31,8 +31,17 @@ type DbInfos struct {
 	Functions []*Function
 	Relations []*Relation
 
+	// SearchPath is the connecting role's resolved search path, in lookup
+	// order — see FillSearchPath (info_searchpath.go).
+	SearchPath []string
+
 	TypeMapByOid       map[int]*Type
 	RelationMapByRelid map[int]*Relation
+
+	// Built once by buildLookupIndices (info_lookup.go), after Relations/
+	// Functions are filled — see ResolveRelation/ResolveFunctionCandidates.
+	RelationMapBySchemaName map[string]map[string]*Relation
+	FunctionsBySchemaName   map[string]map[string][]*Function
 }
 
 func (db *DbInfos) GetType(oid int) *Type {
@@ -86,6 +95,10 @@ func NewInfos(uri string) (*DbInfos, error) {
 
 // Fill informations from the database
 func (db *DbInfos) Fill(conn *pgx.Conn) error {
+	if err := FillSearchPath(db, conn); err != nil {
+		return err
+	}
+
 	if err := FillFunctionInformations(db, conn); err != nil {
 		return err
 	}
@@ -109,6 +122,8 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 	if err := FillTypeInformations(db, conn); err != nil {
 		return err
 	}
+
+	buildLookupIndices(db)
 
 	return nil
 }

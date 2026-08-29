@@ -14,10 +14,14 @@ Grouped by how much they block implementation, not by file.
   `01-introspection.md` rather than resolved here.
 - **Query compiler architecture.** `querying.md` specifies the Reading/Writing algorithms
   as SQL shape and recursion rules, not as Go types. Pass 1 (tree inflation + DB
-  resolution, `ResolveJoin` per join) and pass 2 (expression resolution : scope,
-  blacklist, shape, writability) are now being worked out in `query-compiler.md` —
-  not yet implemented, but no longer undesigned. `query/sql.go` is still a 26-line
-  stub with empty method bodies.
+  resolution) is now implemented and tested (`query/node_parse.go`, `query/node_resolve.go`,
+  `pg/info_searchpath.go`, `pg/info_lookup.go`) : JSON decode, relation/function
+  resolution (search path + blacklist), `ResolveJoin` per join, write_mode
+  defaulting/validation, `on_conflict`/insert/update-column resolution, `query.maxdepth`
+  enforcement. Pass 2 (expression resolution : scope, blacklist, shape, writability) is
+  still only designed, in `query-compiler.md`, not implemented. `query/sql.go` is still
+  a 26-line stub with empty method bodies — SQL codegen off the resolved tree hasn't
+  started.
 - **Connection pool / transaction lifecycle.** Never given its own spec, but three other
   documents assume it exists : `SET LOCAL ROLE` timing (`jwt-roles-and-http.md`), the
   commit-before-select response design (`querying.md ## Response Shape`), and `_data`

@@ -25,8 +25,11 @@ type QueryNode struct {
 
 	// If parent is non-nil, how it's being joined to it
 	JoinColumns []QueryJoinColumn
-	// the key name of the join ; accessible from the parent
-	JoinAlias string
+	// the key name of the join ; accessible from the parent. Named OuterAlias
+	// (not just "alias") to match specs/query-compiler.md's Scope section,
+	// which distinguishes this (usable by the parent) from InnerName
+	// (usable by this node and its own descendants).
+	OuterAlias string
 
 	// Populated from "join" in the JSON, then classified per child via
 	// pg.Relation.ResolveJoin's isToOne result — outgoing when the child's own
@@ -38,10 +41,21 @@ type QueryNode struct {
 	OutgoingNodes []*QueryNode
 	IncomingNodes []*QueryNode
 
-	// Either a Relation or a Function, check for nil
+	// Relation is what this node's children/on_conflict/insert_columns/
+	// update_columns resolve against. Function != nil is what decides
+	// whether this node IS a function call (arguments was present in the
+	// JSON) — Relation is populated for a function node too whenever its
+	// return type maps to a known relation (via pg.DbInfos.GetRelationByType),
+	// since a table-valued function is joinable/writable exactly like the
+	// type it returns (query.ts's own note). Relation is nil only for a
+	// function node whose return type isn't a relation at all (e.g. a
+	// scalar-returning function used as a query root, which then can't be
+	// joined into or have on_conflict/insert_columns/update_columns —
+	// resolution rejects those as a hard error rather than nil-panicking).
 	Relation *pg.Relation
 
-	// Table-Valued Function as a Relation root can be used in joins ; their return type indicates what we can join with
+	// Function is non-nil iff this node is a function call — check this,
+	// not Relation, to tell a function node from a plain relation node.
 	Function *pg.Function
 
 	// One or the other

@@ -64,6 +64,22 @@ type Function struct {
 
 	Arguments []FunctionArgument
 
+	// PgNargs is pronargs : the number of *input* arguments (IN/INOUT/VARIADIC
+	// only — unlike len(Arguments), OUT-only arguments never inflate this),
+	// i.e. exactly the callable arity a positional call needs to match.
+	// PgNargsDefaults is pronargdefaults : how many of the trailing input
+	// arguments have a default, so a positional call is valid for any count
+	// in [PgNargs-PgNargsDefaults, PgNargs] — see AcceptsArity.
+	PgNargs         int
+	PgNargsDefaults int
+
+	// PgKind is prokind : "f" plain function, "p" procedure, "a" aggregate,
+	// "w" window function. Kept (not filtered out at introspection time)
+	// because "agg" expressions need aggregates resolvable too ; a
+	// relation-root or "call" resolution should restrict itself to "f" — see
+	// IsPlainFunction/IsAggregate.
+	PgKind string
+
 	ReturnsSet      bool // Whether this function returns a table() or a setof ReturnType
 	ReturnType      *Type
 	PgReturnTypeOid int
@@ -82,8 +98,43 @@ func (f *Function) ReturnsSingleRow() bool {
 	return !f.ReturnsSet
 }
 
+func (f *Function) IsPlainFunction() bool  { return f.PgKind == "f" }
+func (f *Function) IsAggregate() bool      { return f.PgKind == "a" }
+func (f *Function) IsProcedure() bool      { return f.PgKind == "p" }
+func (f *Function) IsWindowFunction() bool { return f.PgKind == "w" }
+
 func (f *Function) String() string {
 	return fmt.Sprintf("Function(%s())", f.Identifier.String())
+}
+
+// AcceptsArity reports whether a positional call with n arguments is valid
+// for this function. Base range is [PgNargs-PgNargsDefaults, PgNargs] ; a
+// trailing VARIADIC argument widens both ends independently of defaults — it
+// can absorb any number of extra positional arguments (raising the upper
+// bound to unbounded), but can also absorb *zero*, so it lowers the minimum
+// to PgNargs-1 regardless of PgNargsDefaults (the two reductions don't
+// stack : PgNargsDefaults and a trailing variadic parameter both shrinking
+// the required count is a rare combination, but the true minimum is
+// whichever of the two is smaller, not their sum).
+func (f *Function) AcceptsArity(n int) bool {
+	min := f.PgNargs - f.PgNargsDefaults
+	variadic := false
+	for i := range f.Arguments {
+		if f.Arguments[i].IsVariadic() {
+			variadic = true
+			break
+		}
+	}
+	if variadic && f.PgNargs-1 < min {
+		min = f.PgNargs - 1
+	}
+	if n < min {
+		return false
+	}
+	if n <= f.PgNargs {
+		return true
+	}
+	return variadic
 }
 
 // IsExportable returns true if the function is exportable to the web.
@@ -112,6 +163,9 @@ SELECT json_agg(S) FROM	(SELECT
   ) AS "Identifier",
 	obj_description(p.oid, 'pg_proc') AS "Comment",
 	p.prorettype::integer as "PgReturnTypeOid",
+	p.pronargs::integer AS "PgNargs",
+	p.pronargdefaults::integer AS "PgNargsDefaults",
+	p.prokind::text AS "PgKind",
   l.lanname AS "Language",
   p.proretset AS "ReturnsSet",
   p.proisstrict AS "IsStrict",
