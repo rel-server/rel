@@ -121,6 +121,20 @@ const (
 	DefaultHttpCookiesMaxAge      = 86400
 )
 
+// DefaultQueryHost/DefaultQueryPort/DefaultQueryAnonymousRole/
+// DefaultQueryWellKnownPath are querying.md/well-known-queries.md's own
+// stated defaults for query.host/query.port/query.anonymous_role/
+// query.wellknown.path — named here (rather than left as inline literals
+// in loader.go's assemble()) so config/help.go's --help output can quote
+// the exact same value assemble() actually uses, with no risk of the two
+// drifting apart.
+const (
+	DefaultQueryHost          = "localhost"
+	DefaultQueryPort          = 5432
+	DefaultQueryAnonymousRole = "~anonymous"
+	DefaultQueryWellKnownPath = "/wellknown"
+)
+
 type Query struct {
 	// MaxDepth is query.maxdepth : the maximum depth a query can specify.
 	// querying.md's default is 6.

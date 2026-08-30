@@ -24,6 +24,11 @@ import (
 )
 
 func main() {
+	if wantsHelp(os.Args[1:]) {
+		fmt.Print(config.Help())
+		return
+	}
+
 	cfg, err := config.Load(os.Args[1:])
 	if err != nil {
 		slog.Default().Error("loading configuration", "error", err.Error())
@@ -96,4 +101,17 @@ func main() {
 
 	db.Pool.Close()
 	logger.Info("stopped")
+}
+
+// wantsHelp scans for a bare "--help"/"-h" token — checked BEFORE
+// config.Load, since parseFlags treats every other "--xxx" as a dotted
+// config key expecting a value ("--help" with nothing after it would
+// otherwise fail as "flag --help has no value", not print anything useful).
+func wantsHelp(args []string) bool {
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			return true
+		}
+	}
+	return false
 }

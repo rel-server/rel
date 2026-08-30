@@ -404,9 +404,9 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// config key, not a constant).
 	cfg.Pg.Querier.User = root.GetStringOrDefault("query.user", cfg.Pg.Admin.User)
 	cfg.Pg.Querier.Password = root.GetStringOrDefault("query.password", cfg.Pg.Admin.Password)
-	cfg.Pg.Host = root.GetStringOrDefault("query.host", "localhost")
-	cfg.Pg.Port = root.GetIntOrDefault("query.port", 5432)
-	cfg.Pg.Anonymous = root.GetStringOrDefault("query.anonymous_role", "~anonymous")
+	cfg.Pg.Host = root.GetStringOrDefault("query.host", DefaultQueryHost)
+	cfg.Pg.Port = root.GetIntOrDefault("query.port", DefaultQueryPort)
+	cfg.Pg.Anonymous = root.GetStringOrDefault("query.anonymous_role", DefaultQueryAnonymousRole)
 	// query.database : NOT in querying.md at all — config.Pg had no field
 	// naming which database to connect to, genuinely missing before this
 	// (see specs/TODO.md's own note on this invented key). Named under the
@@ -418,7 +418,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// well-known-queries.md ## Configuration's actual key : query.wellknown.path,
 	// default "/wellknown" — NOT query.wellknowndirs, another key name this
 	// loader invented instead of matching the spec.
-	cfg.Query.WellKnownDirs = root.GetStringOrDefault("query.wellknown.path", "/wellknown")
+	cfg.Query.WellKnownDirs = root.GetStringOrDefault("query.wellknown.path", DefaultQueryWellKnownPath)
 
 	cfg.Logging.Handler = root.GetStringOrDefault("logging.handler", DefaultLoggingHandler)
 	cfg.Logging.Level = root.GetStringOrDefault("logging.level", DefaultLoggingLevel)

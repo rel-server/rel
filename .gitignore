@@ -1,1 +1,3 @@
 jwt-secret
+/rel
+/cmd/rel/rel
