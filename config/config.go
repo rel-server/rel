@@ -74,13 +74,12 @@ type Pg struct {
 	// Admin is dmut.user / dmut.password : the login rel will use to connect to the database to perform migrations with dmut, but also Querier's ident if not supplied.
 	Admin Login
 
-	// Anonymous is query.anonymous_role : the role rel switches to, from
-	// Querier, for requests with no credentials of their own. Note :
-	// jwt-roles-and-http.md separately defines jwt.anonrole with what
-	// reads as the identical purpose — unreconciled between the two spec
-	// docs (same setting under two names, or genuinely two different
-	// anonymous roles for /rel vs. the /api route-function system) ; this
-	// field implements querying.md's own query.anonymous_role only.
+	// Anonymous is query.anonymous_role (default "~anonymous") : the role
+	// rel switches to, from Querier, for requests with no credentials of
+	// their own — used both for /rel (querying.md) and JWT verification
+	// failures on /rpc (jwt-roles-and-http.md ## Roles, which used to name
+	// this same setting jwt.anonrole ; reconciled onto query.anonymous_role,
+	// the name querying.md already used).
 	Anonymous string
 
 	// Host/Port are query.host/query.port.

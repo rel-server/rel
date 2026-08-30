@@ -18,7 +18,7 @@ Roles we switch to when requests are made are NOT respected, because that would 
 * `query.password` (default: `dmut.password` if provided) its password
 * `dmut.user` / `dmut.password` : the login rel uses to connect to the database to perform migrations with dmut ; also the default for `query.user` / `query.password` when those aren't otherwise provided.
 * `query.host` / `query.port` : the Postgres host/port rel connects to.
-* `query.anonymous_role` : the role rel switches to for requests without credentials of their own.
+* `query.anonymous_role` (default `~anonymous`) : the role rel switches to for requests without credentials of their own. Full lifecycle (when/how this applies, alongside JWT verification) is `jwt-roles-and-http.md`'s ## Roles' concern — this entry exists here only because it's also part of ## Configuration's connection-role settings.
 
 * `query.maxdepth` (default `6`) : maximum depth a query can specify
 

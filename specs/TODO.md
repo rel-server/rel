@@ -60,10 +60,33 @@ Grouped by how much they block implementation, not by file.
 
 - **`oauth-openid-saml.md` — 0 bytes.** `jwt-roles-and-http.md` names the libraries
   (`crewjam/saml`, `go-oidc`) and how a session gets minted once authenticated, but the
-  actual `/auth/*` routes are unspecified : the SAML ACS endpoint, the OIDC callback, the
-  username/password login route, and — concretely missing — the Postgres function
-  contract for username/password auth (unlike `check_session`, which has a fully
-  documented signature, "delegated to a Postgres function" is as far as this goes).
+  actual `/auth/*` routes are unspecified : the SAML ACS endpoint and the OIDC callback
+  specifically, since those protocols mandate fixed, redirect-driven callback URLs that
+  can't be modeled as an ordinary `/rpc/{schema}/{function}` call. **Re-examined and
+  narrowed** : username/password login is NOT actually missing a contract — it needs no
+  special route or Postgres function signature at all, since it's just an ordinary route
+  function (`auth.login(req: RelHttpRequest) returns RelHttpResponse`) using the
+  already-fully-specified `RelHttpResponse.jwt` mint mechanism (checks credentials
+  however the developer wants — bcrypt, an extension, whatever — sets `jwt` on success,
+  gated by `http.functions.auth` like any other route function). The genuinely open gap
+  is narrower than previously stated : only SAML/OIDC's own protocol-mandated redirect/
+  callback endpoints, not login in general.
+- **`/api/{schema}/{function}` renamed to `/rpc/{schema}/{function}`** throughout
+  `jwt-roles-and-http.md` — `/api` named nothing about the actual mechanism ; `/rpc`
+  matches PostgREST's own convention for the identical concept (named backend function
+  callable over HTTP), which the spec already invokes as a comparison point elsewhere.
+- **`jwt.anonrole` renamed to `query.anonymous_role`**, reconciling a genuine drift :
+  `jwt-roles-and-http.md` and `querying.md` named what reads as the identical setting
+  (the role applied to unauthenticated/unverifiable requests) under two different keys,
+  neither doc cross-referencing the other. Both docs now use `query.anonymous_role`
+  (default `~anonymous`, previously stated only under the wrong name).
+  `config.Pg.Anonymous`/`config/loader.go` updated to match.
+- **Renewal's `SameSite` behavior, previously unstated, resolved** : a renewed JWT cookie
+  always uses `jwt.samesite`, never a `jwt_attrs.samesite` override from the original
+  mint — unlike `jwt_attrs.maxage` (which self-persists, since renewal reuses the current
+  token's own `exp - iat` width), `SameSite` isn't a JWT claim, so nothing survives
+  renewal to reapply it, and a private claim just to carry one rarely-used cookie
+  attribute wasn't judged worth it.
 - **Static file serving.** One bullet in `00-general.md` ("configurable file access
   control based on path and database queries"). No detail anywhere.
 - **TypeScript/JS export** (`/js/query.js`, `/js/schemas/*.ts`). Named as a feature in

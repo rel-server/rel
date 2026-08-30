@@ -176,6 +176,9 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Query.WellKnownDirs != "/wellknown" {
 		t.Errorf("expected default query.wellknown.path=/wellknown, got %q", cfg.Query.WellKnownDirs)
 	}
+	if cfg.Pg.Anonymous != "~anonymous" {
+		t.Errorf("expected default query.anonymous_role=~anonymous, got %q", cfg.Pg.Anonymous)
+	}
 	// Default blacklist must still be present when config doesn't touch it.
 	if !cfg.Blacklist.IsRelationBlacklisted("pg_catalog", "anything") {
 		t.Errorf("expected DefaultBlacklist to still apply")

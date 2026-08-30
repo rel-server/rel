@@ -406,7 +406,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Pg.Querier.Password = root.GetStringOrDefault("query.password", cfg.Pg.Admin.Password)
 	cfg.Pg.Host = root.GetStringOrDefault("query.host", "localhost")
 	cfg.Pg.Port = root.GetIntOrDefault("query.port", 5432)
-	cfg.Pg.Anonymous = root.GetStringOrDefault("query.anonymous_role", "")
+	cfg.Pg.Anonymous = root.GetStringOrDefault("query.anonymous_role", "~anonymous")
 	// query.database : NOT in querying.md at all — config.Pg had no field
 	// naming which database to connect to, genuinely missing before this
 	// (see specs/TODO.md's own note on this invented key). Named under the
