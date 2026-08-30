@@ -63,6 +63,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 
 	t.Run("bad credentials rejected", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login_with_credentials", strings.NewReader(`{"username":"alice","password":"wrong"}`))
+		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
@@ -81,6 +82,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 
 	t.Run("full round trip under the non-superuser connecting role", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login_with_credentials", strings.NewReader(`{"username":"alice","password":"correct horse battery staple"}`))
+		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {

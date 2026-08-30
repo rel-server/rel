@@ -238,6 +238,12 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Http.Static.Path != DefaultHttpStaticPath {
 		t.Errorf("expected default http.static.path=%q, got %q", DefaultHttpStaticPath, cfg.Http.Static.Path)
 	}
+	if cfg.Http.MaxBodySize != DefaultHttpMaxBodySize {
+		t.Errorf("expected default http.max_body_size=%d, got %d", DefaultHttpMaxBodySize, cfg.Http.MaxBodySize)
+	}
+	if cfg.Http.MaxPartCount != DefaultHttpMaxPartCount {
+		t.Errorf("expected default http.max_part_count=%d, got %d", DefaultHttpMaxPartCount, cfg.Http.MaxPartCount)
+	}
 	if cfg.Jwt.Secret != "fixed-test-secret" {
 		t.Errorf("expected the explicitly-set jwt.secret, got %q", cfg.Jwt.Secret)
 	}

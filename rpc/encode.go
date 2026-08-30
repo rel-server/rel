@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"mime"
 	"net/http"
 	"regexp"
 	"strings"
@@ -11,26 +13,31 @@ import (
 	"github.com/ceymard/rel/config"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/querystring"
+	"github.com/samber/oops"
 )
 
 // relHttpRequestPayload is specs/jwt-roles-and-http.md ## Request's
-// RelHttpRequest — with ONE deliberate deviation, per this session's
-// resolution : Cookies is {[name]: string} (value only), not the full
-// Cookie shape (value/httponly/secure/samesite/maxage) the spec's literal
-// TypeScript reuses from the RESPONSE side. A browser's Cookie header only
-// ever sends name=value ; the other four attributes are response-only and
-// can never be known for an inbound cookie, so reusing that shape here
-// would just mean four fields that are always zero-valued. jwt-roles-and-
-// http.md needs a matching one-line fix (not yet applied to the spec file
-// itself in this pass).
+// RelHttpRequest — with ONE deliberate deviation, matching the spec file's
+// own ## Request note : Cookies is {[name]: string} (value only), not the
+// full Cookie shape (value/httponly/secure/samesite/maxage) the spec's
+// literal TypeScript reuses from the RESPONSE side. A browser's Cookie
+// header only ever sends name=value ; the other four attributes are
+// response-only and can never be known for an inbound cookie, so reusing
+// that shape here would just mean four fields that are always zero-valued.
 type relHttpRequestPayload struct {
 	Method      string              `json:"method"`
 	URI         string              `json:"uri"`
 	Headers     map[string][]string `json:"headers"`
 	ContentType string              `json:"content_type"`
-	Content     string              `json:"content"`
-	Cookies     map[string]string   `json:"cookies"`
-	Jwt         jwtpkg.Claims       `json:"jwt"`
+	// Body is ## Request's RelHttpRequest.body (renamed from an earlier,
+	// always-a-raw-string "content" field), typed by ContentType — see
+	// encodeBody. Kept as json.RawMessage since its shape is genuinely
+	// polymorphic (JSON value / plain string / decoded form object /
+	// base64 string / null), already fully encoded by the time it reaches
+	// this struct.
+	Body    json.RawMessage   `json:"body"`
+	Cookies map[string]string `json:"cookies"`
+	Jwt     jwtpkg.Claims     `json:"jwt"`
 	// Query is specs/query_json.md's ## /rpc's query field : r.URL.RawQuery
 	// decoded through the STRUCTURAL layer only (querystring.DecodeQueryField
 	// — no filter expression grammar involvement, that's specific to
@@ -38,6 +45,61 @@ type relHttpRequestPayload struct {
 	// verbatim. nil (-> JSON null) when the request has no query string at
 	// all.
 	Query any `json:"query"`
+}
+
+// badBodyError marks a request whose body failed to decode per ## Request's
+// body content-type rules (malformed application/json, or malformed
+// application/x-www-form-urlencoded) — a 400, same class as badQueryError.
+type badBodyError struct{ err error }
+
+func (e *badBodyError) Error() string { return e.err.Error() }
+func (e *badBodyError) Unwrap() error { return e.err }
+
+// mediaTypeOf extracts the bare media type from a Content-Type header value
+// (params like charset= stripped), lower-cased. Falls back to a best-effort
+// manual split on the first ';' when mime.ParseMediaType rejects the header
+// outright (a malformed Content-Type is treated the same as an unrecognized
+// one — ## Request's "anything else (binary)" branch — not its own error
+// class, since only the BODY's own malformed-ness is a 400 per spec).
+func mediaTypeOf(contentType string) string {
+	mt, _, err := mime.ParseMediaType(contentType)
+	if err == nil {
+		return mt
+	}
+	if idx := strings.IndexByte(contentType, ';'); idx >= 0 {
+		contentType = contentType[:idx]
+	}
+	return strings.ToLower(strings.TrimSpace(contentType))
+}
+
+// encodeBody implements ## Request's RelHttpRequest.body content-type
+// dispatch : hasFiles is true for a route declaring ## Request bodies'
+// "files bytea[]" parameter, in which case body is ALWAYS JSON null
+// regardless of content_type — the payload goes through files/parts_headers
+// instead (built separately by the handler's multipart/binary-body path).
+func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage, error) {
+	if hasFiles || len(body) == 0 {
+		return json.RawMessage("null"), nil
+	}
+
+	mt := mediaTypeOf(contentType)
+	switch {
+	case mt == "application/json" || strings.HasSuffix(mt, "+json"):
+		if !json.Valid(body) {
+			return nil, &badBodyError{err: oops.With("content_type", contentType).Errorf("request body is not valid JSON")}
+		}
+		return json.RawMessage(body), nil
+	case strings.HasPrefix(mt, "text/"):
+		return json.Marshal(string(body))
+	case mt == "application/x-www-form-urlencoded":
+		decoded, err := querystring.DecodeStructural(string(body))
+		if err != nil {
+			return nil, &badBodyError{err: err}
+		}
+		return json.Marshal(decoded)
+	default:
+		return json.Marshal(base64.StdEncoding.EncodeToString(body))
+	}
 }
 
 // badQueryError marks a request whose query string failed to decode
@@ -49,12 +111,14 @@ type badQueryError struct{ err error }
 func (e *badQueryError) Error() string { return e.err.Error() }
 func (e *badQueryError) Unwrap() error { return e.err }
 
-// buildRelHttpRequest encodes r (already read into body) as ##
-// Request's RelHttpRequest. jwt is nil (encodes as JSON null) for an
-// anonymous request — symmetric with "jwt: null clears the session" on the
-// response side, a documented judgment call since the spec doesn't pin
-// down the anonymous case explicitly.
-func buildRelHttpRequest(r *http.Request, body []byte, verified bool, claims jwtpkg.Claims) ([]byte, error) {
+// buildRelHttpRequest encodes r as ## Request's RelHttpRequest. bodyJSON is
+// the already-encoded RelHttpRequest.body value (see encodeBody, called by
+// the handler beforehand — it needs to know hasFiles, which depends on the
+// matched route, so it isn't computed in here). jwt is nil (encodes as JSON
+// null) for an anonymous request — symmetric with "jwt: null clears the
+// session" on the response side, a documented judgment call since the spec
+// doesn't pin down the anonymous case explicitly.
+func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified bool, claims jwtpkg.Claims) ([]byte, error) {
 	cookies := map[string]string{}
 	for _, c := range r.Cookies() {
 		cookies[c.Name] = c.Value
@@ -72,7 +136,7 @@ func buildRelHttpRequest(r *http.Request, body []byte, verified bool, claims jwt
 		URI:         r.URL.String(),
 		Headers:     map[string][]string(r.Header),
 		ContentType: r.Header.Get("Content-Type"),
-		Content:     string(body),
+		Body:        bodyJSON,
 		Cookies:     cookies,
 		Jwt:         jwtVal,
 		Query:       queryVal,

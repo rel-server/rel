@@ -86,6 +86,18 @@ type Http struct {
 	// for cookies set via the generic "cookies" field, when the response
 	// doesn't specify one. Does not apply to the JWT cookie (see Jwt.MaxAge).
 	CookiesMaxAge int
+	// MaxBodySize is http.max_body_size, default 10485760 (10 MiB) : hard
+	// cap, in bytes, on a /rpc request's ENTIRE body — for multipart, the
+	// whole envelope (boundaries and part headers included, not just the
+	// sum of part payload bytes). Enforced before any of it is buffered in
+	// memory — see jwt-roles-and-http.md ## Configuration. Scoped to /rpc
+	// only, never /rel.
+	MaxBodySize int
+	// MaxPartCount is http.max_part_count, default 100 : max number of
+	// multipart/form-data parts a single /rpc request may contain,
+	// independent of their total byte size — see ## Request bodies
+	// ### Limits.
+	MaxPartCount int
 
 	Functions HttpFunctions
 	Static    HttpStatic
@@ -137,6 +149,11 @@ const (
 	DefaultHttpResponseDomainName = "RelHttpResponse"
 	DefaultHttpCookiesMaxAge      = 86400
 	DefaultHttpStaticPath         = "/static"
+	// DefaultHttpMaxBodySize/DefaultHttpMaxPartCount are jwt-roles-and-
+	// http.md's own stated defaults for http.max_body_size (10 MiB) and
+	// http.max_part_count (100).
+	DefaultHttpMaxBodySize  = 10485760
+	DefaultHttpMaxPartCount = 100
 )
 
 // DefaultPgHost/DefaultPgPort/DefaultPgQueryAnonymousRole/

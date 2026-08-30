@@ -38,6 +38,8 @@ func Test() *Config {
 			RequestDomainName:  DefaultHttpRequestDomainName,
 			ResponseDomainName: DefaultHttpResponseDomainName,
 			CookiesMaxAge:      DefaultHttpCookiesMaxAge,
+			MaxBodySize:        DefaultHttpMaxBodySize,
+			MaxPartCount:       DefaultHttpMaxPartCount,
 			Static:             HttpStatic{Path: DefaultHttpStaticPath},
 		},
 		// Jwt.Secret is a fixed literal here, NOT DefaultJwtSecret's

@@ -102,6 +102,64 @@ func TestBuildRegistry_AllowedRoutesRestricts(t *testing.T) {
 	}
 }
 
+// TestBuildRegistry_TextMimeTypeDomain covers the mimetype-domain
+// generalization to text-underlying domains (## HTTP's opening
+// paragraphs), alongside the existing bytea-underlying case.
+func TestBuildRegistry_TextMimeTypeDomain(t *testing.T) {
+	reg, err := BuildRegistry(testDb, testCfg)
+	if err != nil {
+		t.Fatalf("BuildRegistry: %v", err)
+	}
+	route, ok := reg.Lookup("public", "fn_text_domain", "GET")
+	if !ok {
+		t.Fatalf("expected fn_text_domain to be discovered")
+	}
+	if route.MimeType != "text/plain" {
+		t.Errorf("expected MimeType=text/plain, got %q", route.MimeType)
+	}
+}
+
+// TestBuildRegistry_FilesShapes covers ## Request bodies' (req, files
+// bytea[]) and (req, files bytea[], parts_headers jsonb) shapes being
+// discovered, with the right Route flags set.
+func TestBuildRegistry_FilesShapes(t *testing.T) {
+	reg, err := BuildRegistry(testDb, testCfg)
+	if err != nil {
+		t.Fatalf("BuildRegistry: %v", err)
+	}
+
+	upload, ok := reg.Lookup("public", "fn_upload", "POST")
+	if !ok {
+		t.Fatalf("expected fn_upload to be discovered")
+	}
+	if !upload.AcceptsFiles || upload.AcceptsPartsHeaders {
+		t.Errorf("expected fn_upload AcceptsFiles=true AcceptsPartsHeaders=false, got %+v", upload)
+	}
+
+	uploadWithHeaders, ok := reg.Lookup("public", "fn_upload_with_headers", "POST")
+	if !ok {
+		t.Fatalf("expected fn_upload_with_headers to be discovered")
+	}
+	if !uploadWithHeaders.AcceptsFiles || !uploadWithHeaders.AcceptsPartsHeaders {
+		t.Errorf("expected fn_upload_with_headers AcceptsFiles=true AcceptsPartsHeaders=true, got %+v", uploadWithHeaders)
+	}
+}
+
+// TestBuildRegistry_ReorderedFilesShapeExcluded proves the four shapes are
+// matched by TYPE SEQUENCE, not by "has the right types somewhere" :
+// fn_wrong_shape declares (req, parts_headers jsonb, files bytea[]) —
+// jsonb before bytea[], the reverse of the one recognized order — and must
+// not be discovered at all.
+func TestBuildRegistry_ReorderedFilesShapeExcluded(t *testing.T) {
+	reg, err := BuildRegistry(testDb, testCfg)
+	if err != nil {
+		t.Fatalf("BuildRegistry: %v", err)
+	}
+	if _, ok := reg.Lookup("public", "fn_wrong_shape", "POST"); ok {
+		t.Errorf("expected fn_wrong_shape (reordered files/parts_headers) to be excluded from route discovery")
+	}
+}
+
 func TestBuildRegistry_UnknownRouteMisses(t *testing.T) {
 	reg, err := BuildRegistry(testDb, testCfg)
 	if err != nil {

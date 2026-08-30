@@ -6,6 +6,7 @@
 create domain "RelHttpRequest" as jsonb;
 create domain "RelHttpResponse" as jsonb;
 create domain "image/png" as bytea;
+create domain "text/plain" as text;
 
 -- Roles the JWT lifecycle switches to via SET LOCAL ROLE. The test
 -- connection (config.Test()'s postgres superuser) can SET ROLE to either
@@ -103,5 +104,49 @@ $$;
 
 -- Must NEVER be discovered : leading underscore opts out unconditionally.
 create function _fn_internal(req "RelHttpRequest") returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'should not be routable');
+$$;
+
+-- text-underlying mimetype domain : the return value IS the body directly,
+-- no base64 involved (## HTTP's opening paragraphs' generalization beyond
+-- bytea-only mimetype domains).
+create function fn_text_domain() returns "text/plain" language sql as $$
+  select 'hello text domain'::text;
+$$;
+
+-- ## Request bodies' (req, files bytea[]) shape : echoes back how many
+-- files arrived and their base64 content, so tests can verify a real
+-- multipart upload's bytes round-trip correctly.
+create function fn_upload(req "RelHttpRequest", files bytea[]) returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object(
+    'status', 200,
+    'content_type', 'application/json',
+    'content', jsonb_build_object(
+      'body', req->'body',
+      'count', coalesce(array_length(files, 1), 0),
+      'files', coalesce((select jsonb_agg(encode(f, 'base64')) from unnest(files) f), '[]'::jsonb)
+    )
+  );
+$$;
+
+-- ## Request bodies' (req, files bytea[], parts_headers jsonb) shape :
+-- echoes back both the decoded (UTF-8) file contents and the parts_headers
+-- metadata rel built, so tests can verify name/filename/content_type/
+-- headers per part.
+create function fn_upload_with_headers(req "RelHttpRequest", files bytea[], parts_headers jsonb) returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object(
+    'status', 200,
+    'content_type', 'application/json',
+    'content', jsonb_build_object(
+      'parts_headers', parts_headers,
+      'contents', coalesce((select jsonb_agg(convert_from(f, 'utf8')) from unnest(files) f), '[]'::jsonb)
+    )
+  );
+$$;
+
+-- Must NEVER be discovered : ## Request bodies' four shapes are matched by
+-- TYPE SEQUENCE — files/parts_headers reordered (jsonb before bytea[]) is
+-- simply not a recognized shape, same as any other signature mismatch.
+create function fn_wrong_shape(req "RelHttpRequest", parts_headers jsonb, files bytea[]) returns "RelHttpResponse" language sql as $$
   select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'should not be routable');
 $$;

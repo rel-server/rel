@@ -60,6 +60,8 @@ var Options = []Option{
 	{"http.request_domain_name", DefaultHttpRequestDomainName, "Name of the JSON domain identifying a route function's request argument type."},
 	{"http.response_domain_name", DefaultHttpResponseDomainName, "Name of the JSON domain identifying a route function's response type."},
 	{"http.cookies_max_age", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route response, when unspecified. Doesn't apply to the JWT cookie — see jwt.max_age."},
+	{"http.max_body_size", fmt.Sprint(DefaultHttpMaxBodySize) + " (bytes)", "Hard cap on a /rpc request's entire body (for multipart, the whole envelope — boundaries and part headers included, not just part payload bytes). Rejected with 413 before any of it is buffered in memory."},
+	{"http.max_part_count", fmt.Sprint(DefaultHttpMaxPartCount), "Max number of multipart/form-data parts a single /rpc request may contain, independent of their total byte size."},
 	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route functions may mint or clear a session."},
 	{"http.functions.allowed_routes", "(unrestricted)", "Regexp restricting which route functions are exposed as /rpc routes."},
 	{"http.functions.check_session", "(disabled)", "Function called on every authenticated request, letting the database reject a session early."},

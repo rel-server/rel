@@ -17,12 +17,18 @@ import (
 
 // Route is one discovered route function : Function is the underlying
 // Postgres function ; MimeType is non-empty only when this route's return
-// type is a mimetype domain (a domain over bytea whose own name contains
-// "/"), in which case that name (route.MimeType) IS the Content-Type a
-// call to this route responds with.
+// type is a mimetype domain (a domain over bytea or text whose own name
+// contains "/"), in which case that name (route.MimeType) IS the
+// Content-Type a call to this route responds with. AcceptsFiles/
+// AcceptsPartsHeaders record which of ## Request bodies' four signature
+// shapes this route matched — (), (req), (req, files bytea[]), or
+// (req, files bytea[], parts_headers jsonb) — driving how invokeRoute
+// calls it and how the handler must parse the incoming request body.
 type Route struct {
-	Function *pg.Function
-	MimeType string
+	Function            *pg.Function
+	MimeType            string
+	AcceptsFiles        bool
+	AcceptsPartsHeaders bool
 }
 
 // Registry is every discovered route function, keyed schema → base
@@ -105,7 +111,7 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 			continue
 		}
 
-		mimeType, ok := matchesRouteShape(fn, reqType, respType)
+		mimeType, acceptsFiles, acceptsPartsHeaders, ok := matchesRouteShape(fn, reqType, respType)
 		if !ok {
 			continue
 		}
@@ -123,53 +129,104 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 				"first", existing.Function.Identifier.String(), "second", fn.Identifier.String())
 			continue
 		}
-		reg.routes[schema][base][verb] = Route{Function: fn, MimeType: mimeType}
+		reg.routes[schema][base][verb] = Route{
+			Function:            fn,
+			MimeType:            mimeType,
+			AcceptsFiles:        acceptsFiles,
+			AcceptsPartsHeaders: acceptsPartsHeaders,
+		}
 	}
 
 	return reg, nil
 }
 
-// matchesRouteShape checks fn's arguments/return type against ## HTTP's
-// signature rule, returning ("", true) for a RelHttpResponse route or
-// (mimeTypeName, true) for a mimetype-domain route.
-func matchesRouteShape(fn *pg.Function, reqType, respType *pg.Type) (string, bool) {
-	inCount, singleInType := singleInputArgument(fn)
-	switch inCount {
+// matchesRouteShape checks fn's arguments/return type against ## HTTP's and
+// ## Request bodies' signature rule, returning (mimeTypeName, acceptsFiles,
+// acceptsPartsHeaders, true) on a match — mimeTypeName is "" for a
+// RelHttpResponse route, non-empty for a mimetype-domain route. Only four
+// argument shapes are recognized, matched by TYPE SEQUENCE, never parameter
+// name : (), (req), (req, files bytea[]), (req, files bytea[],
+// parts_headers jsonb). Anything else — extra/reordered/differently-typed
+// parameters — is simply not discovered as a route, same as any other
+// signature mismatch.
+func matchesRouteShape(fn *pg.Function, reqType, respType *pg.Type) (string, bool, bool, bool) {
+	inTypes := inputArgumentTypes(fn)
+	// inputArgumentTypes only collects IsIn() arguments ; a function with
+	// an INOUT/VARIADIC parameter would inflate PgNargs beyond len(inTypes)
+	// without matching any of the shapes below, so guard on the two
+	// staying equal — otherwise e.g. a (req, INOUT x) function's single
+	// collected IN type could false-match the one-argument (req) shape.
+	if len(inTypes) != fn.PgNargs {
+		return "", false, false, false
+	}
+
+	var acceptsFiles, acceptsPartsHeaders bool
+	switch len(inTypes) {
 	case 0:
 		// fine, 0-arg route functions are always shape-eligible on the
 		// argument side.
 	case 1:
-		if reqType == nil || singleInType != reqType {
-			return "", false
+		if reqType == nil || inTypes[0] != reqType {
+			return "", false, false, false
 		}
+	case 2:
+		if reqType == nil || inTypes[0] != reqType || !isBytesArrayType(inTypes[1]) {
+			return "", false, false, false
+		}
+		acceptsFiles = true
+	case 3:
+		if reqType == nil || inTypes[0] != reqType || !isBytesArrayType(inTypes[1]) || !isJsonbType(inTypes[2]) {
+			return "", false, false, false
+		}
+		acceptsFiles = true
+		acceptsPartsHeaders = true
 	default:
-		return "", false
+		return "", false, false, false
 	}
 
 	if respType != nil && fn.ReturnType == respType {
-		return "", true
+		return "", acceptsFiles, acceptsPartsHeaders, true
 	}
 	if fn.ReturnType.IsDomain() && fn.ReturnType.Underlying() != nil &&
-		fn.ReturnType.Underlying().PgIdentifier.String() == "pg_catalog.bytea" &&
+		isMimeTypeUnderlying(fn.ReturnType.Underlying()) &&
 		strings.Contains(fn.ReturnType.PgIdentifier.Name, "/") {
-		return fn.ReturnType.PgIdentifier.Name, true
+		return fn.ReturnType.PgIdentifier.Name, acceptsFiles, acceptsPartsHeaders, true
 	}
-	return "", false
+	return "", false, false, false
 }
 
-// singleInputArgument counts fn's true INPUT arity (PgNargs — OUT-only
-// arguments never inflate this, matching AcceptsArity's own convention)
-// and, when there's exactly one, returns its Type.
-func singleInputArgument(fn *pg.Function) (int, *pg.Type) {
-	if fn.PgNargs != 1 {
-		return fn.PgNargs, nil
-	}
+// isMimeTypeUnderlying is # HTTP's mimetype-domain rule, generalized to
+// both underlying types it now recognizes : a domain over bytea (raw bytes
+// ARE the body) or over text (the string IS the body directly, no base64).
+func isMimeTypeUnderlying(underlying *pg.Type) bool {
+	name := underlying.PgIdentifier.String()
+	return name == "pg_catalog.bytea" || name == "pg_catalog.text"
+}
+
+// isBytesArrayType reports whether t is exactly bytea[] — an array type
+// whose element is pg_catalog.bytea, matched by TYPE, never through a
+// domain wrapper (## Request bodies' four shapes require the EXACT type).
+func isBytesArrayType(t *pg.Type) bool {
+	return t != nil && t.IsArray() && t.ElementType != nil && t.ElementType.PgIdentifier.String() == "pg_catalog.bytea"
+}
+
+// isJsonbType reports whether t is exactly pg_catalog.jsonb.
+func isJsonbType(t *pg.Type) bool {
+	return t != nil && t.PgIdentifier.String() == "pg_catalog.jsonb"
+}
+
+// inputArgumentTypes returns the Type of every one of fn's true INPUT
+// arguments (IsIn() — OUT-only arguments never appear here), in positional
+// order — the generalized form of the old singleInputArgument, needed now
+// that route functions can take up to three arguments (## Request bodies).
+func inputArgumentTypes(fn *pg.Function) []*pg.Type {
+	types := make([]*pg.Type, 0, fn.PgNargs)
 	for i := range fn.Arguments {
 		if fn.Arguments[i].IsIn() {
-			return 1, fn.Arguments[i].Type
+			types = append(types, fn.Arguments[i].Type)
 		}
 	}
-	return fn.PgNargs, nil
+	return types
 }
 
 // splitVerb splits a Postgres function name's optional "__VERB" suffix

@@ -447,6 +447,8 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.RequestDomainName = root.GetStringOrDefault("http.request_domain_name", DefaultHttpRequestDomainName)
 	cfg.Http.ResponseDomainName = root.GetStringOrDefault("http.response_domain_name", DefaultHttpResponseDomainName)
 	cfg.Http.CookiesMaxAge = root.GetIntOrDefault("http.cookies_max_age", DefaultHttpCookiesMaxAge)
+	cfg.Http.MaxBodySize = root.GetIntOrDefault("http.max_body_size", DefaultHttpMaxBodySize)
+	cfg.Http.MaxPartCount = root.GetIntOrDefault("http.max_part_count", DefaultHttpMaxPartCount)
 	cfg.Http.Functions.AllowedAuth = root.GetStringOrDefault("http.functions.allowed_auth", "")
 	cfg.Http.Functions.AllowedRoutes = root.GetStringOrDefault("http.functions.allowed_routes", "")
 	cfg.Http.Functions.CheckSession = root.GetStringOrDefault("http.functions.check_session", "")

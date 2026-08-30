@@ -42,7 +42,10 @@ values ('alice', crypt('correct horse battery staple', gen_salt('bf')));
 -- pg_constraint) with no grant needed for THAT.
 create function fn_login_with_credentials(req "RelHttpRequest") returns "RelHttpResponse" language plpgsql security definer as $$
 declare
-  creds jsonb := (req->>'content')::jsonb;
+  -- req->'body' : application/json's body is already the decoded JSON
+  -- value (## Request's own rename motivation) — no ->>/cast needed, unlike
+  -- the old "content" field which was always a raw string.
+  creds jsonb := req->'body';
   u_row users%rowtype;
 begin
   select * into u_row from users where username = creds->>'username';

@@ -2,8 +2,8 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 
@@ -94,13 +94,26 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	// ## Request bodies : parses multipart/form-data or a single raw
+	// binary body per route.AcceptsFiles, enforcing http.max_body_size/
+	// http.max_part_count and the 415 shape-mismatch rules, and produces
+	// the already-content-type-encoded RelHttpRequest.body value either
+	// way (see resolveRequestBody's own doc comment).
+	resolved, err := resolveRequestBody(w, r, route, int64(cfg.Http.MaxBodySize), cfg.Http.MaxPartCount)
 	if err != nil {
-		writePlainError(w, http.StatusBadRequest, "reading request body")
+		if rbe, ok := errors.AsType[*requestBodyError](err); ok {
+			writePlainError(w, rbe.status, rbe.message)
+			return
+		}
+		if bbe, ok := errors.AsType[*badBodyError](err); ok {
+			writePlainError(w, http.StatusBadRequest, bbe.Error())
+			return
+		}
+		writePlainError(w, http.StatusInternalServerError, "reading request body")
 		return
 	}
 
-	reqJSON, err := buildRelHttpRequest(r, body, verified, claims)
+	reqJSON, err := buildRelHttpRequest(r, resolved.BodyJSON, verified, claims)
 	if err != nil {
 		if bqe, ok := errors.AsType[*badQueryError](err); ok {
 			writePlainError(w, http.StatusBadRequest, bqe.Error())
@@ -110,7 +123,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	raw, err := invokeRoute(ctx, tx, route, reqJSON)
+	raw, err := invokeRoute(ctx, tx, route, reqJSON, resolved.Files, resolved.PartsHeadersRaw)
 	if err != nil {
 		writeErrorForPgErr(w, err)
 		return
@@ -153,15 +166,26 @@ func verifyRequestJWT(cfg *config.Config, r *http.Request) (jwtpkg.Claims, bool)
 	return claims, true
 }
 
-// invokeRoute calls route.Function with reqJSON as its single argument (or
-// no arguments at all for a 0-arg route), returning the function's raw
-// jsonb (RelHttpResponse) or bytea (mimetype domain) return value.
-func invokeRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSON []byte) ([]byte, error) {
+// invokeRoute calls route.Function with the argument list matching
+// whichever of ## Request bodies' four signature shapes it was discovered
+// with — (), (req), (req, files bytea[]), or (req, files bytea[],
+// parts_headers jsonb) — returning the function's raw jsonb
+// (RelHttpResponse) or bytea/text (mimetype domain) return value.
+// partsHeadersRaw is only actually sent when route.AcceptsPartsHeaders ;
+// files is always sent (as a bytea[] positional parameter — pgx encodes a
+// [][]byte Go value directly, no manual array-literal building needed) for
+// any route.AcceptsFiles route.
+func invokeRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSON []byte, files [][]byte, partsHeadersRaw json.RawMessage) ([]byte, error) {
 	ident := route.Function.Identifier.EscapedString()
 	var row pgx.Row
-	if len(route.Function.Arguments) > 0 && hasInArgument(route.Function) {
+	switch {
+	case route.AcceptsPartsHeaders:
+		row = tx.QueryRow(ctx, "select "+ident+"($1::jsonb, $2::bytea[], $3::jsonb)", reqJSON, files, []byte(partsHeadersRaw))
+	case route.AcceptsFiles:
+		row = tx.QueryRow(ctx, "select "+ident+"($1::jsonb, $2::bytea[])", reqJSON, files)
+	case len(route.Function.Arguments) > 0 && hasInArgument(route.Function):
 		row = tx.QueryRow(ctx, "select "+ident+"($1::jsonb)", reqJSON)
-	} else {
+	default:
 		row = tx.QueryRow(ctx, "select "+ident+"()")
 	}
 	var raw []byte
