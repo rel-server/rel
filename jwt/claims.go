@@ -1,8 +1,12 @@
 // Package jwt implements specs/jwt-roles-and-http.md's "# JWT" claims/
-// sign/verify/renew mechanics — pure logic, no net/http, no database. The
-// HTTP-facing lifecycle (Verify → Check(check_session) → Renew → Apply
-// role) and the actual cookie read/write against a request/response live
-// in the rpc package, which glues this package to a specific request.
+// sign/verify/renew mechanics, plus the Verify/Renew half of the HTTP
+// Lifecycle as genuine net/http middleware (middleware.go) : Verify and
+// Renew need no database, so they live here as ordinary
+// func(http.Handler) http.Handler middleware. Check (the check_session
+// function) and Apply role both need the request's own DB connection,
+// which doesn't exist yet when this middleware runs — those two steps are
+// each calling package's own responsibility (rpc/handler.go, server/rel.go
+// applyRole), using dbauth for the parts they still share.
 package jwt
 
 import (

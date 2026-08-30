@@ -36,8 +36,9 @@ func (e *requestError) Error() string { return e.err.Error() }
 func (e *requestError) Unwrap() error { return e.err }
 
 // badRequest/serverError : 400 for a problem with the query/data itself,
-// 500 for everything else (confirmed this session ; 401 for a bad role is
-// reserved but unreachable until auth exists — see the plan's Scope note).
+// 500 for everything else (confirmed this session). An RSxxx status from
+// http.functions.check_session (rel.go's classifyCheckSessionError) is the
+// one other status this envelope carries — everything else stays 400/500.
 func badRequest(err error) *requestError {
 	return &requestError{status: http.StatusBadRequest, err: err}
 }
@@ -70,23 +71,45 @@ func writeError(w http.ResponseWriter, err error) {
 // straight from Postgres, "]" — manual streaming, not json_agg, per
 // ## Response Shape's own "why" (constant memory on both ends, first byte
 // before the query finishes).
-func streamRows(w io.Writer, rows pgx.Rows) error {
+//
+// The first row is peeked BEFORE writing the opening "[" : pgx defers a
+// query's own execution errors (a permission error, say) to the first
+// rows.Next()/rows.Err() call rather than to Query itself, so writing "["
+// unconditionally first would mean an error discovered one line later
+// always looks like a truncated response, even for the very first item of
+// a single-item request where a clean envelope was still possible. If
+// cleanErrorPossible and that peek itself fails, the error is wrapped as
+// *cleanStreamError for the caller to still build a clean envelope from —
+// any failure past the peek (a later row, a write) returns its raw error,
+// same truncation limitation as before.
+func streamRows(w io.Writer, rows pgx.Rows, cleanErrorPossible bool) error {
+	hasFirst := rows.Next()
+	if err := rows.Err(); err != nil {
+		if cleanErrorPossible {
+			return &cleanStreamError{err}
+		}
+		return err
+	}
+	if !hasFirst {
+		_, err := w.Write([]byte("[]"))
+		return err
+	}
+
 	if _, err := w.Write([]byte("[")); err != nil {
 		return err
 	}
-	first := true
-	for rows.Next() {
+	for {
 		var raw []byte
 		if err := rows.Scan(&raw); err != nil {
 			return err
 		}
-		if !first {
-			if _, err := w.Write([]byte(",")); err != nil {
-				return err
-			}
-		}
-		first = false
 		if _, err := w.Write(raw); err != nil {
+			return err
+		}
+		if !rows.Next() {
+			break
+		}
+		if _, err := w.Write([]byte(",")); err != nil {
 			return err
 		}
 	}

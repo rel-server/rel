@@ -45,10 +45,40 @@ Grouped by how much they block implementation, not by file.
   request's own end-of-request cleanup having actually run (killed process, swallowed
   error) ; a second `truncate _data` runs at the very end via `defer`, against a fresh
   `context.Background()` so a client disconnect/cancelled request doesn't skip it. Still
-  open : `SET LOCAL ROLE` / auth timing (no auth exists yet at all, see the auth item
-  below) ; whether a read-only `Sequence` (no write item at all) should also share one
+  open : whether a read-only `Sequence` (no write item at all) should also share one
   transaction across its queries — right now it doesn't, see the note added to
   `querying.md ## Transactions`.
+  **`SET LOCAL ROLE` / auth timing — now resolved for `/rel`, one deliberate divergence
+  from `jwt-roles-and-http.md`'s literal wording** : `/rel` uses session-scoped
+  `SET ROLE`/`RESET ROLE` on the pinned connection, NOT the transaction-scoped
+  `SET LOCAL ROLE` `jwt-roles-and-http.md:43` names unconditionally — `/rel` commits its
+  write transaction and then runs every item's read query AFTER that commit, still on the
+  same connection, so a transaction-scoped role would revert before the reads that also
+  need it ever ran. `/rpc` (`rpc/handler.go`) still uses `SET LOCAL ROLE` as spec'd, since
+  its whole request (check_session, role switch, the route function call) shares one
+  transaction start-to-finish. `_data` is granted to `PUBLIC` every request (it's owned by
+  the connecting role, not the switched-to one) so a non-owner role can still write to it.
+  Also : `jwt-roles-and-http.md:90`'s "all four lifecycle steps are ordinary
+  `func(http.Handler) http.Handler` middleware" isn't fully achievable — only Verify/Renew
+  (`jwt/middleware.go`) need no DB and can be genuine middleware ; Check
+  (`check_session`) and Apply role both need the request's own connection, which doesn't
+  exist yet when generic middleware runs, so those two stay each handler's own
+  responsibility (`server/rel.go`'s `applyRole`, `rpc/handler.go`'s inline equivalent),
+  sharing the DB-facing half via `dbauth`.
+  **Undocumented deployment prerequisite, found empirically (`SET ROLE` under a plain
+  `login` role, not a superuser)** : `SET ROLE`/`SET LOCAL ROLE` only succeeds if the
+  connecting role is a MEMBER of the target role — every local/testcontainer run so far
+  has connected as a superuser (`postgres`), which can `SET ROLE` to anything, silently
+  masking this. In production the connecting role is `query.user`, deliberately NOT a
+  superuser — so `query.user` must be granted membership in `query.anonymous_role` AND
+  every role any JWT in this deployment may carry (`grant "~anonymous" to query_user;`,
+  one `grant` per such role), for both `/rel` and `/rpc`, or every anonymous/authenticated
+  request 500s with "permission denied to set role" the moment it's deployed against a
+  properly-locked-down (non-superuser) connecting role. PostgREST documents the identical
+  prerequisite for its own `authenticator`/`web_anon` pattern ; neither `querying.md` nor
+  `jwt-roles-and-http.md` states it yet for rel.
+  responsibility (`server/rel.go`'s `applyRole`, `rpc/handler.go`'s inline equivalent),
+  sharing the DB-facing half via `dbauth`.
 - **`dmut` / migrations** (`03-dmut.md`, 14 lines). Legacy's `dmut` is a DAG/content-hash
   migration tool, a separate vendored module (`github.com/ceymard/dmut`) — not a
   sequential up/down tool. The current spec doesn't say whether rel keeps using that

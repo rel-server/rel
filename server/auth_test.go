@@ -1,0 +1,221 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/ceymard/rel/config"
+	jwtpkg "github.com/ceymard/rel/jwt"
+)
+
+// mintCookie signs role/extra claims under cfg.Jwt and returns the cookie a
+// real client would present — /rel never mints its own tokens (that's a
+// route function's job via /rpc), so tests stand in for that step directly.
+func mintCookie(t *testing.T, cfg *config.Config, role string) *http.Cookie {
+	t.Helper()
+	claims := jwtpkg.Mint(cfg.Jwt, role, time.Now(), cfg.Jwt.MaxAge, nil)
+	token, err := jwtpkg.Sign(cfg.Jwt, claims)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	return jwtpkg.CookieValue(cfg.Jwt, token, claims, "")
+}
+
+func TestRelHandler_AnonymousWriteDeniedOnRoleGatedTable(t *testing.T) {
+	rec := postRel(t, `{
+		"query": {"relation": "secret_notes", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"data": [{"note": "should not be allowed"}]
+	}`)
+	// "~anonymous" has no privileges on secret_notes (server/testdata/
+	// roles.sql) — a genuine Postgres permission-denied error, classified
+	// as a server error (classifyWriteError), proving the request actually
+	// ran under the switched role rather than some elevated connecting
+	// role.
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 (permission denied), got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRelHandler_AuthenticatedCookieAppliesRole(t *testing.T) {
+	cookie := mintCookie(t, testCfg, "authenticated_user")
+	rec := postRelWithCookie(t, testHandler, `{
+		"query": {"relation": "secret_notes", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"data": [{"note": "authenticated write"}]
+	}`, cookie)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRelHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
+	cfg := config.Test()
+	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Http.Functions.CheckSession = "public.check_session"
+	handler := NewRelHandler(testDb, cfg)
+
+	toggleSessionControl(t, true)
+	defer toggleSessionControl(t, false)
+
+	cookie := mintCookie(t, cfg, "authenticated_user")
+	rec := postRelWithCookie(t, handler, `{
+		"relation": "secret_notes", "schema": "public", "select": ["own"]
+	}`, cookie)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (RS401 from check_session), got %d: %s", rec.Code, rec.Body.String())
+	}
+	cleared := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cfg.Jwt.CookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Errorf("expected the jwt cookie to be cleared, got %v", rec.Result().Cookies())
+	}
+}
+
+func TestRelHandler_CheckSessionRejection_DoesNotAlsoRenew(t *testing.T) {
+	// jwt.Middleware runs Renew before this handler ever gets a chance to
+	// run check_session (Renew needs no DB, Check does — see jwt/
+	// middleware.go). A token past renewafter AND rejected by
+	// check_session must not leave two Set-Cookie headers on the response
+	// (a still-valid renewed token, then the clear) — see applyRole's own
+	// Header().Del("Set-Cookie") comment.
+	cfg := config.Test()
+	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Http.Functions.CheckSession = "public.check_session"
+	cfg.Jwt.MaxAge = 5
+	cfg.Jwt.RenewAfter = 0.1
+	handler := NewRelHandler(testDb, cfg)
+
+	toggleSessionControl(t, true)
+	defer toggleSessionControl(t, false)
+
+	cookie := mintCookie(t, cfg, "authenticated_user")
+	time.Sleep(1500 * time.Millisecond)
+
+	rec := postRelWithCookie(t, handler, `{
+		"relation": "secret_notes", "schema": "public", "select": ["own"]
+	}`, cookie)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+	setCookies := rec.Result().Cookies()
+	if len(setCookies) != 1 {
+		t.Fatalf("expected exactly 1 Set-Cookie, got %d: %v", len(setCookies), setCookies)
+	}
+	if setCookies[0].MaxAge >= 0 {
+		t.Errorf("expected the one Set-Cookie to be a clear (negative MaxAge), got %+v", setCookies[0])
+	}
+}
+
+func TestRelHandler_AnonymousReadDeniedOnRoleGatedTable_CleanEnvelope(t *testing.T) {
+	// Same permission-denied cause as the write test above, but on the
+	// read path : the query fails inside conn.Query, before any response
+	// bytes are written, so this must still produce a clean JSON error
+	// envelope (500), not a 200 with an empty/invalid body.
+	rec := postRel(t, `{
+		"relation": "secret_notes", "schema": "public", "select": ["own"]
+	}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 (permission denied), got %d: %s", rec.Code, rec.Body.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("expected a valid JSON error envelope, got %q: %v", rec.Body.String(), err)
+	}
+	if envelope["status"] != "error" {
+		t.Errorf("expected status \"error\", got %v", envelope["status"])
+	}
+}
+
+func TestRelHandler_CheckSessionAllows_AuthenticatedReadSucceeds(t *testing.T) {
+	cfg := config.Test()
+	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Http.Functions.CheckSession = "public.check_session"
+	handler := NewRelHandler(testDb, cfg)
+
+	toggleSessionControl(t, false)
+
+	cookie := mintCookie(t, cfg, "authenticated_user")
+	rec := postRelWithCookie(t, handler, `{
+		"relation": "secret_notes", "schema": "public", "select": ["own"]
+	}`, cookie)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRelHandler_RenewalSetsCookie(t *testing.T) {
+	cfg := config.Test()
+	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Jwt.MaxAge = 5
+	cfg.Jwt.RenewAfter = 0.1 // renew almost immediately
+	handler := NewRelHandler(testDb, cfg)
+
+	cookie := mintCookie(t, cfg, "authenticated_user")
+	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold ; see rpc/handler_test.go's identical note on second-granularity claims
+
+	rec := postRelWithCookie(t, handler, `{
+		"relation": "secret_notes", "schema": "public", "select": ["own"]
+	}`, cookie)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	renewed := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cfg.Jwt.CookieName && c.Value != cookie.Value {
+			renewed = true
+		}
+	}
+	if !renewed {
+		t.Errorf("expected a renewed Set-Cookie, got %v", rec.Result().Cookies())
+	}
+}
+
+func TestRelHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
+	cfg := config.Test() // Pg.Anonymous intentionally left unset
+	handler := NewRelHandler(testDb, cfg)
+
+	rec := postRelWithCookie(t, handler, `{
+		"relation": "secret_notes", "schema": "public", "select": ["own"]
+	}`, nil)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// postRelWithCookie is postRelTo plus an optional request cookie.
+func postRelWithCookie(t *testing.T, handler http.Handler, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/rel", bytes.NewBufferString(body))
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func toggleSessionControl(t *testing.T, reject bool) {
+	t.Helper()
+	conn, err := testDb.Pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(context.Background(), "update session_control set reject = $1", reject); err != nil {
+		t.Fatalf("toggle session_control: %v", err)
+	}
+}

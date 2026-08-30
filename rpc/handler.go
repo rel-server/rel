@@ -2,15 +2,14 @@ package rpc
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ceymard/rel/config"
+	"github.com/ceymard/rel/dbauth"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/pg"
 )
@@ -59,7 +58,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	claims, verified := verifyRequestJWT(cfg, r)
 	if verified {
 		if cfg.Http.Functions.CheckSession != "" {
-			if err := runCheckSession(ctx, tx, cfg.Http.Functions.CheckSession, claims); err != nil {
+			if err := dbauth.CheckSession(ctx, tx, cfg.Http.Functions.CheckSession, claims); err != nil {
 				http.SetCookie(w, jwtpkg.ClearCookie(cfg.Jwt))
 				writeErrorForPgErr(w, err)
 				return
@@ -89,7 +88,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		writePlainError(w, http.StatusInternalServerError, "no role configured (query.anonymous_role is unset and request is anonymous)")
 		return
 	}
-	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+escapeIdentifier(role)); err != nil {
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); err != nil {
 		writeErrorForPgErr(w, err)
 		return
 	}
@@ -127,13 +126,6 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	writeRelHttpResponse(w, cfg, route, raw)
 }
 
-// escapeIdentifier doubles embedded double-quotes and wraps in "..." — the
-// same rule pg.SqlIdentifier.EscapedString() uses, reimplemented locally
-// for a single bare identifier (a role name), not a schema-qualified pair.
-func escapeIdentifier(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
 // verifyRequestJWT reads cfg.Jwt.CookieName off r and verifies it. Any
 // failure (missing cookie, bad signature, expired, session-ceiling
 // exceeded) is "no session", per Lifecycle step 2 — never an error in its
@@ -154,25 +146,6 @@ func verifyRequestJWT(cfg *config.Config, r *http.Request) (jwtpkg.Claims, bool)
 		return nil, false
 	}
 	return claims, true
-}
-
-// runCheckSession invokes http.functions.check_session — a void-returning
-// function, called only when a JWT already verified (Lifecycle step 3),
-// immediately before the role switch. An RSxxx exception here aborts the
-// whole request (handleRpc's caller clears the cookie and stops), any
-// other Postgres error is a genuine 500.
-func runCheckSession(ctx context.Context, tx pgx.Tx, qualifiedName string, claims jwtpkg.Claims) error {
-	schema, name, ok := strings.Cut(qualifiedName, ".")
-	if !ok {
-		schema, name = "public", qualifiedName
-	}
-	claimsJSON, err := json.Marshal(claims)
-	if err != nil {
-		return err
-	}
-	sql := "select " + escapeIdentifier(schema) + "." + escapeIdentifier(name) + "($1::jsonb)"
-	_, err = tx.Exec(ctx, sql, claimsJSON)
-	return err
 }
 
 // invokeRoute calls route.Function with reqJSON as its single argument (or

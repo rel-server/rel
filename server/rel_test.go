@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	container, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithInitScripts("../pg/testdata/schema.sql"),
+		postgres.WithOrderedInitScripts("../pg/testdata/schema.sql", "testdata/roles.sql"),
 		postgres.BasicWaitStrategies(),
 	)
 	if err != nil {
@@ -43,6 +43,7 @@ func TestMain(m *testing.M) {
 	}
 
 	testCfg = config.Test()
+	testCfg.Pg.Anonymous = "~anonymous"
 	testHandler = NewRelHandler(testDb, testCfg)
 
 	m.Run()
@@ -89,6 +90,24 @@ func TestRelHandler_ReadArray(t *testing.T) {
 	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
 	if len(rows) != 1 || rows[0]["name"] != "HTTP Read Director" {
 		t.Fatalf("expected 1 row named HTTP Read Director, got %v", rows)
+	}
+}
+
+func TestRelHandler_ReadArray_EmptyResult(t *testing.T) {
+	// streamRows peeks the first row before writing "[" (server/response.go)
+	// — a genuinely empty result takes a different, untested-until-now
+	// write path ("[]" as one call) than "at least one row" does. Must
+	// produce the same "[]" a reader would get either way.
+	rec := postRel(t, `{
+		"relation": "director", "schema": "public",
+		"select": ["own"],
+		"where": ["=", "name", ["No Such Director Ever"]]
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "[]" {
+		t.Fatalf("expected \"[]\", got %q", rec.Body.String())
 	}
 }
 
@@ -210,7 +229,7 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	// exists — the failure mode this guards against is specifically a
 	// cleanup that DIDN'T run.
 	container, err := postgres.Run(context.Background(), "postgres:16-alpine",
-		postgres.WithInitScripts("../pg/testdata/schema.sql"),
+		postgres.WithOrderedInitScripts("../pg/testdata/schema.sql", "testdata/roles.sql"),
 		postgres.BasicWaitStrategies(),
 	)
 	if err != nil {
@@ -228,7 +247,9 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	if err != nil {
 		t.Fatalf("NewInfos: %v", err)
 	}
-	handler := NewRelHandler(db, config.Test())
+	cfg := config.Test()
+	cfg.Pg.Anonymous = "~anonymous"
+	handler := NewRelHandler(db, cfg)
 
 	ctx := context.Background()
 	conn, err := db.Pool.Acquire(ctx)
