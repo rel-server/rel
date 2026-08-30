@@ -63,7 +63,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 		return fmt.Errorf("sql: \"*\" is not a value-position expression")
 
 	case *Identifier:
-		return c.compileResolvedField(v.Resolved)
+		return c.compileResolvedField(v.Resolved, n)
 
 	case UnaryExpr:
 		return c.compileUnary(v, n)
@@ -180,13 +180,41 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 
 // compileResolvedField emits whatever an *Identifier resolved to — the
 // common landing spot for both a first-hop scope lookup and the terminus of
-// a "." chain (see resolveChain/resolveHopInto, expression_resolve.go).
-func (c *sqlCompiler) compileResolvedField(field ResolvedField) error {
+// a "." chain (see resolveChain/resolveHopInto, expression_resolve.go). n is
+// the node whose own expression is currently being compiled — needed to
+// distinguish a SELF-reference (r == n, e.g. "property" used as the bare
+// argument to a row-type-taking computed column, property_average_rating
+// (property) — specs/querying.md's "## Scoping"'s computed-column paragraph)
+// from a reference to some OTHER node (a child/sibling/ancestor), which
+// stays unsupported below.
+func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) error {
 	switch r := field.(type) {
 	case ColumnPath:
 		return c.compileColumnPath(r)
 	case *QueryNode:
-		return fmt.Errorf("sql: embedding a child/self alias as a bare expression value is not yet supported")
+		if r == n {
+			// A self-reference's own alias is always in scope here : it was
+			// recorded into c.alias BEFORE this node's own select-list
+			// expressions ever started compiling (compileNodeCorrelated sets
+			// c.alias[node] first thing, then emits the select list) — so
+			// the row this expression is nested inside of is exactly the
+			// row named by c.alias[r]. Emitting that bare alias is a valid,
+			// correlated reference to the node's own current row — exactly
+			// what a Postgres function taking that row's own composite type
+			// as an argument expects.
+			alias, ok := c.alias[r]
+			if !ok {
+				return fmt.Errorf("sql: self-reference resolved to a node with no known alias yet (compiler ordering bug)")
+			}
+			c.w.Write(alias)
+			return nil
+		}
+		// A DIFFERENT node (child/sibling/ancestor) embedded as a bare
+		// value is a genuinely harder problem — e.g. a to-many child
+		// compiled via LATERAL has no single row to name, and even a
+		// to-one child's alias may not be a valid correlated reference at
+		// this exact point in the subquery tree. Left unsupported.
+		return fmt.Errorf("sql: embedding a child alias (other than the node's own self-reference) as a bare expression value is not yet supported")
 	case Shape:
 		return fmt.Errorf("sql: a literal-object landing reached as a bare expression value is not yet supported")
 	default:
@@ -308,7 +336,7 @@ func (c *sqlCompiler) compileFolded(v FoldedExpr, n *QueryNode) error {
 		if !ok {
 			return fmt.Errorf("sql: \".\" hop's right side is not an identifier (%T)", v.Right)
 		}
-		return c.compileResolvedField(id.Resolved)
+		return c.compileResolvedField(id.Resolved, n)
 
 	case FoldCoalesceAlias:
 		c.w.Write("coalesce")

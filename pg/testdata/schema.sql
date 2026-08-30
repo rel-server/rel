@@ -119,6 +119,13 @@ create function fn_ambig(a text) returns text language sql as $$ select a $$;
 -- GetRelationByType and be joinable into, exactly like the table itself
 create function fn_directors() returns setof director language sql as $$ select * from director $$;
 
+-- row-type-taking computed column (specs/querying.md's own "## Scoping"
+-- example : "a function taking the relation's row type as its argument,
+-- callable via alias.func_name or func_name(alias)") — exercises a bare
+-- self-alias reference reaching compileResolvedField as a *QueryNode
+-- (query/sql_expr.go), not a plain column.
+create function director_display_name(d director) returns text language sql as $$ select d.name || ' (director)' $$;
+
 -- parameterized table-valued function, embeddable as a JOIN child : exercises
 -- pass 2's correlated function-argument resolution (a function node's own
 -- "arguments" resolve against its PARENT's scope, since node.Parent != nil

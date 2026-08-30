@@ -63,6 +63,64 @@ func TestCompileSelect_BareOwn(t *testing.T) {
 	}
 }
 
+// TestCompileSelect_ComputedColumnSelfAlias exercises specs/querying.md's
+// "## Scoping" computed-column paragraph : a row-type-taking function
+// (director_display_name(d director), pg/testdata/schema.sql) called with
+// the node's own declared alias as its bare argument — "d" resolves to the
+// *QueryNode itself (query/scope.go's LookupInScope self case), which used
+// to hit compileResolvedField's "not yet supported" error unconditionally.
+// Regression test for that fix : query/sql_expr.go now recognizes a
+// self-reference (the resolved *QueryNode IS the node currently being
+// compiled) and emits its own already-known SQL alias.
+func TestCompileSelect_ComputedColumnSelfAlias(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Self Alias Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public", "alias": "d",
+		"select": {
+			"name": "name",
+			"display": ["call", {"schema": "public", "name": "director_display_name"}, "d"]
+		},
+		"where": ["=", "name", ["Self Alias Director"]]
+	}`)
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if rows[0]["display"] != "Self Alias Director (director)" {
+		t.Errorf("expected display=%q, got %#v", "Self Alias Director (director)", rows[0])
+	}
+}
+
+// TestCompileSelect_EmbeddedChildAliasStillUnsupported confirms the fix is
+// scoped to self-references only : a DIFFERENT node's alias (a joined
+// child's) embedded as a bare value must still be rejected, not silently
+// emit some other node's alias — the harder cross-subquery-scope case the
+// fix deliberately doesn't attempt.
+func TestCompileSelect_EmbeddedChildAliasStillUnsupported(t *testing.T) {
+	// Selecting "director" directly as a top-level select entry is a
+	// perfectly normal embed (compileSelectField's own job, a completely
+	// different path from compileResolvedField) — NOT the case this test is
+	// after. The still-unsupported case is a child alias reaching
+	// compileResolvedField NESTED inside another expression, e.g. as a
+	// coalesce() argument — resolution succeeds (LookupInScope's alias
+	// case), but pass 3 (codegen) must still refuse to emit a bare value
+	// for it.
+	node := mustResolveQuery(t, `{
+		"relation": "movie", "schema": "public", "alias": "m",
+		"select": {"x": ["coalesce", "director", null]},
+		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+	}`)
+	if _, err := CompileSelect(node); err == nil {
+		t.Fatalf("expected embedding a child alias as a bare value to still fail to compile")
+	}
+}
+
 func TestCompileSelect_Cast(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Cast Director')`); err != nil {
