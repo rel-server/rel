@@ -28,7 +28,7 @@ func TestHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
 	// name to `SET LOCAL ROLE` (a Postgres syntax error) or silently skip
 	// the role switch (a privilege escalation for anonymous callers).
 	cfgCopy := *testCfg
-	cfgCopy.Pg.Anonymous = ""
+	cfgCopy.Pg.Query.AnonymousRole = ""
 	handler := NewHandler(testDb, &cfgCopy, testReg)
 
 	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
@@ -223,7 +223,7 @@ func TestHandler_MimeTypeDomainResponse(t *testing.T) {
 // honored.
 func TestHandler_AuthNotHonoredOutsideAllowedFunctions(t *testing.T) {
 	restricted := *testCfg
-	restricted.Http.Functions.Auth = `^public\.fn_login$`
+	restricted.Http.Functions.AllowedAuth = `^public\.fn_login$`
 	handler := NewHandler(testDb, &restricted, testReg)
 
 	// fn_echo1 echoes the whole request back — it never itself sets a jwt

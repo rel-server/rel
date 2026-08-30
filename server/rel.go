@@ -344,7 +344,7 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 		}
 	}
 
-	role := cfg.Pg.Anonymous
+	role := cfg.Pg.Query.AnonymousRole
 	if verified {
 		role = jwtpkg.Role(claims)
 	}

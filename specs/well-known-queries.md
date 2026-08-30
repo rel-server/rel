@@ -7,11 +7,11 @@ They're basically what views achieve in SQL, but in rel, with the write operatio
 
 ## Configuration
 
-* `query.wellknown.path` (default `'/wellknown'`) : a colon `:` separated list of directories containing well-known queries in json, yaml or ruml format.
+* `pg.query.wellknown_path` (default `'/wellknown'`) : a colon `:` separated list of directories containing well-known queries in json, yaml or ruml format.
 
 ## Behaviour
 
-Rel reads the directories of `query.wellknown.path` recursively and consider every .json, .yml, .yaml, .ruml files whose name doesn't start with '_'.
+Rel reads the directories of `pg.query.wellknown_path` recursively and consider every .json, .yml, .yaml, .ruml files whose name doesn't start with '_'.
 
 If a query has an error, a warning is displayed, and the query is deactivated. If a query introduces a name already existing, rel prints a warning a deactivates all queries on that name, replying instead an error when it is queries.
 

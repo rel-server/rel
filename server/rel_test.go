@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 	}
 
 	testCfg = config.Test()
-	testCfg.Pg.Anonymous = "~anonymous"
+	testCfg.Pg.Query.AnonymousRole = "~anonymous"
 	testHandler = NewRelHandler(testDb, testCfg)
 
 	m.Run()
@@ -248,7 +248,7 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 		t.Fatalf("NewInfos: %v", err)
 	}
 	cfg := config.Test()
-	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	handler := NewRelHandler(db, cfg)
 
 	ctx := context.Background()

@@ -106,16 +106,20 @@ func TestHelp_MentionsEveryOption(t *testing.T) {
 
 // TestHelp_NoDegenerateWrapping guards against wrapIndented regressing
 // into one-word-per-line output (the exact bug this function shipped with
-// once already) — every non-empty line of a wrapped description should
-// carry more than one word, given how short none of Options' Desc strings
-// are.
+// once already, when the wrap width computation went non-positive) — every
+// line BEFORE the last should carry more than one word ; the last line is
+// legitimately allowed to be a single short trailing word (e.g. a
+// paragraph ending "... than, pg.admin.user." wrapping cleanly to one word
+// on its own last line is normal wrapping, not the bug).
 func TestHelp_NoDegenerateWrapping(t *testing.T) {
 	for _, opt := range Options {
 		wrapped := wrapIndented(opt.Desc, 8)
-		for _, line := range strings.Split(wrapped, "\n") {
+		lines := strings.Split(wrapped, "\n")
+		for i, line := range lines {
+			isLast := i == len(lines)-1
 			words := strings.Fields(line)
-			if len(words) == 1 && len(opt.Desc) > 20 {
-				t.Errorf("wrapIndented(%q) produced a one-word line %q — width computation likely went non-positive", opt.Desc, line)
+			if len(words) == 1 && !isLast && len(opt.Desc) > 20 {
+				t.Errorf("wrapIndented(%q) produced a one-word non-final line %q — width computation likely went non-positive", opt.Desc, line)
 			}
 		}
 	}

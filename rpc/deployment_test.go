@@ -53,7 +53,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 	}
 
 	cfg := config.Test()
-	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
 
 	reg, err := BuildRegistry(db, cfg)
 	if err != nil {

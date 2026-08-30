@@ -92,8 +92,8 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 	}
 	oc := oops.With("relation", name).With("schema", raw.Schema).With("alias", raw.Alias).With("depth", depth)
 
-	if depth > ctx.Config.Query.MaxDepth {
-		return nil, oc.Errorf("query exceeds the configured maximum depth (%d)", ctx.Config.Query.MaxDepth)
+	if depth > ctx.Config.Pg.Query.MaxDepth {
+		return nil, oc.Errorf("query exceeds the configured maximum depth (%d)", ctx.Config.Pg.Query.MaxDepth)
 	}
 
 	node := &QueryNode{

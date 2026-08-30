@@ -17,7 +17,7 @@ Grouped by how much they block implementation, not by file.
   resolution) is now implemented and tested (`query/node_parse.go`, `query/node_resolve.go`,
   `pg/info_searchpath.go`, `pg/info_lookup.go`) : JSON decode, relation/function
   resolution (search path + blacklist), `ResolveJoin` per join, write_mode
-  defaulting/validation, `on_conflict`/insert/update-column resolution, `query.maxdepth`
+  defaulting/validation, `on_conflict`/insert/update-column resolution, `pg.query.maxdepth`
   enforcement. Pass 2 (expression resolution : scope, blacklist, shape, writability) is
   now also implemented and tested (`query/expression_resolve.go`, `query/shape.go`,
   `query/scope.go`) — identifier/`.`-chain resolution, `call`/`agg` catalog resolution,
@@ -69,9 +69,9 @@ Grouped by how much they block implementation, not by file.
   `login` role, not a superuser)** : `SET ROLE`/`SET LOCAL ROLE` only succeeds if the
   connecting role is a MEMBER of the target role — every local/testcontainer run so far
   has connected as a superuser (`postgres`), which can `SET ROLE` to anything, silently
-  masking this. In production the connecting role is `query.user`, deliberately NOT a
-  superuser — so `query.user` must be granted membership in `query.anonymous_role` AND
-  every role any JWT in this deployment may carry (`grant "~anonymous" to query_user;`,
+  masking this. In production the connecting role is `pg.query.user`, deliberately NOT a
+  superuser — so `pg.query.user` must be granted membership in `pg.query.anonymous_role`
+  AND every role any JWT in this deployment may carry (`grant "~anonymous" to query_user;`,
   one `grant` per such role), for both `/rel` and `/rpc`, or every anonymous/authenticated
   request 500s with "permission denied to set role" the moment it's deployed against a
   properly-locked-down (non-superuser) connecting role. PostgREST documents the identical
@@ -93,6 +93,37 @@ Grouped by how much they block implementation, not by file.
   for the identical class of mismatch — since a relation the connecting role can't see
   can never be a query target either. Confirmed via `rpc/deployment_test.go`, a dedicated
   testcontainer connecting as a genuine non-superuser `LOGIN` role.
+  **Config namespace consistency pass** : `query.*`/`dmut.*` as two unrelated top-level
+  namespaces was itself part of what made the `pg.query.user`-needs-broad-SELECT-just-
+  for-introspection problem above surprising — unified under one `pg.*` namespace, every
+  previously-inconsistent flat key given a `_`-separated word boundary
+  (`pg.query.anonymous_role`, `pg.query.wellknown_path`, `pg.query.max_depth`,
+  `jwt.cookie_name`/`same_site`/`max_age`/`renew_after`/`max_session_age`,
+  `http.request_domain_name`/`response_domain_name`/`cookies_max_age`), and
+  `http.functions.auth` renamed `http.functions.allowed_auth` to match
+  `allowed_routes`'s own naming (both are restriction regexps ; `check_session`
+  correctly keeps no `allowed_` prefix, since it names a function rather than
+  restricting one). An intermediate version of this pass introduced a `pg.admin.*` /
+  `pg.query.*` split mirroring `Pg`/`PgQuery` symmetrically — reverted before landing :
+  `set role` per request, not the connecting login's own privileges, is what actually
+  restricts a request's data access, so requiring two separately-configured logins just
+  to start rel was friction without a real safety payoff. Settled shape : `pg.uri` (a
+  full `postgres://user:pass@host:port/db` string, authoritative when set — the
+  granular fields below are ignored, not merged) or `pg.user`/`pg.password`/`pg.host`/
+  `pg.port`/`pg.database` as the ONE required primary connection, used for dmut
+  migrations, startup introspection, AND request-serving by default ;
+  `pg.query.user`/`pg.query.password` remain as an OPTIONAL, documented-and-encouraged-
+  but-never-required narrower login for request-serving specifically. `pg.
+  NewInfosAdminQuery` (`pg/info.go`) still introspects via the primary connection and
+  builds the request-serving pool from the query login separately whenever that IS
+  configured — two distinct connections, not one shared pool, so setting `pg.query.*`
+  stays meaningful — but degenerates to one shared pool (`NewInfos`) when it isn't,
+  matching the simplest possible `--pg.uri` setup. The second (introspection) bug above
+  is resolved by this shape either way : introspection never needs a grant on the
+  narrower login purely to succeed, since it never runs as that login. `http.static.path`
+  (default `/static`) also added as a placeholder — see "Named but empty" below — nested
+  under `http.static.*` since more related keys (path-based access control) are
+  anticipated once that feature is actually specced.
 - **`dmut` / migrations** (`03-dmut.md`, 14 lines). Legacy's `dmut` is a DAG/content-hash
   migration tool, a separate vendored module (`github.com/ceymard/dmut`) — not a
   sequential up/down tool. The current spec doesn't say whether rel keeps using that
@@ -112,7 +143,7 @@ Grouped by how much they block implementation, not by file.
   function (`auth.login(req: RelHttpRequest) returns RelHttpResponse`) using the
   already-fully-specified `RelHttpResponse.jwt` mint mechanism (checks credentials
   however the developer wants — bcrypt, an extension, whatever — sets `jwt` on success,
-  gated by `http.functions.auth` like any other route function). The genuinely open gap
+  gated by `http.functions.allowed_auth` like any other route function). The genuinely open gap
   is narrower than previously stated : only SAML/OIDC's own protocol-mandated redirect/
   callback endpoints, not login in general.
 - **`/api/{schema}/{function}` renamed to `/rpc/{schema}/{function}`** throughout
@@ -121,7 +152,7 @@ Grouped by how much they block implementation, not by file.
   callable over HTTP), which the spec already invokes as a comparison point elsewhere.
   **Now implemented** (`rpc/`) : discovery/registry against `RelHttpRequest`/
   `RelHttpResponse`/mimetype domains, dynamic `/rpc/{schema}/{function}` dispatch,
-  `__VERB` suffix splitting, `allowed_routes`/`http.functions.auth` gating, and the full
+  `__VERB` suffix splitting, `allowed_routes`/`http.functions.allowed_auth` gating, and the full
   JWT lifecycle (`jwt/` : mint/sign/verify/renew, `check_session`, `SET LOCAL ROLE`
   inside the request's own transaction). Still deferred : Jet template rendering
   (`RelHttpResponse.template` is parsed but not acted on) and SAML/OIDC (see "Named but
@@ -139,7 +170,11 @@ Grouped by how much they block implementation, not by file.
   renewal to reapply it, and a private claim just to carry one rarely-used cookie
   attribute wasn't judged worth it.
 - **Static file serving.** One bullet in `00-general.md` ("configurable file access
-  control based on path and database queries"). No detail anywhere.
+  control based on path and database queries"). No detail anywhere. `http.static.path`
+  (default `/static`, `config.Http.Static.Path`) now exists as a placeholder config key —
+  nested under `http.static.*` rather than a single flat `http.static_path`, anticipating
+  the path-based access-control keys this feature will need once actually specced — but
+  nothing serves it yet.
 - **TypeScript/JS export** (`/js/query.js`, `/js/schemas/*.ts`). Named as a feature in
   `00-general.md`. No spec on how types are generated from introspection + well-known
   queries, or what the runtime query-building helper actually does.

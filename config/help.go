@@ -23,7 +23,7 @@ type Option struct {
 }
 
 // EnvVar derives a dotted key's REL_ environment variable form —
-// "query.anonymous_role" -> "REL_QUERY__ANONYMOUS_ROLE" — matching
+// "pg.query.anonymous_role" -> "REL_PG__QUERY__ANONYMOUS_ROLE" — matching
 // loader.go's own env.Provider TransformFunc exactly (uppercase, "." ->
 // "__"), just run in reverse.
 func EnvVar(key string) string {
@@ -40,36 +40,38 @@ func FlagOf(key string) string {
 // order assemble() reads them, grouped by section for --help's own
 // rendering (Sections below defines the group boundaries).
 var Options = []Option{
-	// ---- query.* / dmut.* : Postgres connection ----
-	{"dmut.user", "", "Login username for running dmut migrations. Also query.user's own fallback when query.user is unset."},
-	{"dmut.password", "", "Password for dmut.user."},
-	{"query.user", "= dmut.user", "Login username rel connects to Postgres with, and the role SET ROLE switches are executed from at request time."},
-	{"query.password", "= dmut.password", "Password for query.user."},
-	{"query.host", DefaultQueryHost, "Postgres host to connect to."},
-	{"query.port", fmt.Sprint(DefaultQueryPort), "Postgres port to connect to."},
-	{"query.database", "", "Database name to connect to. No default — must be set."},
-	{"query.anonymous_role", DefaultQueryAnonymousRole, "Role rel switches to for requests with no JWT, or an invalid/expired/session-checked-out one (POST /rel and /rpc)."},
-	{"query.maxdepth", fmt.Sprint(DefaultMaxDepth), "Maximum nesting depth a query may specify."},
-	{"query.wellknown.path", DefaultQueryWellKnownPath, "Colon-separated list of directories to search for well-known queries."},
+	// ---- pg.* : Postgres connection ----
+	{"pg.uri", "", "A full \"postgres://user:pass@host:port/db\" connection string. When set, AUTHORITATIVE — pg.user/password/host/port/database below are ignored entirely (not merged). Simplest possible setup : --pg.uri alone is enough to serve requests."},
+	{"pg.user", "", "Primary login username, used when pg.uri is unset. Also pg.query.user's own fallback when that's unset."},
+	{"pg.password", "", "Password for pg.user."},
+	{"pg.host", DefaultPgHost, "Postgres host to connect to (when pg.uri is unset). Shared with pg.query's own login, if set — one Postgres instance either way."},
+	{"pg.port", fmt.Sprint(DefaultPgPort), "Postgres port to connect to (when pg.uri is unset)."},
+	{"pg.database", "", "Database name to connect to (when pg.uri is unset). No default — must be set one way or the other."},
+	{"pg.query.user", "= pg.user", "OPTIONAL, narrower-scoped login for the connection that actually SERVES REQUESTS specifically (introspection and dmut migrations always use pg.user/pg.uri, never this). Encouraged for a hardened deployment, never required — SET ROLE, not this login's own privileges, is what actually restricts a request's data access."},
+	{"pg.query.password", "= pg.password", "Password for pg.query.user."},
+	{"pg.query.anonymous_role", DefaultPgQueryAnonymousRole, "Role rel switches to for requests with no JWT, or an invalid/expired/session-checked-out one (POST /rel and /rpc)."},
+	{"pg.query.max_depth", fmt.Sprint(DefaultMaxDepth), "Maximum nesting depth a query may specify."},
+	{"pg.query.wellknown_path", DefaultPgQueryWellKnownPath, "Colon-separated list of directories to search for well-known queries."},
 
 	// ---- http.* : HTTP server + /rpc route-function discovery ----
 	{"http.host", "(all interfaces)", "HTTP listen address. Empty listens on all interfaces."},
 	{"http.port", fmt.Sprint(DefaultHttpPort), "HTTP listen port."},
-	{"http.requestdomainname", DefaultHttpRequestDomainName, "Unqualified name of the JSON domain identifying a route function's single request-typed argument."},
-	{"http.responsedomainname", DefaultHttpResponseDomainName, "Unqualified name of the JSON domain identifying a route function's response return type."},
-	{"http.cookiesmaxage", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route function response's generic \"cookies\" field, when the response doesn't specify one. Does not apply to the JWT cookie — see jwt.maxage."},
-	{"http.functions.auth", "(unrestricted)", "Regexp restricting which route functions' responses rel will honor a \"jwt\" field from (i.e. which functions may mint/clear a session), matched against the function's fully qualified name."},
+	{"http.request_domain_name", DefaultHttpRequestDomainName, "Unqualified name of the JSON domain identifying a route function's single request-typed argument."},
+	{"http.response_domain_name", DefaultHttpResponseDomainName, "Unqualified name of the JSON domain identifying a route function's response return type."},
+	{"http.cookies_max_age", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route function response's generic \"cookies\" field, when the response doesn't specify one. Does not apply to the JWT cookie — see jwt.max_age."},
+	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route functions' responses rel will honor a \"jwt\" field from (i.e. which functions may mint/clear a session), matched against the function's fully qualified name."},
 	{"http.functions.allowed_routes", "(unrestricted)", "Regexp a route function's fully qualified name must additionally match to become a public /rpc route."},
-	{"http.functions.check_session", "(disabled)", "Fully qualified name of a Postgres function rel calls on every authenticated request, letting the database reject a session before its exp/maxsessionage would otherwise (e.g. a revocation list)."},
+	{"http.functions.check_session", "(disabled)", "Fully qualified name of a Postgres function rel calls on every authenticated request, letting the database reject a session before its exp/max_session_age would otherwise (e.g. a revocation list)."},
+	{"http.static.path", DefaultHttpStaticPath, "Path prefix for static file serving. Not yet served (config only for now) — see specs/TODO.md."},
 
 	// ---- jwt.* : session lifecycle ----
 	{"jwt.secret", "(auto-generated)", "HMAC signing secret for JWTs. Default \"" + DefaultJwtSecret + "\" auto-generates a 32-character secret into ./jwt-secret on first run and reuses it after — see $FILE$/$GEN$ below."},
-	{"jwt.cookiename", DefaultJwtCookieName, "Name of the cookie rel reads/sets to carry the JWT."},
+	{"jwt.cookie_name", DefaultJwtCookieName, "Name of the cookie rel reads/sets to carry the JWT."},
 	{"jwt.algorithm", DefaultJwtAlgorithm, "Signing algorithm : one of HS256, HS384, HS512. Enforced exactly on verification, including rejecting \"none\"."},
-	{"jwt.samesite", DefaultJwtSameSite, "SameSite attribute of the JWT cookie : Strict, Lax, or None."},
-	{"jwt.maxage", fmt.Sprint(DefaultJwtMaxAge) + " (seconds)", "How long a freshly-minted token is valid for (exp = iat + maxage)."},
-	{"jwt.renewafter", fmt.Sprint(DefaultJwtRenewAfter), "Fraction of a token's own exp-iat lifespan after which it's due for renewal on its next use."},
-	{"jwt.maxsessionage", fmt.Sprint(DefaultJwtMaxSessionAge) + " (seconds)", "Hard ceiling on a session's total lifetime, measured from auth_time — survives renewal."},
+	{"jwt.same_site", DefaultJwtSameSite, "SameSite attribute of the JWT cookie : Strict, Lax, or None."},
+	{"jwt.max_age", fmt.Sprint(DefaultJwtMaxAge) + " (seconds)", "How long a freshly-minted token is valid for (exp = iat + max_age)."},
+	{"jwt.renew_after", fmt.Sprint(DefaultJwtRenewAfter), "Fraction of a token's own exp-iat lifespan after which it's due for renewal on its next use."},
+	{"jwt.max_session_age", fmt.Sprint(DefaultJwtMaxSessionAge) + " (seconds)", "Hard ceiling on a session's total lifetime, measured from auth_time — survives renewal."},
 
 	// ---- logging.* ----
 	{"logging.handler", DefaultLoggingHandler, "Log output format : \"pretty\" or \"JSON\"."},
@@ -84,8 +86,7 @@ var sections = []struct {
 	Heading string
 	Prefix  string
 }{
-	{"Postgres connection", "query."},
-	{"Postgres connection", "dmut."},
+	{"Postgres connection", "pg."},
 	{"HTTP server / /rpc route functions", "http."},
 	{"JWT sessions", "jwt."},
 	{"Logging", "logging."},
@@ -126,7 +127,7 @@ Any config key documented below can ALSO be set as a command-line flag :
 Configuration sources, later overriding earlier for the same key :
   1. Config file (TOML, YAML, or HUML) — see "Config file discovery" below.
   2. Environment variables, prefixed REL_, "__" as the dot delimiter
-     (REL_QUERY__HOST=... -> query.host).
+     (REL_PG__HOST=... -> pg.host).
   3. Command-line flags (highest precedence), dotted form directly.
 
 Config file discovery (only when -c/--config and REL_CONFIG are both unset),
@@ -176,7 +177,16 @@ Configuration keys :
 
 	b.WriteString(`
 Dynamic namespaces (not enumerated individually above — the "*" name
-matches an entire schema, per querying.md ## Scoping) :
+matches an entire schema, per querying.md ## Scoping) : as flags/config file
+keys, dotted directly ; as environment variables, the same REL_/"__" rule
+every other key follows applies to the placeholders too (uppercase, "." ->
+"__") — e.g. blacklist.relations.public.orders=y is also settable as
+REL_BLACKLIST__RELATIONS__PUBLIC__ORDERS=y. One caveat unique to these four,
+since <attr>/<schema>/<name> are themselves arbitrary : an underscore
+WITHIN a name (e.g. a schema called my_app) is indistinguishable from a
+"__" nesting boundary once collapsed into env-var form — the config
+file/flag forms don't have this ambiguity, so prefer those for a name
+containing an underscore.
   logging.filter.<attr>=<regexp>              only show log records whose <attr> value matches <regexp>
   logging.exclude.<attr>=<regexp>              suppress records whose <attr> value matches <regexp> (applied after filter)
   blacklist.relations.<schema>.<name|*>=y|n    additionally blacklist a relation (or a whole schema) from being queried

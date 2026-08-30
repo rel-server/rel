@@ -55,7 +55,7 @@ func TestRelHandler_AuthenticatedCookieAppliesRole(t *testing.T) {
 
 func TestRelHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
 	cfg := config.Test()
-	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	cfg.Http.Functions.CheckSession = "public.check_session"
 	handler := NewRelHandler(testDb, cfg)
 
@@ -89,7 +89,7 @@ func TestRelHandler_CheckSessionRejection_DoesNotAlsoRenew(t *testing.T) {
 	// (a still-valid renewed token, then the clear) — see applyRole's own
 	// Header().Del("Set-Cookie") comment.
 	cfg := config.Test()
-	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	cfg.Http.Functions.CheckSession = "public.check_session"
 	cfg.Jwt.MaxAge = 5
 	cfg.Jwt.RenewAfter = 0.1
@@ -139,7 +139,7 @@ func TestRelHandler_AnonymousReadDeniedOnRoleGatedTable_CleanEnvelope(t *testing
 
 func TestRelHandler_CheckSessionAllows_AuthenticatedReadSucceeds(t *testing.T) {
 	cfg := config.Test()
-	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	cfg.Http.Functions.CheckSession = "public.check_session"
 	handler := NewRelHandler(testDb, cfg)
 
@@ -157,7 +157,7 @@ func TestRelHandler_CheckSessionAllows_AuthenticatedReadSucceeds(t *testing.T) {
 
 func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	cfg := config.Test()
-	cfg.Pg.Anonymous = "~anonymous"
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	cfg.Jwt.MaxAge = 5
 	cfg.Jwt.RenewAfter = 0.1 // renew almost immediately
 	handler := NewRelHandler(testDb, cfg)

@@ -86,7 +86,7 @@ Not identifier resolution, despite looking similar : the keys of `ObjectExpr.Fie
 
 Nothing currently known. An earlier version of this doc listed "chaining a second hop into an own/full-and's base columns when reached as a nested literal value" here as a deliberate scope boundary — that boundary was itself the artificial special-case removed in the "Identifier resolution" section above ; it's now implemented uniformly, not deferred.
 
-`query.maxdepth` enforcement, listed here as unwired in an earlier version of this doc, was actually implemented as part of pass 1 (`node_resolve.go`'s depth check, `TestResolveQuery_MaxDepth`) — corrected.
+`pg.query.max_depth` enforcement, listed here as unwired in an earlier version of this doc, was actually implemented as part of pass 1 (`node_resolve.go`'s depth check, `TestResolveQuery_MaxDepth`) — corrected.
 
 ## Is deferring "." /jsonb validation to Postgres a security concern? No — and here's why, concretely
 

@@ -17,7 +17,7 @@ type JWT = {
 - `role` — the Postgres role the request is mapped to. Required; a JWT without one is an error.
 - `iat` — when this particular token was minted.
 - `exp` — when this particular token stops being valid.
-- `auth_time` — when the *session* was first established. Unlike `iat`, this never changes across renewals (see Lifecycle below) — it's what `jwt.maxsessionage` is measured against.
+- `auth_time` — when the *session* was first established. Unlike `iat`, this never changes across renewals (see Lifecycle below) — it's what `jwt.max_session_age` is measured against.
 - Anything else is a free-form claim the developer can add.
 
 `iat`, `exp`, and `auth_time` are always computed by rel. If a function's response includes a `jwt` object with any of these three set, the supplied values are ignored and overwritten — a function can control `role` and custom claims, never its own lifetime.
@@ -25,28 +25,28 @@ type JWT = {
 ## Configuration
 
 * `jwt.secret` (default `$FILE$jwt-secret$GEN$32`) : the JWT signing secret.
-* `jwt.cookiename` (default `accesstoken`) : the cookie scanned and set by rel to carry the JWT.
+* `jwt.cookie_name` (default `accesstoken`) : the cookie scanned and set by rel to carry the JWT.
 * `jwt.algorithm` (default `HS256`, one of `HS256` | `HS384` | `HS512`) : the algorithm used to sign the JWT. rel enforces this exact algorithm on verification and rejects any token whose header claims a different one — including `none` — as an invalid signature.
-* `jwt.samesite` (default `Lax`) : `SameSite` attribute of the JWT cookie.
-* `jwt.maxage` (default `1800`, 30 minutes) : how long a freshly-minted token is valid for, i.e. `exp = iat + jwt.maxage`. A function can override this for its own response via `jwt_attrs.maxage` (see Responses below).
-* `jwt.renewafter` (default `0.5`) : fraction of a token's own `exp - iat` after which it's due for renewal (see Lifecycle).
-* `jwt.maxsessionage` (default `604800`, 7 days) : hard ceiling on a session's total lifetime, measured from `auth_time`, irrespective of activity. Once exceeded, the session can no longer be renewed and the user must fully re-authenticate.
+* `jwt.same_site` (default `Lax`) : `SameSite` attribute of the JWT cookie.
+* `jwt.max_age` (default `1800`, 30 minutes) : how long a freshly-minted token is valid for, i.e. `exp = iat + jwt.max_age`. A function can override this for its own response via `jwt_attrs.maxage` (see Responses below).
+* `jwt.renew_after` (default `0.5`) : fraction of a token's own `exp - iat` after which it's due for renewal (see Lifecycle).
+* `jwt.max_session_age` (default `604800`, 7 days) : hard ceiling on a session's total lifetime, measured from `auth_time`, irrespective of activity. Once exceeded, the session can no longer be renewed and the user must fully re-authenticate.
 
-The JWT cookie's `Max-Age` always mirrors the token's own `exp - iat` — it is never set independently. `http.cookiesmaxage` (see HTTP Configuration below) does not apply to the JWT cookie; it only governs other, non-JWT cookies set via the generic `cookies` field.
+The JWT cookie's `Max-Age` always mirrors the token's own `exp - iat` — it is never set independently. `http.cookies_max_age` (see HTTP Configuration below) does not apply to the JWT cookie; it only governs other, non-JWT cookies set via the generic `cookies` field.
 
 ## Lifecycle
 
-1. **Mint.** A function establishes a session by setting the `jwt` field on its `RelHttpResponse` (see Responses). This is always treated as a fresh session: `auth_time` and `iat` are set to now, `exp = iat + (jwt_attrs.maxage or jwt.maxage)`, and the cookie's `Max-Age` mirrors that same value.
-2. **Verify.** On every subsequent request, rel checks the cookie's signature, `jwt.algorithm`, `exp`, and `auth_time + jwt.maxsessionage`. Failing any of these is equivalent to no session at all — the request proceeds under `query.anonymous_role` (see Roles).
+1. **Mint.** A function establishes a session by setting the `jwt` field on its `RelHttpResponse` (see Responses). This is always treated as a fresh session: `auth_time` and `iat` are set to now, `exp = iat + (jwt_attrs.maxage or jwt.max_age)`, and the cookie's `Max-Age` mirrors that same value.
+2. **Verify.** On every subsequent request, rel checks the cookie's signature, `jwt.algorithm`, `exp`, and `auth_time + jwt.max_session_age`. Failing any of these is equivalent to no session at all — the request proceeds under `pg.query.anonymous_role` (see Roles).
 3. **Check.** If the token verifies, and `http.functions.check_session` is configured, rel calls it (see Session invalidation below).
-4. **Renew.** If the token verifies and passes the check, and more than `jwt.renewafter` of its own lifespan has elapsed since its `iat`, rel re-mints it: fresh `iat`/`exp`, using the SAME width the current token's own `exp - iat` already has (so a `jwt_attrs.maxage` override from the original mint keeps applying across renewals without rel needing to remember it separately — the token's own claims are the only state involved), fresh `Set-Cookie`, `auth_time` and `role` unchanged, other claims carried over as-is. The renewed cookie's `SameSite` is always `jwt.samesite` — unlike `maxage`, a `jwt_attrs.samesite` override from the original mint does NOT persist across renewal (nothing about `SameSite` is a JWT claim for rel to carry forward, and adding a private claim just to remember one rarely-used cookie attribute wasn't worth it). Tokens under the `renewafter` threshold pass through unchanged — this bounds `Set-Cookie` churn to roughly once per `maxage × renewafter` of activity rather than once per request.
-5. **Apply role.** Only now does rel run `SET LOCAL ROLE "<role>"` (role name escaped as an identifier) for the rest of the request.
+4. **Renew.** If the token verifies and passes the check, and more than `jwt.renew_after` of its own lifespan has elapsed since its `iat`, rel re-mints it: fresh `iat`/`exp`, using the SAME width the current token's own `exp - iat` already has (so a `jwt_attrs.maxage` override from the original mint keeps applying across renewals without rel needing to remember it separately — the token's own claims are the only state involved), fresh `Set-Cookie`, `auth_time` and `role` unchanged, other claims carried over as-is. The renewed cookie's `SameSite` is always `jwt.same_site` — unlike `maxage`, a `jwt_attrs.samesite` override from the original mint does NOT persist across renewal (nothing about `SameSite` is a JWT claim for rel to carry forward, and adding a private claim just to remember one rarely-used cookie attribute wasn't worth it). Tokens under the `renew_after` threshold pass through unchanged — this bounds `Set-Cookie` churn to roughly once per `maxage × renewafter` of activity rather than once per request.
+5. **Apply role.** Only now does rel apply `"<role>"` (role name escaped as an identifier) for the rest of the request — `/rpc` runs `SET LOCAL ROLE`, transaction-scoped, since its whole request shares one transaction start-to-finish ; `/rel` runs session-scoped `SET ROLE`/`RESET ROLE` on its pinned connection instead, since it commits its write transaction and then runs every item's read query AFTER that commit, still on the same connection — see `specs/TODO.md`'s connection-pool/lifecycle entry for the full reasoning.
 
-A session's total lifetime is therefore bounded twice: `exp` bounds any single token (short, so a leaked/stolen cookie alone is only useful briefly), and `jwt.maxsessionage` bounds how long renewal can keep extending it (so a continuously-replayed valid cookie still forces re-authentication eventually).
+A session's total lifetime is therefore bounded twice: `exp` bounds any single token (short, so a leaked/stolen cookie alone is only useful briefly), and `jwt.max_session_age` bounds how long renewal can keep extending it (so a continuously-replayed valid cookie still forces re-authentication eventually).
 
 ## Session invalidation
 
-* `http.functions.check_session` (default empty, disabled) : unquoted, fully qualified name of a Postgres function that lets the database reject a session before `exp`/`jwt.maxsessionage` would otherwise do so — e.g. password change, ban, admin-triggered logout.
+* `http.functions.check_session` (default empty, disabled) : unquoted, fully qualified name of a Postgres function that lets the database reject a session before `exp`/`jwt.max_session_age` would otherwise do so — e.g. password change, ban, admin-triggered logout.
 
 Required signature:
 
@@ -75,7 +75,7 @@ Much like PostgREST, rel sets a role on every request made to Postgres. Authenti
 
 ## Configuration
 
-* `query.anonymous_role` (default `~anonymous`) : the role rel applies when there is no JWT, or the one presented is missing, invalid, expired, session-checked out, or otherwise unusable. Same setting `querying.md ## Configuration` names — defined once, here, since this doc is where its behavior actually lives ; `querying.md`'s own entry should carry this same default rather than leaving it unstated (previously a genuine drift : this doc used to name the identical setting `jwt.anonrole`, a name that never matched `querying.md`'s `query.anonymous_role` at all).
+* `pg.query.anonymous_role` (default `~anonymous`) : the role rel applies when there is no JWT, or the one presented is missing, invalid, expired, session-checked out, or otherwise unusable. Same setting `querying.md ## Configuration` names — defined once, here, since this doc is where its behavior actually lives ; `querying.md`'s own entry should carry this same default rather than leaving it unstated (previously a genuine drift : this doc used to name the identical setting `jwt.anonrole`, a name that never matched `querying.md`'s `pg.query.anonymous_role` at all).
 
 # Authentication
 
@@ -87,7 +87,7 @@ Each configured endpoint (SAML IdP, OIDC issuer, ...) is a named entry under its
 
 # HTTP
 
-Routing is done with the standard library's `net/http.ServeMux` (Go 1.22+ method/wildcard patterns, e.g. `"GET /rpc/{schema}/{function}"` with `r.PathValue(...)`) — no external router dependency. This fits rel's actual routing needs: a small, fixed set of patterns (`/rpc/{schema}/{function}`, `/rel`, `/auth/*`, `/js/*`, static files), since individual database functions are dispatched dynamically from within the `/rpc/{schema}/{function}` handler rather than registered as their own routes. The JWT lifecycle (Verify/Check/Renew/Apply role, see `# JWT` above) is implemented as ordinary `func(http.Handler) http.Handler` middleware, composed by hand — no framework-specific request/context type involved.
+Routing is done with the standard library's `net/http.ServeMux` (Go 1.22+ method/wildcard patterns, e.g. `"GET /rpc/{schema}/{function}"` with `r.PathValue(...)`) — no external router dependency. This fits rel's actual routing needs: a small, fixed set of patterns (`/rpc/{schema}/{function}`, `/rel`, `/auth/*`, `/js/*`, static files), since individual database functions are dispatched dynamically from within the `/rpc/{schema}/{function}` handler rather than registered as their own routes. Verify and Renew (steps 2 and 4 — see `# JWT` above) need no database and are implemented as ordinary `func(http.Handler) http.Handler` middleware, composed by hand — no framework-specific request/context type involved. Check and Apply role (steps 3 and 5) need the request's own DB connection, which doesn't exist yet when generic middleware runs, so those two are each handler's own responsibility instead (`/rel`, `/rpc`) once a connection is acquired — see `specs/TODO.md`'s connection-pool/lifecycle entry.
 
 > Why `/rpc`, not `/api` : `/api` describes nothing about what the route actually does (every HTTP endpoint in existence is "an API"). `/rpc` names the actual mechanism — a named backend function called directly over HTTP — and matches PostgREST's own convention for the identical concept, which `# Roles` below already invokes as a point of comparison.
 
@@ -109,11 +109,11 @@ create function schema.returns_binary() returns "image/png" /* ... */;
 
 ## Configuration
 
-* `http.requestdomainname` (default `RelHttpRequest`) : the fully qualified, unquoted name of the JSON domain for request-typed functions.
-* `http.responsedomainname` (default `RelHttpResponse`) : the fully qualified, unquoted name of the JSON domain rel interprets as an HTTP response return type. Not an error if it doesn't exist, but rel will warn, since without it no authentication flow can work.
+* `http.request_domain_name` (default `RelHttpRequest`) : the fully qualified, unquoted name of the JSON domain for request-typed functions.
+* `http.response_domain_name` (default `RelHttpResponse`) : the fully qualified, unquoted name of the JSON domain rel interprets as an HTTP response return type. Not an error if it doesn't exist, but rel will warn, since without it no authentication flow can work.
 * `http.templatesdir` (default `/template`) : the template directory.
-* `http.cookiesmaxage` (default `86400`) : default max-age for cookies set via the generic `cookies` field, when the response doesn't specify one. Does not apply to the JWT cookie (see `jwt.maxage`).
-* `http.functions.auth` (default empty) : regexp restricting which functions' responses rel will honor a `jwt` field from, matched against the fully qualified, unquoted function name. Empty means unrestricted.
+* `http.cookies_max_age` (default `86400`) : default max-age for cookies set via the generic `cookies` field, when the response doesn't specify one. Does not apply to the JWT cookie (see `jwt.max_age`).
+* `http.functions.allowed_auth` (default empty) : regexp restricting which functions' responses rel will honor a `jwt` field from, matched against the fully qualified, unquoted function name. Empty means unrestricted.
 * `http.functions.allowed_routes` (default empty) : regexp a function's fully qualified, unquoted name must additionally match to become a public route, on top of having the right signature and not starting with `_`. Empty means unrestricted (any matching-signature, non-`_` function is routed).
 
 ## Cookies
@@ -130,11 +130,11 @@ interface Cookie {
 }
 ```
 
-Unless a response overrides them, rel sets `secure: true`, `httponly: true`, `samesite: Lax`, and a max-age of `http.cookiesmaxage` on any cookie it sets.
+Unless a response overrides them, rel sets `secure: true`, `httponly: true`, `samesite: Lax`, and a max-age of `http.cookies_max_age` on any cookie it sets.
 
 The JWT itself is read/set more directly through the `jwt` field on `RelHttpRequest`/`RelHttpResponse`, rather than through `cookies` — see Claims/Lifecycle above. Setting `jwt: null` clears the session (logout).
 
-**Warning:** by default, *any* HTTP route function can set `jwt` on its response and thereby authenticate the caller as any role — the `jsonb` payload is trusted at face value. Set `http.functions.auth` to restrict which functions have this power; consider defaulting it to your login/session functions only (e.g. everything under an `auth` schema), rather than leaving it unrestricted.
+**Warning:** by default, *any* HTTP route function can set `jwt` on its response and thereby authenticate the caller as any role — the `jsonb` payload is trusted at face value. Set `http.functions.allowed_auth` to restrict which functions have this power; consider defaulting it to your login/session functions only (e.g. everything under an `auth` schema), rather than leaving it unrestricted.
 
 `SameSite=Lax` on both the JWT cookie and default-configured cookies, combined with the requirement that `__GET` functions not mutate state, is rel's CSRF defense — there is no separate CSRF token mechanism.
 
@@ -178,7 +178,7 @@ interface RelHttpResponse {
 }
 ```
 
-`jwt_attrs` controls how a `jwt` set by this same response is minted — `maxage` overrides `jwt.maxage` for this session (both the token's `exp - iat` and the cookie's `Max-Age` follow it), `samesite` overrides `jwt.samesite` for this cookie only.
+`jwt_attrs` controls how a `jwt` set by this same response is minted — `maxage` overrides `jwt.max_age` for this session (both the token's `exp - iat` and the cookie's `Max-Age` follow it), `samesite` overrides `jwt.same_site` for this cookie only.
 
 ## Postgres Exceptions
 

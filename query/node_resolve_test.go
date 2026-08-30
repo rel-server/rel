@@ -297,7 +297,7 @@ func TestResolveQuery_TableValuedFunctionRoot(t *testing.T) {
 
 func TestResolveQuery_MaxDepth(t *testing.T) {
 	shallow := &ResolveContext{Db: testDb, Config: &config.Config{
-		Query:     config.Query{MaxDepth: 1},
+		Pg:        config.Pg{Query: config.PgQuery{MaxDepth: 1}},
 		Blacklist: testCfg.Blacklist,
 	}}
 

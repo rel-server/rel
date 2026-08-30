@@ -10,25 +10,25 @@ package config
 // Host/Port are left at their zero value : testcontainers assigns an
 // ephemeral port per container run, so there's no fixed value to hand-write
 // here — callers fill those in from the actual container connection info.
-// Admin/Anonymous are left unset for the same reason this whole file exists
-// : nothing exercises them yet, so there's nothing to hand-write that
-// wouldn't just be a guess.
+// Pg.User/Password/AnonymousRole are left unset for the same reason this
+// whole file exists : nothing exercises them yet, so there's nothing to
+// hand-write that wouldn't just be a guess.
 //
-// Not meant to represent a real deployment's config : Querier.User here is
+// Not meant to represent a real deployment's config : Query.User here is
 // the container's superuser, which querying.md ## Scoping explicitly says a
-// real query.user must never be. Fine for exercising query building/running
-// against a disposable test database ; not something to reach for once the
-// role-restriction check from that section actually exists.
+// real pg.query.user must never be. Fine for exercising query building/
+// running against a disposable test database ; not something to reach for
+// once the role-restriction check from that section actually exists.
 func Test() *Config {
 	return &Config{
 		Pg: Pg{
-			Querier: Login{
-				User:     "postgres",
-				Password: "postgres",
+			Query: PgQuery{
+				Login: Login{
+					User:     "postgres",
+					Password: "postgres",
+				},
+				MaxDepth: DefaultMaxDepth,
 			},
-		},
-		Query: Query{
-			MaxDepth: DefaultMaxDepth,
 		},
 		Logging: Logging{
 			Handler: DefaultLoggingHandler,
@@ -38,6 +38,7 @@ func Test() *Config {
 			RequestDomainName:  DefaultHttpRequestDomainName,
 			ResponseDomainName: DefaultHttpResponseDomainName,
 			CookiesMaxAge:      DefaultHttpCookiesMaxAge,
+			Static:             HttpStatic{Path: DefaultHttpStaticPath},
 		},
 		// Jwt.Secret is a fixed literal here, NOT DefaultJwtSecret's
 		// "$FILE$..." form : Test() bypasses config.Load/loader.go's $FILE$

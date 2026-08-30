@@ -14,13 +14,12 @@ Roles we switch to when requests are made are NOT respected, because that would 
 
 ## Configuration
 
-* `query.user` (default : `dmut.user` if provided) the login role rel will connect with. This is the role from which `set role` to all other roles will be executed from. 
-* `query.password` (default: `dmut.password` if provided) its password
-* `dmut.user` / `dmut.password` : the login rel uses to connect to the database to perform migrations with dmut ; also the default for `query.user` / `query.password` when those aren't otherwise provided.
-* `query.host` / `query.port` : the Postgres host/port rel connects to.
-* `query.anonymous_role` (default `~anonymous`) : the role rel switches to for requests without credentials of their own. Full lifecycle (when/how this applies, alongside JWT verification) is `jwt-roles-and-http.md`'s ## Roles' concern — this entry exists here only because it's also part of ## Configuration's connection-role settings.
+* `pg.uri` : a full `postgres://user:pass@host:port/db` connection string. When set, authoritative — the granular fields below are ignored entirely, not merged with it. The simplest possible setup is `pg.uri` alone.
+* `pg.user` / `pg.password` / `pg.host` / `pg.port` / `pg.database` : the primary Postgres connection, used when `pg.uri` is unset. This is the login rel uses to connect to the database to perform migrations with dmut, to introspect the database at startup, and — unless `pg.query.user` overrides it — to serve requests, i.e. the role from which `set role` to all other roles is executed.
+* `pg.query.user` / `pg.query.password` (default : `pg.user` / `pg.password` if provided) : an OPTIONAL, narrower-scoped login for the connection that actually serves requests specifically. Documented and encouraged for a hardened deployment, never required — `set role` per request, not this login's own privileges, is what actually restricts what a request can access ; introspection and dmut migrations always use the primary connection above, never this one.
+* `pg.query.anonymous_role` (default `~anonymous`) : the role rel switches to for requests without credentials of their own. Full lifecycle (when/how this applies, alongside JWT verification) is `jwt-roles-and-http.md`'s ## Roles' concern — this entry exists here only because it's also part of ## Configuration's connection-role settings.
 
-* `query.maxdepth` (default `6`) : maximum depth a query can specify
+* `pg.query.max_depth` (default `6`) : maximum depth a query can specify
 
 Unlike route functions, all queries are sent on `/rel`, and all of them MUST be `POST`.
 
@@ -79,7 +78,7 @@ Default functions blacklist :
 
 > Why these two and why wildcarded : this is what closes the open question raised in an earlier draft of this section — both schemas are readable by `PUBLIC` by default (`pg_settings`, `pg_stat_activity`, `information_schema.tables`, ...) and reachable through the ordinary `relation`/`schema` fields on a query, same as any table. Wildcarding the whole schema rather than naming individual views is deliberate here, unlike the function blacklist above : Postgres ships and changes the exact set of catalog/information_schema views across versions, so pinning specific names would need to be kept in sync with every version rel supports, whereas "nothing in these two schemas is a valid query target" is a version-independent rule that never needs updating. A user who genuinely wants to query one of these (introspection tooling, say) can still override the specific entry back to `n`.
 
-The database role rel connects with to the server in order to perform requests should never be `postgres` or superuser, and should never be a member of `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, or `pg_signal_backend` - a stark warning must be printed if this is the case. The developer must be incited to create a role of some kind that will receive grants for all subroles that shall exist within the database and give it to `query.user`.
+The database role rel connects with to the server in order to perform requests should never be `postgres` or superuser, and should never be a member of `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, or `pg_signal_backend` - a stark warning must be printed if this is the case. The developer must be incited to create a role of some kind that will receive grants for all subroles that shall exist within the database and give it to `pg.query.user`.
 
 > Why this still matters alongside the blacklist : the blacklist can only stop what it already knows the name of. It's a maintained list, not a closed one — a newly `CREATE EXTENSION`'d function (which defaults to `PUBLIC EXECUTE` the moment it's created, e.g. `dblink`, `postgres_fdw`) isn't covered until someone notices and adds it. The role restrictions above are the backstop for exactly that gap : as long as the role never holds those privileges/memberships, most of what makes a *newly discovered* dangerous function actually dangerous (arbitrary file/network/process access) stays unreachable regardless of whether the blacklist has caught up yet.
 

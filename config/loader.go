@@ -388,37 +388,53 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 
 	cfg := &Config{}
 
-	// querying.md ## Configuration's ACTUAL dotted keys — query.user/
-	// query.password/query.host/query.port/query.anonymous_role and
-	// dmut.user/dmut.password, NOT the pg.querier.*/pg.admin.*/pg.* keys
-	// this loader used until this fix : those never matched the spec, a
-	// bug introduced when this loader was first written without
-	// cross-checking against querying.md's own ## Configuration section
-	// (config.go's Pg struct doc comments had the right key names all
-	// along — this loader just didn't read them).
-	cfg.Pg.Admin.User = root.GetStringOrDefault("dmut.user", "")
-	cfg.Pg.Admin.Password = root.GetStringOrDefault("dmut.password", "")
-	// query.user/query.password default to dmut.user/dmut.password when
-	// not otherwise provided — the spec's own explicit cross-default,
-	// not a general "OrDefault" fallback (the default VALUE is another
-	// config key, not a constant).
-	cfg.Pg.Querier.User = root.GetStringOrDefault("query.user", cfg.Pg.Admin.User)
-	cfg.Pg.Querier.Password = root.GetStringOrDefault("query.password", cfg.Pg.Admin.Password)
-	cfg.Pg.Host = root.GetStringOrDefault("query.host", DefaultQueryHost)
-	cfg.Pg.Port = root.GetIntOrDefault("query.port", DefaultQueryPort)
-	cfg.Pg.Anonymous = root.GetStringOrDefault("query.anonymous_role", DefaultQueryAnonymousRole)
-	// query.database : NOT in querying.md at all — config.Pg had no field
+	// pg.uri / pg.user / pg.query.* / pg.host / pg.port / pg.database —
+	// see config.go's Pg/PgQuery doc comments for the full reasoning
+	// behind this shape : one primary connection (URI, or the granular
+	// fields), used for introspection and dmut migrations always, and as
+	// the request-serving connection's own fallback ; pg.query.* is an
+	// OPTIONAL narrower login for request-serving specifically, never
+	// required. Previously dmut.*/query.* as two unrelated top-level
+	// namespaces, then briefly pg.admin.*/pg.query.* — unified under
+	// pg.* directly, no "admin" distinction : SET ROLE is what actually
+	// restricts a request's data access, not the connecting login's own
+	// privileges, so requiring two separate logins just to get started
+	// was never buying real safety, only friction.
+	cfg.Pg.URI = root.GetStringOrDefault("pg.uri", "")
+	cfg.Pg.User = root.GetStringOrDefault("pg.user", "")
+	cfg.Pg.Password = root.GetStringOrDefault("pg.password", "")
+	cfg.Pg.Host = root.GetStringOrDefault("pg.host", DefaultPgHost)
+	cfg.Pg.Port = root.GetIntOrDefault("pg.port", DefaultPgPort)
+	// pg.database : NOT in querying.md at all — config.Pg had no field
 	// naming which database to connect to, genuinely missing before this
-	// (see specs/TODO.md's own note on this invented key). Named under the
-	// query.* namespace to match every other Pg-adjacent key's real
-	// convention, unlike this loader's original (wrong) pg.database.
-	cfg.Pg.Database = root.GetStringOrDefault("query.database", "")
+	// (see specs/TODO.md's own note on this invented key).
+	cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
 
-	cfg.Query.MaxDepth = root.GetIntOrDefault("query.maxdepth", DefaultMaxDepth)
-	// well-known-queries.md ## Configuration's actual key : query.wellknown.path,
-	// default "/wellknown" — NOT query.wellknowndirs, another key name this
-	// loader invented instead of matching the spec.
-	cfg.Query.WellKnownDirs = root.GetStringOrDefault("query.wellknown.path", DefaultQueryWellKnownPath)
+	// pg.query.user/pg.query.password default to pg.user/pg.password when
+	// not otherwise provided — the spec's own explicit cross-default, not
+	// a general "OrDefault" fallback (the default VALUE is another config
+	// key, not a constant). Left as an empty Login (not falling back) when
+	// pg.uri is set instead of granular fields : swapping just the
+	// userinfo on an otherwise-opaque URI is cmd/rel's own concern (see
+	// dsn.go), not this package's — assemble() only resolves cross-
+	// defaults it can express as plain config values.
+	if cfg.Pg.URI == "" {
+		cfg.Pg.Query.User = root.GetStringOrDefault("pg.query.user", cfg.Pg.User)
+		cfg.Pg.Query.Password = root.GetStringOrDefault("pg.query.password", cfg.Pg.Password)
+	} else {
+		cfg.Pg.Query.User = root.GetStringOrDefault("pg.query.user", "")
+		cfg.Pg.Query.Password = root.GetStringOrDefault("pg.query.password", "")
+	}
+	cfg.Pg.Query.AnonymousRole = root.GetStringOrDefault("pg.query.anonymous_role", DefaultPgQueryAnonymousRole)
+
+	cfg.Pg.Query.MaxDepth = root.GetIntOrDefault("pg.query.max_depth", DefaultMaxDepth)
+	// well-known-queries.md ## Configuration's actual key (originally
+	// query.wellknown.path) : pg.query.wellknown_path, default
+	// "/wellknown" — flattened to match every other single-scalar key's
+	// underscore convention (it used to be the one gratuitously-nested
+	// exception, nested two levels deep for no reason a sibling like
+	// anonymous_role didn't share).
+	cfg.Pg.Query.WellKnownDirs = root.GetStringOrDefault("pg.query.wellknown_path", DefaultPgQueryWellKnownPath)
 
 	cfg.Logging.Handler = root.GetStringOrDefault("logging.handler", DefaultLoggingHandler)
 	cfg.Logging.Level = root.GetStringOrDefault("logging.level", DefaultLoggingLevel)
@@ -427,12 +443,13 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 
 	cfg.Http.Host = root.GetStringOrDefault("http.host", "")
 	cfg.Http.Port = root.GetIntOrDefault("http.port", DefaultHttpPort)
-	cfg.Http.RequestDomainName = root.GetStringOrDefault("http.requestdomainname", DefaultHttpRequestDomainName)
-	cfg.Http.ResponseDomainName = root.GetStringOrDefault("http.responsedomainname", DefaultHttpResponseDomainName)
-	cfg.Http.CookiesMaxAge = root.GetIntOrDefault("http.cookiesmaxage", DefaultHttpCookiesMaxAge)
-	cfg.Http.Functions.Auth = root.GetStringOrDefault("http.functions.auth", "")
+	cfg.Http.RequestDomainName = root.GetStringOrDefault("http.request_domain_name", DefaultHttpRequestDomainName)
+	cfg.Http.ResponseDomainName = root.GetStringOrDefault("http.response_domain_name", DefaultHttpResponseDomainName)
+	cfg.Http.CookiesMaxAge = root.GetIntOrDefault("http.cookies_max_age", DefaultHttpCookiesMaxAge)
+	cfg.Http.Functions.AllowedAuth = root.GetStringOrDefault("http.functions.allowed_auth", "")
 	cfg.Http.Functions.AllowedRoutes = root.GetStringOrDefault("http.functions.allowed_routes", "")
 	cfg.Http.Functions.CheckSession = root.GetStringOrDefault("http.functions.check_session", "")
+	cfg.Http.Static.Path = root.GetStringOrDefault("http.static.path", DefaultHttpStaticPath)
 
 	// jwt.secret's own DEFAULT (DefaultJwtSecret) is itself a "$FILE$..."
 	// expression — but resolveFileIndirection (called above, before
@@ -453,12 +470,12 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 		}
 	}
 	cfg.Jwt.Secret = jwtSecret
-	cfg.Jwt.CookieName = root.GetStringOrDefault("jwt.cookiename", DefaultJwtCookieName)
+	cfg.Jwt.CookieName = root.GetStringOrDefault("jwt.cookie_name", DefaultJwtCookieName)
 	cfg.Jwt.Algorithm = root.GetStringOrDefault("jwt.algorithm", DefaultJwtAlgorithm)
-	cfg.Jwt.SameSite = root.GetStringOrDefault("jwt.samesite", DefaultJwtSameSite)
-	cfg.Jwt.MaxAge = root.GetIntOrDefault("jwt.maxage", DefaultJwtMaxAge)
-	cfg.Jwt.RenewAfter = root.GetFloat64OrDefault("jwt.renewafter", DefaultJwtRenewAfter)
-	cfg.Jwt.MaxSessionAge = root.GetIntOrDefault("jwt.maxsessionage", DefaultJwtMaxSessionAge)
+	cfg.Jwt.SameSite = root.GetStringOrDefault("jwt.same_site", DefaultJwtSameSite)
+	cfg.Jwt.MaxAge = root.GetIntOrDefault("jwt.max_age", DefaultJwtMaxAge)
+	cfg.Jwt.RenewAfter = root.GetFloat64OrDefault("jwt.renew_after", DefaultJwtRenewAfter)
+	cfg.Jwt.MaxSessionAge = root.GetIntOrDefault("jwt.max_session_age", DefaultJwtMaxSessionAge)
 
 	def := DefaultBlacklist()
 	cfg.Blacklist.Functions = readBlacklist(root, "blacklist.functions", def.Functions)

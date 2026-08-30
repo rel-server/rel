@@ -84,10 +84,9 @@ func TestLoad_PrecedenceFileEnvFlag(t *testing.T) {
 	// own doc comment for the underlying behavior this works around).
 	t.Chdir(t.TempDir())
 	dir := t.TempDir()
-	// querying.md ## Configuration's real keys : query.host/query.port, NOT
-	// pg.host/pg.port — see the fix note in loader.go's assemble().
+	// querying.md ## Configuration's real keys : pg.host/pg.port.
 	p := writeFile(t, dir, "rel.toml", `
-[query]
+[pg]
 host = "file-host"
 port = 1111
 `)
@@ -102,7 +101,7 @@ port = 1111
 	}
 
 	// Env overrides file.
-	t.Setenv("REL_QUERY__HOST", "env-host")
+	t.Setenv("REL_PG__HOST", "env-host")
 	cfg, err = Load([]string{"--config=" + p})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -115,7 +114,7 @@ port = 1111
 	}
 
 	// Flag overrides both.
-	cfg, err = Load([]string{"--config=" + p, "--query.host=flag-host"})
+	cfg, err = Load([]string{"--config=" + p, "--pg.host=flag-host"})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -124,42 +123,75 @@ port = 1111
 	}
 }
 
-// TestLoad_QueryUserDefaultsToDmutUser covers querying.md's own explicit
-// cross-default : "query.user (default: dmut.user if provided)" — the
+// TestLoad_QueryUserDefaultsToPgUser covers querying.md's own explicit
+// cross-default : "pg.query.user (default: pg.user if provided)" — the
 // default's VALUE is another config key, not a constant, so this needs its
 // own test distinct from the generic *OrDefault coverage elsewhere.
-func TestLoad_QueryUserDefaultsToDmutUser(t *testing.T) {
+func TestLoad_QueryUserDefaultsToPgUser(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
-[dmut]
-user = "dmut_user"
-password = "dmut_pass"
+[pg]
+user = "pg_user"
+password = "pg_pass"
 `)
 	cfg, err := Load([]string{"--config=" + p})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Pg.Admin.User != "dmut_user" || cfg.Pg.Admin.Password != "dmut_pass" {
-		t.Fatalf("expected dmut.user/password read directly, got %+v", cfg.Pg.Admin)
+	if cfg.Pg.User != "pg_user" || cfg.Pg.Password != "pg_pass" {
+		t.Fatalf("expected pg.user/password read directly, got %+v", cfg.Pg)
 	}
-	if cfg.Pg.Querier.User != "dmut_user" || cfg.Pg.Querier.Password != "dmut_pass" {
-		t.Errorf("expected query.user/password to default to dmut.user/password, got %+v", cfg.Pg.Querier)
+	if cfg.Pg.Query.User != "pg_user" || cfg.Pg.Query.Password != "pg_pass" {
+		t.Errorf("expected pg.query.user/password to default to pg.user/password, got %+v", cfg.Pg.Query.Login)
 	}
 
-	// query.user, when explicitly set, must NOT be overridden by dmut.user.
+	// pg.query.user, when explicitly set, must NOT be overridden by
+	// pg.user.
 	p2 := writeFile(t, t.TempDir(), "rel.toml", `
-[dmut]
-user = "dmut_user"
+[pg]
+user = "pg_user"
 
-[query]
+[pg.query]
 user = "query_user"
 `)
 	cfg2, err := Load([]string{"--config=" + p2})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg2.Pg.Querier.User != "query_user" {
-		t.Errorf("expected explicit query.user to win over dmut.user's default, got %q", cfg2.Pg.Querier.User)
+	if cfg2.Pg.Query.User != "query_user" {
+		t.Errorf("expected explicit pg.query.user to win over pg.user's default, got %q", cfg2.Pg.Query.User)
+	}
+}
+
+// TestLoad_PgURI_IsAuthoritative covers pg.uri's own all-or-nothing rule :
+// when set, it wins outright, and the granular pg.host/port/user/password/
+// database fields are ignored entirely rather than merged with it.
+// pg.query.user, being an independent OPTIONAL override, must still apply
+// on top — assemble() itself never parses pg.uri (that's cmd/rel's own
+// concern, building the actual connection strings), it only decides
+// whether pg.query.user/password fall back to pg.user/password (skipped
+// when pg.uri is set, since there's no plain-string default to fall back
+// to).
+func TestLoad_PgURI_IsAuthoritative(t *testing.T) {
+	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
+	p := writeFile(t, t.TempDir(), "rel.toml", `
+[pg]
+uri = "postgres://u:p@db.internal:5432/mydb"
+host = "should-be-ignored"
+user = "should-be-ignored"
+
+[pg.query]
+user = "query_user"
+`)
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Pg.URI != "postgres://u:p@db.internal:5432/mydb" {
+		t.Errorf("expected pg.uri read directly, got %q", cfg.Pg.URI)
+	}
+	if cfg.Pg.Query.User != "query_user" {
+		t.Errorf("expected pg.query.user to still apply on top of pg.uri, got %q", cfg.Pg.Query.User)
 	}
 }
 
@@ -185,20 +217,23 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Http.Port != DefaultHttpPort {
 		t.Errorf("expected default http port %d, got %d", DefaultHttpPort, cfg.Http.Port)
 	}
-	if cfg.Query.MaxDepth != DefaultMaxDepth {
-		t.Errorf("expected default max depth %d, got %d", DefaultMaxDepth, cfg.Query.MaxDepth)
+	if cfg.Pg.Query.MaxDepth != DefaultMaxDepth {
+		t.Errorf("expected default max depth %d, got %d", DefaultMaxDepth, cfg.Pg.Query.MaxDepth)
 	}
-	if cfg.Query.WellKnownDirs != "/wellknown" {
-		t.Errorf("expected default query.wellknown.path=/wellknown, got %q", cfg.Query.WellKnownDirs)
+	if cfg.Pg.Query.WellKnownDirs != "/wellknown" {
+		t.Errorf("expected default pg.query.wellknown_path=/wellknown, got %q", cfg.Pg.Query.WellKnownDirs)
 	}
-	if cfg.Pg.Anonymous != "~anonymous" {
-		t.Errorf("expected default query.anonymous_role=~anonymous, got %q", cfg.Pg.Anonymous)
+	if cfg.Pg.Query.AnonymousRole != "~anonymous" {
+		t.Errorf("expected default pg.query.anonymous_role=~anonymous, got %q", cfg.Pg.Query.AnonymousRole)
 	}
 	if cfg.Http.RequestDomainName != "RelHttpRequest" || cfg.Http.ResponseDomainName != "RelHttpResponse" {
 		t.Errorf("expected default http domain names, got %+v", cfg.Http)
 	}
 	if cfg.Http.CookiesMaxAge != DefaultHttpCookiesMaxAge {
-		t.Errorf("expected default http.cookiesmaxage=%d, got %d", DefaultHttpCookiesMaxAge, cfg.Http.CookiesMaxAge)
+		t.Errorf("expected default http.cookies_max_age=%d, got %d", DefaultHttpCookiesMaxAge, cfg.Http.CookiesMaxAge)
+	}
+	if cfg.Http.Static.Path != DefaultHttpStaticPath {
+		t.Errorf("expected default http.static.path=%q, got %q", DefaultHttpStaticPath, cfg.Http.Static.Path)
 	}
 	if cfg.Jwt.Secret != "fixed-test-secret" {
 		t.Errorf("expected the explicitly-set jwt.secret, got %q", cfg.Jwt.Secret)
@@ -243,7 +278,7 @@ func TestLoad_JwtSecretDefault_GenAndResolve(t *testing.T) {
 func TestLoad_YamlAndHumlParse(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	dir := t.TempDir()
-	yamlPath := writeFile(t, dir, "rel.yaml", "query:\n  host: yaml-host\n")
+	yamlPath := writeFile(t, dir, "rel.yaml", "pg:\n  host: yaml-host\n")
 	cfg, err := Load([]string{"--config=" + yamlPath})
 	if err != nil {
 		t.Fatalf("Load (yaml): %v", err)
@@ -252,7 +287,7 @@ func TestLoad_YamlAndHumlParse(t *testing.T) {
 		t.Errorf("expected yaml-parsed host, got %q", cfg.Pg.Host)
 	}
 
-	humlPath := writeFile(t, dir, "rel.huml", "query::\n  host: \"huml-host\"\n")
+	humlPath := writeFile(t, dir, "rel.huml", "pg::\n  host: \"huml-host\"\n")
 	cfg, err = Load([]string{"--config=" + humlPath})
 	if err != nil {
 		t.Fatalf("Load (huml): %v", err)
@@ -308,7 +343,7 @@ func TestLoad_FileIndirectionEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	secretPath := writeFile(t, dir, "dbname.txt", "indirected_db\n")
 	configPath := writeFile(t, dir, "rel.toml", `
-[query]
+[pg]
 database = "$FILE$`+secretPath+`"
 `)
 	cfg, err := Load([]string{"--config=" + configPath})
@@ -316,7 +351,7 @@ database = "$FILE$`+secretPath+`"
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.Pg.Database != "indirected_db" {
-		t.Errorf("expected query.database resolved through $FILE$ end-to-end, got %q", cfg.Pg.Database)
+		t.Errorf("expected pg.database resolved through $FILE$ end-to-end, got %q", cfg.Pg.Database)
 	}
 }
 

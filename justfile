@@ -8,13 +8,12 @@ db_password := "test"
 test:
     go test ./...
 
-# Launch the rel server against the dev database (just db-up first)
+# Launch the rel server against the dev database (just db-up first). Uses
+# pg.uri alone — REL_PG__QUERY__USER/PASSWORD are unset (there's only one
+# role in this dev fixture) ; a real deployment would set those separately,
+# pg.query deliberately less privileged than the primary login.
 run:
-    REL_QUERY__HOST="$(docker inspect {{db_container}} --format '{{"{{"}}.NetworkSettings.Networks.bridge.IPAddress}}')" \
-        REL_QUERY__PORT=5432 \
-        REL_QUERY__USER={{db_user}} REL_QUERY__PASSWORD={{db_password}} \
-        REL_QUERY__DATABASE={{db_name}} \
-        go run ./cmd/rel
+    REL_PG__URI="$(just db-uri)" go run ./cmd/rel
 
 # Launch a persistent Postgres dev database for manual testing (docker only, dynamic port)
 db-up:

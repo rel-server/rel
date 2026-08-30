@@ -74,7 +74,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 	}
 
-	role := cfg.Pg.Anonymous
+	role := cfg.Pg.Query.AnonymousRole
 	if verified {
 		role = jwtpkg.Role(claims)
 	}

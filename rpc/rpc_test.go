@@ -40,7 +40,7 @@ func TestMain(m *testing.M) {
 	}
 
 	testCfg = config.Test()
-	testCfg.Pg.Anonymous = "~anonymous"
+	testCfg.Pg.Query.AnonymousRole = "~anonymous"
 	testCfg.Http.Functions.CheckSession = "public.fn_check_session"
 
 	testReg, err = BuildRegistry(testDb, testCfg)

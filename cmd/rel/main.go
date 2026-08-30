@@ -44,13 +44,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	uri := postgresURI(cfg.Pg)
-	db, err := pg.NewInfos(uri)
+	// Introspection and dmut migrations always use cfg.Pg's own primary
+	// login (or pg.uri) ; the pool that actually serves requests (and
+	// whose connections get their role SET per-request) uses pg.query.*
+	// instead, WHEN SET — see config.PgQuery's own doc comment for why
+	// that's optional, not required. See pg.NewInfosAdminQuery's own doc
+	// comment for why these stay two distinct connections rather than one
+	// shared pool whenever they do differ.
+	primaryURI, queryURI, err := resolveConnectionURIs(cfg.Pg)
 	if err != nil {
-		logger.Error("connecting to postgres", "host", cfg.Pg.Host, "port", cfg.Pg.Port, "database", cfg.Pg.Database, "error", err.Error())
+		logger.Error("resolving postgres connection", "error", err.Error())
 		os.Exit(1)
 	}
-	logger.Info("connected to postgres", "host", cfg.Pg.Host, "port", cfg.Pg.Port, "database", cfg.Pg.Database)
+	db, err := pg.NewInfosAdminQuery(primaryURI, queryURI)
+	if err != nil {
+		logger.Error("connecting to postgres", "target", redactedTarget(primaryURI), "error", err.Error())
+		os.Exit(1)
+	}
+	logger.Info("connected to postgres", "target", redactedTarget(primaryURI))
 
 	rpcRegistry, err := rpc.BuildRegistry(db, cfg)
 	if err != nil {

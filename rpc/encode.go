@@ -208,10 +208,10 @@ func contentBytes(content json.RawMessage, contentType string) []byte {
 // restricting which functions' responses rel will honor a jwt field from".
 // Empty regexp = unrestricted.
 func authFunctionAllowed(cfg *config.Config, route Route) bool {
-	if cfg.Http.Functions.Auth == "" {
+	if cfg.Http.Functions.AllowedAuth == "" {
 		return true
 	}
-	re, err := regexp.Compile(cfg.Http.Functions.Auth)
+	re, err := regexp.Compile(cfg.Http.Functions.AllowedAuth)
 	if err != nil {
 		return false
 	}
