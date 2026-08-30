@@ -26,6 +26,18 @@ type Relation struct {
 	// TypeScript export to surface as a doc comment ; empty string if unset.
 	Comment string
 
+	// IsSynthetic is true only for a Function's own RecordRelation (see
+	// info_function.go) : a column list built directly from a RETURNS
+	// TABLE/OUT-parameter function's own proargmodes/proargnames, not
+	// backed by any real pg_class row. Never appears in DbInfos.Relations
+	// or RelationMapByRelid — only reachable via the *Function it belongs
+	// to. Purely a documentation/diagnostic marker : the actual safety
+	// guarantee (never writable, never eligible as a join's indexed/
+	// covered side) falls out structurally from PrimaryKey/Indexes/every
+	// constraint lookup below being correctly left nil/empty on it, not
+	// from checking this flag anywhere.
+	IsSynthetic bool
+
 	IsView             bool
 	IsMaterializedView bool
 

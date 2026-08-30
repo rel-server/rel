@@ -95,6 +95,86 @@ func TestFunctionArguments_PlainInArgs(t *testing.T) {
 	}
 }
 
+// ---- RecordRelation : RETURNS TABLE(...) gets its own synthetic column list ---
+
+// TestFunction_RecordRelation_BuiltFromTableModeArguments confirms
+// pg.Function.RecordRelation resolves movie_counts_by_director's own
+// RETURNS TABLE(director_id int, movie_count bigint) columns — the actual
+// bug this was built to catch : Postgres's proargmode for a RETURNS TABLE
+// pseudo-column is 't' (MODE_TABLE), NOT 'o' (a plain OUT parameter) ; an
+// implementation checking IsOut() alone would silently build an empty
+// RecordRelation (or none at all) for exactly this, the single most common
+// case the feature exists for.
+func TestFunction_RecordRelation_BuiltFromTableModeArguments(t *testing.T) {
+	var fn *Function
+	for _, f := range testDb.Functions {
+		if f.Identifier.Name == "movie_counts_by_director" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatalf("function movie_counts_by_director not found in introspected schema")
+	}
+
+	if fn.RecordRelation == nil {
+		t.Fatalf("expected RecordRelation to be built for a RETURNS TABLE function")
+	}
+	if !fn.RecordRelation.IsSynthetic {
+		t.Errorf("expected RecordRelation.IsSynthetic to be true")
+	}
+	if len(fn.RecordRelation.Columns) != 2 {
+		t.Fatalf("expected 2 columns, got %d (%+v)", len(fn.RecordRelation.Columns), fn.RecordRelation.Columns)
+	}
+	if c := fn.RecordRelation.ColumnsMap["director_id"]; c == nil || c.Type == nil || c.Type.PgIdentifier.Name != "int4" {
+		t.Errorf("expected director_id to resolve to int4, got %+v", c)
+	}
+	if c := fn.RecordRelation.ColumnsMap["movie_count"]; c == nil || c.Type == nil || c.Type.PgIdentifier.Name != "int8" {
+		t.Errorf("expected movie_count to resolve to int8 (bigint), got %+v", c)
+	}
+
+	// Structural write/join safety : the whole design relies on these being
+	// genuinely unset (nil/empty), not just absent from this one test's
+	// assertions — see the RecordRelation-building comment in
+	// info_type.go's FillTypeInformations for why that's what actually
+	// keeps it unwritable and ineligible as a join's covered/child side.
+	if fn.RecordRelation.PrimaryKey != nil {
+		t.Errorf("expected no PrimaryKey on a synthetic record relation")
+	}
+	if len(fn.RecordRelation.Indexes) != 0 {
+		t.Errorf("expected no Indexes on a synthetic record relation")
+	}
+	if fn.RecordRelation.IsIndexed([]string{"director_id"}) {
+		t.Errorf("expected IsIndexed to be false for any column set on a synthetic record relation")
+	}
+	if fn.RecordRelation.FindUniqueConstraint([]string{"director_id"}) != nil {
+		t.Errorf("expected FindUniqueConstraint to find nothing on a synthetic record relation")
+	}
+}
+
+// TestFunction_RecordRelation_NilForOrdinaryFunction confirms the fallback
+// doesn't fire for functions that never needed it — a function with no
+// OUT/TABLE-mode arguments at all (fn_plain_add) and one whose SETOF return
+// type already resolves via the ordinary Type.Relation path (fn_directors)
+// should both leave RecordRelation nil.
+func TestFunction_RecordRelation_NilForOrdinaryFunction(t *testing.T) {
+	for _, name := range []string{"fn_plain_add", "fn_directors"} {
+		var fn *Function
+		for _, f := range testDb.Functions {
+			if f.Identifier.Name == name {
+				fn = f
+				break
+			}
+		}
+		if fn == nil {
+			t.Fatalf("function %s not found in introspected schema", name)
+		}
+		if fn.RecordRelation != nil {
+			t.Errorf("expected %s.RecordRelation to be nil, got %+v", name, fn.RecordRelation)
+		}
+	}
+}
+
 // ---- regression : composite FK column pairing -------------------------------
 
 func TestForeignKey_CompositePairing(t *testing.T) {

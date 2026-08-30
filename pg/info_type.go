@@ -156,6 +156,50 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 				return oops.With("function", f.Identifier.String()).With("argument", a.Name).With("typeOid", a.PgTypeOid).Errorf("failed to find argument type (this should not happen)")
 			}
 		}
+
+		// RecordRelation : built directly from this function's own OUT-mode
+		// arguments, independent of ReturnType — see Function.RecordRelation's
+		// own doc comment for why ReturnType.Relation can never resolve this
+		// (every record-returning function shares the one generic
+		// pg_catalog.record pseudo-type, which has no backing pg_class row).
+		// PrimaryKey/OutgoingForeignKeys/IncomingForeignKeys/Indexes and every
+		// unexported lookup map are deliberately left at their zero value —
+		// there is genuinely nothing here for them to describe : a function's
+		// computed output is never constrained or indexed by Postgres, so
+		// leaving them nil/empty is the accurate representation, not a
+		// shortcut. This is also what makes the result automatically safe to
+		// hand to the query engine unchanged : every write-eligibility check
+		// (identityIsWritable, on_conflict's own FindUniqueConstraint lookup)
+		// and every join-eligibility check (ResolveJoin's FindUniqueConstraint/
+		// RelationshipsTo/IsIndexed) already reads from exactly these fields,
+		// and a nil map read in Go safely reports "not found" rather than
+		// panicking — so this relation is structurally unwritable and can
+		// never be the covered/indexed (child) side of any join, with no
+		// separate guard needed anywhere else.
+		var outCols []*Column
+		outColsMap := map[string]*Column{}
+		for i := range f.Arguments {
+			a := &f.Arguments[i]
+			// RETURNS TABLE(...)'s own pseudo-columns are proargmode 't'
+			// (MODE_TABLE), NOT 'o' (a plain OUT parameter, MODE_OUT) —
+			// genuinely distinct Postgres concepts, both included here since
+			// both represent "part of this function's own output."
+			if !a.IsOut() && !a.IsTableColumn() {
+				continue
+			}
+			col := &Column{Name: a.Name, PgTypeOid: a.PgTypeOid, Type: a.Type}
+			outCols = append(outCols, col)
+			outColsMap[a.Name] = col
+		}
+		if len(outCols) > 0 {
+			f.RecordRelation = &Relation{
+				Identifier:  f.Identifier,
+				IsSynthetic: true,
+				Columns:     outCols,
+				ColumnsMap:  outColsMap,
+				Type:        f.ReturnType,
+			}
+		}
 	}
 
 	for _, r := range infos.Relations {

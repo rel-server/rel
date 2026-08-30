@@ -134,6 +134,20 @@ create function director_display_name(d director) returns text language sql as $
 -- query can pass the parent's own "id" as a correlated argument here.
 create function fn_movies_by_director(p_director_id int) returns setof movie language sql as $$ select * from movie where director_id = p_director_id $$;
 
+-- RETURNS TABLE(...) : an anonymous record, not a real composite type —
+-- every RETURNS TABLE/OUT-parameter function shares the one generic
+-- pg_catalog.record pseudo-type as its prorettype, so this is exactly the
+-- shape pg.Function.RecordRelation exists for (see its own doc comment).
+-- director_id is included specifically so a query can use this as the
+-- PARENT/outer side of an outgoing join out to the real director table
+-- (no index needed on this side, per ## Join eligibility) — the genuinely
+-- different, harder direction (this function as the CHILD/joined-into
+-- side of some other query) must stay rejected.
+create function movie_counts_by_director()
+returns table(director_id int, movie_count bigint)
+language sql
+as $$ select director_id, count(*) from movie group by director_id $$;
+
 -- no primary key at all : on_conflict must be left unresolved (not panic)
 -- when unspecified and there's no PK to default to
 create table no_pk_t (a int, b int);

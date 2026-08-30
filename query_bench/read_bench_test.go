@@ -55,19 +55,24 @@
 // the "one" side of an outgoing join is always a primary key and therefore
 // always indexed automatically.
 //
-// ## RETURNS TABLE functions aren't selectable yet
+// ## RETURNS TABLE functions
 //
-// hotel.booking_stats (RETURNS TABLE(...)) resolves as a function-rooted
-// node (QueryNode.Function is set), but QueryNode.Relation stays nil for
-// it — GetRelationByType has nothing to map "record" to — so none of its
-// output columns are resolvable through LookupInScope, and no query naming
-// them compiles. Confirmed directly (not assumed) : the same
-// mustResolveQuery helper used throughout this file fails with
-// "unresolvable identifier" for every one of booking_stats's own output
-// column names. Left out of this benchmark set for that reason ; not a
-// benchmark-authoring choice, a genuine current engine limitation.
-// hotel.search_properties (SETOF hotel.properties) has no such problem —
-// it's covered below (BenchmarkSelect_FullTextSearch).
+// hotel.booking_stats (RETURNS TABLE(...)) used to be unselectable — its
+// output columns are Postgres proargmode 't' pseudo-columns, sharing the
+// one generic pg_catalog.record prorettype every RETURNS TABLE function
+// has, so GetRelationByType had nothing to map "record" to and every
+// column reference failed with "unresolvable identifier". Fixed :
+// pg.Function.RecordRelation (pg/info_function.go) is now built directly
+// from the function's own OUT/TABLE-mode arguments at introspection time,
+// independent of ReturnType, and query/node_resolve.go falls back to it —
+// see BenchmarkSelect_RecordFunction below. This does NOT make it usable
+// as the CHILD/joined-into side of a relationship — Postgres can never
+// index a function's computed output, and ### Join eligibility requires
+// exactly that on the child side — only as a query root or as the
+// parent/outer side of an outgoing join out to a real, indexed relation.
+// hotel.search_properties (SETOF hotel.properties) never had this problem
+// in the first place — it reuses a real composite type (properties' own),
+// not an anonymous record — covered below (BenchmarkSelect_FullTextSearch).
 package query_bench
 
 import (
@@ -388,6 +393,45 @@ func BenchmarkSelect_FullTextSearch(b *testing.B) {
 		rows = runAndDecode(b, sql, args)
 	}
 	b.ReportMetric(float64(rows), "rows/call")
+}
+
+// ---- 7b. RETURNS TABLE function root : hotel.booking_stats -------------
+//
+// A genuinely different resolution path from every other benchmark here
+// (pg.Function.RecordRelation, not Type.Relation) — see the package doc
+// comment above. property_id=1 is guaranteed to exist : test/seed/seed
+// always seeds at least one property per chain, in insertion order
+// starting at id 1.
+
+func BenchmarkSelect_RecordFunction(b *testing.B) {
+	node := mustResolveQuery(b, `{
+		"function": "booking_stats", "schema": "hotel",
+		"arguments": [1],
+		"select": ["own"]
+	}`)
+	sql, args := mustCompileSelect(b, node)
+
+	b.ResetTimer()
+	var rows int
+	for i := 0; i < b.N; i++ {
+		rows = runAndDecode(b, sql, args)
+	}
+	b.ReportMetric(float64(rows), "rows/call")
+}
+
+func BenchmarkSelect_RecordFunction_Compile(b *testing.B) {
+	node := mustResolveQuery(b, `{
+		"function": "booking_stats", "schema": "hotel",
+		"arguments": [1],
+		"select": ["own"]
+	}`)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := query.CompileSelect(node); err != nil {
+			b.Fatalf("CompileSelect: %v", err)
+		}
+	}
 }
 
 // ---- 8. Filter-heavy : several combined where conditions --------------

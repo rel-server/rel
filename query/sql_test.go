@@ -373,6 +373,114 @@ func TestCompileSelect_TableValuedFunctionRoot(t *testing.T) {
 	}
 }
 
+// TestCompileSelect_RecordRelationFunctionRoot exercises pg.Function.
+// RecordRelation : movie_counts_by_director() is RETURNS TABLE(...), an
+// anonymous record with no backing composite type (unlike fn_directors'
+// SETOF director above), so its own column list only ever resolves via its
+// OUT-mode Arguments, not ReturnType.Relation. Both explicit-select and
+// "own" shorthand are checked, since "own" walks node.Relation.Columns
+// directly.
+func TestCompileSelect_RecordRelationFunctionRoot(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('RecordRelation Director') returning id`); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `select id from director where name = 'RecordRelation Director'`).Scan(&directorID); err != nil {
+		t.Fatalf("select director id: %v", err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into movie (director_id, title) values ($1, 'M1'), ($1, 'M2')`, directorID); err != nil {
+		t.Fatalf("insert movies: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"function": "movie_counts_by_director", "schema": "public",
+		"select": {"director_id": "director_id", "count": "movie_count"},
+		"where": ["=", "director_id", `+fmt.Sprint(directorID)+`]
+	}`)
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if got := rows[0]["count"]; fmt.Sprint(got) != "2" {
+		t.Errorf("expected count=2, got %#v", got)
+	}
+
+	ownNode := mustResolveQuery(t, `{"function": "movie_counts_by_director", "schema": "public", "select": ["own"], "where": ["=", "director_id", `+fmt.Sprint(directorID)+`]}`)
+	ownSQL, ownArgs := mustCompileSelect(t, ownNode)
+	ownRows := runSelect(t, ownSQL, ownArgs)
+	if len(ownRows) != 1 || fmt.Sprint(ownRows[0]["movie_count"]) != "2" {
+		t.Errorf("expected own-shorthand movie_count=2, got %#v : %s", ownRows, ownSQL)
+	}
+}
+
+// TestCompileSelect_RecordRelationCannotBeJoinChild confirms the structural
+// limit explained to the user : a RETURNS TABLE function's output can never
+// be indexed by Postgres, so it can never be the CHILD/joined-into side of
+// any relationship, even now that its own columns resolve. This must fail
+// at RESOLUTION time (ResolveJoin, called from resolveNode), not later.
+func TestCompileSelect_RecordRelationCannotBeJoinChild(t *testing.T) {
+	err := resolveQueryExpectError(t, `{
+		"relation": "director", "schema": "public",
+		"select": ["own"],
+		"join": {"counts": {"function": "movie_counts_by_director", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
+	}`)
+	if err == nil {
+		t.Fatalf("expected joining INTO a RETURNS TABLE function to fail (unindexable child side)")
+	}
+}
+
+// TestCompileSelect_RecordRelationAsOutgoingJoinParent confirms the
+// direction that DOES work : the record-relation function as the
+// PARENT/outer side of an outgoing join out to a real, indexed relation
+// (director.id, its primary key) — no index is required on the local
+// (record-relation) side for an outgoing join, only on the joined side.
+func TestCompileSelect_RecordRelationAsOutgoingJoinParent(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Outgoing Parent Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into movie (director_id, title) values ($1, 'M3')`, directorID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"function": "movie_counts_by_director", "schema": "public",
+		"select": {"count": "movie_count", "d": "d"},
+		"where": ["=", "director_id", `+fmt.Sprint(directorID)+`],
+		"join": {"d": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+	}`)
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	embedded, ok := rows[0]["d"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected d to embed as an object, got %#v", rows[0]["d"])
+	}
+	if embedded["name"] != "Outgoing Parent Director" {
+		t.Errorf("expected embedded director name=%q, got %#v", "Outgoing Parent Director", embedded)
+	}
+}
+
+// TestExecuteWrite_RecordRelationRootIsCleanlyRejected confirms a write
+// attempt against a RETURNS TABLE function root is rejected cleanly
+// (findUnwritableNode, before any DML is generated) rather than reaching
+// Postgres as broken SQL trying to INSERT into a function call — the
+// safety this session traced back to PrimaryKey/every constraint lookup
+// being correctly left nil on RecordRelation, not a separate guard.
+func TestExecuteWrite_RecordRelationRootIsCleanlyRejected(t *testing.T) {
+	conn := acquireWriteConn(t)
+	node := mustResolveQuery(t, `{"function": "movie_counts_by_director", "schema": "public", "select": ["own"]}`)
+	_, err := ExecuteWrite(context.Background(), conn, node, []byte(`[{"director_id": 1, "movie_count": 5}]`))
+	if err == nil {
+		t.Fatalf("expected a write against a RETURNS TABLE function root to be rejected")
+	}
+}
+
 func containsLateral(sql string) bool {
 	return strings.Contains(sql, "left join lateral")
 }

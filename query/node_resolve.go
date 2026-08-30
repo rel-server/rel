@@ -115,6 +115,17 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 		// particular function's return type isn't a known relation, which
 		// only matters once something below tries to join/write through it.
 		node.Relation = ctx.Db.GetRelationByType(fn.PgReturnTypeOid)
+		if node.Relation == nil {
+			// RETURNS TABLE(...) / plain OUT-parameters : prorettype is the
+			// one generic, shared pg_catalog.record pseudo-type, which never
+			// resolves to a real relation via GetRelationByType above (see
+			// pg.Function.RecordRelation's own doc comment) — fn.RecordRelation
+			// is this function's OWN column list instead, built once at
+			// introspection time from its OUT-mode arguments. Still nil for a
+			// function with no OUT arguments at all (a bare scalar return),
+			// same as before.
+			node.Relation = fn.RecordRelation
+		}
 	} else {
 		rel := ctx.Db.ResolveRelation(raw.Schema, raw.Relation)
 		if rel == nil {

@@ -25,6 +25,14 @@ const (
 	MODE_OUT      = "o"
 	MODE_INOUT    = "b"
 	MODE_VARIADIC = "v"
+	// MODE_TABLE ('t') is Postgres's own DISTINCT proargmode for a RETURNS
+	// TABLE(...) pseudo-column — genuinely different from a plain OUT
+	// parameter (MODE_OUT, 'o'), declared via "out x int" instead. Kept as
+	// its own constant/predicate (IsTableColumn) rather than folded into
+	// IsOut() : the two really are different Postgres concepts, even though
+	// RecordRelation's own construction (info_type.go) treats both as "this
+	// is one of the function's own output columns" for that one purpose.
+	MODE_TABLE = "t"
 )
 
 type FunctionArgument struct {
@@ -46,6 +54,10 @@ func (f *FunctionArgument) IsOut() bool {
 
 func (f *FunctionArgument) IsInOut() bool {
 	return f.PgMode == MODE_INOUT
+}
+
+func (f *FunctionArgument) IsTableColumn() bool {
+	return f.PgMode == MODE_TABLE
 }
 
 func (f *FunctionArgument) IsVariadic() bool {
@@ -88,6 +100,23 @@ type Function struct {
 	ReturnsSet      bool // Whether this function returns a table() or a setof ReturnType
 	ReturnType      *Type
 	PgReturnTypeOid int
+
+	// RecordRelation is set only for a function with at least one OUT-mode
+	// or TABLE-mode argument (RETURNS TABLE(...) uses MODE_TABLE 't' for
+	// its own pseudo-columns, distinct from a plain "out x int" parameter's
+	// MODE_OUT 'o' — see FunctionArgument.IsTableColumn) — a synthetic
+	// *Relation built directly from those arguments' own name/type
+	// (info_type.go's FillTypeInformations), never resolved via
+	// ReturnType.Relation. Postgres gives EVERY such function the exact
+	// same prorettype, the single shared pg_catalog.record pseudo-type
+	// (typrelid = 0, no backing pg_class row) — so unlike a real composite
+	// return type, ReturnType.Relation can never resolve this function's
+	// OWN specific column list ; the actual per-function shape lives on
+	// pg_proc's own proallargtypes/proargmodes/proargnames instead, which
+	// Arguments (filtered to IsOut()/IsTableColumn()) already captures. nil for every
+	// other function, including one returning SETOF a real relation (that
+	// case already resolves through ReturnType.Relation as before).
+	RecordRelation *Relation
 
 	// Other function attributes that are not relevant as of now
 	IsStrict            bool // proisstrict
