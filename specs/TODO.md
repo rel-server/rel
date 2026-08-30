@@ -77,8 +77,6 @@ Grouped by how much they block implementation, not by file.
   properly-locked-down (non-superuser) connecting role. PostgREST documents the identical
   prerequisite for its own `authenticator`/`web_anon` pattern ; neither `querying.md` nor
   `jwt-roles-and-http.md` states it yet for rel.
-  responsibility (`server/rel.go`'s `applyRole`, `rpc/handler.go`'s inline equivalent),
-  sharing the DB-facing half via `dbauth`.
 - **`dmut` / migrations** (`03-dmut.md`, 14 lines). Legacy's `dmut` is a DAG/content-hash
   migration tool, a separate vendored module (`github.com/ceymard/dmut`) — not a
   sequential up/down tool. The current spec doesn't say whether rel keeps using that
