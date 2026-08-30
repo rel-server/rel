@@ -71,9 +71,10 @@ func (d *DbInfos) GetRelationByType(typeOid int) *Relation {
 // introspection and the returned pool — the common case for anything that
 // doesn't distinguish a primary login from an optional, narrower
 // pg.query.* login (every test fixture in this repo connects as one
-// superuser either way).
+// superuser either way) — and pgx's own default pool size (poolSize 0,
+// see NewInfosAdminQuery), since tests have no config.Pg.PoolSize to read.
 func NewInfos(uri string) (*DbInfos, error) {
-	return NewInfosAdminQuery(uri, uri)
+	return NewInfosAdminQuery(uri, uri, 0)
 }
 
 // NewInfosAdminQuery introspects the database via a short-lived connection
@@ -89,7 +90,14 @@ func NewInfos(uri string) (*DbInfos, error) {
 // Using the same login for both regardless would make the primary login
 // the de facto base identity for every request either way, quietly
 // defeating the reason a separate pg.query.* login exists at all.
-func NewInfosAdminQuery(primaryURI, queryURI string) (*DbInfos, error) {
+//
+// poolSize caps the returned Pool's MaxConns (pg.pool_size) — 0 leaves
+// pgx's own default (max(4, runtime.NumCPU())) in place, never a real
+// deployment's own intent, only convenient for tests/NewInfos callers
+// with no config to read a size from. The introspection pool above is
+// never sized by this : it opens exactly one connection, does its work,
+// and closes before the query pool is even created.
+func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int) (*DbInfos, error) {
 	introspectPool, err := pgxpool.New(context.Background(), primaryURI)
 	if err != nil {
 		return nil, oops.Wrapf(err, "failed to create introspection pool")
@@ -116,7 +124,14 @@ func NewInfosAdminQuery(primaryURI, queryURI string) (*DbInfos, error) {
 		return nil, err
 	}
 
-	queryPool, err := pgxpool.New(context.Background(), queryURI)
+	queryPoolConfig, err := pgxpool.ParseConfig(queryURI)
+	if err != nil {
+		return nil, oops.Wrapf(err, "failed to parse query pool connection string")
+	}
+	if poolSize > 0 {
+		queryPoolConfig.MaxConns = int32(poolSize)
+	}
+	queryPool, err := pgxpool.NewWithConfig(context.Background(), queryPoolConfig)
 	if err != nil {
 		return nil, oops.Wrapf(err, "failed to create query pool")
 	}

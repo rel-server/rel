@@ -18,6 +18,7 @@ Roles we switch to when requests are made are NOT respected, because that would 
 * `pg.user` / `pg.password` / `pg.host` / `pg.port` / `pg.database` : the primary Postgres connection, used when `pg.uri` is unset. This is the login rel uses to connect to the database to perform migrations with dmut, to introspect the database at startup, and — unless `pg.query.user` overrides it — to serve requests, i.e. the role from which `set role` to all other roles is executed.
 * `pg.query.user` / `pg.query.password` (default : `pg.user` / `pg.password` if provided) : an OPTIONAL, narrower-scoped login for the connection that actually serves requests specifically. Documented and encouraged for a hardened deployment, never required — `set role` per request, not this login's own privileges, is what actually restricts what a request can access ; introspection and dmut migrations always use the primary connection above, never this one.
 * `pg.query.anonymous_role` (default `~anonymous`) : the role rel switches to for requests without credentials of their own. Full lifecycle (when/how this applies, alongside JWT verification) is `jwt-roles-and-http.md`'s ## Roles' concern — this entry exists here only because it's also part of ## Configuration's connection-role settings.
+* `pg.pool_size` (default `10`) : the max number of connections in the pool that serves requests. Never affects startup introspection or dmut migrations, which each use one short-lived connection regardless of this setting.
 
 * `pg.query.max_depth` (default `6`) : maximum depth a query can specify
 

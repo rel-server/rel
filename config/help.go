@@ -47,6 +47,7 @@ var Options = []Option{
 	{"pg.host", DefaultPgHost, "Postgres host, used when pg.uri is unset."},
 	{"pg.port", fmt.Sprint(DefaultPgPort), "Postgres port, used when pg.uri is unset."},
 	{"pg.database", "", "Database name, used when pg.uri is unset. Required one way or the other."},
+	{"pg.pool_size", fmt.Sprint(DefaultPgPoolSize), "Max connections in the pool that serves requests. Never affects startup introspection or dmut migrations, which use one short-lived connection regardless."},
 	{"pg.query.user", "= pg.user", "Narrower-scoped login used to serve requests. Optional — introspection and migrations always use pg.user/pg.uri regardless."},
 	{"pg.query.password", "= pg.password", "Password for pg.query.user."},
 	{"pg.query.anonymous_role", DefaultPgQueryAnonymousRole, "Role used for requests without a valid session."},

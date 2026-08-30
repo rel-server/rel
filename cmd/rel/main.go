@@ -56,7 +56,7 @@ func main() {
 		logger.Error("resolving postgres connection", "error", err.Error())
 		os.Exit(1)
 	}
-	db, err := pg.NewInfosAdminQuery(primaryURI, queryURI)
+	db, err := pg.NewInfosAdminQuery(primaryURI, queryURI, cfg.Pg.PoolSize)
 	if err != nil {
 		logger.Error("connecting to postgres", "target", redactedTarget(primaryURI), "error", err.Error())
 		os.Exit(1)

@@ -226,6 +226,9 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Pg.Query.AnonymousRole != "~anonymous" {
 		t.Errorf("expected default pg.query.anonymous_role=~anonymous, got %q", cfg.Pg.Query.AnonymousRole)
 	}
+	if cfg.Pg.PoolSize != DefaultPgPoolSize {
+		t.Errorf("expected default pg.pool_size=%d, got %d", DefaultPgPoolSize, cfg.Pg.PoolSize)
+	}
 	if cfg.Http.RequestDomainName != "RelHttpRequest" || cfg.Http.ResponseDomainName != "RelHttpResponse" {
 		t.Errorf("expected default http domain names, got %+v", cfg.Http)
 	}

@@ -25,6 +25,7 @@ import (
 )
 
 var testDb *DbInfos
+var testDbURI string
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -44,6 +45,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	testDbURI = uri
 
 	testDb, err = NewInfos(uri)
 	if err != nil {
@@ -398,5 +400,32 @@ func TestType_ArrayResolution(t *testing.T) {
 	}
 	if intArray.ElementType == nil || intArray.ElementType.PgIdentifier.Name != "int4" {
 		t.Errorf("expected _int4's ElementType to resolve to int4, got %+v", intArray.ElementType)
+	}
+}
+
+// ---- regression : pg.pool_size (config.Pg.PoolSize) actually caps the
+// query pool, never the short-lived introspection connection -------------
+
+func TestNewInfosAdminQuery_PoolSizeAppliesToQueryPoolOnly(t *testing.T) {
+	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 3)
+	if err != nil {
+		t.Fatalf("NewInfosAdminQuery: %v", err)
+	}
+	defer db.Pool.Close()
+
+	if got := db.Pool.Config().MaxConns; got != 3 {
+		t.Errorf("expected query pool MaxConns=3, got %d", got)
+	}
+}
+
+func TestNewInfosAdminQuery_ZeroPoolSizeLeavesPgxDefault(t *testing.T) {
+	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 0)
+	if err != nil {
+		t.Fatalf("NewInfosAdminQuery: %v", err)
+	}
+	defer db.Pool.Close()
+
+	if got := db.Pool.Config().MaxConns; got <= 0 {
+		t.Errorf("expected pgx's own positive default MaxConns when poolSize=0, got %d", got)
 	}
 }

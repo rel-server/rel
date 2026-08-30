@@ -151,6 +151,14 @@ const (
 	DefaultPgPort               = 5432
 	DefaultPgQueryAnonymousRole = "~anonymous"
 	DefaultPgQueryWellKnownPath = "/wellknown"
+	// DefaultPgPoolSize is pg.pool_size's default : the max number of
+	// connections in the pool that actually serves requests. pgx's own
+	// unconfigured default (max(4, runtime.NumCPU())) scales with the
+	// machine rel happens to run on, not with what the database can
+	// actually sustain — 10 is a small, common, framework-agnostic
+	// starting point (Node's node-postgres and Java's HikariCP both
+	// default here too) rather than a value tied to host CPU count.
+	DefaultPgPoolSize = 10
 )
 
 type Login struct {
@@ -229,6 +237,12 @@ type Pg struct {
 	Host     string
 	Port     int
 	Database string
+
+	// PoolSize is pg.pool_size (default DefaultPgPoolSize) : the max number
+	// of connections in the pool that serves requests (pg.NewInfosAdminQuery's
+	// queryURI pool) — never the short-lived, single-connection introspection
+	// pool used once at startup for dmut/schema reading.
+	PoolSize int
 
 	// Query is pg.query.* — see PgQuery's own doc comment.
 	Query PgQuery

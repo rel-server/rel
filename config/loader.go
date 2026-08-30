@@ -409,6 +409,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// naming which database to connect to, genuinely missing before this
 	// (see specs/TODO.md's own note on this invented key).
 	cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
+	cfg.Pg.PoolSize = root.GetIntOrDefault("pg.pool_size", DefaultPgPoolSize)
 
 	// pg.query.user/pg.query.password default to pg.user/pg.password when
 	// not otherwise provided — the spec's own explicit cross-default, not
