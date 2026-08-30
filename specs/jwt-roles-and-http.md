@@ -150,10 +150,12 @@ interface RelHttpRequest {
   content_type: string
   content: string // may be ""
 
-  cookies: {[name: string]: Cookie}
-  jwt: JWT
+  cookies: {[name: string]: string} // value only — see the note below
+  jwt: JWT | null // null when the request carries no valid session
 }
 ```
+
+`RelHttpRequest.cookies` deliberately does NOT reuse the full `Cookie` shape (`value`/`httponly`/`secure`/`samesite`/`maxage`) the response side uses — a browser's `Cookie` header only ever sends `name=value`, the other four attributes are response-only (`Set-Cookie` attributes) and can never be known for an inbound cookie. Value-only avoids four fields that would always be empty/false/zero.
 
 ## Responses
 

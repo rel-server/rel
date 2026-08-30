@@ -1,8 +1,9 @@
 // Command rel is the process entrypoint : loads configuration
 // (specs/01-configuration.md), builds the process-wide logger
 // (specs/01-logging.md ## Configuration/## Logger construction), connects
-// to Postgres, and serves POST /rel (server.NewRelHandler) until an
-// interrupt/terminate signal requests a graceful shutdown.
+// to Postgres, and serves POST /rel (server.NewRelHandler) and
+// /rpc/{schema}/{function} (rpc.NewHandler) until an interrupt/terminate
+// signal requests a graceful shutdown.
 package main
 
 import (
@@ -18,6 +19,7 @@ import (
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
+	"github.com/ceymard/rel/rpc"
 	"github.com/ceymard/rel/server"
 )
 
@@ -45,8 +47,20 @@ func main() {
 	}
 	logger.Info("connected to postgres", "host", cfg.Pg.Host, "port", cfg.Pg.Port, "database", cfg.Pg.Database)
 
+	rpcRegistry, err := rpc.BuildRegistry(db, cfg)
+	if err != nil {
+		logger.Error("building /rpc route registry", "error", err.Error())
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/rel", server.NewRelHandler(db, cfg))
+	// rpc.NewHandler's own internal mux already registers the full
+	// "/rpc/{schema}/{function}" pattern and expects the unmodified request
+	// path — mounting it here under "/rpc/" does no prefix-stripping (that's
+	// only http.StripPrefix's job, not plain ServeMux.Handle), so this
+	// composition is correct as-is.
+	mux.Handle("/rpc/", rpc.NewHandler(db, cfg, rpcRegistry))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Http.Host, cfg.Http.Port)
 	srv := &http.Server{

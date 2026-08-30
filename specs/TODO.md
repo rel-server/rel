@@ -75,6 +75,13 @@ Grouped by how much they block implementation, not by file.
   `jwt-roles-and-http.md` — `/api` named nothing about the actual mechanism ; `/rpc`
   matches PostgREST's own convention for the identical concept (named backend function
   callable over HTTP), which the spec already invokes as a comparison point elsewhere.
+  **Now implemented** (`rpc/`) : discovery/registry against `RelHttpRequest`/
+  `RelHttpResponse`/mimetype domains, dynamic `/rpc/{schema}/{function}` dispatch,
+  `__VERB` suffix splitting, `allowed_routes`/`http.functions.auth` gating, and the full
+  JWT lifecycle (`jwt/` : mint/sign/verify/renew, `check_session`, `SET LOCAL ROLE`
+  inside the request's own transaction). Still deferred : Jet template rendering
+  (`RelHttpResponse.template` is parsed but not acted on) and SAML/OIDC (see "Named but
+  empty" below).
 - **`jwt.anonrole` renamed to `query.anonymous_role`**, reconciling a genuine drift :
   `jwt-roles-and-http.md` and `querying.md` named what reads as the identical setting
   (the role applied to unauthenticated/unverifiable requests) under two different keys,
