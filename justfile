@@ -10,10 +10,10 @@ test:
 
 # Launch the rel server against the dev database (just db-up first)
 run:
-    REL_PG__HOST="$(docker inspect {{db_container}} --format '{{"{{"}}.NetworkSettings.Networks.bridge.IPAddress}}')" \
-        REL_PG__PORT=5432 \
-        REL_PG__QUERIER__USER={{db_user}} REL_PG__QUERIER__PASSWORD={{db_password}} \
-        REL_PG__DATABASE={{db_name}} \
+    REL_QUERY__HOST="$(docker inspect {{db_container}} --format '{{"{{"}}.NetworkSettings.Networks.bridge.IPAddress}}')" \
+        REL_QUERY__PORT=5432 \
+        REL_QUERY__USER={{db_user}} REL_QUERY__PASSWORD={{db_password}} \
+        REL_QUERY__DATABASE={{db_name}} \
         go run ./cmd/rel
 
 # Launch a persistent Postgres dev database for manual testing (docker only, dynamic port)

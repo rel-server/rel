@@ -50,6 +50,10 @@ type Query struct {
 	// querying.md's default is 6.
 	MaxDepth int
 
+	// WellKnownDirs is query.wellknown.path (well-known-queries.md
+	// ## Configuration), default "/wellknown" : a colon-separated list of
+	// directories, kept as the raw string here — splitting happens wherever
+	// well-known loading itself gets built (not yet).
 	WellKnownDirs string
 }
 
@@ -70,16 +74,23 @@ type Pg struct {
 	// Admin is dmut.user / dmut.password : the login rel will use to connect to the database to perform migrations with dmut, but also Querier's ident if not supplied.
 	Admin Login
 
-	// Anonymous is the role rel switches to, from Querier, for requests
-	// with no credentials of their own.
+	// Anonymous is query.anonymous_role : the role rel switches to, from
+	// Querier, for requests with no credentials of their own. Note :
+	// jwt-roles-and-http.md separately defines jwt.anonrole with what
+	// reads as the identical purpose — unreconciled between the two spec
+	// docs (same setting under two names, or genuinely two different
+	// anonymous roles for /rel vs. the /api route-function system) ; this
+	// field implements querying.md's own query.anonymous_role only.
 	Anonymous string
 
+	// Host/Port are query.host/query.port.
 	Host string
 	Port int
 
-	// Database is the database name to connect to — pg.database. Genuinely
-	// missing before this field was added : nothing in this struct could
-	// name which database to connect to at all.
+	// Database is query.database — NOT in querying.md at all ; this
+	// struct had no field naming which database to connect to at all
+	// before this was added (see specs/TODO.md's own note on this
+	// invented key).
 	Database string
 }
 

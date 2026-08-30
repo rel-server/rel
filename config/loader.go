@@ -388,17 +388,37 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 
 	cfg := &Config{}
 
-	cfg.Pg.Querier.User = root.GetStringOrDefault("pg.querier.user", "")
-	cfg.Pg.Querier.Password = root.GetStringOrDefault("pg.querier.password", "")
-	cfg.Pg.Admin.User = root.GetStringOrDefault("pg.admin.user", "")
-	cfg.Pg.Admin.Password = root.GetStringOrDefault("pg.admin.password", "")
-	cfg.Pg.Anonymous = root.GetStringOrDefault("pg.anonymous", "")
-	cfg.Pg.Host = root.GetStringOrDefault("pg.host", "localhost")
-	cfg.Pg.Port = root.GetIntOrDefault("pg.port", 5432)
-	cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
+	// querying.md ## Configuration's ACTUAL dotted keys — query.user/
+	// query.password/query.host/query.port/query.anonymous_role and
+	// dmut.user/dmut.password, NOT the pg.querier.*/pg.admin.*/pg.* keys
+	// this loader used until this fix : those never matched the spec, a
+	// bug introduced when this loader was first written without
+	// cross-checking against querying.md's own ## Configuration section
+	// (config.go's Pg struct doc comments had the right key names all
+	// along — this loader just didn't read them).
+	cfg.Pg.Admin.User = root.GetStringOrDefault("dmut.user", "")
+	cfg.Pg.Admin.Password = root.GetStringOrDefault("dmut.password", "")
+	// query.user/query.password default to dmut.user/dmut.password when
+	// not otherwise provided — the spec's own explicit cross-default,
+	// not a general "OrDefault" fallback (the default VALUE is another
+	// config key, not a constant).
+	cfg.Pg.Querier.User = root.GetStringOrDefault("query.user", cfg.Pg.Admin.User)
+	cfg.Pg.Querier.Password = root.GetStringOrDefault("query.password", cfg.Pg.Admin.Password)
+	cfg.Pg.Host = root.GetStringOrDefault("query.host", "localhost")
+	cfg.Pg.Port = root.GetIntOrDefault("query.port", 5432)
+	cfg.Pg.Anonymous = root.GetStringOrDefault("query.anonymous_role", "")
+	// query.database : NOT in querying.md at all — config.Pg had no field
+	// naming which database to connect to, genuinely missing before this
+	// (see specs/TODO.md's own note on this invented key). Named under the
+	// query.* namespace to match every other Pg-adjacent key's real
+	// convention, unlike this loader's original (wrong) pg.database.
+	cfg.Pg.Database = root.GetStringOrDefault("query.database", "")
 
 	cfg.Query.MaxDepth = root.GetIntOrDefault("query.maxdepth", DefaultMaxDepth)
-	cfg.Query.WellKnownDirs = root.GetStringOrDefault("query.wellknowndirs", "")
+	// well-known-queries.md ## Configuration's actual key : query.wellknown.path,
+	// default "/wellknown" — NOT query.wellknowndirs, another key name this
+	// loader invented instead of matching the spec.
+	cfg.Query.WellKnownDirs = root.GetStringOrDefault("query.wellknown.path", "/wellknown")
 
 	cfg.Logging.Handler = root.GetStringOrDefault("logging.handler", DefaultLoggingHandler)
 	cfg.Logging.Level = root.GetStringOrDefault("logging.level", DefaultLoggingLevel)

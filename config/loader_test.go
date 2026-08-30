@@ -78,8 +78,10 @@ func TestResolveConfigFilePath_NoMatchIsNotAnError(t *testing.T) {
 
 func TestLoad_PrecedenceFileEnvFlag(t *testing.T) {
 	dir := t.TempDir()
+	// querying.md ## Configuration's real keys : query.host/query.port, NOT
+	// pg.host/pg.port — see the fix note in loader.go's assemble().
 	p := writeFile(t, dir, "rel.toml", `
-[pg]
+[query]
 host = "file-host"
 port = 1111
 `)
@@ -94,7 +96,7 @@ port = 1111
 	}
 
 	// Env overrides file.
-	t.Setenv("REL_PG__HOST", "env-host")
+	t.Setenv("REL_QUERY__HOST", "env-host")
 	cfg, err = Load([]string{"--config=" + p})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -107,12 +109,50 @@ port = 1111
 	}
 
 	// Flag overrides both.
-	cfg, err = Load([]string{"--config=" + p, "--pg.host=flag-host"})
+	cfg, err = Load([]string{"--config=" + p, "--query.host=flag-host"})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.Pg.Host != "flag-host" {
 		t.Errorf("expected flag to override env+file host, got %q", cfg.Pg.Host)
+	}
+}
+
+// TestLoad_QueryUserDefaultsToDmutUser covers querying.md's own explicit
+// cross-default : "query.user (default: dmut.user if provided)" — the
+// default's VALUE is another config key, not a constant, so this needs its
+// own test distinct from the generic *OrDefault coverage elsewhere.
+func TestLoad_QueryUserDefaultsToDmutUser(t *testing.T) {
+	p := writeFile(t, t.TempDir(), "rel.toml", `
+[dmut]
+user = "dmut_user"
+password = "dmut_pass"
+`)
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Pg.Admin.User != "dmut_user" || cfg.Pg.Admin.Password != "dmut_pass" {
+		t.Fatalf("expected dmut.user/password read directly, got %+v", cfg.Pg.Admin)
+	}
+	if cfg.Pg.Querier.User != "dmut_user" || cfg.Pg.Querier.Password != "dmut_pass" {
+		t.Errorf("expected query.user/password to default to dmut.user/password, got %+v", cfg.Pg.Querier)
+	}
+
+	// query.user, when explicitly set, must NOT be overridden by dmut.user.
+	p2 := writeFile(t, t.TempDir(), "rel.toml", `
+[dmut]
+user = "dmut_user"
+
+[query]
+user = "query_user"
+`)
+	cfg2, err := Load([]string{"--config=" + p2})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg2.Pg.Querier.User != "query_user" {
+		t.Errorf("expected explicit query.user to win over dmut.user's default, got %q", cfg2.Pg.Querier.User)
 	}
 }
 
@@ -133,6 +173,9 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Query.MaxDepth != DefaultMaxDepth {
 		t.Errorf("expected default max depth %d, got %d", DefaultMaxDepth, cfg.Query.MaxDepth)
 	}
+	if cfg.Query.WellKnownDirs != "/wellknown" {
+		t.Errorf("expected default query.wellknown.path=/wellknown, got %q", cfg.Query.WellKnownDirs)
+	}
 	// Default blacklist must still be present when config doesn't touch it.
 	if !cfg.Blacklist.IsRelationBlacklisted("pg_catalog", "anything") {
 		t.Errorf("expected DefaultBlacklist to still apply")
@@ -141,7 +184,7 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 
 func TestLoad_YamlAndHumlParse(t *testing.T) {
 	dir := t.TempDir()
-	yamlPath := writeFile(t, dir, "rel.yaml", "pg:\n  host: yaml-host\n")
+	yamlPath := writeFile(t, dir, "rel.yaml", "query:\n  host: yaml-host\n")
 	cfg, err := Load([]string{"--config=" + yamlPath})
 	if err != nil {
 		t.Fatalf("Load (yaml): %v", err)
@@ -150,7 +193,7 @@ func TestLoad_YamlAndHumlParse(t *testing.T) {
 		t.Errorf("expected yaml-parsed host, got %q", cfg.Pg.Host)
 	}
 
-	humlPath := writeFile(t, dir, "rel.huml", "pg::\n  host: \"huml-host\"\n")
+	humlPath := writeFile(t, dir, "rel.huml", "query::\n  host: \"huml-host\"\n")
 	cfg, err = Load([]string{"--config=" + humlPath})
 	if err != nil {
 		t.Fatalf("Load (huml): %v", err)
@@ -203,7 +246,7 @@ func TestLoad_FileIndirectionEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	secretPath := writeFile(t, dir, "dbname.txt", "indirected_db\n")
 	configPath := writeFile(t, dir, "rel.toml", `
-[pg]
+[query]
 database = "$FILE$`+secretPath+`"
 `)
 	cfg, err := Load([]string{"--config=" + configPath})
@@ -211,7 +254,7 @@ database = "$FILE$`+secretPath+`"
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.Pg.Database != "indirected_db" {
-		t.Errorf("expected pg.database resolved through $FILE$ end-to-end, got %q", cfg.Pg.Database)
+		t.Errorf("expected query.database resolved through $FILE$ end-to-end, got %q", cfg.Pg.Database)
 	}
 }
 
