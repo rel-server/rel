@@ -10,9 +10,47 @@ type Config struct {
 	Query   Query
 	Logging Logging
 	Http    Http
+	Jwt     Jwt
 
 	Blacklist Blacklist
 }
+
+// Jwt is jwt-roles-and-http.md ## Configuration : jwt.secret/cookiename/
+// algorithm/samesite/maxage/renewafter/maxsessionage.
+type Jwt struct {
+	// Secret is jwt.secret, default "$FILE$jwt-secret$GEN$32" — the JWT
+	// signing secret.
+	Secret string
+	// CookieName is jwt.cookiename, default "accesstoken" : the cookie
+	// scanned/set by rel to carry the JWT.
+	CookieName string
+	// Algorithm is jwt.algorithm, default "HS256" (one of HS256/HS384/
+	// HS512) : enforced exactly on verification, including rejecting "none".
+	Algorithm string
+	// SameSite is jwt.samesite, default "Lax" : SameSite attribute of the
+	// JWT cookie.
+	SameSite string
+	// MaxAge is jwt.maxage, default 1800 (30 minutes) : how long a
+	// freshly-minted token is valid for (exp = iat + MaxAge).
+	MaxAge int
+	// RenewAfter is jwt.renewafter, default 0.5 : fraction of a token's own
+	// exp-iat after which it's due for renewal.
+	RenewAfter float64
+	// MaxSessionAge is jwt.maxsessionage, default 604800 (7 days) : hard
+	// ceiling on a session's total lifetime, measured from auth_time.
+	MaxSessionAge int
+}
+
+// DefaultJwt* are jwt-roles-and-http.md ## Configuration's stated defaults.
+const (
+	DefaultJwtSecret        = "$FILE$jwt-secret$GEN$32"
+	DefaultJwtCookieName    = "accesstoken"
+	DefaultJwtAlgorithm     = "HS256"
+	DefaultJwtSameSite      = "Lax"
+	DefaultJwtMaxAge        = 1800
+	DefaultJwtRenewAfter    = 0.5
+	DefaultJwtMaxSessionAge = 604800
+)
 
 // Logging is specs/01-logging.md ## Configuration : logging.handler,
 // logging.level, logging.filter.*, logging.exclude.*.
@@ -29,20 +67,58 @@ type Logging struct {
 	Exclude map[string]string
 }
 
-// Http is the HTTP listen address — invented for cmd/rel, since no spec
-// under specs/ defines the bind host/port. http.host / http.port.
+// Http is the HTTP listen address (Host/Port — invented for cmd/rel, since
+// no spec under specs/ defines the bind host/port) plus
+// jwt-roles-and-http.md ## HTTP ## Configuration's own http.* keys, which
+// govern /rpc route-function discovery and dispatch.
 type Http struct {
 	Host string
 	Port int
+
+	// RequestDomainName is http.requestdomainname, default "RelHttpRequest"
+	// : the fully qualified, unquoted name of the JSON domain identifying a
+	// route function's single request-typed argument.
+	RequestDomainName string
+	// ResponseDomainName is http.responsedomainname, default
+	// "RelHttpResponse" : the fully qualified, unquoted name of the JSON
+	// domain identifying a route function's response return type.
+	ResponseDomainName string
+	// CookiesMaxAge is http.cookiesmaxage, default 86400 : default max-age
+	// for cookies set via the generic "cookies" field, when the response
+	// doesn't specify one. Does not apply to the JWT cookie (see Jwt.MaxAge).
+	CookiesMaxAge int
+
+	Functions HttpFunctions
+}
+
+// HttpFunctions is jwt-roles-and-http.md's http.functions.* namespace.
+type HttpFunctions struct {
+	// Auth is http.functions.auth, default "" (unrestricted) : regexp
+	// restricting which functions' responses rel will honor a "jwt" field
+	// from, matched against the fully qualified, unquoted function name.
+	Auth string
+	// AllowedRoutes is http.functions.allowed_routes, default ""
+	// (unrestricted) : regexp a function's fully qualified, unquoted name
+	// must additionally match to become a public /rpc route.
+	AllowedRoutes string
+	// CheckSession is http.functions.check_session, default "" (disabled)
+	// : unquoted, fully qualified name of a Postgres function that lets the
+	// database reject a session before exp/maxsessionage would otherwise.
+	CheckSession string
 }
 
 // DefaultLoggingHandler/DefaultLoggingLevel/DefaultHttpPort are
 // specs/01-logging.md's own stated defaults (Handler/Level) and this
 // package's own invented default (Port — see Http's doc comment).
+// DefaultHttpRequestDomainName/DefaultHttpResponseDomainName/
+// DefaultHttpCookiesMaxAge are jwt-roles-and-http.md's own stated defaults.
 const (
-	DefaultLoggingHandler = "pretty"
-	DefaultLoggingLevel   = "info"
-	DefaultHttpPort       = 8080
+	DefaultLoggingHandler         = "pretty"
+	DefaultLoggingLevel           = "info"
+	DefaultHttpPort               = 8080
+	DefaultHttpRequestDomainName  = "RelHttpRequest"
+	DefaultHttpResponseDomainName = "RelHttpResponse"
+	DefaultHttpCookiesMaxAge      = 86400
 )
 
 type Query struct {

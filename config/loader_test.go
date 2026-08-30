@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/knadh/koanf/providers/confmap"
@@ -157,7 +158,15 @@ user = "query_user"
 }
 
 func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
-	cfg, err := Load([]string{"--config=" + writeFile(t, t.TempDir(), "rel.toml", "")})
+	// jwt.secret is set explicitly here to a fixed value : its real default
+	// is a $GEN$ expression that writes a generated-secret FILE to the
+	// process's cwd when nothing else sets it — TestLoad_JwtSecretDefault_
+	// GenAndResolve below exercises that behavior properly, isolated via
+	// t.Chdir into a temp dir ; this test would otherwise leave a stray
+	// "jwt-secret" file in the config/ package directory on every run.
+	dir := t.TempDir()
+	p := writeFile(t, dir, "rel.toml", "[jwt]\nsecret = \"fixed-test-secret\"\n")
+	cfg, err := Load([]string{"--config=" + p})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -179,9 +188,49 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Pg.Anonymous != "~anonymous" {
 		t.Errorf("expected default query.anonymous_role=~anonymous, got %q", cfg.Pg.Anonymous)
 	}
+	if cfg.Http.RequestDomainName != "RelHttpRequest" || cfg.Http.ResponseDomainName != "RelHttpResponse" {
+		t.Errorf("expected default http domain names, got %+v", cfg.Http)
+	}
+	if cfg.Http.CookiesMaxAge != DefaultHttpCookiesMaxAge {
+		t.Errorf("expected default http.cookiesmaxage=%d, got %d", DefaultHttpCookiesMaxAge, cfg.Http.CookiesMaxAge)
+	}
+	if cfg.Jwt.Secret != "fixed-test-secret" {
+		t.Errorf("expected the explicitly-set jwt.secret, got %q", cfg.Jwt.Secret)
+	}
+	if cfg.Jwt.CookieName != "accesstoken" || cfg.Jwt.Algorithm != "HS256" || cfg.Jwt.SameSite != "Lax" {
+		t.Errorf("expected default jwt cookie/algorithm/samesite, got %+v", cfg.Jwt)
+	}
+	if cfg.Jwt.MaxAge != 1800 || cfg.Jwt.RenewAfter != 0.5 || cfg.Jwt.MaxSessionAge != 604800 {
+		t.Errorf("expected default jwt maxage/renewafter/maxsessionage, got %+v", cfg.Jwt)
+	}
 	// Default blacklist must still be present when config doesn't touch it.
 	if !cfg.Blacklist.IsRelationBlacklisted("pg_catalog", "anything") {
 		t.Errorf("expected DefaultBlacklist to still apply")
+	}
+}
+
+// TestLoad_JwtSecretDefault_GenAndResolve covers a bug caught before it
+// shipped : jwt.secret's own DEFAULT is a "$FILE$jwt-secret$GEN$32"
+// expression, but resolveFileIndirection only resolves $FILE$ values
+// actually PRESENT in the merged config tree — a Go-level fallback default
+// applied afterward in assemble() was never being resolved at all, handing
+// back the literal, unresolved "$FILE$..." string as if it were the real
+// secret. t.Chdir isolates the $GEN$ file write to a temp directory, not
+// wherever `go test` actually runs from.
+func TestLoad_JwtSecretDefault_GenAndResolve(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cfg, err := Load([]string{"--config=" + writeFile(t, t.TempDir(), "rel.toml", "")})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Jwt.Secret == DefaultJwtSecret || strings.Contains(cfg.Jwt.Secret, "$FILE$") {
+		t.Fatalf("expected jwt.secret's $FILE$/$GEN$ default to actually resolve, got the literal %q", cfg.Jwt.Secret)
+	}
+	if len(cfg.Jwt.Secret) != 32 {
+		t.Errorf("expected a 32-character generated secret, got %d chars (%q)", len(cfg.Jwt.Secret), cfg.Jwt.Secret)
+	}
+	if _, err := os.Stat("jwt-secret"); err != nil {
+		t.Errorf("expected the generated secret persisted to ./jwt-secret, got: %v", err)
 	}
 }
 

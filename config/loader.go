@@ -427,6 +427,38 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 
 	cfg.Http.Host = root.GetStringOrDefault("http.host", "")
 	cfg.Http.Port = root.GetIntOrDefault("http.port", DefaultHttpPort)
+	cfg.Http.RequestDomainName = root.GetStringOrDefault("http.requestdomainname", DefaultHttpRequestDomainName)
+	cfg.Http.ResponseDomainName = root.GetStringOrDefault("http.responsedomainname", DefaultHttpResponseDomainName)
+	cfg.Http.CookiesMaxAge = root.GetIntOrDefault("http.cookiesmaxage", DefaultHttpCookiesMaxAge)
+	cfg.Http.Functions.Auth = root.GetStringOrDefault("http.functions.auth", "")
+	cfg.Http.Functions.AllowedRoutes = root.GetStringOrDefault("http.functions.allowed_routes", "")
+	cfg.Http.Functions.CheckSession = root.GetStringOrDefault("http.functions.check_session", "")
+
+	// jwt.secret's own DEFAULT (DefaultJwtSecret) is itself a "$FILE$..."
+	// expression — but resolveFileIndirection (called above, before
+	// assemble runs) only walks k.All(), the keys ACTUALLY PRESENT in the
+	// merged tree ; when nothing sets jwt.secret at all, it's absent from
+	// that tree entirely, so the $FILE$ machinery never sees it, and
+	// GetStringOrDefault would otherwise hand back the literal, unresolved
+	// "$FILE$jwt-secret$GEN$32" string as if it were the real secret. Only
+	// resolve it here, targeted, rather than a second blanket $FILE$ pass
+	// over the whole tree for one field.
+	jwtSecret := root.GetStringOrDefault("jwt.secret", DefaultJwtSecret)
+	if strings.HasPrefix(jwtSecret, "$FILE$") {
+		resolved, ferr := resolveFileValue(jwtSecret)
+		if ferr != nil {
+			errs = append(errs, fmt.Errorf("config: jwt.secret: %w", ferr))
+		} else {
+			jwtSecret = resolved
+		}
+	}
+	cfg.Jwt.Secret = jwtSecret
+	cfg.Jwt.CookieName = root.GetStringOrDefault("jwt.cookiename", DefaultJwtCookieName)
+	cfg.Jwt.Algorithm = root.GetStringOrDefault("jwt.algorithm", DefaultJwtAlgorithm)
+	cfg.Jwt.SameSite = root.GetStringOrDefault("jwt.samesite", DefaultJwtSameSite)
+	cfg.Jwt.MaxAge = root.GetIntOrDefault("jwt.maxage", DefaultJwtMaxAge)
+	cfg.Jwt.RenewAfter = root.GetFloat64OrDefault("jwt.renewafter", DefaultJwtRenewAfter)
+	cfg.Jwt.MaxSessionAge = root.GetIntOrDefault("jwt.maxsessionage", DefaultJwtMaxSessionAge)
 
 	def := DefaultBlacklist()
 	cfg.Blacklist.Functions = readBlacklist(root, "blacklist.functions", def.Functions)

@@ -228,6 +228,45 @@ func (r *ConfigReader) GetIntOrDefault(path string, def int) int {
 	return i
 }
 
+// GetFloat64 reads path as a float64 : a native numeric value, or a string
+// (env vars/flags) that parses cleanly via strconv.ParseFloat — same
+// native-or-parseable-string rule as GetInt.
+func (r *ConfigReader) GetFloat64(path string) (float64, error) {
+	full := r.join(path)
+	v := r.k.Get(full)
+	if v == nil {
+		return 0, notFoundErr(full)
+	}
+	switch n := v.(type) {
+	case float64:
+		return n, nil
+	case int:
+		return float64(n), nil
+	case int64:
+		return float64(n), nil
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		if err != nil {
+			return 0, logErr(full, fmt.Errorf("config: %q: not a valid float", full))
+		}
+		return f, nil
+	default:
+		return 0, logErr(full, fmt.Errorf("config: %q: not a float", full))
+	}
+}
+
+// GetFloat64OrDefault returns def instead of an error on a missing/bad path.
+func (r *ConfigReader) GetFloat64OrDefault(path string, def float64) float64 {
+	f, err := r.GetFloat64(path)
+	if err != nil {
+		if !errors.Is(err, errNotFound) {
+			r.recordMalformed(err)
+		}
+		return def
+	}
+	return f
+}
+
 // GetBool reads path as a bool : a native bool, or a string (env vars/
 // flags) accepted by strconv.ParseBool. Note this is a stricter set than
 // config.IsTruthy's "y"/"yes"/"true"/"1" convention used elsewhere for the

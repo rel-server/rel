@@ -34,6 +34,25 @@ func Test() *Config {
 			Handler: DefaultLoggingHandler,
 			Level:   DefaultLoggingLevel,
 		},
+		Http: Http{
+			RequestDomainName:  DefaultHttpRequestDomainName,
+			ResponseDomainName: DefaultHttpResponseDomainName,
+			CookiesMaxAge:      DefaultHttpCookiesMaxAge,
+		},
+		// Jwt.Secret is a fixed literal here, NOT DefaultJwtSecret's
+		// "$FILE$..." form : Test() bypasses config.Load/loader.go's $FILE$
+		// resolution entirely (it's a hand-built Config, not loaded from
+		// anything), so the real default would be used as a literal,
+		// useless-as-a-secret string rather than actually resolved.
+		Jwt: Jwt{
+			Secret:        "test-jwt-secret-not-for-production-use",
+			CookieName:    DefaultJwtCookieName,
+			Algorithm:     DefaultJwtAlgorithm,
+			SameSite:      DefaultJwtSameSite,
+			MaxAge:        DefaultJwtMaxAge,
+			RenewAfter:    DefaultJwtRenewAfter,
+			MaxSessionAge: DefaultJwtMaxSessionAge,
+		},
 		Blacklist: DefaultBlacklist(),
 	}
 }
