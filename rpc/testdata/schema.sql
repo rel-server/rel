@@ -252,3 +252,48 @@ $$;
 create function fn_orphan_mandatory(req "RelHttpRequest", upload "RelUpload") returns "RelHttpResponse" language sql as $$
   select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'should not be routable');
 $$;
+
+-- specs/04-http-content.md ### Upload destinations' "Anonymous-route-
+-- authorization" : "must pass for BOTH... fail-closed on either." Two pairs,
+-- each with EXECUTE revoked from PUBLIC on exactly one half — proves the
+-- combined AnonymousAuthorized is false (401 to an anonymous caller) even
+-- when the OTHER half is fully anon-reachable, closing the gap the
+-- adversarial review flagged (only testing "both revoked" would miss a bug
+-- where just one conjunct is checked).
+create function fn_dest_anon_prepare_only__prepare(req "RelHttpRequest", part jsonb) returns "RelUpload" language sql as $$
+  select jsonb_build_object('overwrite', 'allow');
+$$;
+create function fn_dest_anon_prepare_only(req "RelHttpRequest", upload "RelUpload") returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'ok');
+$$;
+revoke execute on function fn_dest_anon_prepare_only("RelHttpRequest", "RelUpload") from public;
+grant execute on function fn_dest_anon_prepare_only("RelHttpRequest", "RelUpload") to app_user;
+-- fn_dest_anon_prepare_only__prepare keeps its default PUBLIC execute grant
+-- (anon-reachable) ; only the mandatory half is restricted.
+
+create function fn_dest_anon_mandatory_only__prepare(req "RelHttpRequest", part jsonb) returns "RelUpload" language sql as $$
+  select jsonb_build_object('overwrite', 'allow');
+$$;
+create function fn_dest_anon_mandatory_only(req "RelHttpRequest", upload "RelUpload") returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'ok');
+$$;
+revoke execute on function fn_dest_anon_mandatory_only__prepare("RelHttpRequest", jsonb) from public;
+grant execute on function fn_dest_anon_mandatory_only__prepare("RelHttpRequest", jsonb) to app_user;
+-- fn_dest_anon_mandatory_only keeps its default PUBLIC execute grant
+-- (anon-reachable) ; only the __prepare half is restricted.
+
+-- specs/jwt-roles-and-http.md's ambiguous-route bug regression fixture :
+-- three overloads of fn_dupe sharing the same (schema, base, verb="") key
+-- once discovered — none of the three should ever be routable, including
+-- after the second conflict is found (a naive "delete the map entry on
+-- conflict" fix would let the THIRD overload silently become the sole
+-- owner).
+create function fn_dupe() returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'zero-arg overload');
+$$;
+create function fn_dupe(req "RelHttpRequest") returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'one-arg overload');
+$$;
+create function fn_dupe(req "RelHttpRequest", files bytea[]) returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'two-arg overload');
+$$;

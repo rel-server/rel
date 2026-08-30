@@ -143,6 +143,13 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	}
 
 	reg := &Registry{routes: map[string]map[string]map[string]Route{}}
+	// ambiguous tracks every (schema, base, verb) key that's already had a
+	// conflict logged, so a THIRD (or later) function sharing that same key
+	// stays excluded too — without this, deleting the map entry on the
+	// second conflict would leave room for a third duplicate to walk in
+	// afterward and register itself as if it were the sole owner, since the
+	// entry it collides with had already been removed.
+	ambiguous := map[string]bool{}
 	for _, fn := range db.Functions {
 		if !fn.IsPlainFunction() {
 			continue
@@ -175,9 +182,28 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 		if reg.routes[schema][base] == nil {
 			reg.routes[schema][base] = map[string]Route{}
 		}
+		key := schema + "\x00" + base + "\x00" + verb
+		if ambiguous[key] {
+			// Already-conflicted key from an earlier duplicate — stays
+			// excluded ; a third+ function sharing it must not silently
+			// become the sole owner just because the map entry was cleared.
+			slog.Default().Error("rpc: ambiguous route, skipping", "schema", schema, "function", base, "verb", verb,
+				"target", fn.Identifier.String())
+			continue
+		}
 		if existing, dup := reg.routes[schema][base][verb]; dup {
 			slog.Default().Error("rpc: ambiguous route, skipping both", "schema", schema, "function", base, "verb", verb,
 				"first", existing.Function.Identifier.String(), "second", fn.Identifier.String())
+			// The log line promises "skipping both" — a bare `continue` here
+			// only skips registering the SECOND function ; the first one,
+			// already stored on a previous iteration, silently stays live
+			// and routable, contradicting the message and leaving the actual
+			// dispatch target dependent on introspection's own function
+			// iteration order. Deleting the already-registered first entry
+			// makes the behavior match what's logged : neither function is
+			// reachable at this (schema, base, verb) key.
+			delete(reg.routes[schema][base], verb)
+			ambiguous[key] = true
 			continue
 		}
 		reg.routes[schema][base][verb] = Route{

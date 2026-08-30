@@ -19,9 +19,21 @@ create index idx_src_composite on src_t (b, a);
 
 -- classic to-many : one director has many movies, referencing column indexed
 -- (also carries COMMENT ON, regression for comment introspection)
-create table director (id serial primary key, name text not null);
+-- studio : director's own outgoing FK target (nullable), added purely so a
+-- write-path benchmark (query/write_bench_test.go) has a genuine 3-level
+-- outgoing chain to exercise (movie -> director -> studio) — nothing in the
+-- existing fixture chained an outgoing relation two levels deep. Nullable so
+-- every existing director-inserting test (none of which supply studio_id)
+-- is unaffected.
+create table studio (id serial primary key, name text not null);
+create table director (
+	id serial primary key,
+	name text not null,
+	studio_id int references studio (id)
+);
 comment on table director is 'a film director';
 comment on column director.name is 'the director''s full name';
+create index idx_director_studio on director (studio_id);
 create table movie (
 	id serial primary key,
 	director_id int not null references director (id),

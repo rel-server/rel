@@ -15,6 +15,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+
+	"github.com/bytedance/sonic"
 )
 
 // requestPart is ## Request bodies' RequestPart TypeScript interface :
@@ -274,7 +276,7 @@ func mustMarshalParts(parts []requestPart) []byte {
 	if len(parts) == 0 {
 		return []byte("[]")
 	}
-	b, err := json.Marshal(parts)
+	b, err := sonic.Marshal(parts)
 	if err != nil {
 		// requestPart is a plain, fully JSON-marshalable struct — this
 		// cannot fail in practice ; fall back to an empty array rather than

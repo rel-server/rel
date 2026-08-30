@@ -288,6 +288,100 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	}
 }
 
+// TestRelHandler_WriteOutgoingChildFK_HTTP reruns query package's
+// TestExecuteWrite_OutgoingChildFK (query/write_test.go) through the real
+// HTTP surface : "pure database/JSON query tests should be rerun through
+// http when testing to be sure" — a nested/outgoing-relationship write is
+// exactly the kind of payload prioritized for this rerun (it's also the
+// shape the benchmark suite separately exercises for performance ; this is
+// the correctness counterpart). movie (root, insert) with an outgoing
+// "director" child (default write_mode for an outgoing subquery is upsert)
+// : movie.director_id must be resolved from the director child's own
+// just-recovered key — proves the whole insert->resolve->link pipeline
+// survives a real JSON-over-HTTP round trip (marshaling, content-type
+// dispatch, status code), not just a direct ExecuteWrite call against a
+// pre-parsed Go value.
+func TestRelHandler_WriteOutgoingChildFK_HTTP(t *testing.T) {
+	rec := postRel(t, `{
+		"query": {
+			"relation": "movie", "schema": "public",
+			"select": {"id": "id", "title": "title", "director": "director"},
+			"write_mode": "insert",
+			"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+		},
+		"data": [{"title": "HTTP Outgoing Movie", "director": {"name": "HTTP Outgoing Director"}}]
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+
+	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+	if len(rows) != 1 || rows[0]["title"] != "HTTP Outgoing Movie" {
+		t.Fatalf("expected 1 row titled 'HTTP Outgoing Movie', got %v", rows)
+	}
+	director, ok := rows[0]["director"].(map[string]any)
+	if !ok || director["name"] != "HTTP Outgoing Director" {
+		t.Fatalf("expected the linked director echoed back, got %v", rows[0]["director"])
+	}
+
+	ctx := context.Background()
+	var count int
+	if err := testDb.Pool.QueryRow(ctx, `
+		select count(*) from movie m
+		join director d on d.id = m.director_id
+		where m.title = 'HTTP Outgoing Movie' and d.name = 'HTTP Outgoing Director'
+	`).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected the movie correctly linked to its new director in the database, got count=%d", count)
+	}
+}
+
+// TestRelHandler_WhereWordFormOperatorSynonyms_HTTP reruns query package's
+// TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm (query/
+// operator_words_test.go, engine-level : proves the word form parses to an
+// identical AST) through the real HTTP surface : a POST /rel body using
+// specs/query_json.md's word-form operator spellings ("gte"/"lt" instead of
+// ">="/"<") must produce the SAME query results as the canonical symbolic
+// spelling, end to end through JSON decode -> resolve -> SQL -> response
+// encode.
+func TestRelHandler_WhereWordFormOperatorSynonyms_HTTP(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Word Form Operator Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	wordForm := postRel(t, `{
+		"relation": "director", "schema": "public",
+		"select": ["own"],
+		"where": ["and", ["eq", "name", ["Word Form Operator Director"]], ["gte", "id", 1]]
+	}`)
+	if wordForm.Code != http.StatusOK {
+		t.Fatalf("word-form: expected 200, got %d : %s", wordForm.Code, wordForm.Body.String())
+	}
+	symbolForm := postRel(t, `{
+		"relation": "director", "schema": "public",
+		"select": ["own"],
+		"where": ["and", ["=", "name", ["Word Form Operator Director"]], [">=", "id", 1]]
+	}`)
+	if symbolForm.Code != http.StatusOK {
+		t.Fatalf("symbol-form: expected 200, got %d : %s", symbolForm.Code, symbolForm.Body.String())
+	}
+
+	wordRows := decodeJSON[[]map[string]any](t, wordForm.Body.Bytes())
+	symbolRows := decodeJSON[[]map[string]any](t, symbolForm.Body.Bytes())
+	if len(wordRows) != 1 || len(symbolRows) != 1 {
+		t.Fatalf("expected exactly 1 row from each spelling, got word=%d symbol=%d", len(wordRows), len(symbolRows))
+	}
+	if wordRows[0]["name"] != "Word Form Operator Director" {
+		t.Errorf("expected the word-form query to find the row, got %v", wordRows[0])
+	}
+	if wordRows[0]["id"] != symbolRows[0]["id"] {
+		t.Errorf("expected both spellings to return the identical row, got word=%v symbol=%v", wordRows[0], symbolRows[0])
+	}
+}
+
 func TestRelHandler_UnwritableSelect_Rejected(t *testing.T) {
 	// specs/querying.md ## Configuration : a write whose select omits the
 	// identity column must be rejected outright (400, naming the offending

@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bytedance/sonic"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ceymard/rel/config"
@@ -99,13 +101,24 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		} else {
 			hasUpload = true
 			currentPart = p
-			if b, merr := json.Marshal(requestPartFrom(p)); merr == nil {
+			if b, merr := sonic.Marshal(requestPartFrom(p)); merr == nil {
 				partJSON = b
 			}
 		}
-	} else if contentTypeHeader != "" {
+	} else if r.ContentLength != 0 {
+		// A non-multipart request is a potential single raw upload regardless
+		// of whether Content-Type was sent at all — matching ## Request
+		// bodies' own general dispatch rule elsewhere ("anything else... a
+		// single raw binary POST"), where a MISSING Content-Type is treated
+		// the same as an unrecognized one, not as "nothing to read." Gating
+		// this on contentTypeHeader != "" (the previous, narrower condition)
+		// meant a genuine binary upload sent with no Content-Type header at
+		// all was silently never streamed/consumed. r.ContentLength == 0 is
+		// still excluded (a definitely-empty body, same as no upload at all)
+		// ; -1 (unknown/chunked length) is treated as "might have a body,"
+		// same as everywhere else that can't know length ahead of reading.
 		hasUpload = true
-		if b, merr := json.Marshal(synthesizedPseudoPart(r, contentTypeHeader)); merr == nil {
+		if b, merr := sonic.Marshal(synthesizedPseudoPart(r, contentTypeHeader)); merr == nil {
 			partJSON = b
 		}
 	}
@@ -176,7 +189,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	conn.Release()
 
 	var upload relUploadPayload
-	if err := json.Unmarshal(uploadRaw, &upload); err != nil {
+	if err := sonic.Unmarshal(uploadRaw, &upload); err != nil {
 		slog.Default().Error("rpc: decoding __prepare's RelUpload response", "function", route.PrepareFunction.Identifier.String(), "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -441,7 +454,7 @@ func swapUploadIntoPlace(tempPath, finalPath, overwrite string) error {
 // than narrowing through relUploadPayload's own Go shape.
 func buildUploadForMandatory(prepareRaw []byte, partJSON json.RawMessage, hasUpload bool, size int64) ([]byte, error) {
 	var m map[string]any
-	if err := json.Unmarshal(prepareRaw, &m); err != nil {
+	if err := sonic.Unmarshal(prepareRaw, &m); err != nil {
 		return nil, err
 	}
 	if m == nil {
@@ -450,13 +463,13 @@ func buildUploadForMandatory(prepareRaw []byte, partJSON json.RawMessage, hasUpl
 	if !hasUpload {
 		m["part"] = nil
 		m["size"] = nil
-		return json.Marshal(m)
+		return sonic.Marshal(m)
 	}
 	var partVal any
 	if len(partJSON) > 0 && string(partJSON) != "null" {
-		_ = json.Unmarshal(partJSON, &partVal)
+		_ = sonic.Unmarshal(partJSON, &partVal)
 	}
 	m["part"] = partVal
 	m["size"] = size
-	return json.Marshal(m)
+	return sonic.Marshal(m)
 }

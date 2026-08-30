@@ -281,6 +281,52 @@ func TestUpload_JsonBody_Is415(t *testing.T) {
 	}
 }
 
+// TestUpload_NoContentTypeHeader_StillStreams is a regression test for a
+// real bug found by hand : a non-multipart upload request with a real body
+// but NO Content-Type header at all used to be gated on
+// `contentTypeHeader != ""`, so it was silently treated as "no upload" and
+// never streamed. handleUploadRoute now gates on r.ContentLength != 0
+// instead — matching ## Request bodies' own "anything else... a single raw
+// binary POST" rule, where a missing Content-Type is treated the same as an
+// unrecognized one, not as "nothing to read."
+func TestUpload_NoContentTypeHeader_StillStreams(t *testing.T) {
+	handler, dir := newUploadTestHandler(t)
+
+	content := []byte("no content-type header at all")
+	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_dest_upload?path=noct.txt", bytes.NewReader(content))
+	req.Header.Del("Content-Type") // httptest.NewRequest never sets one for a plain io.Reader body, but be explicit
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	final := filepath.Join(dir, "noct.txt")
+	got, err := os.ReadFile(final)
+	if err != nil {
+		t.Fatalf("expected file at %s: %v", final, err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("unexpected file content: %q", got)
+	}
+
+	// Free extra assertion : synthesizedPseudoPart's own "content_type is
+	// nil, NOT the empty string, when the request had no Content-Type
+	// header" contract — echoed back as part.content_type == null.
+	var body struct {
+		Part struct {
+			ContentType *string `json:"content_type"`
+		} `json:"part"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if body.Part.ContentType != nil {
+		t.Errorf("expected part.content_type=null for a request with no Content-Type header, got %q", *body.Part.ContentType)
+	}
+}
+
 // TestUpload_OrphanFunctions_NotRoutable proves an orphan __prepare or
 // orphan mandatory function (no matching sibling) is never discovered as a
 // route at all.
@@ -290,6 +336,108 @@ func TestUpload_OrphanFunctions_NotRoutable(t *testing.T) {
 	}
 	if _, ok := testReg.Lookup("public", "fn_orphan_mandatory", http.MethodGet); ok {
 		t.Errorf("expected fn_orphan_mandatory (no __prepare sibling) not to be routable")
+	}
+}
+
+// TestUpload_Mkdir_CreatesMissingParentDirectory is a DEDICATED test for
+// mkdir:true actually creating a directory that did not exist beforehand —
+// TestUpload_HappyPath_Multipart also exercises mkdir:true, but only as a
+// side effect of a happy path that would ALSO pass if mkdir were silently a
+// no-op on an already-existing directory. This test explicitly asserts the
+// target subdirectory is absent before the request and present after.
+func TestUpload_Mkdir_CreatesMissingParentDirectory(t *testing.T) {
+	handler, dir := newUploadTestHandler(t)
+
+	subdir := filepath.Join(dir, "brand", "new", "nested")
+	if _, err := os.Stat(subdir); !os.IsNotExist(err) {
+		t.Fatalf("expected %s not to exist before the request, stat err=%v", subdir, err)
+	}
+
+	req := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?path=brand/new/nested/file.txt&mkdir=true", "file", "file.txt", "text/plain", []byte("data"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	fi, err := os.Stat(subdir)
+	if err != nil || !fi.IsDir() {
+		t.Fatalf("expected %s to now exist as a directory, err=%v", subdir, err)
+	}
+}
+
+// TestUpload_OverwriteAllow_RoundTrip proves overwrite:'allow' actually
+// replaces an existing file's content : write once, write again with
+// different content through the same route, confirm the final content on
+// disk is the SECOND write, not the first.
+func TestUpload_OverwriteAllow_RoundTrip(t *testing.T) {
+	handler, dir := newUploadTestHandler(t)
+	final := filepath.Join(dir, "roundtrip.txt")
+
+	first := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?path=roundtrip.txt&overwrite=allow", "file", "roundtrip.txt", "text/plain", []byte("first write"))
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, first)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first write: expected 200, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+	got1, err := os.ReadFile(final)
+	if err != nil || string(got1) != "first write" {
+		t.Fatalf("expected 'first write' on disk after the first write, got %q err=%v", got1, err)
+	}
+
+	second := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?path=roundtrip.txt&overwrite=allow", "file", "roundtrip.txt", "text/plain", []byte("second write, different length"))
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, second)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("second write: expected 200, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+	got2, err := os.ReadFile(final)
+	if err != nil {
+		t.Fatalf("reading final file: %v", err)
+	}
+	if string(got2) != "second write, different length" {
+		t.Errorf("expected the SECOND write's content to win, got %q", got2)
+	}
+}
+
+// TestUpload_AnonymousAuthorization_RequiresBothHalves closes an adversarial-
+// review-flagged gap : AnonymousAuthorized for an upload pair must be the
+// AND of both halves' own reachability, not just one. Two fixtures, each
+// restricting EXACTLY ONE half from PUBLIC/anonymous execute — both must
+// still 401 an anonymous caller, proving the combined check genuinely
+// requires both conjuncts rather than only checking the mandatory half (or
+// only the __prepare half).
+func TestUpload_AnonymousAuthorization_RequiresBothHalves(t *testing.T) {
+	for _, base := range []string{"fn_dest_anon_prepare_only", "fn_dest_anon_mandatory_only"} {
+		t.Run(base, func(t *testing.T) {
+			handler, _ := newUploadTestHandler(t)
+			req := multipartUploadRequest(t, "/rpc/public/"+base, "file", "x.txt", "text/plain", []byte("data"))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401 (only one half of the pair is anon-reachable), got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestUpload_OrphanFunctions_HTTPLevel404 covers the same orphan-pair
+// discovery rule as TestUpload_OrphanFunctions_NotRoutable (registry-level),
+// but hitting the real handler over HTTP — a registry-level Lookup miss and
+// an HTTP 404 are two different code paths (handleRpc's own reg.Lookup call
+// vs a test calling Registry.Lookup directly), and only the HTTP path is
+// what an actual caller ever observes.
+func TestUpload_OrphanFunctions_HTTPLevel404(t *testing.T) {
+	handler, _ := newUploadTestHandler(t)
+	for _, base := range []string{"fn_orphan_prepare", "fn_orphan_mandatory"} {
+		t.Run(base, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/rpc/public/"+base, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("expected 404 for an orphan half, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 

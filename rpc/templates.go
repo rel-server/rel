@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/bytedance/sonic"
+
 	jet "github.com/CloudyKit/jet/v6"
 
 	"github.com/ceymard/rel/config"
@@ -107,7 +109,7 @@ func templateDataValue(raw json.RawMessage) any {
 		return nil
 	}
 	var v any
-	_ = json.Unmarshal(raw, &v)
+	_ = sonic.Unmarshal(raw, &v)
 	return v
 }
 
@@ -124,7 +126,7 @@ func decodeRequestForTemplate(r *http.Request) any {
 		return nil
 	}
 	var v any
-	_ = json.Unmarshal(raw, &v)
+	_ = sonic.Unmarshal(raw, &v)
 	return v
 }
 

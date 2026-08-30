@@ -72,9 +72,17 @@ func TestTemplate_LoadFailure_Is500(t *testing.T) {
 }
 
 // TestTemplate_RuntimeError_Is500 proves a template referencing a field
-// that doesn't exist errors at execution time, also a 500.
+// that doesn't exist errors at execution time, also a 500 — and, critically,
+// that the failure produces a CLEAN 500 with no partially-written body, not
+// a 200 with a truncated/corrupted document. writeTemplateResponse buffers
+// the entire render before writing anything (bytes.Buffer, then one single
+// w.Write call) specifically so a mid-render failure can still be turned
+// into a proper error response instead of bytes already having reached the
+// client — this test writes some literal text BEFORE the failing
+// expression, so a regression back to a non-buffered, straight-to-w.Write
+// per-node renderer would leak that leading text into a 200 response.
 func TestTemplate_RuntimeError_Is500(t *testing.T) {
-	handler, _ := newTemplateTestHandler(t, `{{ Data.name.nonexistent.deeper }}`)
+	handler, _ := newTemplateTestHandler(t, `some leading output before the failure {{ Data.name.nonexistent.deeper }}`)
 
 	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template", nil)
 	rec := httptest.NewRecorder()
@@ -82,6 +90,60 @@ func TestTemplate_RuntimeError_Is500(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 on a template runtime error, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "leading output") {
+		t.Errorf("expected no partially-rendered body to leak through on a runtime error, got %q", rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got == "text/html" {
+		t.Errorf("expected the route's own text/html Content-Type NOT to be set on a failed render, got %q", got)
+	}
+}
+
+// TestTemplate_ReqReflectsNestedJwtClaims proves the "Req" VarMap's jwt
+// field is the exact RelHttpRequest.jwt the route function itself received
+// : an authenticated call sees nested claims (Req.jwt.role), an anonymous
+// call sees Req.jwt as a JSON null (an object key present, not absent).
+func TestTemplate_ReqReflectsNestedJwtClaims(t *testing.T) {
+	handler, _ := newTemplateTestHandler(t, `{{if isset(Req.jwt)}}role={{ Req.jwt.role }}{{else}}jwt-is-nil=true{{end}}`)
+
+	// Anonymous call : Req.jwt must be nil (JSON null), not merely absent —
+	// Jet's isset(nil) is false for a Go nil interface, same as an absent
+	// map key, so this specifically proves buildRelHttpRequest's own "jwt
+	// key always present, null when anonymous" contract survives into Req.
+	anonReq := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template", nil)
+	anonRec := httptest.NewRecorder()
+	handler.ServeHTTP(anonRec, anonReq)
+	if anonRec.Code != http.StatusOK {
+		t.Fatalf("anonymous: expected 200, got %d: %s", anonRec.Code, anonRec.Body.String())
+	}
+	if !strings.Contains(anonRec.Body.String(), "jwt-is-nil=true") {
+		t.Errorf("expected Req.jwt to read as unset/null for an anonymous request, got %q", anonRec.Body.String())
+	}
+
+	// Authenticated call : log in through the same handler first to get a
+	// real, valid cookie, then reuse it on the template request.
+	loginReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login", nil)
+	loginRec := httptest.NewRecorder()
+	handler.ServeHTTP(loginRec, loginReq)
+	var jwtCookie *http.Cookie
+	for _, c := range loginRec.Result().Cookies() {
+		if c.Name == testCfg.Jwt.CookieName {
+			jwtCookie = c
+		}
+	}
+	if jwtCookie == nil {
+		t.Fatalf("login didn't set a cookie")
+	}
+
+	authedReq := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template", nil)
+	authedReq.AddCookie(jwtCookie)
+	authedRec := httptest.NewRecorder()
+	handler.ServeHTTP(authedRec, authedReq)
+	if authedRec.Code != http.StatusOK {
+		t.Fatalf("authenticated: expected 200, got %d: %s", authedRec.Code, authedRec.Body.String())
+	}
+	if !strings.Contains(authedRec.Body.String(), "role=app_user") {
+		t.Errorf("expected Req.jwt.role=app_user for an authenticated request, got %q", authedRec.Body.String())
 	}
 }
 

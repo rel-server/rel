@@ -160,6 +160,41 @@ func TestBuildRegistry_ReorderedFilesShapeExcluded(t *testing.T) {
 	}
 }
 
+// TestBuildRegistry_AmbiguousRoute_TwoCollidingFunctions_NeitherRoutable is
+// a regression test for a real bug found by hand : two Postgres overloads
+// colliding on the same (schema, base, verb) registry key used to leave
+// the FIRST one silently registered (only the second was skipped), even
+// though the log line already promised "skipping both". schema.sql defines
+// fn_dupe() and fn_dupe(req) — both collide on (public, "fn_dupe", "").
+func TestBuildRegistry_AmbiguousRoute_TwoCollidingFunctions_NeitherRoutable(t *testing.T) {
+	reg, err := BuildRegistry(testDb, testCfg)
+	if err != nil {
+		t.Fatalf("BuildRegistry: %v", err)
+	}
+	if _, ok := reg.Lookup("public", "fn_dupe", "GET"); ok {
+		t.Errorf("expected fn_dupe to be excluded entirely once two overloads collide on the same route key")
+	}
+}
+
+// TestBuildRegistry_AmbiguousRoute_ThirdCollidingFunction_StillNotRoutable
+// covers the specific gap the hand-fix's "ambiguous" tracking set closes :
+// schema.sql ALSO defines a third overload, fn_dupe(req, files bytea[]),
+// colliding on the exact same key. A naive fix that only deletes the map
+// entry on the SECOND collision would leave room for this third function to
+// walk in afterward and register itself as the key's sole (and, from the
+// registry's point of view, unambiguous-looking) owner — this test proves
+// that doesn't happen : the key stays excluded even after a third collider.
+func TestBuildRegistry_AmbiguousRoute_ThirdCollidingFunction_StillNotRoutable(t *testing.T) {
+	reg, err := BuildRegistry(testDb, testCfg)
+	if err != nil {
+		t.Fatalf("BuildRegistry: %v", err)
+	}
+	route, ok := reg.Lookup("public", "fn_dupe", "POST")
+	if ok {
+		t.Errorf("expected fn_dupe to stay excluded even after a third colliding overload, got route pointing at %s", route.Function.Identifier.String())
+	}
+}
+
 func TestBuildRegistry_UnknownRouteMisses(t *testing.T) {
 	reg, err := BuildRegistry(testDb, testCfg)
 	if err != nil {

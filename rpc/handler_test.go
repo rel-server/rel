@@ -470,6 +470,42 @@ func TestHandler_QueryFieldStructuralDecode(t *testing.T) {
 	}
 }
 
+// TestHandler_QueryFieldStructuralDecode_RealGETRequest covers the same
+// structural-decode contract as TestHandler_QueryFieldStructuralDecode, but
+// through an ACTUAL GET request (the other test uses POST, since it's
+// really testing buildRelHttpRequest's query decoding rather than method
+// dispatch) — "heavier tests using post/get forms... GET requests carrying
+// a real, non-trivial query string... not just a bare GET with no query
+// string."
+func TestHandler_QueryFieldStructuralDecode_RealGETRequest(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo1?filters.status=open&filters.priority=high&ids=1&ids=2&ids=3", nil)
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var echoed map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &echoed); err != nil {
+		t.Fatalf("decoding echoed request: %v", err)
+	}
+	if echoed["method"] != "GET" {
+		t.Errorf("expected method=GET, got %v", echoed["method"])
+	}
+	query, ok := echoed["query"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected echoed.query to be an object, got %#v", echoed["query"])
+	}
+	filters, ok := query["filters"].(map[string]any)
+	if !ok || filters["status"] != "open" || filters["priority"] != "high" {
+		t.Errorf("expected query.filters.{status,priority} decoded, got %#v", query["filters"])
+	}
+	ids, ok := query["ids"].([]any)
+	if !ok || len(ids) != 3 || ids[0] != "1" || ids[1] != "2" || ids[2] != "3" {
+		t.Errorf("expected query.ids==[\"1\",\"2\",\"3\"] (repeated key -> array), got %#v", query["ids"])
+	}
+}
+
 func TestHandler_QueryFieldNullWhenNoQueryString(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", nil)
 	rec := httptest.NewRecorder()

@@ -146,6 +146,54 @@ func TestAccessControl_AnonymousDisabled_401BeforeExistenceCheck(t *testing.T) {
 	}
 }
 
+// TestAccessControl_GatedPrefix_SecondDirectory_StillGoverned proves the
+// access-control gate applies to a file found in the SECOND listed
+// directory, not just Dirs[0] (WriteDir's own target) — the gate matches on
+// the REQUEST PATH's prefix, independent of which directory in the search
+// list actually resolves it. A regression that accidentally scoped gating
+// to Dirs[0] only (e.g. by checking existence against WriteDir() instead of
+// openMulti's own full search) would pass every other access-control test
+// here, since newGatedServer only ever uses one directory — this is the one
+// test that puts both layering and gating in play together.
+func TestAccessControl_GatedPrefix_SecondDirectory_StillGoverned(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir2, "private"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir2, "private", "only-in-dir2.txt"), []byte("dir2 gated content"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	srv := New(config.Http{
+		Static: config.HttpStatic{
+			Path: dir1 + ":" + dir2,
+			Access: map[string]config.StaticAccessRule{
+				"private": {Prefix: "private/", Function: "public.check_static_access"},
+			},
+		},
+	})
+	if srv == nil {
+		t.Fatalf("expected a non-nil server")
+	}
+
+	setReject(t, false)
+	cfg := &config.Config{}
+	rec := serveGated(srv, testDb, cfg, "private/only-in-dir2.txt")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (gate allows, file resolved from dir2), got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "dir2 gated content" {
+		t.Errorf("unexpected body: %q", rec.Body.String())
+	}
+
+	setReject(t, true)
+	defer setReject(t, false)
+	recRejected := serveGated(srv, testDb, cfg, "private/only-in-dir2.txt")
+	if recRejected.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (gate rejects, file still only in dir2), got %d: %s", recRejected.Code, recRejected.Body.String())
+	}
+}
+
 // TestAccessControl_UngatedPrefix_UnaffectedByAnonymousDisabled proves an
 // ungated prefix is served exactly as before, regardless of the
 // anonymous-role-existence state.

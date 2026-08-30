@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bytedance/sonic"
+
 	"github.com/ceymard/rel/config"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/querystring"
@@ -90,20 +92,20 @@ func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage
 	mt := mediaTypeOf(contentType)
 	switch {
 	case mt == "application/json" || strings.HasSuffix(mt, "+json"):
-		if !json.Valid(body) {
+		if !sonic.Valid(body) {
 			return nil, &badBodyError{err: oops.With("content_type", contentType).Errorf("request body is not valid JSON")}
 		}
 		return json.RawMessage(body), nil
 	case strings.HasPrefix(mt, "text/"):
-		return json.Marshal(string(body))
+		return sonic.Marshal(string(body))
 	case mt == "application/x-www-form-urlencoded":
 		decoded, err := querystring.DecodeStructural(string(body))
 		if err != nil {
 			return nil, &badBodyError{err: err}
 		}
-		return json.Marshal(decoded)
+		return sonic.Marshal(decoded)
 	default:
-		return json.Marshal(base64.StdEncoding.EncodeToString(body))
+		return sonic.Marshal(base64.StdEncoding.EncodeToString(body))
 	}
 }
 
@@ -147,7 +149,7 @@ func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified boo
 		Query:       queryVal,
 		CspNonce:    websec.NonceFromContext(r.Context()),
 	}
-	return json.Marshal(payload)
+	return sonic.Marshal(payload)
 }
 
 // relHttpResponsePayload is ## Responses' RelHttpResponse. Content/Headers/
@@ -191,7 +193,7 @@ type jwtAttrsPayload struct {
 // Jet template set is wired in (## Templates), for Req/Nonce template vars.
 func writeRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, route Route, raw []byte, templates *TemplateSet) {
 	var resp relHttpResponsePayload
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	if err := sonic.Unmarshal(raw, &resp); err != nil {
 		writePlainError(w, http.StatusInternalServerError, "decoding function response")
 		return
 	}
@@ -232,11 +234,11 @@ func writeRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Co
 // string, or an array of strings.
 func headerValues(raw json.RawMessage) []string {
 	var single string
-	if err := json.Unmarshal(raw, &single); err == nil {
+	if err := sonic.Unmarshal(raw, &single); err == nil {
 		return []string{single}
 	}
 	var multi []string
-	_ = json.Unmarshal(raw, &multi)
+	_ = sonic.Unmarshal(raw, &multi)
 	return multi
 }
 
@@ -265,13 +267,13 @@ func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) 
 	}
 
 	var asString string
-	if err := json.Unmarshal(raw, &asString); err == nil {
+	if err := sonic.Unmarshal(raw, &asString); err == nil {
 		c.Value = asString
 		return c
 	}
 
 	var obj outboundCookiePayload
-	if err := json.Unmarshal(raw, &obj); err != nil {
+	if err := sonic.Unmarshal(raw, &obj); err != nil {
 		return c
 	}
 	c.Value = obj.Value
@@ -314,7 +316,7 @@ func contentBytes(content json.RawMessage, contentType string) []byte {
 	trimmed := bytes.TrimSpace(content)
 	if len(trimmed) >= 2 && trimmed[0] == '"' && !strings.Contains(contentType, "json") {
 		var s string
-		if err := json.Unmarshal(trimmed, &s); err == nil {
+		if err := sonic.Unmarshal(trimmed, &s); err == nil {
 			return []byte(s)
 		}
 	}
@@ -354,7 +356,7 @@ func handleResponseJwt(w http.ResponseWriter, cfg *config.Config, route Route, r
 	}
 
 	var obj map[string]any
-	if err := json.Unmarshal(resp.Jwt, &obj); err != nil {
+	if err := sonic.Unmarshal(resp.Jwt, &obj); err != nil {
 		return
 	}
 	role, _ := obj["role"].(string)

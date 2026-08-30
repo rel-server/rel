@@ -10,13 +10,14 @@ package static
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/bytedance/sonic"
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dbauth"
@@ -234,7 +235,7 @@ func checkStaticAccess(ctx context.Context, db *pg.DbInfos, qualifiedName, reqPa
 	if verified {
 		jwtVal = claims
 	}
-	payload, err := json.Marshal(checkStaticAccessPayload{Path: reqPath, Jwt: jwtVal})
+	payload, err := sonic.Marshal(checkStaticAccessPayload{Path: reqPath, Jwt: jwtVal})
 	if err != nil {
 		return err
 	}

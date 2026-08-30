@@ -370,6 +370,53 @@ func TestHandler_FormUrlencodedBody_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestHandler_FormUrlencodedBody_HeavierNestedPayload_EndToEnd covers a
+// heavier form payload than TestHandler_FormUrlencodedBody_EndToEnd's single
+// nesting level : two-deep dotted nesting alongside a repeated key (array),
+// combined in one body, proving querystring.DecodeStructural's dot-path and
+// repeated-key handling both survive a real POST /rpc round trip together,
+// not just individually.
+func TestHandler_FormUrlencodedBody_HeavierNestedPayload_EndToEnd(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", strings.NewReader("a.b.c=1&tags=x&tags=y&user.prefs.theme=dark"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var echoed map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &echoed); err != nil {
+		t.Fatalf("decoding echoed request: %v", err)
+	}
+	body, ok := echoed["body"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected body to be a decoded object, got %#v", echoed["body"])
+	}
+
+	a, ok := body["a"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected body.a to be an object, got %#v", body["a"])
+	}
+	b, ok := a["b"].(map[string]any)
+	if !ok || b["c"] != "1" {
+		t.Errorf("expected body.a.b.c==\"1\" (two-deep dotted nesting), got %#v", a["b"])
+	}
+
+	tags, ok := body["tags"].([]any)
+	if !ok || len(tags) != 2 || tags[0] != "x" || tags[1] != "y" {
+		t.Errorf("expected body.tags==[\"x\",\"y\"] (repeated key -> array), got %#v", body["tags"])
+	}
+
+	user, ok := body["user"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected body.user to be an object, got %#v", body["user"])
+	}
+	prefs, ok := user["prefs"].(map[string]any)
+	if !ok || prefs["theme"] != "dark" {
+		t.Errorf("expected body.user.prefs.theme==dark, got %#v", user["prefs"])
+	}
+}
+
 // TestHandler_TextMimeTypeDomainResponse proves a text-underlying mimetype
 // domain route responds with the string directly, no base64.
 func TestHandler_TextMimeTypeDomainResponse(t *testing.T) {
