@@ -157,6 +157,15 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: expression array must start with a string tag, or contain exactly one string (a literal): %w", err)
 	}
+	// specs/query_json.md's word-form operator spelling is an accepted
+	// synonym here, normalized to its canonical query.ts tag immediately —
+	// before scope resolution or anything else downstream ever sees it. See
+	// operator_words.go's OperatorWords doc comment : same table the
+	// querystring package's filter-expression grammar uses, one source of
+	// truth for both.
+	if canonical, ok := OperatorWords[tag]; ok {
+		tag = canonical
+	}
 	rest := items[1:]
 
 	switch tag {
@@ -213,6 +222,9 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		op, err := rest[0].StrictString()
 		if err != nil {
 			return nil, fmt.Errorf("query: %q operator must be a string: %w", tag, err)
+		}
+		if canonical, ok := OperatorWords[op]; ok {
+			op = canonical
 		}
 		if _, isBinary := binaryOperators[op]; !isBinary {
 			if _, isFolded := foldedOperators[op]; !isFolded {

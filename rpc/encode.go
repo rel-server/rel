@@ -10,6 +10,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	jwtpkg "github.com/ceymard/rel/jwt"
+	"github.com/ceymard/rel/querystring"
 )
 
 // relHttpRequestPayload is specs/jwt-roles-and-http.md ## Request's
@@ -30,7 +31,23 @@ type relHttpRequestPayload struct {
 	Content     string              `json:"content"`
 	Cookies     map[string]string   `json:"cookies"`
 	Jwt         jwtpkg.Claims       `json:"jwt"`
+	// Query is specs/query_json.md's ## /rpc's query field : r.URL.RawQuery
+	// decoded through the STRUCTURAL layer only (querystring.DecodeQueryField
+	// — no filter expression grammar involvement, that's specific to
+	// Relation's where/select/order_by), handed to the Postgres function
+	// verbatim. nil (-> JSON null) when the request has no query string at
+	// all.
+	Query any `json:"query"`
 }
+
+// badQueryError marks a request whose query string failed to decode
+// (specs/query_json.md's own structural layer, used here for /rpc's
+// `query` field) — a 400, same as every other malformed-request case, not
+// a 500 ; handleRpc type-switches on this to pick the right status.
+type badQueryError struct{ err error }
+
+func (e *badQueryError) Error() string { return e.err.Error() }
+func (e *badQueryError) Unwrap() error { return e.err }
 
 // buildRelHttpRequest encodes r (already read into body) as ##
 // Request's RelHttpRequest. jwt is nil (encodes as JSON null) for an
@@ -46,6 +63,10 @@ func buildRelHttpRequest(r *http.Request, body []byte, verified bool, claims jwt
 	if verified {
 		jwtVal = claims
 	}
+	queryVal, err := querystring.DecodeQueryField(r.URL.RawQuery)
+	if err != nil {
+		return nil, &badQueryError{err}
+	}
 	payload := relHttpRequestPayload{
 		Method:      r.Method,
 		URI:         r.URL.String(),
@@ -54,6 +75,7 @@ func buildRelHttpRequest(r *http.Request, body []byte, verified bool, claims jwt
 		Content:     string(body),
 		Cookies:     cookies,
 		Jwt:         jwtVal,
+		Query:       queryVal,
 	}
 	return json.Marshal(payload)
 }

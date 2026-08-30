@@ -146,6 +146,7 @@ If a function has exactly one argument of type `RelHttpRequest`, the request is 
 interface RelHttpRequest {
   method: string
   uri: string
+  query: unknown
   headers: {[name: string]: string[]}
   content_type: string
   content: string // may be ""

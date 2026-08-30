@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -101,6 +102,10 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	reqJSON, err := buildRelHttpRequest(r, body, verified, claims)
 	if err != nil {
+		if bqe, ok := errors.AsType[*badQueryError](err); ok {
+			writePlainError(w, http.StatusBadRequest, bqe.Error())
+			return
+		}
 		writePlainError(w, http.StatusInternalServerError, "encoding request")
 		return
 	}

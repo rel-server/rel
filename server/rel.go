@@ -23,6 +23,7 @@ import (
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/pgerr"
 	"github.com/ceymard/rel/query"
+	"github.com/ceymard/rel/querystring"
 	"github.com/ceymard/rel/writer"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -47,8 +48,8 @@ type resolvedItem struct {
 // the (possibly-renewed) claims jwt.FromContext left behind.
 func NewRelHandler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeError(w, badRequest(fmt.Errorf("/rel only accepts POST")))
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+			writeError(w, badRequest(fmt.Errorf("/rel only accepts GET or POST")))
 			return
 		}
 		handleRel(w, r, db, cfg)
@@ -56,18 +57,45 @@ func NewRelHandler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 	return jwtpkg.Middleware(cfg.Jwt)(inner)
 }
 
+// relQueryBytes returns the query.ts Query JSON this request describes :
+// the POST body verbatim, or — for GET, per specs/query_json.md — the
+// query string decoded through querystring.DecodeRelation, which already
+// enforces the read-only/single-relation restriction (## Scope) before
+// this function ever sees the result.
+func relQueryBytes(r *http.Request) ([]byte, error) {
+	if r.Method == http.MethodGet {
+		return querystring.DecodeRelation(r.URL.RawQuery)
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading request body: %w", err)
+	}
+	return body, nil
+}
+
 func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config) {
 	ctx := r.Context()
 
-	body, err := io.ReadAll(r.Body)
+	body, err := relQueryBytes(r)
 	if err != nil {
-		writeError(w, badRequest(fmt.Errorf("reading request body: %w", err)))
+		writeError(w, badRequest(err))
 		return
 	}
 
 	pq, err := query.ParseQuery(body)
 	if err != nil {
 		writeError(w, badRequest(err))
+		return
+	}
+
+	// GET /rel decodes to exactly one Relation (specs/query_json.md ##
+	// Scope) — querystring.DecodeRelation only ever produces a bare
+	// Relation object, never a sequence, but this is still worth asserting
+	// explicitly : a silent Sequence branch here would defeat the whole
+	// point of the read-only/single-relation restriction if the decoder
+	// ever grew a way to produce one.
+	if r.Method == http.MethodGet && pq.Sequence != nil {
+		writeError(w, badRequest(fmt.Errorf("/rel GET decodes to a single relation, not a sequence")))
 		return
 	}
 

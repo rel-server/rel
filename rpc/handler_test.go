@@ -331,6 +331,60 @@ func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 	}
 }
 
+// TestHandler_QueryFieldStructuralDecode proves specs/query_json.md's
+// RelHttpRequest.query field : the request's raw query string, decoded
+// through the querystring package's structural layer only (dot-path ->
+// nested JSON, repeated keys -> arrays — no filter expression grammar
+// involvement), shows up as the "query" key a route function receives.
+func TestHandler_QueryFieldStructuralDecode(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1?page.size=20&tags=a&tags=b&filter=gte(year,1999)", nil)
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var echoed map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &echoed); err != nil {
+		t.Fatalf("decoding echoed request: %v", err)
+	}
+	query, ok := echoed["query"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected echoed.query to be an object, got %#v", echoed["query"])
+	}
+	page, ok := query["page"].(map[string]any)
+	if !ok || page["size"] != "20" {
+		t.Errorf("expected query.page.size==\"20\", got %#v", query["page"])
+	}
+	tags, ok := query["tags"].([]any)
+	if !ok || len(tags) != 2 || tags[0] != "a" || tags[1] != "b" {
+		t.Errorf("expected query.tags==[\"a\",\"b\"] (repeated key -> array), got %#v", query["tags"])
+	}
+	// The structural layer only : "gte(year,1999)" must stay a plain
+	// string, NOT get compiled through the filter expression grammar —
+	// that grammar is specific to Relation's where/select/order_by, per
+	// the spec's own note.
+	if query["filter"] != "gte(year,1999)" {
+		t.Errorf("expected query.filter to stay the raw string \"gte(year,1999)\", got %#v", query["filter"])
+	}
+}
+
+func TestHandler_QueryFieldNullWhenNoQueryString(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", nil)
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var echoed map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &echoed); err != nil {
+		t.Fatalf("decoding echoed request: %v", err)
+	}
+	if v, present := echoed["query"]; !present || v != nil {
+		t.Errorf("expected query==null for a request with no query string, got %#v", v)
+	}
+}
+
 // setSessionReject toggles session_control.reject for
 // TestHandler_CheckSessionRejection_AbortsAndClearsCookie, resetting it via
 // t.Cleanup since session_control is shared, ordering-sensitive state

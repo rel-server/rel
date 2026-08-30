@@ -122,6 +122,12 @@ when `select=` compiles to a bare tag/array form instead (`own`/`full` and frien
 function-relation) follow the same dotted rules ; each `arguments` value is one filter-value
 token (see `## Filter expression grammar` ## Atoms) : `arguments.0=eq(status,'open')` is an
 error (arguments are values, not conditions) — `arguments.0=42`, `arguments.name='x'` are not.
+`arguments`' own positional-vs-named form (`query.ts`'s `Expression[] | {[name]: Expression}`)
+is decided by its key set : if every sibling key under `arguments` is composed only of digits,
+it compiles to the array form (indices, gaps filled with `null`) ; any other key set compiles
+to the named-object form. Mixing the two (`arguments.0=x&arguments.name=y`) is therefore NOT
+an error — it compiles to the named-object form with a literal `"0"` key, since a non-digit
+sibling key already rules out the positional reading.
 
 ### Comma lists share the expression grammar's own tokenizer
 
@@ -296,7 +302,14 @@ the table below for the full, authoritative mapping.
   still take a `FunctionIdentifier` as their own first argument, written
   `call(pg_catalog.upper, name)` — a dotted identifier there means `{schema, name}`, a bare
   one means an unqualified name resolved via the search path, exactly matching
-  `FunctionIdentifier`'s own two JSON forms.
+  `FunctionIdentifier`'s own two JSON forms. A `call` identifier not found in the word-form
+  table above (e.g. `lower` in `order_by=lower(name)`) desugars to `["call", identifier,
+  ...arguments]` directly, `identifier` compiled the same dotted-vs-bare way — the same
+  allowlist gate `query.ts`'s own explicit `call(...)`/`agg(...)` forms go through at resolve
+  time applies here too, so an unrecognized name is never silently trusted. `agg(...)`'s
+  optional third `filter` operand (`query.ts`'s `["agg", identifier, arguments, filter?]`) has
+  no spelling in this grammar — every argument after the identifier lands in `arguments` ;
+  write a `POST /rel` query for an aggregate needing a filter.
 - **`atom`'s `identifier`** is a column/alias reference (`query.ts`'s plain-string
   `Expression` form) — dotted for a qualified reference (`actors.name`), exactly mirroring
   how a bare JSON string already means "alias/column, resolved by scope" today. This is the
