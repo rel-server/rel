@@ -77,17 +77,23 @@ join.actors.relation=actor
 join.actors.schema=api
 join.actors.on.actor_id=movie_id                # { local_column: parent_column }
 join.actors.select=name
-join.actors.where=eq(active,true)
+join.actors.where=and(eq(active,true),eq(m.language,'en')) # "m" = the parent's own alias
 join.actors.join.awards.relation=award          # joins nest arbitrarily deep, same as JSON
 join.actors.join.awards.on.actor_id=actor_id
 ```
+
+`m.language` above is exactly `query.ts`'s own `alias` field doing its documented job :
+"usable by children and sibling relations' expressions" — `actors`' own `where` reaches
+back up into its parent's row via the alias `movie` was given, filtering the embed itself
+(actors only appear at all when the parent movie's `language` is `'en'`), not something
+`actors`' own columns could express on their own.
 
 decodes to :
 
 ```json
 {
   "relation": "movie", "schema": "api", "alias": "m",
-  "select": ["movie_id", "name", "actors"],
+  "select": {"movie_id": "movie_id", "name": "name", "actors": "actors"},
   "where": ["and", [">=", "year", 1999], ["like", "name", ["%needle%"]]],
   "order_by": ["name", ["desc", "year"]],
   "limit": 20, "offset": 0,
@@ -96,8 +102,8 @@ decodes to :
     "actors": {
       "relation": "actor", "schema": "api",
       "on": {"actor_id": "movie_id"},
-      "select": ["name"],
-      "where": ["=", "active", true],
+      "select": {"name": "name"},
+      "where": ["and", ["=", "active", true], ["=", "m.language", ["en"]]],
       "join": {
         "awards": { "relation": "award", "on": {"actor_id": "actor_id"} }
       }
@@ -105,6 +111,12 @@ decodes to :
   }
 }
 ```
+
+Note `select`'s compiled shape : a plain comma-list is NOT itself a valid `Expression` (a
+bare array of column-name strings has no corresponding form in `query.ts`) — it compiles to
+the OBJECT variant, `{[alias]: expr}` per entry, exactly matching `query.ts`'s own worked
+example at the bottom of `query.ts`. See `## select` below for the full rule, including
+when `select=` compiles to a bare tag/array form instead (`own`/`full` and friends).
 
 `relation`/`function` (mutually exclusive, per `query.ts`) and `arguments` (for a
 function-relation) follow the same dotted rules ; each `arguments` value is one filter-value
@@ -124,19 +136,65 @@ tokenizer, reused everywhere a comma-separated `expr` list appears in this gramm
 
 ### `select`
 
-A bare entry (no `alias:` prefix) must resolve to a plain identifier (a column/join-alias
-reference, `query.ts`'s string-`Expression` form) — `select=gte(a,b)` (a non-identifier
-expression with no alias) is a `400`, since the resulting object key would be undefined.
-`["full-except-and", ...]`-style object/array `Expression` forms have no query-string
-spelling at all (write it as a well-known query, or use `POST /rel`, instead).
+`select=`'s value compiles one of two ways, mutually exclusive :
 
-An entry may be `alias:expr` to select a computed value under a chosen key :
-`select=movie_id,name,total:agg(sum,orders.amount)`. The split is on the FIRST `:` that is
-outside any quoted string or parenthesized call — not the first `:` in the raw text — since
-a quoted literal may itself contain a colon (`label:'a:b'` must split into `label` and the
-literal `'a:b'`, not `label` and `'a` and `b'`). This is the same scanner as
-`## Comma lists share the expression grammar's own tokenizer` above, just also watching for
-a bare top-level `:`.
+1. **A plain comma-list of `[alias:]expr` entries** (the common case) always compiles to
+   the OBJECT variant of `Expression`, `{[alias]: expr}` built up one key per entry — never
+   a bare array, `query.ts` has no such form (see the worked example above, and its note).
+   A bare entry (no `alias:` prefix) must resolve to a plain identifier (a column/
+   join-alias reference, `query.ts`'s string-`Expression` form), and its own name becomes
+   its own object key : `select=movie_id,name,actors` → `{"movie_id":"movie_id",
+   "name":"name","actors":"actors"}`. `select=gte(a,b)` (a non-identifier expression with
+   no alias) is a `400`, since the resulting object key would be undefined. An entry may be
+   `alias:expr` to select a computed value under a chosen key instead :
+   `select=movie_id,name,total:agg(sum,orders.amount)`. The split is on the FIRST `:` that
+   is outside any quoted string or parenthesized call — not the first `:` in the raw text —
+   since a quoted literal may itself contain a colon (`label:'a:b'` must split into `label`
+   and the literal `'a:b'`, not `label` and `'a` and `b'`). This is the same scanner as
+   `## Comma lists share the expression grammar's own tokenizer` above, just also watching
+   for a bare top-level `:`.
+2. **Exactly one `own`/`full`-family call, or the bare keyword `own`/`full` itself**,
+   taking up the ENTIRE `select=` value — see `## own / full` below. Compiles directly to
+   that form's own tag/array shape, never wrapped in an object.
+
+These two are mutually exclusive within one `select=` — there's no query-string spelling
+for "own/full plus a plain comma-list of extra entries" beside by side ; reach for
+`own_and`/`full_and` (below) to add computed keys alongside `own`/`full`, or `POST /rel`
+for anything this still doesn't cover.
+
+### `own` / `full`
+
+Query-string spellings of `query.ts`'s `own`/`full` `Expression` family — hyphenated
+`query.ts` names become underscored call identifiers here, same rule
+`## Filter expression grammar` uses for operators.
+
+| `select=` | compiles to |
+|---|---|
+| `own` | `["own"]` |
+| `full` | `["full"]` |
+| `own_except(a,b)` | `["own-except", ["a","b"]]` |
+| `full_except(a,b)` | `["full-except", ["a","b"]]` |
+| `own_and(actors,total:agg(sum,orders.amount))` | `["own-and", {"actors":"actors","total":["agg","sum",["orders.amount"]]}]` |
+| `full_and(...)` | `["full-and", {...}]`, same shape as `own_and` |
+| `own_except_and(a,b; total:agg(sum,orders.amount))` | `["own-except-and", ["a","b"], {"total":[...]}]` |
+| `full_except_and(...)` | `["full-except-and", [...], {...}]`, same shape |
+
+`own_except`/`full_except`'s arguments are a plain comma-list of bare identifiers — the
+"except" list, homogeneous, no special handling needed beyond the shared tokenizer.
+
+`own_and`/`full_and`'s arguments are a plain comma-list of `[alias:]expr` entries — exactly
+the SAME rule as a top-level `select=` comma-list entry (`## select` above) : a bare
+argument must be a plain identifier and desugars to `{ident: ident}` (self-aliased —
+`own_and(actors)` means "also include the `actors` join, under its own name"), an
+`alias:expr` argument desugars to `{alias: expr}`.
+
+`own_except_and`/`full_except_and` need BOTH shapes in one call — an except-list (bare
+identifiers) and an and-map (`[alias:]expr` entries) — and a bare comma can't tell them
+apart, since both groups use commas internally. These two forms alone use a literal `;` to
+separate the two argument groups : everything before `;` is the except-list (comma-
+separated identifiers), everything after is the and-map (comma-separated `[alias:]expr`
+entries). This `;` separator is special to `own_except_and`/`full_except_and` specifically
+— it does not appear, and has no meaning, anywhere else in this grammar.
 
 ### `order_by`
 
@@ -221,6 +279,19 @@ the table below for the full, authoritative mapping.
   itself. What DOES matter, and is fixed by this table : every operator has exactly one
   canonical word, never two spellings for the same thing.
 
+  **These word forms are also an accepted synonym in `POST /rel`'s JSON body, not only in
+  this query-string grammar.** `query.ts`'s own array-form operator position (`["gte",
+  "year", 1999]` alongside the existing `[">=", "year", 1999]`) accepts either spelling on
+  input, resolved against this exact same table — no second table to keep in sync. This is
+  additive only : `query.ts`'s symbols remain the one canonical, ONLY spelling that a
+  well-known query or any other persisted/round-tripped JSON ever contains — pass-1 JSON
+  parsing normalizes a word-form operator to its canonical symbol immediately, before
+  scope resolution or anything else downstream ever sees it, so nothing past that parse
+  step (compiler, SQL codegen, tests, tooling) ever needs to know the word form existed.
+  One AST, one wire-canonical spelling ; the word form is purely an input convenience at
+  the JSON parse boundary, exactly mirroring the role it already plays for this grammar —
+  not a second, parallel operator vocabulary living alongside the first.
+
   `call(...)` and `agg(...)` themselves (`query.ts`'s own function-call/aggregate forms)
   still take a `FunctionIdentifier` as their own first argument, written
   `call(pg_catalog.upper, name)` — a dotted identifier there means `{schema, name}`, a bare
@@ -256,14 +327,14 @@ the table below for the full, authoritative mapping.
   resolved it, so there's no clash between a `LIKE` wildcard and URL percent-encoding to
   worry about here.
 - Not covered by this grammar (write these as a well-known query, or use `POST /rel`,
-  instead — no query-string spelling exists for them) : the `Expression` forms that produce
-  inline objects (`{name: Expression}`, `own`/`full`/`-except`/`-and` variants, `get-set`/
-  `get`/`set`), `$param`, and `arr`/`array`/`lst`/`list` literals. All of these are either
-  meaningless outside a well-known query's own params (`$param`), or reachable structurally
-  instead (`own`/`full`-equivalent : just omit `select` entirely, per `query.ts`'s own
-  "if not specified, equivalent to select *" default) — `where`/`order_by`/computed-`select`
-  filtering realistically never needs an inline-object or `own`/`full`-family `Expression`,
-  which is exactly why they're the two fields this grammar targets.
+  instead — no query-string spelling exists for them) : a bare inline-object `Expression`
+  outside of `select=` (`{name: Expression}` used somewhere other than `select`'s own
+  compiled output — `where`/`order_by`/an `own_and` argument never need one directly), and
+  `get-set`/`get`/`set`, `$param`, `arr`/`array`/`lst`/`list` literals. `own`/`full` and
+  their `-except`/`-and` variants ARE covered, but only as a `select=`-level whole-value
+  form — see `## own / full` above — not as a sub-expression usable inside `where` or
+  another call's arguments, since `query.ts` itself only ever uses them as `select`'s own
+  top-level value too.
 
 ## /rpc's query field
 
