@@ -10,9 +10,30 @@ type Config struct {
 	Logging Logging
 	Http    Http
 	Jwt     Jwt
+	Dmut    Dmut
 
 	Blacklist Blacklist
 }
+
+// Dmut is specs/03-dmut.md ## Configuration : dmut.path/reload_drain_timeout.
+type Dmut struct {
+	// Path is dmut.path, default "/dmut" : directory containing the
+	// mutation files dmut reads recursively. Missing directory means dmut
+	// is skipped entirely, not an error — see specs/03-dmut.md ## Execution.
+	Path string
+	// ReloadDrainTimeout is dmut.reload_drain_timeout, default 30
+	// (seconds) : how long a SIGUSR1 reload waits for in-flight requests
+	// to finish before cancelling their contexts and proceeding anyway —
+	// see specs/03-dmut.md ## Reloading.
+	ReloadDrainTimeout int
+}
+
+// DefaultDmutPath/DefaultDmutReloadDrainTimeout are specs/03-dmut.md ##
+// Configuration's own stated defaults.
+const (
+	DefaultDmutPath               = "/dmut"
+	DefaultDmutReloadDrainTimeout = 30
+)
 
 // Jwt is jwt-roles-and-http.md ## Configuration : jwt.secret/cookie_name/
 // algorithm/same_site/max_age/renew_after/max_session_age.

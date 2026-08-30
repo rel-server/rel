@@ -1,0 +1,10 @@
+# Fixture applied by boot/reload_test.go's end-to-end reload test : a
+# single new route function, proving a request against the schema a reload
+# just created succeeds where it would have 404'd before.
+
+fn_created_by_migration:
+  sql:
+    - |
+      create function fn_created_by_migration() returns "RelHttpResponse" language sql as $$
+        select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'from migration');
+      $$;

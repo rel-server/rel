@@ -5,9 +5,23 @@ go 1.26.5
 require (
 	github.com/brianvoe/gofakeit/v7 v7.15.0
 	github.com/bytedance/sonic v1.15.2
+	github.com/ceymard/dmut/v2 v2.0.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/samber/oops v1.23.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
+)
+
+require (
+	github.com/Masterminds/goutils v1.1.1 // indirect
+	github.com/Masterminds/semver/v3 v3.3.0 // indirect
+	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
+	github.com/alecthomas/participle/v2 v2.1.4 // indirect
+	github.com/goccy/go-yaml v1.19.2 // indirect
+	github.com/huandu/xstrings v1.5.0 // indirect
+	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/spf13/cast v1.7.0 // indirect
+	github.com/ugurcsen/gods-generic v0.10.4 // indirect
 )
 
 require (
@@ -36,7 +50,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/huml-lang/go-huml v0.2.0 // indirect
@@ -46,14 +60,14 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/knadh/koanf/maps v0.1.2 // indirect
-	github.com/knadh/koanf/parsers/huml v0.2.0 // indirect
-	github.com/knadh/koanf/parsers/toml v0.1.0 // indirect
-	github.com/knadh/koanf/parsers/yaml v1.1.1 // indirect
-	github.com/knadh/koanf/providers/confmap v1.0.1 // indirect
-	github.com/knadh/koanf/providers/env/v2 v2.0.1 // indirect
-	github.com/knadh/koanf/providers/file v1.2.1 // indirect
-	github.com/knadh/koanf/v2 v2.3.6 // indirect
-	github.com/lmittmann/tint v1.2.0 // indirect
+	github.com/knadh/koanf/parsers/huml v0.2.0
+	github.com/knadh/koanf/parsers/toml v0.1.0
+	github.com/knadh/koanf/parsers/yaml v1.1.1
+	github.com/knadh/koanf/providers/confmap v1.0.1
+	github.com/knadh/koanf/providers/env/v2 v2.0.1
+	github.com/knadh/koanf/providers/file v1.2.1
+	github.com/knadh/koanf/v2 v2.3.6
+	github.com/lmittmann/tint v1.2.0
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
@@ -94,6 +108,12 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/grpc v1.83.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// TEMPORARY, until the ceymard/dmut/v2 changes this integration needed
+// (mutations.MutationRunnerOptions.Output) are tagged/pushed upstream —
+// remove this replace and bump the require above to the real tagged
+// version once that happens. Breaks the build on any machine without
+// /home/chris/Code/dmut checked out at that exact path.
+replace github.com/ceymard/dmut/v2 => /home/chris/Code/dmut

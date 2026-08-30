@@ -79,6 +79,10 @@ var Options = []Option{
 	// ---- logging.* ----
 	{"logging.handler", DefaultLoggingHandler, "Log output format : pretty or JSON."},
 	{"logging.level", DefaultLoggingLevel, "Minimum log level : debug, info, warn, or error."},
+
+	// ---- dmut.* ----
+	{"dmut.path", DefaultDmutPath, "Directory containing dmut mutation files, read recursively. A missing directory skips dmut entirely — not an error."},
+	{"dmut.reload_drain_timeout", fmt.Sprint(DefaultDmutReloadDrainTimeout) + " (seconds)", "How long a SIGUSR1 reload waits for in-flight requests to finish before cancelling their contexts and proceeding anyway."},
 }
 
 // Sections groups Options for --help's own rendering — {heading, key
@@ -93,6 +97,7 @@ var sections = []struct {
 	{"HTTP server / /rpc route functions", "http."},
 	{"JWT sessions", "jwt."},
 	{"Logging", "logging."},
+	{"dmut migrations/mutations", "dmut."},
 }
 
 func sectionFor(key string) string {

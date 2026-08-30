@@ -7,11 +7,10 @@ Grouped by how much they block implementation, not by file.
 ## Blocking / foundational — nothing downstream can be built confidently without these
 
 - **Introspection lifecycle** (`01-introspection.md`, now written up). The mechanism
-  itself exists and is tested (`pg/`), and its contract is now documented, but the spec
-  still doesn't say how it's wired into the running server : what's exposed to the query
-  compiler, and — the sharp edge — how the `SIGUSR1` reload swaps the schema cache without
-  racing requests already in flight. Tracked as an explicit `> Question:` in
-  `01-introspection.md` rather than resolved here.
+  itself exists and is tested (`pg/`), and its contract is now documented. The `SIGUSR1`
+  reload sharp edge (swapping the schema cache without racing requests already in flight)
+  is now resolved — see the `dmut` / migrations bullet below, `03-dmut.md`, and the `boot`
+  package.
 - **Query compiler architecture.** `querying.md` specifies the Reading/Writing algorithms
   as SQL shape and recursion rules, not as Go types. Pass 1 (tree inflation + DB
   resolution) is now implemented and tested (`query/node_parse.go`, `query/node_resolve.go`,
@@ -124,12 +123,20 @@ Grouped by how much they block implementation, not by file.
   (default `/static`) also added as a placeholder — see "Named but empty" below — nested
   under `http.static.*` since more related keys (path-based access control) are
   anticipated once that feature is actually specced.
-- **`dmut` / migrations** (`03-dmut.md`, 14 lines). Legacy's `dmut` is a DAG/content-hash
-  migration tool, a separate vendored module (`github.com/ceymard/dmut`) — not a
-  sequential up/down tool. The current spec doesn't say whether rel keeps using that
-  library, what changes, the migration file format, transaction/idempotency guarantees,
-  or what "wait for the last request to finish" actually does to requests that arrive
-  during that wait.
+- **`dmut` / migrations** (`03-dmut.md`) — RESOLVED, implemented. `03-dmut.md` now fully
+  specifies `dmut.path`/`dmut.reload_drain_timeout`, boot ordering (dmut runs before
+  introspection, always, log-and-continue on failure), and the `SIGUSR1` reload mechanics
+  (maintenance mode + bounded drain + context cancellation of stragglers + dmut rerun +
+  reintrospection + registry rebuild + atomic handler swap). Implemented as :
+  `github.com/ceymard/dmut/v2`'s `mutations` package driven as a library (never the CLI
+  binary) via the new `dmut` package (`dmut/run.go`) ; the reload-aware `http.Server.Handler`
+  wrapper and 7-step reload orchestration live in the new `boot` package
+  (`boot/handler.go`/`boot/reload.go`) ; `pg.ReIntrospect` (`pg/info.go`) shares its
+  introspection body with `pg.NewInfosAdminQuery` and reuses the existing request-serving
+  pool rather than opening a new one. `cmd/rel/main.go` wires dmut before introspection at
+  startup and a persistent `SIGUSR1` handler alongside the existing shutdown signal
+  handling. This also resolves the `01-introspection.md`/`SIGUSR1` reload question this
+  same TODO bullet above ("Introspection lifecycle") used to reference.
 
 ## Named but empty
 

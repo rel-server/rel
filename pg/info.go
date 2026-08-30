@@ -114,13 +114,56 @@ func NewInfos(uri string) (*DbInfos, error) {
 // false, consistent with the pre-existing "empty role is a hard error at
 // SET ROLE time" behavior elsewhere — there's nothing to look up.
 func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole string) (*DbInfos, error) {
-	introspectPool, err := pgxpool.New(context.Background(), primaryURI)
+	db, err := introspect(context.Background(), primaryURI, anonymousRole)
+	if err != nil {
+		return nil, err
+	}
+
+	queryPoolConfig, err := pgxpool.ParseConfig(queryURI)
+	if err != nil {
+		return nil, oops.Wrapf(err, "failed to parse query pool connection string")
+	}
+	if poolSize > 0 {
+		queryPoolConfig.MaxConns = int32(poolSize)
+	}
+	queryPool, err := pgxpool.NewWithConfig(context.Background(), queryPoolConfig)
+	if err != nil {
+		return nil, oops.Wrapf(err, "failed to create query pool")
+	}
+	db.Pool = queryPool
+
+	return db, nil
+}
+
+// ReIntrospect rebuilds a FRESH *DbInfos (fresh Types/Functions/Relations/
+// lookup maps/AnonymousRoleExists) the same way NewInfosAdminQuery does —
+// via a short-lived connection to primaryURI — but reuses the EXISTING pool
+// passed in for the returned DbInfos' own Pool field, rather than building
+// a new one : the caller (specs/03-dmut.md ## Reloading step 4) owns that
+// pool's lifecycle entirely ; this function never builds or closes one.
+func ReIntrospect(ctx context.Context, primaryURI string, pool *pgxpool.Pool, anonymousRole string) (*DbInfos, error) {
+	db, err := introspect(ctx, primaryURI, anonymousRole)
+	if err != nil {
+		return nil, err
+	}
+	db.Pool = pool
+	return db, nil
+}
+
+// introspect is NewInfosAdminQuery's/ReIntrospect's shared introspection
+// body : acquire one short-lived connection to primaryURI, call db.Fill,
+// then run the anonymous-role pg_roles existence check on that same
+// connection before releasing it. Returns a *DbInfos with Pool left unset
+// — each caller assigns its own Pool afterward, since NewInfosAdminQuery
+// builds a new one from queryURI while ReIntrospect reuses an existing one.
+func introspect(ctx context.Context, primaryURI string, anonymousRole string) (*DbInfos, error) {
+	introspectPool, err := pgxpool.New(ctx, primaryURI)
 	if err != nil {
 		return nil, oops.Wrapf(err, "failed to create introspection pool")
 	}
 	defer introspectPool.Close()
 
-	conn, err := introspectPool.Acquire(context.Background())
+	conn, err := introspectPool.Acquire(ctx)
 	if err != nil {
 		return nil, oops.Wrapf(err, "failed to acquire a connection to introspect the database")
 	}
@@ -141,25 +184,12 @@ func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole
 	}
 
 	if anonymousRole != "" {
-		if err := conn.Conn().QueryRow(context.Background(),
+		if err := conn.Conn().QueryRow(ctx,
 			"select exists(select 1 from pg_roles where rolname = $1)", anonymousRole,
 		).Scan(&db.AnonymousRoleExists); err != nil {
 			return nil, oops.Wrapf(err, "failed to check anonymous role existence")
 		}
 	}
-
-	queryPoolConfig, err := pgxpool.ParseConfig(queryURI)
-	if err != nil {
-		return nil, oops.Wrapf(err, "failed to parse query pool connection string")
-	}
-	if poolSize > 0 {
-		queryPoolConfig.MaxConns = int32(poolSize)
-	}
-	queryPool, err := pgxpool.NewWithConfig(context.Background(), queryPoolConfig)
-	if err != nil {
-		return nil, oops.Wrapf(err, "failed to create query pool")
-	}
-	db.Pool = queryPool
 
 	return db, nil
 }

@@ -480,6 +480,9 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Jwt.RenewAfter = root.GetFloat64OrDefault("jwt.renew_after", DefaultJwtRenewAfter)
 	cfg.Jwt.MaxSessionAge = root.GetIntOrDefault("jwt.max_session_age", DefaultJwtMaxSessionAge)
 
+	cfg.Dmut.Path = root.GetStringOrDefault("dmut.path", DefaultDmutPath)
+	cfg.Dmut.ReloadDrainTimeout = root.GetIntOrDefault("dmut.reload_drain_timeout", DefaultDmutReloadDrainTimeout)
+
 	def := DefaultBlacklist()
 	cfg.Blacklist.Functions = readBlacklist(root, "blacklist.functions", def.Functions)
 	cfg.Blacklist.Relations = readBlacklist(root, "blacklist.relations", def.Relations)
