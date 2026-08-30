@@ -77,6 +77,22 @@ Grouped by how much they block implementation, not by file.
   properly-locked-down (non-superuser) connecting role. PostgREST documents the identical
   prerequisite for its own `authenticator`/`web_anon` pattern ; neither `querying.md` nor
   `jwt-roles-and-http.md` states it yet for rel.
+  **A second, more serious bug found the same way, since fixed** : introspection itself
+  (`pg.NewInfos`) failed outright under a non-superuser connecting role — before `SET
+  ROLE` is ever attempted, so the grant above alone does NOT make a non-superuser
+  deployment work. Root cause : `INFO_QUERY_CONSTRAINTS` reads `pg_constraint` directly
+  (world-readable, unfiltered by design), but the relation map it resolves constraints
+  against is built from `information_schema.columns`, which — unlike `pg_constraint` —
+  DOES filter by the connecting role's own privileges. Several `pg_catalog` system tables
+  (`pg_authid`, `pg_subscription`, `pg_replication_origin`, ...) have real `p`/`u`/`f`
+  constraints in `pg_constraint` but are invisible via `information_schema` to anything
+  but a superuser, so `FillConstraintInformations` (`pg/info_constraint.go`) hit its own
+  "this should not happen" hard-fail on every correctly-locked-down deployment, not just
+  a contrived one. Fixed by skipping (not failing on) a constraint whose owning or target
+  relation the connecting role can't see — the same pattern `info_index.go` already used
+  for the identical class of mismatch — since a relation the connecting role can't see
+  can never be a query target either. Confirmed via `rpc/deployment_test.go`, a dedicated
+  testcontainer connecting as a genuine non-superuser `LOGIN` role.
 - **`dmut` / migrations** (`03-dmut.md`, 14 lines). Legacy's `dmut` is a DAG/content-hash
   migration tool, a separate vendored module (`github.com/ceymard/dmut`) — not a
   sequential up/down tool. The current spec doesn't say whether rel keeps using that

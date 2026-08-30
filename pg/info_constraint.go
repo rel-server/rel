@@ -129,9 +129,38 @@ func FillConstraintInformations(infos *DbInfos, conn *pgx.Conn) error {
 	}
 
 	for _, dbc := range raw {
+		// INFO_QUERY_CONSTRAINTS reads pg_constraint directly (world-
+		// readable, unfiltered by design), but relation.GetRelation only
+		// knows about relations INFO_QUERY_RELATIONS could see through
+		// information_schema.columns — which, unlike pg_constraint, DOES
+		// filter by the connecting role's own privileges. Under a real,
+		// properly-locked-down (non-superuser) connecting role, several
+		// pg_catalog system tables (pg_authid, pg_subscription,
+		// pg_replication_origin, ...) have p/u/f constraints in
+		// pg_constraint but are invisible via information_schema — a
+		// relation the connecting role can't see can never be a query
+		// target either, so skipping it here (same reasoning, same
+		// pattern, as info_index.go's identical GetRelation-returns-nil
+		// case) costs nothing downstream. A superuser connection never
+		// hits this : it can see everything, which is exactly why this
+		// went unnoticed until tested under a non-superuser role.
 		relation := infos.GetRelation(dbc.RelId)
 		if relation == nil {
-			return oops.With("constraint", dbc.Name).With("relId", dbc.RelId).Errorf("constraint references unknown relation (this should not happen)")
+			continue
+		}
+
+		// For a foreign key specifically, the TARGET side needs the same
+		// check — and it must happen before any mutation below, so a skip
+		// here can't leave a half-built constraint registered under
+		// relation.byName (its Type would read as the zero value,
+		// ConstraintTypePrimaryKey, which is actively wrong, not just
+		// incomplete).
+		var target *Relation
+		if dbc.Type == "f" {
+			target = infos.GetRelation(dbc.TargetRelId)
+			if target == nil {
+				continue
+			}
 		}
 
 		c := &Constraint{
@@ -154,11 +183,6 @@ func FillConstraintInformations(infos *DbInfos, conn *pgx.Conn) error {
 		case "f":
 			c.Type = ConstraintTypeOutgoingForeignKey
 			relation.OutgoingForeignKeys = append(relation.OutgoingForeignKeys, c)
-
-			target := infos.GetRelation(dbc.TargetRelId)
-			if target == nil {
-				return oops.With("constraint", dbc.Name).With("targetRelId", dbc.TargetRelId).Errorf("foreign key references unknown target relation (this should not happen)")
-			}
 
 			incoming := &Constraint{
 				Relation: target,
