@@ -176,12 +176,30 @@ Grouped by how much they block implementation, not by file.
   token's own `exp - iat` width), `SameSite` isn't a JWT claim, so nothing survives
   renewal to reapply it, and a private claim just to carry one rarely-used cookie
   attribute wasn't judged worth it.
-- **Static file serving.** One bullet in `00-general.md` ("configurable file access
-  control based on path and database queries"). No detail anywhere. `http.static.path`
-  (default `/static`, `config.Http.Static.Path`) now exists as a placeholder config key —
-  nested under `http.static.*` rather than a single flat `http.static_path`, anticipating
-  the path-based access-control keys this feature will need once actually specced — but
-  nothing serves it yet.
+- **Static file serving** (`00-general.md`'s "configurable file access control based on path and
+  database queries" bullet) — RESOLVED, spec'd, not yet implemented. `specs/04-http-content.md
+  ## Static files` now fully specifies `http.static.path` (a colon-separated, PATH-style search
+  list, same convention `pg.query.wellknown_path` already uses, first directory doubling as the
+  one write target for `### Upload destinations`), the fixed `/static/` mount, no-listing/no-
+  dotfiles defaults, and the database-query-driven access control this bullet named but never
+  detailed (`### Access control` — named, prefix-scoped rules reusing `http.functions.check_
+  session`'s function-name/RSxxx-reject interaction shape). `### Upload destinations` additionally
+  specifies a two-function shape family, both mandatory, sharing one JSON domain (`RelUpload`,
+  `http.upload_domain_name`) reused progressively : `<name>__prepare(req, part jsonb) returns
+  RelUpload` (read-only-transaction-enforced, runs before any bytes are received, makes a BINDING
+  placement decision — path/mkdir/overwrite) and `<name>(req, upload RelUpload) returns
+  RelHttpResponse` (the only one that writes to the database, runs after bytes are already safely
+  on disk, with `part`/`size` filled in by rel) — for a function to decide WHERE an upload lands
+  without the bytes ever passing through Postgres — genuinely closer to real streaming than `files
+  bytea[]` can offer, at the cost of being scoped to one file per request (no sibling form fields).
+  The actual disk swap (rename-old-aside/rename-new-into-place) only happens AFTER the mandatory
+  function's transaction commits, narrowing the DB-commit-vs-disk-write consistency gap to that one
+  final same-filesystem rename — the same limitation class as `jwt-roles-and-http.md`'s own "no
+  true streaming to Postgres" note, just a much smaller window than a naive design would leave.
+  Same document's
+  `## Templates` section also gives `RelHttpResponse.template` (parsed since an earlier pass,
+  never acted on) real behavior, and `## CORS`/`## CSP` cover the security-header half of the same
+  document.
 - **TypeScript/JS export** (`/js/query.js`, `/js/schemas/*.ts`). Named as a feature in
   `00-general.md`. No spec on how types are generated from introspection + well-known
   queries, or what the runtime query-building helper actually does.

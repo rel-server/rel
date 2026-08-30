@@ -104,17 +104,24 @@ Each configured endpoint (SAML IdP, OIDC issuer, ...) is a named entry under its
 
 # HTTP
 
+Static file serving, `RelHttpResponse.template` (Jet template rendering), and CORS/CSP (including
+the `RelHttpRequest.csp_nonce`/`RelHttpResponse.csp` fields referenced below) are all covered
+separately, in full, in `specs/04-http-content.md` — not repeated here.
+
 Routing is done with the standard library's `net/http.ServeMux` (Go 1.22+ method/wildcard patterns, e.g. `"GET /rpc/{schema}/{function}"` with `r.PathValue(...)`) — no external router dependency. This fits rel's actual routing needs: a small, fixed set of patterns (`/rpc/{schema}/{function}`, `/rel`, `/auth/*`, `/js/*`, static files), since individual database functions are dispatched dynamically from within the `/rpc/{schema}/{function}` handler rather than registered as their own routes. Verify and Renew (steps 2 and 4 — see `# JWT` above) need no database and are implemented as ordinary `func(http.Handler) http.Handler` middleware, composed by hand — no framework-specific request/context type involved. Check and Apply role (steps 3 and 5) need the request's own DB connection, which doesn't exist yet when generic middleware runs, so those two are each handler's own responsibility instead (`/rel`, `/rpc`) once a connection is acquired — see `specs/TODO.md`'s connection-pool/lifecycle entry.
 
 > Why `/rpc`, not `/api` : `/api` describes nothing about what the route actually does (every HTTP endpoint in existence is "an API"). `/rpc` names the actual mechanism — a named backend function called directly over HTTP — and matches PostgREST's own convention for the identical concept, which `# Roles` below already invokes as a point of comparison.
 
-Creating the domain types `RelHttpRequest` and `RelHttpResponse` on JSON or JSONB (their schema doesn't matter) and using them in function prototypes, or creating a domain over `bytea` OR `text` with a `/` in their name, enables functions to return binary (or plain-text) content with the domain name as mime-type — a "mimetype domain". Which underlying type a mimetype domain uses only changes how its return value becomes the response body : a `bytea`-underlying one's raw bytes ARE the body ; a `text`-underlying one's string IS the body directly, with no base64 or other encoding involved (unlike `RelHttpRequest.body`'s own binary case — see `## Request` below — a mimetype domain's return value is never itself wrapped in JSON, so there's no jsonb-safety concern forcing an encoding here). `"text/plain"` over `text` is the common case — deliberately expressed this way (a NAMED domain, same mechanism as `"image/png"`) rather than as a special case for a bare, undecorated `returns text`/`returns json` with no domain wrapper at all : a bare scalar return type carries no name to derive a `Content-Type` from, so it would need an invented default (`text/plain` is a defensible guess for bare `text` ; there's no equally obvious guess for bare `bytea`, which is exactly why mimetype domains exist in the first place — the type's OWN name states the content-type explicitly instead of rel guessing one).
+Creating the domain types `RelHttpRequest` and `RelHttpResponse` on JSON or JSONB (their schema
+doesn't matter by default — see `## Configuration`'s domain-name resolution rule below for the
+precise mechanism, including what happens if more than one schema declares a same-named domain)
+and using them in function prototypes, or creating a domain over `bytea` OR `text` with a `/` in their name, enables functions to return binary (or plain-text) content with the domain name as mime-type — a "mimetype domain". Which underlying type a mimetype domain uses only changes how its return value becomes the response body : a `bytea`-underlying one's raw bytes ARE the body ; a `text`-underlying one's string IS the body directly, with no base64 or other encoding involved (unlike `RelHttpRequest.body`'s own binary case — see `## Request` below — a mimetype domain's return value is never itself wrapped in JSON, so there's no jsonb-safety concern forcing an encoding here). `"text/plain"` over `text` is the common case — deliberately expressed this way (a NAMED domain, same mechanism as `"image/png"`) rather than as a special case for a bare, undecorated `returns text`/`returns json` with no domain wrapper at all : a bare scalar return type carries no name to derive a `Content-Type` from, so it would need an invented default (`text/plain` is a defensible guess for bare `text` ; there's no equally obvious guess for bare `bytea`, which is exactly why mimetype domains exist in the first place — the type's OWN name states the content-type explicitly instead of rel guessing one).
 
 A function whose name does **not** start with `_`, and that takes the argument shapes `## Request bodies` below describes (0 arguments, one `RelHttpRequest` argument, or `RelHttpRequest` plus one of the extra body-parameter shapes), and that returns `RelHttpResponse` or a mimetype domain, is a HTTP route function — callable directly at `/rpc/<schema>/<function_name>` (and, if `http.functions.allowed_routes` is set, only if its fully qualified name also matches that regexp). A leading `_` opts a function out of route discovery unconditionally, with no configuration needed — this is how internal helpers that happen to match the signature stay unexposed.
 
 Such a function's name can end with `__VERB` (`__GET`, `__POST`, ...) to restrict which HTTP verb it answers to; case doesn't matter. If a verb-suffixed function is defined alongside an unsuffixed one, the unsuffixed function is the fallback for verbs with no specific match. Conforming to web semantics (e.g. `__GET` must not mutate state — see the CSRF note under Cookies) is the function author's responsibility; rel does not enforce it.
 
-`RelHttpResponse` can render via [Jet templates](github.com/CloudyKit/jet) through the optional `template` key.
+`RelHttpResponse` can render via [Jet templates](github.com/CloudyKit/jet) through the optional `template` key — see `specs/04-http-content.md ## Templates` for the full rendering/escaping contract.
 
 ```sql
 create domain "RelHttpRequest" as jsonb;
@@ -128,9 +135,28 @@ create function schema.returns_text() returns "text/plain" /* ... */;
 
 ## Configuration
 
-* `http.request_domain_name` (default `RelHttpRequest`) : the fully qualified, unquoted name of the JSON domain for request-typed functions.
-* `http.response_domain_name` (default `RelHttpResponse`) : the fully qualified, unquoted name of the JSON domain rel interprets as an HTTP response return type. Not an error if it doesn't exist, but rel will warn, since without it no authentication flow can work.
-* `http.templatesdir` (default `/template`) : the template directory.
+* `http.request_domain_name` (default `RelHttpRequest`) : the unquoted name of the JSON domain for request-typed functions. See the domain-name resolution rule immediately below for what "unquoted name" means when it isn't schema-qualified.
+* `http.response_domain_name` (default `RelHttpResponse`) : the unquoted name of the JSON domain rel interprets as an HTTP response return type. Not an error if it doesn't exist, but rel will warn, since without it no authentication flow can work.
+* `http.upload_domain_name` (default `RelUpload`) : the unquoted name of the JSON domain used by `specs/04-http-content.md ## Static files ### Upload destinations`' two-function upload mechanism. Not an error if it doesn't exist — that mechanism simply isn't discovered, same non-fatal treatment as the two domain names above.
+
+**Domain-name resolution.** Each of the three settings above names a domain by its bare, unquoted
+identifier — a schema is deliberately not part of the setting's own value, so the same domain
+name works regardless of which schema a project happens to keep its `RelHttpRequest`/
+`RelHttpResponse`/`RelUpload` domain in. Resolution at introspection/reload time : if the
+configured value contains a `.`, it's treated as an already schema-qualified name and matched
+exactly, no search. Otherwise (the common, default case) rel searches every schema for a domain
+with that bare name : exactly one match resolves normally ; zero matches gets the same non-fatal
+"didn't resolve" warning `http.response_domain_name` already has (route discovery/the affected
+mechanism just doesn't activate) ; MORE than one match (two different schemas each declaring their
+own `RelHttpRequest`, say) is treated the same way — a non-fatal warning naming every schema the
+ambiguous match was found in, and the mechanism stays disabled rather than silently picking
+whichever one introspection happened to see first. A genuinely multi-schema project that wants two
+distinct domains of the same conceptual role active at once isn't served by any of these three
+settings today — out of scope for this pass, same as the rest of this document's "no per-schema
+override" settings.
+
+* `http.templates.path` (default `/template`, renamed from the never-implemented
+  `http.templatesdir` — see `specs/04-http-content.md ## Templates`) : the Jet template directory.
 * `http.cookies_max_age` (default `86400`) : default max-age for cookies set via the generic `cookies` field, when the response doesn't specify one. Does not apply to the JWT cookie (see `jwt.max_age`).
 * `http.functions.allowed_auth` (default empty) : regexp restricting which functions' responses rel will honor a `jwt` field from, matched against the fully qualified, unquoted function name. Empty means unrestricted.
 * `http.functions.allowed_routes` (default empty) : regexp a function's fully qualified, unquoted name must additionally match to become a public route, on top of having the right signature and not starting with `_`. Empty means unrestricted (any matching-signature, non-`_` function is routed).
@@ -187,6 +213,7 @@ interface RelHttpRequest {
 
   cookies: {[name: string]: string} // value only — see the note below
   jwt: JWT | null // null when the request carries no valid session
+  csp_nonce: string // see specs/04-http-content.md ## CSP ### Nonce
 }
 ```
 
@@ -213,7 +240,7 @@ create function schema.upload(req RelHttpRequest, files bytea[]) returns RelHttp
 create function schema.upload_with_headers(req RelHttpRequest, files bytea[], parts_headers jsonb) returns RelHttpResponse /* ... */;
 ```
 
-Only these four shapes — `()`, `(req)`, `(req, files bytea[])`, `(req, files bytea[], parts_headers jsonb)` — are recognized route-function signatures — anything else (extra parameters, a different order, a different type) is simply not discovered as a route at all, same as any other signature mismatch today. There is deliberately no separate single-file-only shape (an earlier draft of this section had `body bytea`/`bodies bytea[]` as two distinct families, five shapes beyond `(req)` alone — `body`, `body,mime`, `bodies`, `bodies,names`, `bodies,names,mimes`) : a single raw binary `POST` is treated as a ONE-ELEMENT `files` array (see below) rather than its own mechanism, so `files bytea[]` alone already covers "exactly one file" — `files[1]` — with no dedicated singular form needed. This also collapses what used to be three separate mismatch rules (see below) into two.
+Only these four shapes — `()`, `(req)`, `(req, files bytea[])`, `(req, files bytea[], parts_headers jsonb)` — are recognized route-function signatures for THIS mechanism — anything else (extra parameters, a different order, a different type) is simply not discovered as a route at all, same as any other signature mismatch today. (`specs/04-http-content.md ## Static files ### Upload destinations` adds a separate two-function shape family, `(req, part jsonb) returns RelUpload`/`(req, upload RelUpload) returns RelHttpResponse`, for an unrelated mechanism — the database making a binding decision about a file's destination without ever receiving its bytes — distinguished from the four here purely by its own argument/return TYPES, same type-sequence matching rule as everything else.) There is deliberately no separate single-file-only shape (an earlier draft of this section had `body bytea`/`bodies bytea[]` as two distinct families, five shapes beyond `(req)` alone — `body`, `body,mime`, `bodies`, `bodies,names`, `bodies,names,mimes`) : a single raw binary `POST` is treated as a ONE-ELEMENT `files` array (see below) rather than its own mechanism, so `files bytea[]` alone already covers "exactly one file" — `files[1]` — with no dedicated singular form needed. This also collapses what used to be three separate mismatch rules (see below) into two.
 
 `parts_headers`, when declared, is a JSON array, index `i` describing `files[i]` :
 
@@ -260,7 +287,8 @@ interface RelHttpResponse {
   content_type: string
   content: unknown
 
-  template?: string
+  template?: string // see specs/04-http-content.md ## Templates
+  template_data?: unknown // see specs/04-http-content.md ## Templates
   headers?: {[name: string]: string | string[]}
   cookies?: {[name: string]: Cookie | string}
   jwt?: JWT | null
@@ -268,6 +296,7 @@ interface RelHttpResponse {
     samesite?: string
     maxage?: number
   }
+  csp?: string // see specs/04-http-content.md ## CSP ### Per-response override
 }
 ```
 
