@@ -265,7 +265,7 @@ func TestHandler_NonFilesRoute_RealMultipart_Is415(t *testing.T) {
 func TestHandler_MaxBodySize_RejectsOversizedRequest(t *testing.T) {
 	small := *testCfg
 	small.Http.MaxBodySize = 8
-	handler := NewHandler(testDb, &small, testReg)
+	handler := NewHandler(testDb, &small, testReg, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", strings.NewReader(strings.Repeat("x", 100)))
 	req.Header.Set("Content-Type", "text/plain")
@@ -285,7 +285,7 @@ func TestHandler_MaxBodySize_RejectsOversizedRequest(t *testing.T) {
 func TestHandler_MaxBodySize_RejectsStreamedOverflow_NoDeclaredLength(t *testing.T) {
 	small := *testCfg
 	small.Http.MaxBodySize = 8
-	handler := NewHandler(testDb, &small, testReg)
+	handler := NewHandler(testDb, &small, testReg, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", strings.NewReader(strings.Repeat("x", 100)))
 	req.Header.Set("Content-Type", "text/plain")
@@ -306,7 +306,7 @@ func TestHandler_MaxBodySize_RejectsStreamedOverflow_NoDeclaredLength(t *testing
 func TestHandler_MaxBodySize_RejectsStreamedOverflow_MidMultipartPart(t *testing.T) {
 	small := *testCfg
 	small.Http.MaxBodySize = 16
-	handler := NewHandler(testDb, &small, testReg)
+	handler := NewHandler(testDb, &small, testReg, nil)
 
 	body, contentType := buildMultipart(t, []multipartField{
 		{FieldName: "a", FileName: "a.txt", ContentType: "text/plain", Content: []byte(strings.Repeat("x", 1000))},
@@ -326,7 +326,7 @@ func TestHandler_MaxBodySize_RejectsStreamedOverflow_MidMultipartPart(t *testing
 func TestHandler_MaxPartCount_RejectsTooManyParts(t *testing.T) {
 	small := *testCfg
 	small.Http.MaxPartCount = 2
-	handler := NewHandler(testDb, &small, testReg)
+	handler := NewHandler(testDb, &small, testReg, nil)
 
 	var fields []multipartField
 	for i := 0; i < 5; i++ {

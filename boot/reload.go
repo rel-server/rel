@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
@@ -26,7 +25,6 @@ import (
 	"github.com/ceymard/rel/dmut"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/rpc"
-	"github.com/ceymard/rel/server"
 )
 
 // Reloader owns the mutable state a SIGUSR1 reload (specs/03-dmut.md ##
@@ -114,12 +112,16 @@ func (rl *Reloader) Reload(ctx context.Context) {
 		return
 	}
 
-	// Step 6 : a fresh inner mux is built and stored into the wrapper's
-	// atomic.Pointer — a single pointer store, never a write to
+	// Step 6 : a fresh inner mux is built (via the same BuildMux both this
+	// path and cmd/rel/main.go's startup path share) and stored into the
+	// wrapper's atomic.Pointer — a single pointer store, never a write to
 	// http.Server.Handler itself.
-	mux := http.NewServeMux()
-	mux.Handle("/rel", server.NewRelHandler(newDb, rl.Cfg))
-	mux.Handle("/rpc/", rpc.NewHandler(newDb, rl.Cfg, reg))
+	mux, err := BuildMux(newDb, rl.Cfg, reg, rl.Logger)
+	if err != nil {
+		rl.Logger.Error("reload: building mux failed, resuming under the old schema", "error", err.Error())
+		rl.Wrapper.EndMaintenance()
+		return
+	}
 	rl.Wrapper.Swap(mux)
 
 	rl.mu.Lock()

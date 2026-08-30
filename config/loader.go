@@ -446,6 +446,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Port = root.GetIntOrDefault("http.port", DefaultHttpPort)
 	cfg.Http.RequestDomainName = root.GetStringOrDefault("http.request_domain_name", DefaultHttpRequestDomainName)
 	cfg.Http.ResponseDomainName = root.GetStringOrDefault("http.response_domain_name", DefaultHttpResponseDomainName)
+	cfg.Http.UploadDomainName = root.GetStringOrDefault("http.upload_domain_name", DefaultHttpUploadDomainName)
 	cfg.Http.CookiesMaxAge = root.GetIntOrDefault("http.cookies_max_age", DefaultHttpCookiesMaxAge)
 	cfg.Http.MaxBodySize = root.GetIntOrDefault("http.max_body_size", DefaultHttpMaxBodySize)
 	cfg.Http.MaxPartCount = root.GetIntOrDefault("http.max_part_count", DefaultHttpMaxPartCount)
@@ -453,6 +454,25 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Functions.AllowedRoutes = root.GetStringOrDefault("http.functions.allowed_routes", "")
 	cfg.Http.Functions.CheckSession = root.GetStringOrDefault("http.functions.check_session", "")
 	cfg.Http.Static.Path = root.GetStringOrDefault("http.static.path", DefaultHttpStaticPath)
+	cfg.Http.Static.Access = readStaticAccess(root, "http.static.access")
+	cfg.Http.Templates.Path = root.GetStringOrDefault("http.templates.path", DefaultHttpTemplatesPath)
+
+	cfg.Http.Cors.AllowedOrigins = root.GetStringOrDefault("http.cors.allowed_origins", "")
+	cfg.Http.Cors.AllowedMethods = root.GetStringOrDefault("http.cors.allowed_methods", DefaultHttpCorsAllowedMethods)
+	cfg.Http.Cors.AllowedHeaders = root.GetStringOrDefault("http.cors.allowed_headers", DefaultHttpCorsAllowedHeaders)
+	cfg.Http.Cors.MaxAge = root.GetIntOrDefault("http.cors.max_age", DefaultHttpCorsMaxAge)
+
+	cfg.Http.Csp.DefaultSrc = root.GetStringOrDefault("http.csp.default_src", DefaultHttpCspDefaultSrc)
+	cfg.Http.Csp.ScriptSrc = root.GetStringOrDefault("http.csp.script_src", "")
+	cfg.Http.Csp.StyleSrc = root.GetStringOrDefault("http.csp.style_src", "")
+	cfg.Http.Csp.ImgSrc = root.GetStringOrDefault("http.csp.img_src", "")
+	cfg.Http.Csp.FontSrc = root.GetStringOrDefault("http.csp.font_src", "")
+	cfg.Http.Csp.ConnectSrc = root.GetStringOrDefault("http.csp.connect_src", "")
+	cfg.Http.Csp.ObjectSrc = root.GetStringOrDefault("http.csp.object_src", "")
+	cfg.Http.Csp.FrameAncestors = root.GetStringOrDefault("http.csp.frame_ancestors", "")
+	cfg.Http.Csp.BaseUri = root.GetStringOrDefault("http.csp.base_uri", "")
+	cfg.Http.Csp.FormAction = root.GetStringOrDefault("http.csp.form_action", "")
+	cfg.Http.Csp.Policy = root.GetStringOrDefault("http.csp.policy", "")
 
 	// jwt.secret's own DEFAULT (DefaultJwtSecret) is itself a "$FILE$..."
 	// expression — but resolveFileIndirection (called above, before
@@ -507,6 +527,30 @@ func readStringMap(root *ConfigReader, path string) map[string]string {
 		if s, err := child.GetString(""); err == nil {
 			out[key] = s
 		}
+	}
+	return out
+}
+
+// readStaticAccess reads http.static.access.<name>.{prefix,function} into
+// a map[string]StaticAccessRule — same named-sub-key shape readBlacklist
+// uses for blacklist.functions/relations, since config can't hold arrays
+// (specs/04-http-content.md ### Access control). An absent/non-object path
+// yields an empty map, not an error — access control is entirely opt-in.
+func readStaticAccess(root *ConfigReader, path string) map[string]StaticAccessRule {
+	out := map[string]StaticAccessRule{}
+	it, err := root.GetIterator(path)
+	if err != nil {
+		return out
+	}
+	for name, ruleReader := range it {
+		var rule StaticAccessRule
+		if s, err := ruleReader.GetString("prefix"); err == nil {
+			rule.Prefix = s
+		}
+		if s, err := ruleReader.GetString("function"); err == nil {
+			rule.Function = s
+		}
+		out[name] = rule
 	}
 	return out
 }

@@ -37,10 +37,20 @@ func Test() *Config {
 		Http: Http{
 			RequestDomainName:  DefaultHttpRequestDomainName,
 			ResponseDomainName: DefaultHttpResponseDomainName,
+			UploadDomainName:   DefaultHttpUploadDomainName,
 			CookiesMaxAge:      DefaultHttpCookiesMaxAge,
 			MaxBodySize:        DefaultHttpMaxBodySize,
 			MaxPartCount:       DefaultHttpMaxPartCount,
 			Static:             HttpStatic{Path: DefaultHttpStaticPath},
+			Templates:          HttpTemplates{Path: DefaultHttpTemplatesPath},
+			Cors: HttpCors{
+				AllowedMethods: DefaultHttpCorsAllowedMethods,
+				AllowedHeaders: DefaultHttpCorsAllowedHeaders,
+				MaxAge:         DefaultHttpCorsMaxAge,
+			},
+			Csp: HttpCsp{
+				DefaultSrc: DefaultHttpCspDefaultSrc,
+			},
 		},
 		// Jwt.Secret is a fixed literal here, NOT DefaultJwtSecret's
 		// "$FILE$..." form : Test() bypasses config.Load/loader.go's $FILE$

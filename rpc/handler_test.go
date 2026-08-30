@@ -32,7 +32,7 @@ func TestHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
 	// the role switch (a privilege escalation for anonymous callers).
 	cfgCopy := *testCfg
 	cfgCopy.Pg.Query.AnonymousRole = ""
-	handler := NewHandler(testDb, &cfgCopy, testReg)
+	handler := NewHandler(testDb, &cfgCopy, testReg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
 	rec := httptest.NewRecorder()
@@ -111,7 +111,7 @@ func TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
-	handler := NewHandler(db, &cfg, reg)
+	handler := NewHandler(db, &cfg, reg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
 	rec := httptest.NewRecorder()
@@ -325,7 +325,7 @@ func TestHandler_MimeTypeDomainResponse(t *testing.T) {
 func TestHandler_AuthNotHonoredOutsideAllowedFunctions(t *testing.T) {
 	restricted := *testCfg
 	restricted.Http.Functions.AllowedAuth = `^public\.fn_login$`
-	handler := NewHandler(testDb, &restricted, testReg)
+	handler := NewHandler(testDb, &restricted, testReg, nil)
 
 	// fn_echo1 echoes the whole request back — it never itself sets a jwt
 	// key, so this proves the DEFAULT (no accidental minting) rather than
@@ -386,7 +386,7 @@ func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 	fastRenew := *testCfg
 	fastRenew.Jwt.MaxAge = 5 // seconds
 	fastRenew.Jwt.RenewAfter = 0.1
-	handler := NewHandler(testDb, &fastRenew, testReg)
+	handler := NewHandler(testDb, &fastRenew, testReg, nil)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login", nil)
 	loginRec := httptest.NewRecorder()

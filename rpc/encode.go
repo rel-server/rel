@@ -13,6 +13,7 @@ import (
 	"github.com/ceymard/rel/config"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/querystring"
+	"github.com/ceymard/rel/websec"
 	"github.com/samber/oops"
 )
 
@@ -45,6 +46,10 @@ type relHttpRequestPayload struct {
 	// verbatim. nil (-> JSON null) when the request has no query string at
 	// all.
 	Query any `json:"query"`
+	// CspNonce is specs/04-http-content.md ## CSP ### Nonce's
+	// RelHttpRequest.csp_nonce — generated fresh by websec.Middleware for
+	// every request, unconditionally, before the route function runs.
+	CspNonce string `json:"csp_nonce"`
 }
 
 // badBodyError marks a request whose body failed to decode per ## Request's
@@ -140,6 +145,7 @@ func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified boo
 		Cookies:     cookies,
 		Jwt:         jwtVal,
 		Query:       queryVal,
+		CspNonce:    websec.NonceFromContext(r.Context()),
 	}
 	return json.Marshal(payload)
 }
@@ -158,6 +164,17 @@ type relHttpResponsePayload struct {
 	Cookies     map[string]json.RawMessage `json:"cookies"`
 	Jwt         json.RawMessage            `json:"jwt"`
 	JwtAttrs    *jwtAttrsPayload           `json:"jwt_attrs"`
+	// Template/TemplateData are specs/04-http-content.md ## Templates :
+	// when Template is a non-empty string, it names a Jet template path
+	// (relative to http.templates.path) rendered in place of Content as the
+	// response body ; TemplateData is that template's Data variable (JSON
+	// null when unset).
+	Template     string          `json:"template"`
+	TemplateData json.RawMessage `json:"template_data"`
+	// Csp is specs/04-http-content.md ## CSP ### Per-response override : a
+	// raw policy string that replaces the process-wide default CSP header
+	// for this one response only, "" meaning "use the default".
+	Csp string `json:"csp"`
 }
 
 type jwtAttrsPayload struct {
@@ -168,8 +185,11 @@ type jwtAttrsPayload struct {
 // writeRelHttpResponse decodes raw as a RelHttpResponse and writes the
 // actual HTTP response : headers and cookies (including a jwt mint/logout)
 // are all set BEFORE status/body, since http.ResponseWriter silently drops
-// header changes made after WriteHeader.
-func writeRelHttpResponse(w http.ResponseWriter, cfg *config.Config, route Route, raw []byte) {
+// header changes made after WriteHeader. r is needed for the request's own
+// CSP nonce (## CSP ### Per-response override re-injects it into resp.csp
+// exactly as it was injected into the process-wide default) and, once a
+// Jet template set is wired in (## Templates), for Req/Nonce template vars.
+func writeRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, route Route, raw []byte, templates *TemplateSet) {
 	var resp relHttpResponsePayload
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		writePlainError(w, http.StatusInternalServerError, "decoding function response")
@@ -186,10 +206,21 @@ func writeRelHttpResponse(w http.ResponseWriter, cfg *config.Config, route Route
 	}
 	handleResponseJwt(w, cfg, route, resp)
 
+	if resp.Csp != "" {
+		nonce := websec.NonceFromContext(r.Context())
+		w.Header().Set("Content-Security-Policy", websec.Policy(cfg.Http.Csp, resp.Csp, nonce))
+	}
+
 	status := resp.Status
 	if status == 0 {
 		status = http.StatusOK
 	}
+
+	if resp.Template != "" {
+		writeTemplateResponse(w, r, templates, resp, status)
+		return
+	}
+
 	if resp.ContentType != "" {
 		w.Header().Set("Content-Type", resp.ContentType)
 	}

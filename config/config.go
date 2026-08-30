@@ -103,6 +103,13 @@ type Http struct {
 	// "RelHttpResponse" : the fully qualified, unquoted name of the JSON
 	// domain identifying a route function's response return type.
 	ResponseDomainName string
+	// UploadDomainName is http.upload_domain_name, default "RelUpload" :
+	// the unquoted name of the JSON domain used by
+	// specs/04-http-content.md ## Static files ### Upload destinations'
+	// two-function upload mechanism. Not an error if it doesn't resolve —
+	// that mechanism simply isn't discovered, same non-fatal treatment as
+	// RequestDomainName/ResponseDomainName above.
+	UploadDomainName string
 	// CookiesMaxAge is http.cookies_max_age, default 86400 : default max-age
 	// for cookies set via the generic "cookies" field, when the response
 	// doesn't specify one. Does not apply to the JWT cookie (see Jwt.MaxAge).
@@ -122,6 +129,69 @@ type Http struct {
 
 	Functions HttpFunctions
 	Static    HttpStatic
+	Templates HttpTemplates
+	Cors      HttpCors
+	Csp       HttpCsp
+}
+
+// HttpTemplates is http.templates.* — specs/04-http-content.md ##
+// Templates.
+type HttpTemplates struct {
+	// Path is http.templates.path, default "/template" (renamed from the
+	// never-implemented http.templatesdir) : the filesystem directory Jet
+	// templates are loaded from.
+	Path string
+}
+
+// HttpCors is http.cors.* — specs/04-http-content.md ## CORS ##
+// Configuration.
+type HttpCors struct {
+	// AllowedOrigins is http.cors.allowed_origins, default "" (CORS fully
+	// closed) : comma-separated list of exact origins, or the literal "*"
+	// (see ### `*` as an explicit value).
+	AllowedOrigins string
+	// AllowedMethods is http.cors.allowed_methods, default "GET, POST, PUT,
+	// PATCH, DELETE, OPTIONS" : methods a preflight may approve.
+	AllowedMethods string
+	// AllowedHeaders is http.cors.allowed_headers, default "Content-Type" :
+	// request headers a preflight may approve, beyond the browser's always-
+	// allowed simple set.
+	AllowedHeaders string
+	// MaxAge is http.cors.max_age, default 600 (seconds) : how long a
+	// browser may cache one preflight response.
+	MaxAge int
+}
+
+// HttpCsp is http.csp.* — specs/04-http-content.md ## CSP ## Configuration
+// : one config key per CSP directive, plus a raw full-policy override.
+type HttpCsp struct {
+	DefaultSrc     string
+	ScriptSrc      string
+	StyleSrc       string
+	ImgSrc         string
+	FontSrc        string
+	ConnectSrc     string
+	ObjectSrc      string
+	FrameAncestors string
+	BaseUri        string
+	FormAction     string
+	// Policy is http.csp.policy, default "" : a full, raw
+	// Content-Security-Policy header value, semicolon-separated directives
+	// exactly as the header itself is written. When set, REPLACES every
+	// individual directive above entirely.
+	Policy string
+}
+
+// StaticAccessRule is one http.static.access.<name>.* entry —
+// specs/04-http-content.md ## Static files ### Access control.
+type StaticAccessRule struct {
+	// Prefix is http.static.access.<name>.prefix : the subpath prefix this
+	// rule gates.
+	Prefix string
+	// Function is http.static.access.<name>.function : unquoted, fully
+	// qualified name of the Postgres function called for any request whose
+	// path falls under Prefix.
+	Function string
 }
 
 // HttpFunctions is jwt-roles-and-http.md's http.functions.* namespace.
@@ -143,16 +213,21 @@ type HttpFunctions struct {
 	CheckSession string
 }
 
-// HttpStatic is http.static.* — static file serving. Only Path exists so
-// far ; specs/TODO.md's own "Named but empty" note on static file serving
-// ("configurable file access control based on path and database queries")
-// implies more keys will likely join this namespace later (path-based
-// access rules), which is why this is its own nested struct/key prefix
-// rather than a single flat http.static_path — avoids a breaking rename
-// when that happens. Not yet served by cmd/rel — config only for now.
+// HttpStatic is http.static.* — static file serving, per
+// specs/04-http-content.md ## Static files/### Access control : Path names
+// a colon-separated list of FILESYSTEM directories (never the URL prefix,
+// which is always the fixed "/static/"), Access is the named, prefix-scoped
+// access-control rule set.
 type HttpStatic struct {
-	// Path is http.static.path, default "/static".
+	// Path is http.static.path, default "/static" : a COLON-SEPARATED list
+	// of filesystem directories served at the fixed /static/ URL prefix
+	// (search list, first match wins — see specs/04-http-content.md
+	// ## Static files). NOT the URL prefix itself, which is always the
+	// fixed, unconfigurable "/static/".
 	Path string
+	// Access is http.static.access.<name>.* — named, prefix-scoped access
+	// control rules (specs/04-http-content.md ### Access control).
+	Access map[string]StaticAccessRule
 }
 
 // DefaultLoggingHandler/DefaultLoggingLevel/DefaultHttpPort are
@@ -175,6 +250,23 @@ const (
 	// http.max_part_count (100).
 	DefaultHttpMaxBodySize  = 10485760
 	DefaultHttpMaxPartCount = 100
+	// DefaultHttpUploadDomainName is jwt-roles-and-http.md's stated default
+	// for http.upload_domain_name.
+	DefaultHttpUploadDomainName = "RelUpload"
+	// DefaultHttpTemplatesPath is specs/04-http-content.md ## Templates'
+	// stated default for http.templates.path.
+	DefaultHttpTemplatesPath = "/template"
+	// DefaultHttpCorsAllowedMethods/DefaultHttpCorsAllowedHeaders/
+	// DefaultHttpCorsMaxAge are specs/04-http-content.md ## CORS
+	// ### Configuration's stated defaults. AllowedOrigins has no default
+	// constant — its default is the empty string (CORS fully closed).
+	DefaultHttpCorsAllowedMethods = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+	DefaultHttpCorsAllowedHeaders = "Content-Type"
+	DefaultHttpCorsMaxAge         = 600
+	// DefaultHttpCspDefaultSrc is specs/04-http-content.md ## CSP
+	// ### Configuration's stated default : only default-src has a value by
+	// default, every other directive is unset.
+	DefaultHttpCspDefaultSrc = "'self'"
 )
 
 // DefaultPgHost/DefaultPgPort/DefaultPgQueryAnonymousRole/

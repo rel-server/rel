@@ -30,16 +30,27 @@ type Execer interface {
 // whole request ; any other Postgres error is a genuine 500 — both are the
 // caller's own responsibility to classify (see pgerr.RSStatus).
 func CheckSession(ctx context.Context, exec Execer, qualifiedName string, claims jwtpkg.Claims) error {
-	schema, name, ok := strings.Cut(qualifiedName, ".")
-	if !ok {
-		schema, name = "public", qualifiedName
-	}
 	claimsJSON, err := json.Marshal(claims)
 	if err != nil {
 		return err
 	}
+	return CallJSONBFunction(ctx, exec, qualifiedName, claimsJSON)
+}
+
+// CallJSONBFunction invokes qualifiedName(payload::jsonb) — the shared
+// calling convention specs/04-http-content.md ### Access control
+// deliberately reuses from CheckSession's own : "a configured function
+// name, called with a jsonb payload, RSxxx to reject, returning normally
+// to allow." Void-returning by convention (the caller never reads a
+// result), but works identically for any single-jsonb-argument function
+// regardless of its own declared return type — Exec doesn't parse rows.
+func CallJSONBFunction(ctx context.Context, exec Execer, qualifiedName string, payload []byte) error {
+	schema, name, ok := strings.Cut(qualifiedName, ".")
+	if !ok {
+		schema, name = "public", qualifiedName
+	}
 	sql := "select " + EscapeIdentifier(schema) + "." + EscapeIdentifier(name) + "($1::jsonb)"
-	_, err = exec.Exec(ctx, sql, claimsJSON)
+	_, err := exec.Exec(ctx, sql, payload)
 	return err
 }
 

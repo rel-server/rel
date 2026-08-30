@@ -62,7 +62,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
-	handler := NewHandler(db, cfg, reg)
+	handler := NewHandler(db, cfg, reg, nil)
 
 	t.Run("bad credentials rejected", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login_with_credentials", strings.NewReader(`{"username":"alice","password":"wrong"}`))

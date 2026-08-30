@@ -40,7 +40,20 @@ type Route struct {
 	// Meaningless when anonymous access is disabled altogether (db.
 	// AnonymousRoleExists false) — callers must check that first, since an
 	// anonymous role that doesn't exist was never queried against here.
+	// For an upload-destinations route (IsUpload), this is the AND of both
+	// halves' own reachability — specs/04-http-content.md ### Upload
+	// destinations' "Anonymous-route-authorization" : "fail-closed on
+	// either."
 	AnonymousAuthorized bool
+
+	// IsUpload is true for a specs/04-http-content.md ### Upload
+	// destinations route : a discovered <name>__prepare/<name> pair, both
+	// mandatory. Function is the MANDATORY (unsuffixed) half in this case ;
+	// PrepareFunction is the <name>__prepare half. MimeType/AcceptsFiles/
+	// AcceptsPartsHeaders are always zero-valued for an upload route — this
+	// family doesn't compose with __VERB or ## Request bodies' shapes.
+	IsUpload        bool
+	PrepareFunction *pg.Function
 }
 
 // Registry is every discovered route function, keyed schema → base
@@ -113,6 +126,13 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	if respType == nil {
 		slog.Default().Warn("rpc: response domain not found, no RelHttpResponse route functions will be discovered", "name", cfg.Http.ResponseDomainName)
 	}
+	uploadType, err := resolveDomainByName(db, cfg.Http.UploadDomainName)
+	if err != nil {
+		return nil, err
+	}
+	if uploadType == nil {
+		slog.Default().Warn("rpc: upload domain not found, no upload-destination route functions will be discovered", "name", cfg.Http.UploadDomainName)
+	}
 
 	var allowedRoutes *regexp.Regexp
 	if cfg.Http.Functions.AllowedRoutes != "" {
@@ -128,6 +148,14 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 			continue
 		}
 		if strings.HasPrefix(fn.Identifier.Name, "_") {
+			continue
+		}
+		if isPrepareSuffixed(fn.Identifier.Name) {
+			// ### Upload destinations : "__prepare itself is RESERVED and
+			// stripped off during route discovery BEFORE __VERB
+			// interpretation ever runs for any shape — it is never itself
+			// treated as a verb suffix." Excluded from ordinary discovery
+			// entirely ; handled only by discoverUploadRoutes below.
 			continue
 		}
 		if allowedRoutes != nil && !allowedRoutes.MatchString(fn.Identifier.String()) {
@@ -160,6 +188,8 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 		}
 	}
 
+	discoverUploadRoutes(db, reg, reqType, uploadType, respType, allowedRoutes)
+
 	if err := applyAnonymousAuthorization(db, cfg, reg); err != nil {
 		return nil, err
 	}
@@ -188,6 +218,9 @@ func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, reg *Regist
 		for _, byVerb := range byFunc {
 			for _, route := range byVerb {
 				oids = append(oids, route.Function.PgOid)
+				if route.IsUpload {
+					oids = append(oids, route.PrepareFunction.PgOid)
+				}
 			}
 		}
 	}
@@ -250,9 +283,19 @@ func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, reg *Regist
 		for base, byVerb := range byFunc {
 			for verb, route := range byVerb {
 				priv := privByOid[route.Function.PgOid]
-				route.AnonymousAuthorized = db.AnonymousRoleExists && priv.anonOK
+				anonOK, publicOK := priv.anonOK, priv.publicOK
+				if route.IsUpload {
+					// ### Upload destinations "Anonymous-route-
+					// authorization" : "must pass for BOTH... fail-closed on
+					// either" — the pair is only reachable if EVERY conjunct
+					// on BOTH functions holds.
+					prepPriv := privByOid[route.PrepareFunction.PgOid]
+					anonOK = anonOK && prepPriv.anonOK
+					publicOK = publicOK && prepPriv.publicOK
+				}
+				route.AnonymousAuthorized = db.AnonymousRoleExists && anonOK
 				byVerb[verb] = route
-				if priv.publicOK {
+				if publicOK {
 					slog.Default().Warn("rpc: route is executable by PUBLIC", "schema", schema, "function", base, "verb", verb,
 						"target", route.Function.Identifier.String())
 				}

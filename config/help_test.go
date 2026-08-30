@@ -39,6 +39,7 @@ var dynamicNamespaceKeys = map[string]bool{
 	"logging.exclude":     true,
 	"blacklist.functions": true,
 	"blacklist.relations": true,
+	"http.static.access":  true,
 }
 
 // assembleOrDefaultKeyPattern matches every "root.GetXxxOrDefault("key""

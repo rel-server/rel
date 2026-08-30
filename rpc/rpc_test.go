@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	testHandler = NewHandler(testDb, testCfg, testReg)
+	testHandler = NewHandler(testDb, testCfg, testReg, nil)
 
 	m.Run()
 }

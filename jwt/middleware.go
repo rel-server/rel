@@ -56,6 +56,17 @@ func Middleware(cfg config.Jwt) func(http.Handler) http.Handler {
 }
 
 func verifyRequest(cfg config.Jwt, r *http.Request) (Claims, bool) {
+	return VerifyRequest(cfg, r)
+}
+
+// VerifyRequest is Lifecycle step 2 (Verify), exported so any handler that
+// needs "is this request anonymous" without going through the full
+// Middleware chain can reuse the exact same logic — rpc/handler.go's own
+// handleRpc and the static package's access-control gate both call this
+// directly rather than duplicating a third copy. Any failure (missing
+// cookie, bad signature, expired, session-ceiling exceeded) is "no
+// session", never an error in its own right, per step 2.
+func VerifyRequest(cfg config.Jwt, r *http.Request) (Claims, bool) {
 	cookie, err := r.Cookie(cfg.CookieName)
 	if err != nil {
 		return nil, false

@@ -163,3 +163,92 @@ grant execute on function fn_app_only() to app_user;
 create function fn_wrong_shape(req "RelHttpRequest", parts_headers jsonb, files bytea[]) returns "RelHttpResponse" language sql as $$
   select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'should not be routable');
 $$;
+
+-- A real fn__options route : proves the CORS preflight responder never
+-- shadows an actual OPTIONS-suffixed route function (specs/04-http-
+-- content.md ## CORS ### Preflight handling).
+create function fn_optroute__OPTIONS() returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'real options route');
+$$;
+
+-- specs/04-http-content.md ## CSP ### Per-response override : a raw
+-- policy string replaces the process-wide default for this one response.
+create function fn_csp_override() returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'csp override', 'csp', 'default-src ''none''');
+$$;
+
+-- A route function returning a Jet template response (specs/04-http-
+-- content.md ## Templates) : template_data carries through to the
+-- template unchanged, alongside Req/Nonce.
+create function fn_template(req "RelHttpRequest") returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object(
+    'status', 200,
+    'content_type', 'text/html',
+    'template', 'greet.jet',
+    'template_data', jsonb_build_object('name', 'World')
+  );
+$$;
+
+-- A route whose template doesn't exist on disk : proves a load failure is
+-- a 500, never a silent fallback to resp.content.
+create function fn_template_missing() returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/html', 'template', 'does-not-exist.jet');
+$$;
+
+-- specs/04-http-content.md ### Upload destinations' RelUpload domain and
+-- the two-function <name>__prepare/<name> family. fn_dest_upload__prepare
+-- reads a "reject" query flag to exercise the earliest-rejection path, and
+-- an optional "path"/"overwrite" query value to control placement ; the
+-- mandatory fn_dest_upload records what it actually received (path/mkdir/
+-- overwrite/part/size) into upload_log for tests to assert on.
+create domain "RelUpload" as jsonb;
+
+create table upload_log (id serial primary key, upload jsonb not null);
+grant all on upload_log to public;
+grant all on upload_log_id_seq to public;
+
+create function fn_dest_upload__prepare(req "RelHttpRequest", part jsonb) returns "RelUpload" language plpgsql as $$
+declare
+  q jsonb := req->'query';
+begin
+  if q->>'reject' = 'true' then
+    raise exception 'rejected by prepare' using errcode = 'RS400';
+  end if;
+  return jsonb_build_object(
+    'path', q->>'path',
+    'mkdir', coalesce((q->>'mkdir')::boolean, false),
+    'overwrite', coalesce(q->>'overwrite', 'disallow')
+  );
+end;
+$$;
+
+create function fn_dest_upload(req "RelHttpRequest", upload "RelUpload") returns "RelHttpResponse" language plpgsql as $$
+begin
+  insert into upload_log (upload) values (upload);
+  return jsonb_build_object(
+    'status', 200,
+    'content_type', 'application/json',
+    'content', upload
+  );
+end;
+$$;
+
+-- A route the mandatory upload function itself rejects, AFTER bytes are
+-- already fully streamed to disk — proves the temp file is deleted and
+-- nothing lands at the final path on a mandatory-function failure.
+create function fn_dest_fail__prepare(req "RelHttpRequest", part jsonb) returns "RelUpload" language sql as $$
+  select jsonb_build_object('path', req->'query'->>'path', 'overwrite', 'allow');
+$$;
+create function fn_dest_fail(req "RelHttpRequest", upload "RelUpload") returns "RelHttpResponse" language plpgsql as $$
+begin
+  raise exception 'mandatory function always rejects' using errcode = 'RS422';
+end;
+$$;
+
+-- Orphan halves : neither should ever become a route on its own.
+create function fn_orphan_prepare__prepare(req "RelHttpRequest", part jsonb) returns "RelUpload" language sql as $$
+  select jsonb_build_object();
+$$;
+create function fn_orphan_mandatory(req "RelHttpRequest", upload "RelUpload") returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'should not be routable');
+$$;

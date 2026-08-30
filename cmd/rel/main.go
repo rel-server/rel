@@ -22,7 +22,6 @@ import (
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/rpc"
-	"github.com/ceymard/rel/server"
 )
 
 func main() {
@@ -85,14 +84,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("/rel", server.NewRelHandler(db, cfg))
-	// rpc.NewHandler's own internal mux already registers the full
-	// "/rpc/{schema}/{function}" pattern and expects the unmodified request
-	// path — mounting it here under "/rpc/" does no prefix-stripping (that's
-	// only http.StripPrefix's job, not plain ServeMux.Handle), so this
-	// composition is correct as-is.
-	mux.Handle("/rpc/", rpc.NewHandler(db, cfg, rpcRegistry))
+	// boot.BuildMux is the one shared assembler of the full inner handler
+	// (/rel, /rpc/, /static/, uniformly wrapped in CORS/CSP middleware) —
+	// boot/reload.go's Reload calls the exact same function on every
+	// SIGUSR1, so the two call sites can't drift on what the mux contains.
+	mux, err := boot.BuildMux(db, cfg, rpcRegistry, logger)
+	if err != nil {
+		logger.Error("building mux", "error", err.Error())
+		os.Exit(1)
+	}
 
 	// specs/03-dmut.md ## Reloading : http.Server.Handler is, permanently,
 	// this small reload-aware wrapper — written to srv.Handler exactly

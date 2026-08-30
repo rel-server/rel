@@ -244,6 +244,33 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Http.MaxPartCount != DefaultHttpMaxPartCount {
 		t.Errorf("expected default http.max_part_count=%d, got %d", DefaultHttpMaxPartCount, cfg.Http.MaxPartCount)
 	}
+	if cfg.Http.UploadDomainName != DefaultHttpUploadDomainName {
+		t.Errorf("expected default http.upload_domain_name=%q, got %q", DefaultHttpUploadDomainName, cfg.Http.UploadDomainName)
+	}
+	if cfg.Http.Templates.Path != DefaultHttpTemplatesPath {
+		t.Errorf("expected default http.templates.path=%q, got %q", DefaultHttpTemplatesPath, cfg.Http.Templates.Path)
+	}
+	if cfg.Http.Cors.AllowedOrigins != "" {
+		t.Errorf("expected default http.cors.allowed_origins empty (CORS closed), got %q", cfg.Http.Cors.AllowedOrigins)
+	}
+	if cfg.Http.Cors.AllowedMethods != DefaultHttpCorsAllowedMethods {
+		t.Errorf("expected default http.cors.allowed_methods=%q, got %q", DefaultHttpCorsAllowedMethods, cfg.Http.Cors.AllowedMethods)
+	}
+	if cfg.Http.Cors.AllowedHeaders != DefaultHttpCorsAllowedHeaders {
+		t.Errorf("expected default http.cors.allowed_headers=%q, got %q", DefaultHttpCorsAllowedHeaders, cfg.Http.Cors.AllowedHeaders)
+	}
+	if cfg.Http.Cors.MaxAge != DefaultHttpCorsMaxAge {
+		t.Errorf("expected default http.cors.max_age=%d, got %d", DefaultHttpCorsMaxAge, cfg.Http.Cors.MaxAge)
+	}
+	if cfg.Http.Csp.DefaultSrc != DefaultHttpCspDefaultSrc {
+		t.Errorf("expected default http.csp.default_src=%q, got %q", DefaultHttpCspDefaultSrc, cfg.Http.Csp.DefaultSrc)
+	}
+	if cfg.Http.Csp.ScriptSrc != "" || cfg.Http.Csp.Policy != "" {
+		t.Errorf("expected every other http.csp.* directive unset by default, got %+v", cfg.Http.Csp)
+	}
+	if len(cfg.Http.Static.Access) != 0 {
+		t.Errorf("expected no http.static.access rules by default, got %+v", cfg.Http.Static.Access)
+	}
 	if cfg.Jwt.Secret != "fixed-test-secret" {
 		t.Errorf("expected the explicitly-set jwt.secret, got %q", cfg.Jwt.Secret)
 	}
@@ -262,6 +289,99 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	// Default blacklist must still be present when config doesn't touch it.
 	if !cfg.Blacklist.IsRelationBlacklisted("pg_catalog", "anything") {
 		t.Errorf("expected DefaultBlacklist to still apply")
+	}
+}
+
+// TestLoad_HttpContentKeys covers specs/04-http-content.md's new config
+// surface : CORS/CSP scalars, http.templates.path, http.upload_domain_name,
+// and the named http.static.access.<name>.{prefix,function} map — same
+// named-sub-key shape blacklist.functions/relations already use.
+func TestLoad_HttpContentKeys(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "rel.toml", `
+[jwt]
+secret = "fixed-test-secret"
+
+[http.cors]
+allowed_origins = "https://example.com,https://other.example.com"
+allowed_methods = "GET, POST"
+allowed_headers = "Content-Type, X-Custom"
+max_age = 120
+
+[http.csp]
+default_src = "'self'"
+script_src = "'self' https://cdn.example.com"
+policy = ""
+
+[http.templates]
+path = "/my/templates"
+
+[http]
+upload_domain_name = "MyUpload"
+
+[http.static.access.private]
+prefix = "private/"
+function = "auth.check_static_access"
+
+[http.static.access.admin]
+prefix = "admin/"
+function = "auth.check_admin_access"
+`)
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Http.Cors.AllowedOrigins != "https://example.com,https://other.example.com" {
+		t.Errorf("unexpected http.cors.allowed_origins: %q", cfg.Http.Cors.AllowedOrigins)
+	}
+	if cfg.Http.Cors.AllowedMethods != "GET, POST" {
+		t.Errorf("unexpected http.cors.allowed_methods: %q", cfg.Http.Cors.AllowedMethods)
+	}
+	if cfg.Http.Cors.AllowedHeaders != "Content-Type, X-Custom" {
+		t.Errorf("unexpected http.cors.allowed_headers: %q", cfg.Http.Cors.AllowedHeaders)
+	}
+	if cfg.Http.Cors.MaxAge != 120 {
+		t.Errorf("unexpected http.cors.max_age: %d", cfg.Http.Cors.MaxAge)
+	}
+	if cfg.Http.Csp.ScriptSrc != "'self' https://cdn.example.com" {
+		t.Errorf("unexpected http.csp.script_src: %q", cfg.Http.Csp.ScriptSrc)
+	}
+	if cfg.Http.Templates.Path != "/my/templates" {
+		t.Errorf("unexpected http.templates.path: %q", cfg.Http.Templates.Path)
+	}
+	if cfg.Http.UploadDomainName != "MyUpload" {
+		t.Errorf("unexpected http.upload_domain_name: %q", cfg.Http.UploadDomainName)
+	}
+	if len(cfg.Http.Static.Access) != 2 {
+		t.Fatalf("expected 2 static access rules, got %d: %+v", len(cfg.Http.Static.Access), cfg.Http.Static.Access)
+	}
+	priv, ok := cfg.Http.Static.Access["private"]
+	if !ok || priv.Prefix != "private/" || priv.Function != "auth.check_static_access" {
+		t.Errorf("unexpected private static access rule: %+v", priv)
+	}
+	admin, ok := cfg.Http.Static.Access["admin"]
+	if !ok || admin.Prefix != "admin/" || admin.Function != "auth.check_admin_access" {
+		t.Errorf("unexpected admin static access rule: %+v", admin)
+	}
+}
+
+// TestLoad_CspPolicyOverride confirms http.csp.policy loads as a plain raw
+// string, independent of the individual directive keys.
+func TestLoad_CspPolicyOverride(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "rel.toml", `
+[jwt]
+secret = "fixed-test-secret"
+
+[http.csp]
+policy = "default-src 'self'; script-src 'self' 'unsafe-inline'"
+`)
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Http.Csp.Policy != "default-src 'self'; script-src 'self' 'unsafe-inline'" {
+		t.Errorf("unexpected http.csp.policy: %q", cfg.Http.Csp.Policy)
 	}
 }
 

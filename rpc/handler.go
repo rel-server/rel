@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -13,21 +12,26 @@ import (
 	"github.com/ceymard/rel/dbauth"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/pg"
+	"github.com/ceymard/rel/static"
 )
 
 // NewHandler is /rpc/{schema}/{function} : one dynamic dispatch pattern per
 // ## HTTP's own wording ("dispatched dynamically... rather than registered
 // as their own routes"), not one ServeMux registration per discovered
-// function.
-func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry) http.Handler {
+// function. staticSrv is ### Upload destinations' own write target
+// (http.static.path's first directory) — nil when no static directory is
+// configured/exists, in which case an upload route resolving a non-empty
+// "path" is a 500 (there's nowhere to write to).
+func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server) http.Handler {
+	templates := templatesForConfig(cfg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rpc/{schema}/{function}", func(w http.ResponseWriter, r *http.Request) {
-		handleRpc(w, r, db, cfg, reg)
+		handleRpc(w, r, db, cfg, reg, templates, staticSrv)
 	})
 	return mux
 }
 
-func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry) {
+func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, templates *TemplateSet, staticSrv *static.Server) {
 	ctx := r.Context()
 	schema := r.PathValue("schema")
 	function := r.PathValue("function")
@@ -59,6 +63,16 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 	}
 
+	// specs/04-http-content.md ### Upload destinations : a genuinely
+	// different request flow (body resolved AFTER __prepare's placement
+	// decision, streamed straight to disk, never through resolveRequestBody
+	// at all) — dispatched to its own handler entirely, before any of the
+	// ordinary single-transaction machinery below runs.
+	if route.IsUpload {
+		handleUploadRoute(w, r, db, cfg, route, staticSrv, templates, verified, claims)
+		return
+	}
+
 	// ## Request bodies : parses multipart/form-data or a single raw
 	// binary body per route.AcceptsFiles, enforcing http.max_body_size/
 	// http.max_part_count and the 415 shape-mismatch rules, and produces
@@ -87,6 +101,10 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		writePlainError(w, http.StatusInternalServerError, "encoding request")
 		return
 	}
+	// Stashed for ## Templates' "Req" VarMap — the exact RelHttpRequest JSON
+	// the route function itself received, not independently re-derived.
+	r = r.WithContext(withRequestJSON(ctx, reqJSON))
+	ctx = r.Context()
 
 	// Only now — request known-authorized, body already fully read and
 	// resolved — does a pool connection get acquired.
@@ -163,7 +181,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	writeRelHttpResponse(w, cfg, route, raw)
+	writeRelHttpResponse(w, r, cfg, route, raw, templates)
 }
 
 // verifyRequestJWT reads cfg.Jwt.CookieName off r and verifies it. Any
@@ -171,21 +189,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 // exceeded) is "no session", per Lifecycle step 2 — never an error in its
 // own right.
 func verifyRequestJWT(cfg *config.Config, r *http.Request) (jwtpkg.Claims, bool) {
-	cookie, err := r.Cookie(cfg.Jwt.CookieName)
-	if err != nil {
-		return nil, false
-	}
-	claims, err := jwtpkg.Verify(cfg.Jwt, cookie.Value)
-	if err != nil {
-		// Failure is never an error for the request itself (Lifecycle step
-		// 2 treats it as "no session"), but a forged/tampered token and an
-		// honestly-expired one are operationally very different, and this
-		// is the only signal an operator gets for either — never log the
-		// token itself.
-		slog.Default().Debug("rpc: jwt verification failed, treating as anonymous", "path", r.URL.Path, "error", err.Error())
-		return nil, false
-	}
-	return claims, true
+	return jwtpkg.VerifyRequest(cfg.Jwt, r)
 }
 
 // invokeRoute calls route.Function with the argument list matching

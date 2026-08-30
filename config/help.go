@@ -59,13 +59,30 @@ var Options = []Option{
 	{"http.port", fmt.Sprint(DefaultHttpPort), "HTTP listen port."},
 	{"http.request_domain_name", DefaultHttpRequestDomainName, "Name of the JSON domain identifying a route function's request argument type."},
 	{"http.response_domain_name", DefaultHttpResponseDomainName, "Name of the JSON domain identifying a route function's response type."},
+	{"http.upload_domain_name", DefaultHttpUploadDomainName, "Name of the JSON domain used by the two-function upload-destinations mechanism (see specs/04-http-content.md)."},
 	{"http.cookies_max_age", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route response, when unspecified. Doesn't apply to the JWT cookie — see jwt.max_age."},
 	{"http.max_body_size", fmt.Sprint(DefaultHttpMaxBodySize) + " (bytes)", "Hard cap on a /rpc request's entire body (for multipart, the whole envelope — boundaries and part headers included, not just part payload bytes). Rejected with 413 before any of it is buffered in memory."},
 	{"http.max_part_count", fmt.Sprint(DefaultHttpMaxPartCount), "Max number of multipart/form-data parts a single /rpc request may contain, independent of their total byte size."},
 	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route functions may mint or clear a session."},
 	{"http.functions.allowed_routes", "(unrestricted)", "Regexp restricting which route functions are exposed as /rpc routes."},
 	{"http.functions.check_session", "(disabled)", "Function called on every authenticated request, letting the database reject a session early."},
-	{"http.static.path", DefaultHttpStaticPath, "Path prefix for static file serving (not yet implemented)."},
+	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served at the fixed /static/ URL prefix, first match wins."},
+	{"http.templates.path", DefaultHttpTemplatesPath, "Filesystem directory Jet templates (RelHttpResponse.template) are loaded from."},
+	{"http.cors.allowed_origins", "(empty — CORS closed)", "Comma-separated list of exact origins allowed to make cross-origin requests, or the literal \"*\"."},
+	{"http.cors.allowed_methods", DefaultHttpCorsAllowedMethods, "Methods a CORS preflight may approve."},
+	{"http.cors.allowed_headers", DefaultHttpCorsAllowedHeaders, "Request headers a CORS preflight may approve."},
+	{"http.cors.max_age", fmt.Sprint(DefaultHttpCorsMaxAge) + " (seconds)", "How long a browser may cache one CORS preflight response."},
+	{"http.csp.default_src", DefaultHttpCspDefaultSrc, "CSP default-src directive value."},
+	{"http.csp.script_src", "(unset — falls back to default-src)", "CSP script-src directive value."},
+	{"http.csp.style_src", "(unset — falls back to default-src)", "CSP style-src directive value."},
+	{"http.csp.img_src", "(unset — falls back to default-src)", "CSP img-src directive value."},
+	{"http.csp.font_src", "(unset — falls back to default-src)", "CSP font-src directive value."},
+	{"http.csp.connect_src", "(unset — falls back to default-src)", "CSP connect-src directive value."},
+	{"http.csp.object_src", "(unset — falls back to default-src)", "CSP object-src directive value."},
+	{"http.csp.frame_ancestors", "(unset — falls back to default-src)", "CSP frame-ancestors directive value."},
+	{"http.csp.base_uri", "(unset — falls back to default-src)", "CSP base-uri directive value."},
+	{"http.csp.form_action", "(unset — falls back to default-src)", "CSP form-action directive value."},
+	{"http.csp.policy", "(unset)", "Full, raw Content-Security-Policy header value ; replaces every individual http.csp.* directive above entirely when set."},
 
 	// ---- jwt.* : session lifecycle ----
 	{"jwt.secret", "(auto-generated)", "HMAC signing secret for JWTs. Auto-generates a 32-character secret into ./jwt-secret on first run and reuses it after — see $FILE$/$GEN$ below."},
@@ -189,6 +206,8 @@ Dynamic namespaces (not enumerated above — "*" matches an entire schema) :
   logging.exclude.<attr>=<regexp>              suppress records whose <attr> matches <regexp> (applied after filter)
   blacklist.relations.<schema>.<name|*>=y|n    blacklist a relation, or a whole schema, from being queried
   blacklist.functions.<schema>.<name|*>=y|n    blacklist a function from being called
+  http.static.access.<name>.prefix=<subpath>   gate a static-file subpath prefix behind a DB check
+  http.static.access.<name>.function=<fqname>  the check_static_access-shaped function for that rule
   Both blacklists only ever ADD to the built-in defaults ; neither ever removes from them.
   As flags/config file keys these are dotted directly ; as environment variables, the
   same REL_/"__" rule as every other key applies to the placeholders too, e.g.
