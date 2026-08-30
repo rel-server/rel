@@ -78,6 +78,11 @@ func TestResolveConfigFilePath_NoMatchIsNotAnError(t *testing.T) {
 }
 
 func TestLoad_PrecedenceFileEnvFlag(t *testing.T) {
+	// jwt.secret isn't set anywhere in this test ; its $GEN$ default would
+	// otherwise write a "jwt-secret" file wherever `go test` runs from —
+	// isolate cwd instead (see TestLoad_JwtSecretDefault_GenAndResolve's
+	// own doc comment for the underlying behavior this works around).
+	t.Chdir(t.TempDir())
 	dir := t.TempDir()
 	// querying.md ## Configuration's real keys : query.host/query.port, NOT
 	// pg.host/pg.port — see the fix note in loader.go's assemble().
@@ -124,6 +129,7 @@ port = 1111
 // default's VALUE is another config key, not a constant, so this needs its
 // own test distinct from the generic *OrDefault coverage elsewhere.
 func TestLoad_QueryUserDefaultsToDmutUser(t *testing.T) {
+	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
 [dmut]
 user = "dmut_user"
@@ -235,6 +241,7 @@ func TestLoad_JwtSecretDefault_GenAndResolve(t *testing.T) {
 }
 
 func TestLoad_YamlAndHumlParse(t *testing.T) {
+	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	dir := t.TempDir()
 	yamlPath := writeFile(t, dir, "rel.yaml", "query:\n  host: yaml-host\n")
 	cfg, err := Load([]string{"--config=" + yamlPath})
@@ -271,6 +278,7 @@ func TestLoad_UnreadableExplicitConfigIsFatal(t *testing.T) {
 // Config object's "if any errors were collected, Rel logs all of them
 // together and exits."
 func TestLoad_MalformedValueIsFatal_TOML(t *testing.T) {
+	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
 [http]
 port = "abc"
@@ -282,6 +290,7 @@ port = "abc"
 }
 
 func TestLoad_MalformedValueIsFatal_Env(t *testing.T) {
+	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	t.Setenv("REL_HTTP__PORT", "abc")
 	_, err := Load(nil)
 	if err == nil {
@@ -295,6 +304,7 @@ func TestLoad_MalformedValueIsFatal_Env(t *testing.T) {
 // koanf-specific assumptions there — Set unflattening a dotted key, All
 // being safe to iterate while Setting — were previously unverified).
 func TestLoad_FileIndirectionEndToEnd(t *testing.T) {
+	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	dir := t.TempDir()
 	secretPath := writeFile(t, dir, "dbname.txt", "indirected_db\n")
 	configPath := writeFile(t, dir, "rel.toml", `
