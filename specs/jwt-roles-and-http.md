@@ -91,9 +91,9 @@ Routing is done with the standard library's `net/http.ServeMux` (Go 1.22+ method
 
 > Why `/rpc`, not `/api` : `/api` describes nothing about what the route actually does (every HTTP endpoint in existence is "an API"). `/rpc` names the actual mechanism — a named backend function called directly over HTTP — and matches PostgREST's own convention for the identical concept, which `# Roles` below already invokes as a point of comparison.
 
-Creating the domain types `RelHttpRequest` and `RelHttpResponse` on JSON or JSONB (their schema doesn't matter) and using them in function prototypes, or creating a domain over `bytea` with a `/` in their name, enables functions to return binary content with the domain name as mime-type.
+Creating the domain types `RelHttpRequest` and `RelHttpResponse` on JSON or JSONB (their schema doesn't matter) and using them in function prototypes, or creating a domain over `bytea` OR `text` with a `/` in their name, enables functions to return binary (or plain-text) content with the domain name as mime-type — a "mimetype domain". Which underlying type a mimetype domain uses only changes how its return value becomes the response body : a `bytea`-underlying one's raw bytes ARE the body ; a `text`-underlying one's string IS the body directly, with no base64 or other encoding involved (unlike `RelHttpRequest.body`'s own binary case — see `## Request` below — a mimetype domain's return value is never itself wrapped in JSON, so there's no jsonb-safety concern forcing an encoding here). `"text/plain"` over `text` is the common case — deliberately expressed this way (a NAMED domain, same mechanism as `"image/png"`) rather than as a special case for a bare, undecorated `returns text`/`returns json` with no domain wrapper at all : a bare scalar return type carries no name to derive a `Content-Type` from, so it would need an invented default (`text/plain` is a defensible guess for bare `text` ; there's no equally obvious guess for bare `bytea`, which is exactly why mimetype domains exist in the first place — the type's OWN name states the content-type explicitly instead of rel guessing one).
 
-A function whose name does **not** start with `_`, and that takes 0 arguments or one `RelHttpRequest` argument, and that returns `RelHttpResponse` or a mimetype domain, is a HTTP route function — callable directly at `/rpc/<schema>/<function_name>` (and, if `http.functions.allowed_routes` is set, only if its fully qualified name also matches that regexp). A leading `_` opts a function out of route discovery unconditionally, with no configuration needed — this is how internal helpers that happen to match the signature stay unexposed.
+A function whose name does **not** start with `_`, and that takes the argument shapes `## Request bodies` below describes (0 arguments, one `RelHttpRequest` argument, or `RelHttpRequest` plus one of the extra body-parameter shapes), and that returns `RelHttpResponse` or a mimetype domain, is a HTTP route function — callable directly at `/rpc/<schema>/<function_name>` (and, if `http.functions.allowed_routes` is set, only if its fully qualified name also matches that regexp). A leading `_` opts a function out of route discovery unconditionally, with no configuration needed — this is how internal helpers that happen to match the signature stay unexposed.
 
 Such a function's name can end with `__VERB` (`__GET`, `__POST`, ...) to restrict which HTTP verb it answers to; case doesn't matter. If a verb-suffixed function is defined alongside an unsuffixed one, the unsuffixed function is the fallback for verbs with no specific match. Conforming to web semantics (e.g. `__GET` must not mutate state — see the CSRF note under Cookies) is the function author's responsibility; rel does not enforce it.
 
@@ -103,8 +103,10 @@ Such a function's name can end with `__VERB` (`__GET`, `__POST`, ...) to restric
 create domain "RelHttpRequest" as jsonb;
 create domain "RelHttpResponse" as jsonb;
 create domain "image/png" AS bytea;
+create domain "text/plain" AS text;
 create function schema.some_function(req RelHttpRequest) returns RelHttpResponse /* ... */;
 create function schema.returns_binary() returns "image/png" /* ... */;
+create function schema.returns_text() returns "text/plain" /* ... */;
 ```
 
 ## Configuration
@@ -115,6 +117,7 @@ create function schema.returns_binary() returns "image/png" /* ... */;
 * `http.cookies_max_age` (default `86400`) : default max-age for cookies set via the generic `cookies` field, when the response doesn't specify one. Does not apply to the JWT cookie (see `jwt.max_age`).
 * `http.functions.allowed_auth` (default empty) : regexp restricting which functions' responses rel will honor a `jwt` field from, matched against the fully qualified, unquoted function name. Empty means unrestricted.
 * `http.functions.allowed_routes` (default empty) : regexp a function's fully qualified, unquoted name must additionally match to become a public route, on top of having the right signature and not starting with `_`. Empty means unrestricted (any matching-signature, non-`_` function is routed).
+* `http.max_body_size` (default `10485760`, 10 MiB) : hard cap, in bytes, on a `/rpc` request's total body size (the sum of all multipart parts, or the single body, whichever applies). Enforced before any part is buffered in memory, not after — a request whose `Content-Length` already exceeds this (or whose body turns out to exceed it while streaming, for a chunked request with no declared length) is rejected outright (`413 Payload Too Large`), never partially read into memory first. Exists specifically so `## Request bodies`' multipart/binary support doesn't turn `/rpc` into an unauthenticated memory-exhaustion vector — every request body was already read into memory unconditionally before this setting existed, which was fine for small JSON payloads and not fine once arbitrary file uploads are in scope. 10 MiB is a starting point sized for "a handful of modest images/documents," not large media — a deployment doing genuine large-file uploads is expected to raise this explicitly, a deliberate choice rather than an accidentally-permissive default. Deliberately scoped to `/rpc` only : `/rel`'s own POST bodies (`querying.md`'s write payloads) are legitimately large for a bulk write and already a distinct code path — bounding those, if ever needed, is a separate setting/decision, not silently folded into this one.
 
 ## Cookies
 
@@ -140,7 +143,7 @@ The JWT itself is read/set more directly through the `jwt` field on `RelHttpRequ
 
 ## Request
 
-If a function has exactly one argument of type `RelHttpRequest`, the request is encoded as:
+If a function has exactly one argument of type `RelHttpRequest`, or `RelHttpRequest` plus one of the extra body-parameter shapes `## Request bodies` describes, the request is encoded as:
 
 ```typescript
 interface RelHttpRequest {
@@ -149,14 +152,52 @@ interface RelHttpRequest {
   query: unknown
   headers: {[name: string]: string[]}
   content_type: string
-  content: string // may be ""
+  body: unknown // shape depends on content_type — see below
 
   cookies: {[name: string]: string} // value only — see the note below
   jwt: JWT | null // null when the request carries no valid session
 }
 ```
 
+`RelHttpRequest.body` (renamed from an earlier, always-a-raw-string `content` field) is typed by `content_type`, the same way `RelHttpResponse.content` already lets its own `content_type` drive interpretation on the response side — this is that same convention, now also applied to the request side, not a new one :
+
+* `application/json`, or any `+json` suffix (`application/vnd.api+json`, ...) : `body` decodes to the request's actual JSON value — an object, array, or scalar — never a JSON-encoded STRING of it. This is the change that actually motivated the rename : the old `content: string` forced a JSON request body through `(req->>'content')::jsonb` inside every function that wanted to use it, double-encoding for no reason.
+* `text/*` (any subtype, `charset=` parameter ignored for this match) : `body` is the plain string, exactly as `content` used to always be.
+* Anything else (binary) : `body` is a base64-encoded string of the raw bytes — the only encoding that survives unmodified inside jsonb (a raw byte sequence isn't valid JSON text on its own, and a Go/JS/Postgres JSON encoder given arbitrary non-UTF-8 bytes as a "string" mangles them, replacing invalid sequences — silently corrupting the payload). Postgres's own `decode(body, 'base64')::bytea` recovers the original bytes inside the function body.
+* No body at all (a `GET`, or any request with an empty body) : `body` is JSON `null`.
+* A route declaring one of `## Request bodies`' extra body-parameter shapes : `body` is ALWAYS JSON `null`, regardless of `content_type` — the payload is delivered exclusively through the extra parameters in that case, never duplicated into `body` as well (a `(req, body bytea)` route receiving a 10 MiB upload does NOT also carry a ~13 MiB base64 copy of the same bytes inside `req`).
+
 `RelHttpRequest.cookies` deliberately does NOT reuse the full `Cookie` shape (`value`/`httponly`/`secure`/`samesite`/`maxage`) the response side uses — a browser's `Cookie` header only ever sends `name=value`, the other four attributes are response-only (`Set-Cookie` attributes) and can never be known for an inbound cookie. Value-only avoids four fields that would always be empty/false/zero.
+
+## Request bodies
+
+`RelHttpRequest.body` above covers the common case — one body, JSON or text or a single binary blob. `multipart/form-data` (several independently-typed parts in one request — a genuine file upload, possibly several) needs more than one scalar field can hold, so it's expressed instead as EXTRA function parameters beyond `req RelHttpRequest`, matched by their TYPE SEQUENCE — never by parameter name, so a function author names them however they like (`bodies`, `files`, `attachments`, doesn't matter to rel) :
+
+```sql
+-- one binary part, no metadata
+create function schema.upload_one(req RelHttpRequest, body bytea) returns RelHttpResponse /* ... */;
+-- one binary part, plus its own Content-Type
+create function schema.upload_one_typed(req RelHttpRequest, body bytea, mime text) returns RelHttpResponse /* ... */;
+
+-- several multipart parts, bodies only
+create function schema.upload_many(req RelHttpRequest, bodies bytea[]) returns RelHttpResponse /* ... */;
+-- several multipart parts, plus each one's field name
+create function schema.upload_many_named(req RelHttpRequest, bodies bytea[], names text[]) returns RelHttpResponse /* ... */;
+-- several multipart parts, plus each one's field name AND Content-Type
+create function schema.upload_many_full(req RelHttpRequest, bodies bytea[], names text[], mimes text[]) returns RelHttpResponse /* ... */;
+```
+
+Only these seven shapes (`()`, `(req)`, and the five above) are recognized route-function signatures — anything else (extra parameters in a different order, a different type, `names`/`mimes` without the parameter before it in this list) is simply not discovered as a route at all, same as any other signature mismatch today. In particular `names`/`mimes` can only be added as a FIXED, ordered prefix extension (`bodies` → `bodies, names` → `bodies, names, mimes`) — wanting `mimes` without caring about `names` still means declaring (and ignoring) a `names text[]` parameter ; there is no independent-combination matching. This keeps route discovery a small, fixed table of accepted shapes rather than open-ended parameter-set matching.
+
+The two families are mutually exclusive with the request itself, not just with each other — a hard, symmetric rule, always a `415 Unsupported Media Type`, never a silent fallback in either direction :
+
+* A route declaring one of the `bodies bytea[]` (plural) shapes, called with a request whose `Content-Type` isn't `multipart/*`, is a `415`.
+* A route declaring the singular `body bytea`/`body bytea, mime text` shape, called with an actual `multipart/form-data` request, is ALSO a `415` — not "take the first part," even though that would technically work. A route's declared shape is a contract about what it accepts, not a best-effort hint.
+* A plain `(req)`-only route (no extra body parameters at all) called with a `multipart/form-data` request is ALSO a `415`. Multipart requires a route that declared one of the shapes above — it is NOT accepted as "anything else (binary)" under `## Request`'s `body` content-type table, which would otherwise base64-encode the entire raw multipart stream (boundaries and all) into `body`, a value no function is meant to parse.
+
+`names`/`mimes` (plural) are each multipart part's own field name and `Content-Type`, in the same order as `bodies` — index `i` of all three always describes the same part. The singular `body`/`mime` shape is for a plain (non-multipart) binary `POST` — its Content-Type is the REQUEST's own `content_type` (same value `RelHttpRequest.content_type` already carries), so `mime` here is redundant with that field, included only for symmetry with the plural form and convenience (no need to also take `req` apart just to read one field back out of it). There is no `name` parameter in the singular shape : a lone raw-binary POST isn't tied to a multipart field name, so there'd be nothing meaningful to put there.
+
+**Not addressed by this mechanism, an open question rather than a silent decision** : a real multipart form frequently mixes plain (non-file) fields with file uploads in one submission (a `title` text input alongside an attached file, say). Neither `RelHttpRequest.body` nor the `bodies`/`names`/`mimes` parameters above capture those plain fields — they are currently simply not delivered to the function at all when a request takes this path. Two candidate resolutions, neither chosen yet : fold them into `RelHttpRequest.query`-style generic JSON, or treat mixed multipart+structured-data submissions as out of scope for v1 (the client sends structured data and files as two separate requests instead — a split plenty of real APIs already make deliberately, specifically to avoid this exact complexity). Needs a decision before implementation, not silently picked while writing the Go code that consumes this spec.
 
 ## Responses
 
