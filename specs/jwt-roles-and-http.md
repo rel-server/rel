@@ -148,9 +148,10 @@ exactly, no search. Otherwise (the common, default case) rel searches every sche
 with that bare name : exactly one match resolves normally ; zero matches gets the same non-fatal
 "didn't resolve" warning `http.response_domain_name` already has (route discovery/the affected
 mechanism just doesn't activate) ; MORE than one match (two different schemas each declaring their
-own `RelHttpRequest`, say) is treated the same way — a non-fatal warning naming every schema the
-ambiguous match was found in, and the mechanism stays disabled rather than silently picking
-whichever one introspection happened to see first. A genuinely multi-schema project that wants two
+own `RelHttpRequest`, say) is a FATAL startup error instead, naming every schema the ambiguous
+match was found in — unlike "not found," there's nothing sensible to silently fall back to here,
+and picking whichever one introspection happened to see first would be a real, silent correctness
+hazard rather than a merely-inactive feature. A genuinely multi-schema project that wants two
 distinct domains of the same conceptual role active at once isn't served by any of these three
 settings today — out of scope for this pass, same as the rest of this document's "no per-schema
 override" settings.
