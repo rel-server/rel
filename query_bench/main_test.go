@@ -1,0 +1,100 @@
+// Copyright 2025 Christophe Eymard
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package query_bench holds READ-path benchmarks (query.CompileSelect +
+// execution) against the hotel/booking fixture (test/dmut, test/seed/seed —
+// see test/README.md), at a realistic data volume : ~13 properties, ~195
+// rooms, 200 guests, 500 bookings, plus reviews/payments/staff.
+//
+// Deliberately a SEPARATE package from query/write_bench_test.go's own
+// benchmarks : those exercise the WRITE path (ExecuteWrite) against the
+// flat movie/director fixture already wired up by query's own TestMain
+// (pg/testdata/schema.sql). This package needs its own container, its own
+// schema (applied via dmut, not a plain init script — the hotel fixture is
+// specified to use the same migration tool rel itself depends on), and a
+// seed pass — genuinely different setup, so a separate package/TestMain
+// keeps the two from being conflated, and keeps the (real) container+dmut+
+// seed cost isolated to benchmark runs of this package alone.
+//
+// Run with e.g.:
+//
+//	go test ./query_bench/... -run=^$ -bench=. -benchtime=1x
+package query_bench
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"testing"
+
+	"github.com/ceymard/rel/config"
+	"github.com/ceymard/rel/dmut"
+	"github.com/ceymard/rel/pg"
+	"github.com/ceymard/rel/test/seed/seed"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+)
+
+var (
+	testDb  *pg.DbInfos
+	testCfg *config.Config
+)
+
+// fixedSeed matches test/seed/main.go's own const — reproducible data, not
+// a coincidence of two independent random choices.
+const fixedSeed = 42
+
+// TestMain builds the hotel schema (via dmut, per test/README.md) and seeds
+// it (via test/seed/seed.Run) ONCE for the whole package's benchmark run —
+// container start + dmut migrations + ~700 inserts is real, non-trivial
+// cost, and re-paying it per benchmark function would dominate the numbers
+// instead of the query compilation/execution actually being measured.
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+
+	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		_ = container.Terminate(ctx)
+	}()
+
+	uri, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		panic(err)
+	}
+
+	// dmut.Run applies test/dmut's schema mutations — the same mechanism
+	// rel's own migrations use (specs/03-dmut.md), not a parallel SQL
+	// script that could drift from it.
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	if _, err := dmut.Run(ctx, uri, config.Dmut{Path: "../test/dmut"}, logger); err != nil {
+		panic(err)
+	}
+
+	testDb, err = pg.NewInfos(uri)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := seed.Run(ctx, testDb.Pool, fixedSeed); err != nil {
+		panic(err)
+	}
+
+	testCfg = config.Test()
+
+	// m.Run() (not os.Exit(m.Run())), matching query/node_resolve_test.go's
+	// own TestMain : os.Exit would skip the container.Terminate defer above.
+	m.Run()
+}
