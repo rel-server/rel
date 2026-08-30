@@ -6,6 +6,7 @@
 package rpc
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/pg"
+	"github.com/jackc/pgx/v5"
 )
 
 // Route is one discovered route function : Function is the underlying
@@ -29,6 +31,16 @@ type Route struct {
 	MimeType            string
 	AcceptsFiles        bool
 	AcceptsPartsHeaders bool
+
+	// AnonymousAuthorized is specs/jwt-roles-and-http.md "# HTTP ##
+	// Anonymous route authorization" : true iff, at the time the registry
+	// was built, the anonymous role could actually reach this route —
+	// has_schema_privilege(anon, schema, 'USAGE') AND
+	// has_function_privilege(anon, function, 'EXECUTE'), both conjuncts.
+	// Meaningless when anonymous access is disabled altogether (db.
+	// AnonymousRoleExists false) — callers must check that first, since an
+	// anonymous role that doesn't exist was never queried against here.
+	AnonymousAuthorized bool
 }
 
 // Registry is every discovered route function, keyed schema → base
@@ -75,6 +87,17 @@ func (r *Registry) Lookup(schema, function, method string) (Route, bool) {
 // (matches more than one schema, when configured without its own schema
 // qualifier) IS a real, fatal build error — there's nothing sensible to
 // default to.
+//
+// Once every route function is discovered, BuildRegistry also runs
+// specs/jwt-roles-and-http.md "# HTTP ## Anonymous route authorization" :
+// one combined query against db.Pool computing, per route function, both
+// whether cfg.Pg.Query.AnonymousRole can reach it (schema USAGE + function
+// EXECUTE, both required — see Route.AnonymousAuthorized) and whether
+// PUBLIC can (same two-conjunct check, logged as a non-fatal warning per
+// route it's true for — Postgres grants EXECUTE to PUBLIC by default on
+// CREATE FUNCTION, a well-known footgun this surfaces rather than silently
+// ignores). The anonymous half is only trusted when db.AnonymousRoleExists
+// ; the PUBLIC-warning half always runs, independent of that.
 func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	reqType, err := resolveDomainByName(db, cfg.Http.RequestDomainName)
 	if err != nil {
@@ -137,7 +160,106 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 		}
 	}
 
+	if err := applyAnonymousAuthorization(db, cfg, reg); err != nil {
+		return nil, err
+	}
+
 	return reg, nil
+}
+
+// anonPublicPriv is one route function's cached anon/PUBLIC reachability,
+// per specs/jwt-roles-and-http.md "# HTTP ## Anonymous route
+// authorization" — both fields are the same two-conjunct check
+// (has_schema_privilege(role, schema, 'USAGE') AND
+// has_function_privilege(role, function, 'EXECUTE')), against the
+// anonymous role and PUBLIC respectively.
+type anonPublicPriv struct {
+	anonOK   bool
+	publicOK bool
+}
+
+// applyAnonymousAuthorization runs ONE combined query (not one per route)
+// against every discovered route function's PgOid, then sets each Route's
+// AnonymousAuthorized and warns for every route reachable by PUBLIC — see
+// BuildRegistry's own doc comment. Mutates reg.routes in place.
+func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, reg *Registry) error {
+	var oids []int
+	for _, byFunc := range reg.routes {
+		for _, byVerb := range byFunc {
+			for _, route := range byVerb {
+				oids = append(oids, route.Function.PgOid)
+			}
+		}
+	}
+	if len(oids) == 0 {
+		return nil
+	}
+
+	// has_schema_privilege/has_function_privilege ERROR outright if handed a
+	// role name that doesn't exist in pg_roles — so when db.AnonymousRoleExists
+	// is false (unconfigured, or configured to a name nothing created), the
+	// anon-role half of the query must not run against that name at all ;
+	// anon_ok is hardcoded false in that branch instead (AnonymousAuthorized
+	// is meaningless with anonymous access disabled anyway — see Route's own
+	// doc comment). The PUBLIC half always runs regardless — "PUBLIC" is
+	// always a valid pseudo-role for these functions, independent of any
+	// real role's existence.
+	query := `
+		select f.oid::integer as fn_oid,
+		       has_schema_privilege($1, f.pronamespace, 'USAGE') and has_function_privilege($1, f.oid, 'EXECUTE') as anon_ok,
+		       has_schema_privilege('public', f.pronamespace, 'USAGE') and has_function_privilege('public', f.oid, 'EXECUTE') as public_ok
+		from pg_proc f
+		where f.oid = any($2::oid[])
+	`
+	anonArg := cfg.Pg.Query.AnonymousRole
+	if !db.AnonymousRoleExists {
+		query = `
+			select f.oid::integer as fn_oid,
+			       false as anon_ok,
+			       has_schema_privilege('public', f.pronamespace, 'USAGE') and has_function_privilege('public', f.oid, 'EXECUTE') as public_ok
+			from pg_proc f
+			where f.oid = any($1::oid[])
+		`
+	}
+
+	privByOid := make(map[int]anonPublicPriv, len(oids))
+	var rows pgx.Rows
+	var err error
+	if db.AnonymousRoleExists {
+		rows, err = db.Pool.Query(context.Background(), query, anonArg, oids)
+	} else {
+		rows, err = db.Pool.Query(context.Background(), query, oids)
+	}
+	if err != nil {
+		return fmt.Errorf("rpc: querying anonymous/PUBLIC route authorization: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var oid int
+		var priv anonPublicPriv
+		if err := rows.Scan(&oid, &priv.anonOK, &priv.publicOK); err != nil {
+			return fmt.Errorf("rpc: scanning anonymous/PUBLIC route authorization: %w", err)
+		}
+		privByOid[oid] = priv
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rpc: reading anonymous/PUBLIC route authorization: %w", err)
+	}
+
+	for schema, byFunc := range reg.routes {
+		for base, byVerb := range byFunc {
+			for verb, route := range byVerb {
+				priv := privByOid[route.Function.PgOid]
+				route.AnonymousAuthorized = db.AnonymousRoleExists && priv.anonOK
+				byVerb[verb] = route
+				if priv.publicOK {
+					slog.Default().Warn("rpc: route is executable by PUBLIC", "schema", schema, "function", base, "verb", verb,
+						"target", route.Function.Identifier.String())
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // matchesRouteShape checks fn's arguments/return type against ## HTTP's and

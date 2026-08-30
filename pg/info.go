@@ -31,6 +31,15 @@ type DbInfos struct {
 	Functions []*Function
 	Relations []*Relation
 
+	// AnonymousRoleExists is specs/jwt-roles-and-http.md's "# Roles ##
+	// Anonymous role existence" check : whether the configured
+	// pg.query.anonymous_role name was found in pg_roles at introspection
+	// time. false means anonymous access is disabled outright — every
+	// unauthenticated request to /rel and /rpc alike must be rejected with
+	// 401, before route lookup, before any request body is read, before a
+	// pool connection is ever acquired.
+	AnonymousRoleExists bool
+
 	// SearchPath is the connecting role's resolved search path, in lookup
 	// order — see FillSearchPath (info_searchpath.go).
 	SearchPath []string
@@ -74,7 +83,7 @@ func (d *DbInfos) GetRelationByType(typeOid int) *Relation {
 // superuser either way) — and pgx's own default pool size (poolSize 0,
 // see NewInfosAdminQuery), since tests have no config.Pg.PoolSize to read.
 func NewInfos(uri string) (*DbInfos, error) {
-	return NewInfosAdminQuery(uri, uri, 0)
+	return NewInfosAdminQuery(uri, uri, 0, "")
 }
 
 // NewInfosAdminQuery introspects the database via a short-lived connection
@@ -97,7 +106,14 @@ func NewInfos(uri string) (*DbInfos, error) {
 // with no config to read a size from. The introspection pool above is
 // never sized by this : it opens exactly one connection, does its work,
 // and closes before the query pool is even created.
-func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int) (*DbInfos, error) {
+//
+// anonymousRole is pg.query.anonymous_role's configured value — checked
+// against pg_roles on the same introspection connection, before it's
+// released, to fill the returned *DbInfos' AnonymousRoleExists (see its
+// own doc comment). An empty anonymousRole leaves AnonymousRoleExists
+// false, consistent with the pre-existing "empty role is a hard error at
+// SET ROLE time" behavior elsewhere — there's nothing to look up.
+func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole string) (*DbInfos, error) {
 	introspectPool, err := pgxpool.New(context.Background(), primaryURI)
 	if err != nil {
 		return nil, oops.Wrapf(err, "failed to create introspection pool")
@@ -122,6 +138,14 @@ func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int) (*DbInfos, er
 
 	if err := db.Fill(conn.Conn()); err != nil {
 		return nil, err
+	}
+
+	if anonymousRole != "" {
+		if err := conn.Conn().QueryRow(context.Background(),
+			"select exists(select 1 from pg_roles where rolname = $1)", anonymousRole,
+		).Scan(&db.AnonymousRoleExists); err != nil {
+			return nil, oops.Wrapf(err, "failed to check anonymous role existence")
+		}
 	}
 
 	queryPoolConfig, err := pgxpool.ParseConfig(queryURI)

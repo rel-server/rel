@@ -144,6 +144,19 @@ create function fn_upload_with_headers(req "RelHttpRequest", files bytea[], part
   );
 $$;
 
+-- Route the anonymous role genuinely cannot reach : EXECUTE revoked from
+-- PUBLIC (Postgres's own CREATE FUNCTION default) and never re-granted to
+-- "~anonymous", only to app_user. Proves rpc.Route.AnonymousAuthorized —
+-- and the handler's fail-fast 401 — actually distinguish "anonymous can't
+-- even reach this route" (this function) from "anonymous can call it but
+-- the underlying query fails" (fn_secret above, reachable at the route
+-- level but denied at the table-select level).
+create function fn_app_only() returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'app only');
+$$;
+revoke execute on function fn_app_only() from public;
+grant execute on function fn_app_only() to app_user;
+
 -- Must NEVER be discovered : ## Request bodies' four shapes are matched by
 -- TYPE SEQUENCE — files/parts_headers reordered (jsonb before bytea[]) is
 -- simply not a recognized shape, same as any other signature mismatch.

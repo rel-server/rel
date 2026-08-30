@@ -47,13 +47,16 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 	// query_user_deploy, not the module's default superuser — deploy_roles.sql's
 	// whole point.
 	uri := fmt.Sprintf("postgres://query_user_deploy:test-password@%s:%s/postgres?sslmode=disable", host, port.Port())
-	db, err := pg.NewInfos(uri)
-	if err != nil {
-		t.Fatalf("NewInfos: %v", err)
-	}
-
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
+
+	// NewInfosAdminQuery, threading through the real anonymous role name —
+	// "anonymous call still works" below needs DbInfos.AnonymousRoleExists
+	// true, same reasoning as rpc_test.go's TestMain.
+	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("NewInfosAdminQuery: %v", err)
+	}
 
 	reg, err := BuildRegistry(db, cfg)
 	if err != nil {

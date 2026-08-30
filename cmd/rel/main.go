@@ -56,12 +56,15 @@ func main() {
 		logger.Error("resolving postgres connection", "error", err.Error())
 		os.Exit(1)
 	}
-	db, err := pg.NewInfosAdminQuery(primaryURI, queryURI, cfg.Pg.PoolSize)
+	db, err := pg.NewInfosAdminQuery(primaryURI, queryURI, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		logger.Error("connecting to postgres", "target", redactedTarget(primaryURI), "error", err.Error())
 		os.Exit(1)
 	}
 	logger.Info("connected to postgres", "target", redactedTarget(primaryURI))
+	if cfg.Pg.Query.AnonymousRole != "" && !db.AnonymousRoleExists {
+		logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", cfg.Pg.Query.AnonymousRole))
+	}
 
 	rpcRegistry, err := rpc.BuildRegistry(db, cfg)
 	if err != nil {

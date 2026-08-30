@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	jwtpkg "github.com/ceymard/rel/jwt"
+	"github.com/ceymard/rel/pg"
 )
 
 func TestHandler_AnonymousCall(t *testing.T) {
@@ -37,6 +40,104 @@ func TestHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandler_RouteAnonymousCannotReach_Is401 proves rpc.Route.
+// AnonymousAuthorized actually gates the request BEFORE the route function
+// ever runs (schema.sql's fn_app_only has EXECUTE revoked from PUBLIC,
+// never re-granted to "~anonymous", only to app_user) — distinct from
+// fn_secret's denial, which happens INSIDE the function at the
+// table-select level.
+func TestHandler_RouteAnonymousCannotReach_Is401(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_app_only", nil)
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandler_RouteAnonymousCannotReach_AuthenticatedStillWorks proves the
+// 401 above is genuinely about anonymous access specifically, not a
+// broken route : an authenticated app_user call to the same function
+// succeeds.
+func TestHandler_RouteAnonymousCannotReach_AuthenticatedStillWorks(t *testing.T) {
+	loginReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login", nil)
+	loginRec := httptest.NewRecorder()
+	testHandler.ServeHTTP(loginRec, loginReq)
+	var jwtCookie *http.Cookie
+	for _, c := range loginRec.Result().Cookies() {
+		if c.Name == testCfg.Jwt.CookieName {
+			jwtCookie = c
+		}
+	}
+	if jwtCookie == nil {
+		t.Fatalf("login didn't set a cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_app_only", nil)
+	req.AddCookie(jwtCookie)
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "app only" {
+		t.Errorf("expected \"app only\", got %q", rec.Body.String())
+	}
+}
+
+// TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies builds a completely
+// separate DbInfos/Registry/Handler against the SAME container/schema, but
+// with pg.query.anonymous_role pointed at a name nothing ever created —
+// specs/jwt-roles-and-http.md "# Roles ## Anonymous role existence" : with
+// anonymous access disabled outright, every unauthenticated request gets a
+// uniform 401, regardless of which route it targets (fn_echo0 has no
+// route-level restriction at all — this is specifically the blanket gate,
+// not route.AnonymousAuthorized).
+func TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies(t *testing.T) {
+	cfg := *testCfg
+	cfg.Pg.Query.AnonymousRole = "role_nobody_ever_created"
+
+	db, err := pg.NewInfosAdminQuery(testDbURI, testDbURI, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("NewInfosAdminQuery: %v", err)
+	}
+	if db.AnonymousRoleExists {
+		t.Fatalf("expected AnonymousRoleExists=false for a role nothing created")
+	}
+	reg, err := BuildRegistry(db, &cfg)
+	if err != nil {
+		t.Fatalf("BuildRegistry: %v", err)
+	}
+	handler := NewHandler(db, &cfg, reg)
+
+	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// An authenticated request is entirely unaffected by the anonymous
+	// role not existing — only unauthenticated requests are in scope here.
+	// fn_login itself is called anonymously (no cookie presented yet), so
+	// it's correctly ALSO denied by this same gate — a cookie is minted
+	// directly instead, standing in for an already-established session.
+	claims := jwtpkg.Mint(cfg.Jwt, "app_user", time.Now(), cfg.Jwt.MaxAge, nil)
+	token, err := jwtpkg.Sign(cfg.Jwt, claims)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	cookie := jwtpkg.CookieValue(cfg.Jwt, token, claims, "")
+
+	authedReq := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_secret", nil)
+	authedReq.AddCookie(cookie)
+	authedRec := httptest.NewRecorder()
+	handler.ServeHTTP(authedRec, authedReq)
+	if authedRec.Code != http.StatusOK {
+		t.Fatalf("expected an authenticated request to be unaffected, got %d: %s", authedRec.Code, authedRec.Body.String())
 	}
 }
 

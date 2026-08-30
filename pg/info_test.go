@@ -407,7 +407,7 @@ func TestType_ArrayResolution(t *testing.T) {
 // query pool, never the short-lived introspection connection -------------
 
 func TestNewInfosAdminQuery_PoolSizeAppliesToQueryPoolOnly(t *testing.T) {
-	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 3)
+	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 3, "")
 	if err != nil {
 		t.Fatalf("NewInfosAdminQuery: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestNewInfosAdminQuery_PoolSizeAppliesToQueryPoolOnly(t *testing.T) {
 }
 
 func TestNewInfosAdminQuery_ZeroPoolSizeLeavesPgxDefault(t *testing.T) {
-	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 0)
+	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 0, "")
 	if err != nil {
 		t.Fatalf("NewInfosAdminQuery: %v", err)
 	}

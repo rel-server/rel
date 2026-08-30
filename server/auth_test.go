@@ -11,6 +11,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	jwtpkg "github.com/ceymard/rel/jwt"
+	"github.com/ceymard/rel/pg"
 )
 
 // mintCookie signs role/extra claims under cfg.Jwt and returns the cookie a
@@ -180,6 +181,44 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	}
 	if !renewed {
 		t.Errorf("expected a renewed Set-Cookie, got %v", rec.Result().Cookies())
+	}
+}
+
+// TestRelHandler_AnonymousRoleDoesNotExist_Is401 is
+// specs/jwt-roles-and-http.md "# Roles ## Anonymous role existence" for
+// /rel specifically : a completely separate DbInfos, built against the
+// SAME container/schema but with pg.query.anonymous_role pointed at a
+// role nothing ever created, must reject an unauthenticated request with
+// a uniform 401 before the request body is even read — unlike
+// TestRelHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError below
+// (an EMPTY config value, still a 500 today, unaffected by this new gate
+// since db.AnonymousRoleExists there is still true off testDb), this is
+// the DATABASE-existence check : a real, non-empty name that simply
+// wasn't CREATE ROLEd.
+func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
+	cfg := *testCfg
+	cfg.Pg.Query.AnonymousRole = "role_nobody_ever_created"
+
+	db, err := pg.NewInfosAdminQuery(testDbURI, testDbURI, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("NewInfosAdminQuery: %v", err)
+	}
+	if db.AnonymousRoleExists {
+		t.Fatalf("expected AnonymousRoleExists=false for a role nothing created")
+	}
+	handler := NewRelHandler(db, &cfg)
+
+	rec := postRelTo(t, handler, `{"relation": "director", "schema": "public", "select": ["own"]}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Unaffected when a valid cookie is presented — this gate is
+	// specifically about UNAUTHENTICATED requests.
+	cookie := mintCookie(t, &cfg, "authenticated_user")
+	rec2 := postRelWithCookie(t, handler, `{"relation": "director", "schema": "public", "select": ["own"]}`, cookie)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected an authenticated request to be unaffected, got %d: %s", rec2.Code, rec2.Body.String())
 	}
 }
 

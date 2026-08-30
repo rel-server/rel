@@ -58,6 +58,11 @@ func (f *FunctionArgument) IsVariadic() bool {
 type Function struct {
 	Identifier SqlIdentifier
 
+	// PgOid is the function's own Postgres OID (pg_proc.oid) — needed for
+	// has_function_privilege(role, oid, 'EXECUTE'), which is more robust
+	// than reconstructing a schema.name(argtypes) signature string.
+	PgOid int
+
 	// The function's own COMMENT ON, if any — meant primarily for the
 	// TypeScript export to surface as a doc comment ; empty string if unset.
 	Comment string
@@ -162,6 +167,7 @@ SELECT json_agg(S) FROM	(SELECT
     'Name', p.proname
   ) AS "Identifier",
 	obj_description(p.oid, 'pg_proc') AS "Comment",
+	p.oid::integer AS "PgOid",
 	p.prorettype::integer as "PgReturnTypeOid",
 	p.pronargs::integer AS "PgNargs",
 	p.pronargdefaults::integer AS "PgNargsDefaults",

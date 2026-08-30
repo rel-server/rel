@@ -46,6 +46,13 @@ func serverError(err error) *requestError {
 	return &requestError{status: http.StatusInternalServerError, err: err}
 }
 
+// unauthorized is specs/jwt-roles-and-http.md "# Roles ## Anonymous role
+// existence" : 401 for an unauthenticated request when anonymous access is
+// disabled outright (db.AnonymousRoleExists false).
+func unauthorized(err error) *requestError {
+	return &requestError{status: http.StatusUnauthorized, err: err}
+}
+
 // writeError writes err as the confirmed error envelope. If nothing has
 // been written to w yet, this is a clean response ; if called after
 // streaming has already begun (partway through a row), the output is

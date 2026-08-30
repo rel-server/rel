@@ -76,6 +76,18 @@ func relQueryBytes(r *http.Request) ([]byte, error) {
 func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config) {
 	ctx := r.Context()
 
+	// specs/jwt-roles-and-http.md "# Roles ## Anonymous role existence" :
+	// with anonymous access disabled, every unauthenticated request is
+	// rejected with 401 immediately — before the body is read, before a
+	// pool connection is acquired. jwtpkg.Middleware already ran
+	// Verify/Renew before this handler runs (see NewRelHandler's own doc
+	// comment), so claims/verified are already known with no DB access
+	// needed here.
+	if _, verified := jwtpkg.FromContext(r.Context()); !verified && !db.AnonymousRoleExists {
+		writeError(w, unauthorized(fmt.Errorf("anonymous access is disabled")))
+		return
+	}
+
 	body, err := relQueryBytes(r)
 	if err != nil {
 		writeError(w, badRequest(err))

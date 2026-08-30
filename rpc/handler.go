@@ -38,6 +38,58 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
+	// Verify (Lifecycle step 2) needs no DB connection — run it first, so
+	// "is this request anonymous" is knowable before anything DB-related
+	// happens at all.
+	claims, verified := verifyRequestJWT(cfg, r)
+
+	// specs/jwt-roles-and-http.md "# Roles ## Anonymous role existence" and
+	// "# HTTP ## Anonymous route authorization" : both checks run here,
+	// BEFORE the request body is read and BEFORE a pool connection is
+	// acquired — a request already known to be unauthorized never holds a
+	// connection open, and never costs a connection-acquire round trip.
+	if !verified {
+		if !db.AnonymousRoleExists {
+			writePlainError(w, http.StatusUnauthorized, "anonymous access is disabled")
+			return
+		}
+		if !route.AnonymousAuthorized {
+			writePlainError(w, http.StatusUnauthorized, "anonymous access not permitted for this route")
+			return
+		}
+	}
+
+	// ## Request bodies : parses multipart/form-data or a single raw
+	// binary body per route.AcceptsFiles, enforcing http.max_body_size/
+	// http.max_part_count and the 415 shape-mismatch rules, and produces
+	// the already-content-type-encoded RelHttpRequest.body value either
+	// way (see resolveRequestBody's own doc comment).
+	resolved, err := resolveRequestBody(w, r, route, int64(cfg.Http.MaxBodySize), cfg.Http.MaxPartCount)
+	if err != nil {
+		if rbe, ok := errors.AsType[*requestBodyError](err); ok {
+			writePlainError(w, rbe.status, rbe.message)
+			return
+		}
+		if bbe, ok := errors.AsType[*badBodyError](err); ok {
+			writePlainError(w, http.StatusBadRequest, bbe.Error())
+			return
+		}
+		writePlainError(w, http.StatusInternalServerError, "reading request body")
+		return
+	}
+
+	reqJSON, err := buildRelHttpRequest(r, resolved.BodyJSON, verified, claims)
+	if err != nil {
+		if bqe, ok := errors.AsType[*badQueryError](err); ok {
+			writePlainError(w, http.StatusBadRequest, bqe.Error())
+			return
+		}
+		writePlainError(w, http.StatusInternalServerError, "encoding request")
+		return
+	}
+
+	// Only now — request known-authorized, body already fully read and
+	// resolved — does a pool connection get acquired.
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, "acquiring connection")
@@ -56,7 +108,6 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op if already committed
 
-	claims, verified := verifyRequestJWT(cfg, r)
 	if verified {
 		if cfg.Http.Functions.CheckSession != "" {
 			if err := dbauth.CheckSession(ctx, tx, cfg.Http.Functions.CheckSession, claims); err != nil {
@@ -91,35 +142,6 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); err != nil {
 		writeErrorForPgErr(w, err)
-		return
-	}
-
-	// ## Request bodies : parses multipart/form-data or a single raw
-	// binary body per route.AcceptsFiles, enforcing http.max_body_size/
-	// http.max_part_count and the 415 shape-mismatch rules, and produces
-	// the already-content-type-encoded RelHttpRequest.body value either
-	// way (see resolveRequestBody's own doc comment).
-	resolved, err := resolveRequestBody(w, r, route, int64(cfg.Http.MaxBodySize), cfg.Http.MaxPartCount)
-	if err != nil {
-		if rbe, ok := errors.AsType[*requestBodyError](err); ok {
-			writePlainError(w, rbe.status, rbe.message)
-			return
-		}
-		if bbe, ok := errors.AsType[*badBodyError](err); ok {
-			writePlainError(w, http.StatusBadRequest, bbe.Error())
-			return
-		}
-		writePlainError(w, http.StatusInternalServerError, "reading request body")
-		return
-	}
-
-	reqJSON, err := buildRelHttpRequest(r, resolved.BodyJSON, verified, claims)
-	if err != nil {
-		if bqe, ok := errors.AsType[*badQueryError](err); ok {
-			writePlainError(w, http.StatusBadRequest, bqe.Error())
-			return
-		}
-		writePlainError(w, http.StatusInternalServerError, "encoding request")
 		return
 	}
 

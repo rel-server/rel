@@ -17,6 +17,7 @@ import (
 var testDb *pg.DbInfos
 var testCfg *config.Config
 var testHandler http.Handler
+var testDbURI string
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -36,14 +37,20 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	testDbURI = uri
 
-	testDb, err = pg.NewInfos(uri)
+	testCfg = config.Test()
+	testCfg.Pg.Query.AnonymousRole = "~anonymous"
+
+	// NewInfosAdminQuery, threading through the real anonymous role name —
+	// this package's anonymous-access scenarios need
+	// DbInfos.AnonymousRoleExists true, same reasoning as rpc/rpc_test.go's
+	// TestMain.
+	testDb, err = pg.NewInfosAdminQuery(uri, uri, 0, testCfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		panic(err)
 	}
 
-	testCfg = config.Test()
-	testCfg.Pg.Query.AnonymousRole = "~anonymous"
 	testHandler = NewRelHandler(testDb, testCfg)
 
 	m.Run()
@@ -243,12 +250,12 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	if err != nil {
 		t.Fatalf("connection string: %v", err)
 	}
-	db, err := pg.NewInfos(uri)
-	if err != nil {
-		t.Fatalf("NewInfos: %v", err)
-	}
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
+	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("NewInfosAdminQuery: %v", err)
+	}
 	handler := NewRelHandler(db, cfg)
 
 	ctx := context.Background()

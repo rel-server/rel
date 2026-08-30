@@ -14,6 +14,7 @@ var testDb *pg.DbInfos
 var testCfg *config.Config
 var testReg *Registry
 var testHandler http.Handler
+var testDbURI string
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -33,14 +34,22 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	testDbURI = uri
 
-	testDb, err = pg.NewInfos(uri)
+	testCfg = config.Test()
+	testCfg.Pg.Query.AnonymousRole = "~anonymous"
+
+	// NewInfosAdminQuery (not NewInfos), threading through the real
+	// anonymous role name : the fixture's "~anonymous" role must be found
+	// (DbInfos.AnonymousRoleExists) for this package's many
+	// anonymous-access test scenarios to keep working under the new
+	// anonymous-role-existence gate (specs/jwt-roles-and-http.md "# Roles
+	// ## Anonymous role existence").
+	testDb, err = pg.NewInfosAdminQuery(uri, uri, 0, testCfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		panic(err)
 	}
 
-	testCfg = config.Test()
-	testCfg.Pg.Query.AnonymousRole = "~anonymous"
 	testCfg.Http.Functions.CheckSession = "public.fn_check_session"
 
 	testReg, err = BuildRegistry(testDb, testCfg)
