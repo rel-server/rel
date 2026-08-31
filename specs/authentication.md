@@ -94,6 +94,33 @@ This is deliberately a database-existence check, not a config-emptiness check : 
 
 With anonymous access disabled, every unauthenticated request — to `/rel` AND `/rpc` alike — is rejected with `401`, immediately : before `/rpc`'s route lookup, before any request body is read, before a pool connection is ever acquired. There is nothing for such a request to fall through to : `SET ROLE ""`/`SET LOCAL ROLE ""` is a Postgres syntax error, and skipping the role switch entirely would silently run the request as whatever role the pool connection already has — a privilege escalation for anonymous callers. This was already a hard-stop path before this check existed (previously reachable only via an empty `pg.query.anonymous_role` and surfaced as a `500`, treated as a misconfiguration) ; it's now recognized as a first-class, intentional policy instead, reachable by simply not creating the role, and surfaced as a clean `401`.
 
+## Deployment prerequisite : role membership
+
+`SET ROLE`/`SET LOCAL ROLE` only succeeds when the connecting role (`pg.query.user`, or
+`pg.user` when `pg.query.user` is unset) is a MEMBER of the role being switched to. This is
+ordinary Postgres privilege behavior, not something rel enforces or checks — but it is the
+deploying developer's own responsibility to satisfy, and getting it wrong fails at request
+time, not at startup.
+
+Grant membership in `pg.query.anonymous_role`, and in every role any JWT in the deployment
+may carry, to the connecting role :
+
+```sql
+grant "~anonymous" to query_user;
+grant "editor" to query_user;
+grant "admin" to query_user;
+-- one grant per role the connecting role must be able to switch into
+```
+
+Skipping a grant doesn't fail at startup — introspection and dmut migrations both run under
+the PRIMARY connection (`pg.user`, never `pg.query.user`), so a missing grant is invisible
+until the first real request tries to `SET ROLE` into the ungranted role, at which point it
+`500`s with "permission denied to set role". A local/testcontainer deployment connecting as
+a superuser never observes this at all — superusers can `SET ROLE` to anything — which is
+exactly what makes it easy to miss until a properly-locked-down production deployment hits
+it for the first time. PostgREST documents the identical prerequisite for its own
+`authenticator`/`web_anon` pattern.
+
 # Authentication
 
 - **SAML**: `github.com/crewjam/saml`, as in legacy — the de facto standard SP implementation in Go; no reason to replace it.

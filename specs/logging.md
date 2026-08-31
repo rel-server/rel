@@ -18,7 +18,7 @@ A `logging` package builds exactly one `*slog.Logger` at startup from the assemb
 
 ## Domain scoping
 
-On top of logging level
+On top of logging level, logging must show what module it came from (query / typescript / ...) to help with context.
 
 ## Request-scoped logging
 

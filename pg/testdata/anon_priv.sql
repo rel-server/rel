@@ -1,5 +1,5 @@
 -- Fixture for pg/anonymous_test.go : covers the two new introspection
--- queries specs/jwt-roles-and-http.md adds — "# Roles ## Anonymous role
+-- queries specs/authentication.md adds — "# Roles ## Anonymous role
 -- existence" (a pg_roles existence check) and "# HTTP ## Anonymous route
 -- authorization" (the has_schema_privilege/has_function_privilege
 -- two-conjunct check) — run under a non-superuser connecting role, same

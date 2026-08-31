@@ -109,7 +109,7 @@ create function fn_all_defaults(a int default 1, b int default 2) returns int la
 
 -- genuinely ambiguous overload : same arity, only distinguished by argument
 -- type, which pass 1's resolver deliberately does not match on (see
--- specs/query-compiler.md's Open Question 1) — a positional call is
+-- specs/query-engine.md's Open Question 1) — a positional call is
 -- expected to be rejected as ambiguous, not silently guessed
 create function fn_ambig(a int) returns int language sql as $$ select a $$;
 create function fn_ambig(a text) returns text language sql as $$ select a $$;
@@ -119,7 +119,7 @@ create function fn_ambig(a text) returns text language sql as $$ select a $$;
 -- GetRelationByType and be joinable into, exactly like the table itself
 create function fn_directors() returns setof director language sql as $$ select * from director $$;
 
--- row-type-taking computed column (specs/querying.md's own "## Scoping"
+-- row-type-taking computed column (specs/query-engine.md's own "## Scoping"
 -- example : "a function taking the relation's row type as its argument,
 -- callable via alias.func_name or func_name(alias)") — exercises a bare
 -- self-alias reference reaching compileResolvedField as a *QueryNode

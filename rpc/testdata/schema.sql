@@ -171,7 +171,7 @@ create function fn_optroute__OPTIONS() returns "RelHttpResponse" language sql as
   select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'real options route');
 $$;
 
--- specs/04-http-content.md ## CSP ### Per-response override : a raw
+-- specs/http-content.md ## CSP ### Per-response override : a raw
 -- policy string replaces the process-wide default for this one response.
 create function fn_csp_override() returns "RelHttpResponse" language sql as $$
   select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'csp override', 'csp', 'default-src ''none''');
@@ -195,7 +195,7 @@ create function fn_template_missing() returns "RelHttpResponse" language sql as 
   select jsonb_build_object('status', 200, 'content_type', 'text/html', 'template', 'does-not-exist.jet');
 $$;
 
--- specs/04-http-content.md ### Upload destinations' RelUpload domain and
+-- specs/http-content.md ### Upload destinations' RelUpload domain and
 -- the two-function <name>__prepare/<name> family. fn_dest_upload__prepare
 -- reads a "reject" query flag to exercise the earliest-rejection path, and
 -- an optional "path"/"overwrite" query value to control placement ; the
@@ -253,7 +253,7 @@ create function fn_orphan_mandatory(req "RelHttpRequest", upload "RelUpload") re
   select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'should not be routable');
 $$;
 
--- specs/04-http-content.md ### Upload destinations' "Anonymous-route-
+-- specs/http-content.md ### Upload destinations' "Anonymous-route-
 -- authorization" : "must pass for BOTH... fail-closed on either." Two pairs,
 -- each with EXECUTE revoked from PUBLIC on exactly one half — proves the
 -- combined AnonymousAuthorized is false (401 to an anonymous caller) even
@@ -282,7 +282,7 @@ grant execute on function fn_dest_anon_mandatory_only__prepare("RelHttpRequest",
 -- fn_dest_anon_mandatory_only keeps its default PUBLIC execute grant
 -- (anon-reachable) ; only the __prepare half is restricted.
 
--- specs/jwt-roles-and-http.md's ambiguous-route bug regression fixture :
+-- specs/rpc.md's ambiguous-route bug regression fixture :
 -- three overloads of fn_dupe sharing the same (schema, base, verb="") key
 -- once discovered — none of the three should ever be routable, including
 -- after the second conflict is found (a naive "delete the map entry on
