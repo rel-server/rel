@@ -604,7 +604,16 @@ func (ctx *ResolveContext) buildShape(n *QueryNode, base map[string]ResolvedFiel
 }
 
 // resolveHopInto resolves `right` (must be an *Identifier — anything else in
-// a "." hop position is a hard error) as a hop landing on `into`.
+// a "." hop position is a hard error) as a hop landing on `into`. Resolves
+// a hop into ANY child, to-one or to-many alike — deliberately, since a "."
+// chain has more than one downstream use (writability-exclusion tracking,
+// generic Shape derivation, a `where`-clause reference) and not all of them
+// need "a single row to pick one field from" the way compiling it as a
+// plain scalar SELECT value does. That narrower restriction belongs to,
+// and is enforced by, whichever SQL-compilation path actually needs it —
+// see sql_expr.go's compileScalarHop, which rejects a to-many landing at
+// compile time, same late-stage pattern "agg"'s own opposite restriction
+// uses (query.ts : agg's target "must be an incoming relation").
 func (ctx *ResolveContext) resolveHopInto(right Expression, into ResolvedField, oc oops.OopsErrorBuilder) (Expression, ResolvedField, error) {
 	ident, ok := right.(*Identifier)
 	if !ok {

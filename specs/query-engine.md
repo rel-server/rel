@@ -256,6 +256,18 @@ unconditionally, checked before its `PrimaryKey`/`OnConflict` logic, so a functi
 real composite/relation type (with a real, otherwise-writable primary key) doesn't
 accidentally look writable purely because its underlying table happens to have one.
 
+### Scalar hop through a to-one relation
+
+A `.` hop's right side can land on a *different* node than the one doing the selecting — `["own-and", {"director_name": [".", "director", "name"]}]` on a `movie` query, `director` being a joined alias, pulls `director.name` straight into `movie`'s own flat select, with no nested `director` object at all. This is a genuine alternative to embedding the whole child via `join`/`select`, not shorthand for it — the result carries just the one field, at the parent's own top level.
+
+**Resolution allows a `.` hop into any child, to-one or to-many alike** (`## Scoping ### Identifier resolution`'s `resolveExternalHop`) — a chain has more than one downstream use (writability-exclusion tracking among them, `## Writability`'s own note on this), and not all of them need "a single row to pick one field from." **Compiling one as a plain scalar select value is the narrower case, and that's where the to-one restriction actually lives** : reaching a to-many relation this way is a hard compile-time error (`query/sql_expr.go`'s `compileScalarHop`) — there's no single row to pick a field from without aggregating, so use `agg` instead, same restriction `agg` itself enforces in the opposite direction (`agg`'s own target "must be an incoming relation").
+
+Compiles as its own self-contained scalar correlated subquery — `(select <alias>.<col> from <relation> <alias> where <on-clause> and <that relation's own where>)` — structurally the same shape a to-one embed gets, just selecting one column instead of `row_to_json(alias)`. A hop through more than one to-one relation (`movie -> director -> studio`) nests one such subquery per level, recursively. `order by`/`limit`/`distinct` on an intermediate relation are never consulted for this — a to-one relation has at most one matching row by construction (`ResolveJoin`'s own uniqueness requirement, `## Scoping ### Join eligibility`), so there's nothing for them to affect. A target with no matching row (a nullable outgoing FK, unset) reads back as JSON `null` — Postgres's own "a scalar subquery over zero rows is `NULL`" rule, no special-casing needed.
+
+> Not deduplicated against another `.` hop into the *same* relation elsewhere in the same select, nor against that relation also being fully embedded alongside it — each reference compiles its own independent subquery/scan. A LATERAL-sharing optimization mirroring the Reading Algorithm's existing one for a multiply-consumed *incoming* child (`## Reading Algorithm`'s own note on this, `analyzeLaterals`) would remove this, but isn't implemented — a deliberate, known limitation of this mechanism's first pass, not an unnoticed inefficiency.
+
+A hop into a to-one child's own *computed* column (one named explicitly in that child's own `select`, `## Scoping ### Identifier resolution`'s `Shape`-half of `resolveExternalHop`) resolves the same way a plain column does when that computed key itself lands on a `ColumnPath` (e.g. it's itself a `.` chain) — anything else the computed key's expression might resolve to (an arbitrary computed value, not a plain column reference) is not yet supported as a hop target ; the existing "not yet supported" fallback in `compileResolvedField` covers it rather than mis-compiling something.
+
 ### Implementation
 
 Per node, recursively :

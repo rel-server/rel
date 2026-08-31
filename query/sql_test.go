@@ -257,6 +257,172 @@ func TestCompileSelect_ToOneEmbed(t *testing.T) {
 	}
 }
 
+// TestCompileSelect_ScalarHopThroughOutgoing proves query-engine.md's new
+// "." hop through a to-one relation : ["own-and", {"director_name": [".",
+// "director", "name"]}] pulls director.name straight into movie's own flat
+// select, with no nested "director" object at all — the mechanism
+// discussed this session as an alternative to always embedding the whole
+// child.
+func TestCompileSelect_ScalarHopThroughOutgoing(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Scalar Hop Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	var movieID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into movie (director_id, title) values ($1, 'Scalar Hop Movie') returning id`, directorID).Scan(&movieID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "movie", "schema": "public",
+		"select": ["own-and", {"director_name": [".", "director", "name"]}],
+		"where": ["=", "id", %d],
+		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}
+	}`, movieID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if _, isObject := rows[0]["director"]; isObject {
+		t.Errorf("expected no nested \"director\" object at all, got %#v", rows[0])
+	}
+	if rows[0]["director_name"] != "Scalar Hop Director" {
+		t.Errorf("expected director_name=\"Scalar Hop Director\", got %#v (sql: %s)", rows[0]["director_name"], sql)
+	}
+	if rows[0]["title"] != "Scalar Hop Movie" {
+		t.Errorf("expected own's title to still be present, got %#v", rows[0])
+	}
+}
+
+// TestCompileSelect_ScalarHopThroughOutgoing_NullTarget proves a scalar hop
+// through a to-one relation that doesn't exist (director.studio_id is
+// nullable) reads back as JSON null, not an error — the correlated
+// subquery simply returns zero rows, and Postgres's own scalar-subquery
+// rule ("no rows" -> NULL) does the rest.
+func TestCompileSelect_ScalarHopThroughOutgoing_NullTarget(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('No Studio Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "director", "schema": "public",
+		"select": ["own-and", {"studio_name": [".", "studio", "name"]}],
+		"where": ["=", "id", %d],
+		"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}
+	}`, directorID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if rows[0]["studio_name"] != nil {
+		t.Errorf("expected studio_name=nil (no studio set), got %#v", rows[0]["studio_name"])
+	}
+}
+
+// TestCompileSelect_ScalarHopThroughTwoOutgoingLevels proves a "." hop
+// chained through TWO to-one relations (movie -> director -> studio)
+// compiles as nested scalar correlated subqueries, per compileScalarHop's
+// own recursion through compileScalarHopWhere -> compileColumnPath.
+func TestCompileSelect_ScalarHopThroughTwoOutgoingLevels(t *testing.T) {
+	ctx := context.Background()
+	var studioID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into studio (name) values ('Two-Level Studio') returning id`).Scan(&studioID); err != nil {
+		t.Fatalf("insert studio: %v", err)
+	}
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name, studio_id) values ('Two-Level Director', $1) returning id`, studioID).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	var movieID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into movie (director_id, title) values ($1, 'Two-Level Movie') returning id`, directorID).Scan(&movieID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "movie", "schema": "public",
+		"select": ["own-and", {"studio_name": [".", [".", "director", "studio"], "name"]}],
+		"where": ["=", "id", %d],
+		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"},
+			"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}
+		}}
+	}`, movieID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if rows[0]["studio_name"] != "Two-Level Studio" {
+		t.Errorf("expected studio_name=\"Two-Level Studio\", got %#v (sql: %s)", rows[0]["studio_name"], sql)
+	}
+}
+
+// TestCompileSelect_ScalarHopAlongsideFullEmbed proves the same child can
+// be BOTH fully embedded AND reached via a "." hop in the same select,
+// without alias collision — compileScalarHop always allocates its own
+// fresh alias and never consults c.alias[child], precisely so this can't
+// pick up (or collide with) the full embed's own, separately-scoped alias.
+// Redundant (the join executes twice), by design — see compileScalarHop's
+// own doc comment on why deduplication isn't attempted here.
+func TestCompileSelect_ScalarHopAlongsideFullEmbed(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Alongside Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	var movieID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into movie (director_id, title) values ($1, 'Alongside Movie') returning id`, directorID).Scan(&movieID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "movie", "schema": "public",
+		"select": ["own-and", {"director": "director", "director_name": [".", "director", "name"]}],
+		"where": ["=", "id", %d],
+		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+	}`, movieID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	director, ok := rows[0]["director"].(map[string]any)
+	if !ok || director["name"] != "Alongside Director" {
+		t.Fatalf("expected embedded director object, got %#v", rows[0]["director"])
+	}
+	if rows[0]["director_name"] != "Alongside Director" {
+		t.Errorf("expected director_name=\"Alongside Director\" alongside the full embed, got %#v (sql: %s)", rows[0]["director_name"], sql)
+	}
+}
+
+// TestCompileSelect_ScalarHopThroughIncoming_Rejected proves the other
+// half : resolution allows a "." hop into a to-many child (it has other
+// uses — see resolveHopInto's own doc comment), but compiling it as a
+// plain scalar select value is rejected at SQL-compile time, same
+// late-compile-stage pattern "agg"'s own opposite restriction uses.
+func TestCompileSelect_ScalarHopThroughIncoming_Rejected(t *testing.T) {
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": ["own-and", {"a_title": [".", "movies", "title"]}],
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
+	}`)
+	_, err := CompileSelect(node)
+	if err == nil {
+		t.Fatal("expected a compile error for a scalar hop through a to-many relation")
+	}
+	if !strings.Contains(err.Error(), "to-many") {
+		t.Errorf("expected the error to explain the to-many rejection, got: %v", err)
+	}
+}
+
 func TestCompileSelect_CompositePath(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into venue (name, home) values ('Venue Composite', row('Main St', 'Springfield')::addr_t)`); err != nil {

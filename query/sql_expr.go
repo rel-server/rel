@@ -190,7 +190,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) error {
 	switch r := field.(type) {
 	case ColumnPath:
-		return c.compileColumnPath(r)
+		return c.compileColumnPath(r, n)
 	case *QueryNode:
 		if r == n {
 			// A self-reference's own alias is always in scope here : it was
@@ -230,7 +230,25 @@ func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) er
 // emits Path[:i+1], wrapping the i-1 prefix in Paren before appending
 // Path[i]'s own ".name" — Paren's callback-based shape is exactly what
 // makes building this inside-out correct without re-emitting anything.
-func (c *sqlCompiler) compileColumnPath(cp ColumnPath) error {
+//
+// n is the node currently being compiled. cp.Node == n is the ordinary
+// same-scope case above. cp.Node != n only ever happens via a "." hop
+// through a to-one child (resolveHopInto's own cardinality check rules out
+// a to-many landing at resolve time — see expression_resolve.go) — compiled
+// as its own self-contained scalar correlated subquery by compileScalarHop,
+// never by trusting c.alias[cp.Node] : that map entry, if one even exists,
+// may belong to a DIFFERENT, already-closed embed subquery elsewhere in
+// this same select list (c.alias is never cleared when a subquery closes),
+// and reusing it here would silently emit a reference to a table alias
+// out of scope at this point in the statement — invalid SQL, not merely a
+// stale-but-harmless lookup. Building a fresh, independent subquery here
+// sidesteps that risk entirely, at the cost of not sharing a scan across
+// two separate "." hops into the same child (see compileScalarHop's own
+// doc comment).
+func (c *sqlCompiler) compileColumnPath(cp ColumnPath, n *QueryNode) error {
+	if cp.Node != n {
+		return c.compileScalarHop(cp, n)
+	}
 	alias, ok := c.alias[cp.Node]
 	if !ok {
 		return fmt.Errorf("sql: no alias assigned for node owning column %q — compiled out of order", cp.Path[0].Name)
@@ -249,6 +267,108 @@ func (c *sqlCompiler) compileColumnPathN(alias string, path []*pg.Column, i int)
 	})
 	c.w.Write(".")
 	c.w.Id(path[i].Name)
+}
+
+// compileScalarHop compiles cp — a "." hop landing on a to-one relation
+// that isn't n, the node currently being compiled — as its own
+// self-contained scalar correlated subquery : "(select <col-expr> from
+// <relation> <fresh alias> where <on-clause> and <that relation's own
+// where>)". Structurally the same shape a to-one embed gets
+// (compileEmbedField, sql.go), just selecting one specific (possibly
+// composite-nested) column instead of row_to_json(alias) ; and, unlike an
+// embed, deliberately bypassing cp.Node's own Select/selectFieldsFor/
+// laterals machinery entirely — cp.Node's own `select` (if it has one)
+// governs what gets embedded when the SAME node is ALSO selected as a full
+// embed elsewhere in the query, a wholly separate concern from picking a
+// single column here.
+//
+// Recurses through more than one to-one hop (e.g. movie -> director ->
+// studio) one nested subquery per level, via compileScalarHopWhere calling
+// back into compileColumnPath for the parent-linking column — no separate
+// "is this more than one level away" branch needed, since compileColumnPath
+// itself already is the cp.Node == n / cp.Node != n dispatch.
+//
+// order by/limit/distinct are deliberately never compiled for cp.Node here
+// : cp.Node is guaranteed to-one (resolveHopInto's own cardinality check,
+// backed by pg.Relation.ResolveJoin's uniqueness requirement — query-engine.md
+// ### Join eligibility), so at most one row can ever match regardless of
+// ordering ; there's nothing for them to do.
+//
+// Not deduplicated against another "." hop into the same relation
+// elsewhere in the same select list — each hop compiles its own
+// independent subquery, so N references execute N separate scans. A
+// LATERAL-sharing optimization mirroring analyzeLaterals' existing one for
+// multiply-consumed incoming children would remove this, but isn't
+// implemented here — flagged as a known, deliberate limitation of this
+// first pass, not a silent inefficiency nobody noticed.
+func (c *sqlCompiler) compileScalarHop(cp ColumnPath, n *QueryNode) error {
+	child := cp.Node
+	if !isOutgoingOf(child.Parent, child) {
+		// Resolution deliberately allows a "." hop into ANY child (see
+		// expression_resolve.go's resolveHopInto doc comment) — this is
+		// the actual, later-stage enforcement : compiling one as a plain
+		// scalar value only makes sense when there's a single row to pick
+		// it from. A to-many landing reaching this far means something
+		// tried to use a "." hop's resolved value directly as a select
+		// expression rather than aggregating it — same restriction "agg"
+		// enforces in the opposite direction (query.ts : agg's target
+		// "must be an incoming relation"), same late-compile-stage pattern
+		// (aggTargetChild, this file).
+		return fmt.Errorf("sql: %q is a to-many relation — a \".\" hop can only be compiled as a value when it reaches a to-one relation, since there is no single row to pick a field from otherwise (aggregate it with \"agg\" instead)", child.OuterAlias)
+	}
+	alias := c.allocAlias()
+
+	var innerErr error
+	c.w.Paren(func() {
+		c.w.Write("select ")
+		c.compileColumnPathN(alias, cp.Path, len(cp.Path)-1)
+		c.w.Write(" from ")
+		if err := c.compileFrom(child, alias); err != nil {
+			innerErr = err
+			return
+		}
+		if err := c.compileScalarHopWhere(child, alias, n); err != nil {
+			innerErr = err
+		}
+	})
+	return innerErr
+}
+
+// compileScalarHopWhere emits child's own "where" for a compileScalarHop
+// subquery : its on-clause, correlated against n — recursively, through a
+// nested compileScalarHop of its own, when child.Parent != n (more than
+// one to-one hop away) — AND-ed with child's own declared `where`, if any.
+// The scalar-hop counterpart of compileWhere (sql.go), which assumes its
+// parent's alias is already in the very same flat FROM-list scope — never
+// true here beyond the first hop, since every level of a scalar hop is its
+// own separate, independently-scoped subquery.
+func (c *sqlCompiler) compileScalarHopWhere(child *QueryNode, alias string, n *QueryNode) error {
+	if len(child.JoinColumns) == 0 {
+		// query.ts : `on` "is mandatory on joined relations" — a joined
+		// child (child.Parent != nil) with no JoinColumns at all means an
+		// earlier pass let an invalid tree through uncaught, not something
+		// this function should paper over with a where-less subquery.
+		return fmt.Errorf("sql: %q has no join columns to correlate a \".\" hop by — compiled out of order", child.OuterAlias)
+	}
+	c.w.Write(" where ")
+	for i, jc := range child.JoinColumns {
+		if i > 0 {
+			c.w.Write(" and ")
+		}
+		c.qualify(alias, jc.Local.Name)
+		c.w.Write(" = ")
+		distant := ColumnPath{Node: child.Parent, Path: []*pg.Column{jc.Distant}}
+		if err := c.compileColumnPath(distant, n); err != nil {
+			return err
+		}
+	}
+	if child.Where != nil {
+		c.w.Write(" and ")
+		if err := c.compileOperand(child.Where, child); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ---- operators --------------------------------------------------------------------
