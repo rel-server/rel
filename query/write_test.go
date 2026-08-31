@@ -443,18 +443,144 @@ func TestExecuteWrite_InsertColumnsFiltering(t *testing.T) {
 	}
 }
 
-func TestExecuteWrite_CompositeExtractorRejected(t *testing.T) {
+// TestExecuteWrite_CompositeSubFieldInsert proves specs/query-engine.md ##
+// Writability's composite sub-field writability is actually implemented,
+// not just derived : inserting through a bare "." chain writes ONLY the
+// named sub-field, leaving the composite's other field NULL — Postgres's
+// own behavior for a dotted INSERT target against a NULL/absent composite
+// base (verified directly against Postgres 16 : "insert into t (col.field)
+// ..." populates just that field, the rest of the composite reading back
+// NULL), which is exactly what write_dml.go's writeTargetPath relies on
+// rather than trying to synthesize a full ROW(...) itself.
+func TestExecuteWrite_CompositeSubFieldInsert(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
 	node := mustResolveQuery(t, `{
 		"relation": "venue", "schema": "public",
-		"select": {"id": "id", "city": [".", "home", "city"]},
+		"select": {"id": "id", "name": "name", "city": [".", "home", "city"]},
 		"write_mode": "insert"
 	}`)
-	_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"city": "Springfield"}]`))
+	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Composite Insert Venue", "city": "Springfield"}]`))
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 keys row, got %d : %#v", len(keys), keys)
+	}
+
+	var street *string
+	var city string
+	if err := conn.QueryRow(ctx, `select (home).street, (home).city from venue where id = ($1::jsonb->>'id')::int`, mustJSON(t, keys[0])).Scan(&street, &city); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if street != nil {
+		t.Errorf("expected home.street to stay NULL (never in the payload), got %q", *street)
+	}
+	if city != "Springfield" {
+		t.Errorf("expected home.city=Springfield, got %q", city)
+	}
+}
+
+// TestExecuteWrite_CompositeSubFieldUpdate proves an UPDATE through a "."
+// chain touches ONLY the named sub-field — the composite's OTHER field,
+// already set from before this write, must survive untouched (Postgres's
+// own partial-composite-update semantics, verified directly).
+func TestExecuteWrite_CompositeSubFieldUpdate(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var venueID int
+	if err := conn.QueryRow(ctx, `insert into venue (name, home) values ('Composite Update Venue', row('Main St', 'Old City')) returning id`).Scan(&venueID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "venue", "schema": "public",
+		"select": {"id": "id", "city": [".", "home", "city"]},
+		"write_mode": "update"
+	}`)
+	payload := []byte(`[{"id": ` + itoa(venueID) + `, "city": "New City"}]`)
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	var street, city string
+	if err := conn.QueryRow(ctx, `select (home).street, (home).city from venue where id = $1`, venueID).Scan(&street, &city); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if street != "Main St" {
+		t.Errorf("expected home.street to survive untouched (\"Main St\"), got %q", street)
+	}
+	if city != "New City" {
+		t.Errorf("expected home.city updated to \"New City\", got %q", city)
+	}
+}
+
+// TestExecuteWrite_CompositeSubFieldUpsert covers the ON CONFLICT DO UPDATE
+// SET path specifically : the composite sub-field target on the conflict
+// side must read back off "excluded" using Postgres's row-value
+// parenthesization ("(excluded.home).city", not "excluded.home.city",
+// which is a syntax error — verified directly against Postgres 16 ; see
+// WriteQualifiedPath, resolved_field.go).
+func TestExecuteWrite_CompositeSubFieldUpsert(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var venueID int
+	if err := conn.QueryRow(ctx, `insert into venue (name, home) values ('Composite Upsert Venue', row('Main St', 'Old City')) returning id`).Scan(&venueID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "venue", "schema": "public",
+		"select": {"id": "id", "name": "name", "city": [".", "home", "city"]},
+		"write_mode": "upsert"
+	}`)
+	// name is required : venue.name is NOT NULL with no default, and an
+	// UPSERT's own INSERT side is still fully constructed (and its
+	// constraints checked) even when the row is known to already exist —
+	// this is a pre-existing requirement of every upsert, unrelated to the
+	// composite sub-field this test is actually about.
+	payload := []byte(`[{"id": ` + itoa(venueID) + `, "name": "Composite Upsert Venue", "city": "Upserted City"}]`)
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	var street, city string
+	if err := conn.QueryRow(ctx, `select (home).street, (home).city from venue where id = $1`, venueID).Scan(&street, &city); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if street != "Main St" {
+		t.Errorf("expected home.street to survive the upsert's conflict path untouched, got %q", street)
+	}
+	if city != "Upserted City" {
+		t.Errorf("expected home.city=\"Upserted City\", got %q", city)
+	}
+}
+
+// TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected proves the
+// one combination genuinely left unhandled : selecting BOTH a composite
+// column whole (e.g. via own/full) AND one of its own sub-fields
+// independently in the same write is rejected — by Postgres itself
+// ("column specified more than once" / "multiple assignments to same
+// column", verified directly), not a check this package duplicates.
+// query-engine.md ## Writability already treats "home" and "home.city" as
+// independent write targets by design ; this is the one case where that
+// independence can't actually both apply at the SQL level.
+func TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{
+		"relation": "venue", "schema": "public",
+		"select": ["own-and", {"city_again": [".", "home", "city"]}],
+		"write_mode": "insert"
+	}`)
+	_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Both Venue", "home": {"street": "S", "city": "C"}, "city_again": "C2"}]`))
 	if err == nil {
-		t.Fatalf("expected composite sub-field write to be rejected as unsupported, got success")
+		t.Fatalf("expected Postgres to reject writing both the whole composite column and one of its own sub-fields")
 	}
 }
 

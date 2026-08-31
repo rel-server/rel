@@ -124,17 +124,23 @@ func isIncoming(node, child *QueryNode) bool {
 	return slices.Contains(node.IncomingNodes, child)
 }
 
-// extractRowData reshapes raw (one row, shaped per node.Select) into a flat,
-// physical-column-keyed JSON object using node.Shape.Extractors — the
-// "rehydrate the row" step ### Insertion/Updates assumes data already looks
-// like. A column absent from the payload is simply omitted from the result
-// (write_dml.go's default-value case handles that), not an error.
+// extractRowData reshapes raw (one row, shaped per node.Select) into a flat
+// JSON object, keyed by columnPathFlatName — physical-column-name-keyed for
+// a plain column (unchanged from before composite writes existed), or the
+// "__"-joined synthetic key for a composite sub-field (e.g. "home__city") —
+// the "rehydrate the row" step ### Insertion/Updates assumes data already
+// looks like. A column absent from the payload is simply omitted from the
+// result (write_dml.go's default-value/composite-cast cases handle that),
+// not an error. The extracted VALUE itself is always the leaf's own raw
+// JSON scalar, regardless of Path length — a composite sub-field's value is
+// never itself an object here (query.ts's own get/get-set/set granular
+// selectors only ever target a plain column by name, never a path, so a
+// composite sub-field is only ever reached via a bare "." chain, whose
+// resolved value is the leaf field itself, per query-engine.md ##
+// Writability).
 func extractRowData(node *QueryNode, raw *ast.Node) ([]byte, error) {
 	flat := make(map[string]json.RawMessage, len(node.Shape.Extractors))
 	for _, ex := range node.Shape.Extractors {
-		if len(ex.Path.Path) != 1 {
-			return nil, fmt.Errorf("write: %q: writing a composite sub-field (%v) isn't supported yet", node.InnerName, ex.JsonPath)
-		}
 		v := raw
 		for _, key := range ex.JsonPath {
 			v = v.Get(key)
@@ -146,7 +152,7 @@ func extractRowData(node *QueryNode, raw *ast.Node) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("write: %q: reading %v: %w", node.InnerName, ex.JsonPath, err)
 		}
-		flat[ex.Path.Path[0].Name] = json.RawMessage(text)
+		flat[columnPathFlatName(ex.Path)] = json.RawMessage(text)
 	}
 	return json.Marshal(flat)
 }

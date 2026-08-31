@@ -258,15 +258,7 @@ func (c *sqlCompiler) compileColumnPath(cp ColumnPath, n *QueryNode) error {
 }
 
 func (c *sqlCompiler) compileColumnPathN(alias string, path []*pg.Column, i int) {
-	if i == 0 {
-		c.qualify(alias, path[0].Name)
-		return
-	}
-	c.w.Paren(func() {
-		c.compileColumnPathN(alias, path, i-1)
-	})
-	c.w.Write(".")
-	c.w.Id(path[i].Name)
+	writeQualifiedPathN(c.w, alias, path, i)
 }
 
 // compileScalarHop compiles cp — a "." hop landing on a to-one relation

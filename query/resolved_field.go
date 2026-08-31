@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ceymard/rel/pg"
+	"github.com/ceymard/rel/writer"
 )
 
 // ColumnPath is the column-backed ResolvedField variant : a plain column of
@@ -53,6 +54,56 @@ func (c ColumnPath) Key() string {
 		b.WriteString(col.Name)
 	}
 	return b.String()
+}
+
+// WriteQualifiedPath emits path (a ColumnPath's own Path, or a prefix of
+// one) rooted at alias : "alias.a" for a single segment, Postgres's
+// row-value parenthesization for further ones — "(alias.a).b",
+// "((alias.a).b).c" — since "alias.a.b" is not legal syntax for "column a,
+// then sub-field b," it must be parenthesized one level at a time. Shared
+// between sql_expr.go's own read-path compilation (a "." chain landing on
+// a same-node ColumnPath) and write_dml.go's "excluded.col" references in
+// an UPSERT's ON CONFLICT DO UPDATE SET — the one other place composite
+// sub-field navigation off an aliased ROW value (not a flat CTE column) is
+// needed.
+func WriteQualifiedPath(w *writer.SQLWriter, alias string, path []*pg.Column) {
+	writeQualifiedPathN(w, alias, path, len(path)-1)
+}
+
+func writeQualifiedPathN(w *writer.SQLWriter, alias string, path []*pg.Column, i int) {
+	if i == 0 {
+		w.Write(alias)
+		w.Write(".")
+		w.Id(path[0].Name)
+		return
+	}
+	w.Paren(func() {
+		writeQualifiedPathN(w, alias, path, i-1)
+	})
+	w.Write(".")
+	w.Id(path[i].Name)
+}
+
+// columnPathFlatName is a ColumnPath's own internal, synthetic flat name —
+// the leaf column's bare name (Path[0].Name) unchanged for a plain column
+// (len(Path)==1), preserving the pre-composite-write naming exactly ;
+// "__"-joined path segment names for a composite sub-field (len(Path)>1,
+// e.g. "home__city"), matching this codebase's own "__"-prefixed-name
+// convention for synthetic identifiers never meant to collide with a real
+// column (__row_id, __node_id, __parent_id). Used BOTH as
+// write_denormalize.go's "_data.data" flat JSON key AND as
+// write_dml.go's "resolved" CTE output column alias — two different
+// internal purposes, same naming scheme, since neither is ever visible
+// outside the SQL this package itself generates.
+func columnPathFlatName(cp ColumnPath) string {
+	if len(cp.Path) == 1 {
+		return cp.Path[0].Name
+	}
+	names := make([]string, len(cp.Path))
+	for i, c := range cp.Path {
+		names[i] = c.Name
+	}
+	return strings.Join(names, "__")
 }
 
 // Shape is the "produces a map of named fields" ResolvedField variant — the

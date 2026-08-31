@@ -98,9 +98,18 @@ func identityColumns(node *QueryNode) []*pg.Column {
 // INSERT and the recovered "keys" agree on. An identity column with no
 // default at all must already come from the payload (pass 2's writability
 // check already requires it), so no forcing is needed there.
-func columnsFor(node *QueryNode, allowlist []string) ([]*pg.Column, error) {
-	var cols []*pg.Column
-	seen := map[*pg.Column]bool{}
+//
+// Returns ColumnPath, not *pg.Column : an Extractor's Path may be a
+// composite sub-field (len(Path)>1, e.g. home.city) as well as a plain
+// column — see query-engine.md ## Writability and this file's own
+// composite-handling notes in writeColumnCase/writeTargetPath below.
+// insert_columns/update_columns names PHYSICAL columns (query.ts's own
+// doc comment) — a composite sub-field's containing column (Path[0]) is
+// what's matched against the allowlist, since the sub-field itself was
+// never independently nameable there.
+func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
+	var cols []ColumnPath
+	seen := map[string]bool{}
 	var allowed map[string]bool
 	if len(allowlist) > 0 {
 		allowed = make(map[string]bool, len(allowlist))
@@ -109,22 +118,21 @@ func columnsFor(node *QueryNode, allowlist []string) ([]*pg.Column, error) {
 		}
 	}
 	for _, ex := range node.Shape.Extractors {
-		if len(ex.Path.Path) != 1 {
-			return nil, fmt.Errorf("writing a composite sub-field (%v) isn't supported yet", ex.JsonPath)
-		}
-		col := ex.Path.Path[0]
-		if allowed != nil && !allowed[col.Name] {
+		if allowed != nil && !allowed[ex.Path.Path[0].Name] {
 			continue
 		}
-		if !seen[col] {
-			seen[col] = true
-			cols = append(cols, col)
+		key := ex.Path.Key()
+		if !seen[key] {
+			seen[key] = true
+			cols = append(cols, ex.Path)
 		}
 	}
 	for _, col := range identityColumns(node) {
-		if !seen[col] && col.DefaultExpression != "" {
-			seen[col] = true
-			cols = append(cols, col)
+		cp := ColumnPath{Node: node, Path: []*pg.Column{col}}
+		key := cp.Key()
+		if !seen[key] && col.DefaultExpression != "" {
+			seen[key] = true
+			cols = append(cols, cp)
 		}
 	}
 	// Outgoing-child FK columns (e.g. movie.director_id, resolved from the
@@ -133,15 +141,31 @@ func columnsFor(node *QueryNode, allowlist []string) ([]*pg.Column, error) {
 	// part of node's own select), and insert_columns/update_columns filters
 	// a payload column allowlist, not this structural relationship, so they
 	// bypass "allowed" the same way default-backed identity columns do.
+	// Always plain (an FK constraint targets a real physical column, never
+	// a composite sub-field).
 	for _, c := range node.OutgoingNodes {
 		for _, jc := range c.JoinColumns {
-			if !seen[jc.Distant] {
-				seen[jc.Distant] = true
-				cols = append(cols, jc.Distant)
+			cp := ColumnPath{Node: node, Path: []*pg.Column{jc.Distant}}
+			key := cp.Key()
+			if !seen[key] {
+				seen[key] = true
+				cols = append(cols, cp)
 			}
 		}
 	}
 	return cols, nil
+}
+
+// wrapColumns wraps plain physical columns (identity/key columns — always
+// plain, since Postgres allows neither a composite sub-field nor an
+// expression as a PRIMARY KEY or ON CONFLICT target) as single-segment
+// ColumnPaths, for merging with columnsFor's own []ColumnPath output.
+func wrapColumns(node *QueryNode, cols []*pg.Column) []ColumnPath {
+	out := make([]ColumnPath, len(cols))
+	for i, c := range cols {
+		out[i] = ColumnPath{Node: node, Path: []*pg.Column{c}}
+	}
+	return out
 }
 
 // withKeysColumns unions cols with keysColumns(node) — needed wherever
@@ -155,8 +179,8 @@ func columnsFor(node *QueryNode, allowlist []string) ([]*pg.Column, error) {
 // this : it reads keys off "t" (the live, post-update row via RETURNING)
 // instead, so forcing extra columns into its SET list — which cols also
 // drives there — would wrongly self-assign them.
-func withKeysColumns(node *QueryNode, cols []*pg.Column) []*pg.Column {
-	return dedupeColumns(cols, keysColumns(node))
+func withKeysColumns(node *QueryNode, cols []ColumnPath) []ColumnPath {
+	return dedupeColumnPaths(cols, wrapColumns(node, keysColumns(node)))
 }
 
 // outgoingKeySource finds, for physical column col of node, the outgoing
@@ -204,14 +228,18 @@ func incomingKeySource(node *QueryNode, col *pg.Column) (keyCol *pg.Column, ok b
 // ### Insertion/Updates. outgoingAliases records the join alias assigned to
 // each outgoing child actually referenced by an emitted column, so the
 // caller doesn't need to re-derive it.
-func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, cols []*pg.Column) error {
+func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, cols []ColumnPath) error {
 	nodeID := dc.ids[node]
 	relID := node.Relation.Identifier.EscapedString()
 
 	needsPar := false
 	outgoingAliases := map[*QueryNode]string{}
 	var outgoingOrder []*QueryNode // deterministic emission order — map iteration order isn't
-	for _, col := range cols {
+	for _, cp := range cols {
+		if len(cp.Path) != 1 {
+			continue // a composite sub-field is never FK-linkage — see writeColumnCase
+		}
+		col := cp.Path[0]
 		if _, ok := incomingKeySource(node, col); ok {
 			needsPar = true
 		}
@@ -228,13 +256,13 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 	w.Write("select\n")
 	w.Indent()
 	w.Write("tmp.__row_id")
-	for _, col := range cols {
+	for _, cp := range cols {
 		w.Write(",\n")
-		if err := dc.writeColumnCase(w, node, col, outgoingAliases); err != nil {
+		if err := dc.writeColumnCase(w, node, cp, outgoingAliases); err != nil {
 			return err
 		}
 		w.Write(" as ")
-		w.Id(col.Name)
+		w.Id(columnPathFlatName(cp))
 	}
 	w.Unindent()
 	w.Write("\n")
@@ -265,8 +293,27 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 	return nil
 }
 
-// writeColumnCase writes the 3-way per-column resolution rule.
-func (dc *dmlCompiler) writeColumnCase(w *writer.SQLWriter, node *QueryNode, col *pg.Column, outgoingAliases map[*QueryNode]string) error {
+// writeColumnCase writes the 3-way per-column resolution rule for a plain
+// column, or — for a composite sub-field (len(cp.Path)>1) — a fourth,
+// simpler rule : always read straight off tmp.data's own flat key
+// (columnPathFlatName, matching write_denormalize.go's extractRowData),
+// cast to the LEAF field's own introspected type. Never FK-linkage
+// (incomingKeySource/outgoingKeySource) or default-backed
+// (col.DefaultExpression) : a Postgres composite TYPE's own fields carry
+// neither — those are table-column concepts (pg_constraint/pg_attrdef),
+// and a composite type's fields, introspected via CompositeRelation(), are
+// never table columns in their own right, so both checks are skipped
+// entirely for this case rather than meaninglessly returning "no match".
+func (dc *dmlCompiler) writeColumnCase(w *writer.SQLWriter, node *QueryNode, cp ColumnPath, outgoingAliases map[*QueryNode]string) error {
+	if len(cp.Path) > 1 {
+		leaf := cp.Path[len(cp.Path)-1]
+		w.Write("(tmp.data->>")
+		w.Bind(columnPathFlatName(cp))
+		w.Write("::text)::")
+		w.Write(leaf.Type.PgIdentifier.EscapedString())
+		return nil
+	}
+	col := cp.Path[0]
 	typeName := col.Type.PgIdentifier.EscapedString()
 
 	if distant, ok := incomingKeySource(node, col); ok {
@@ -415,21 +462,21 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	w.Write("insert into ")
 	w.Write(node.Relation.Identifier.EscapedString())
 	w.Write(" (")
-	for i, col := range cols {
+	for i, cp := range cols {
 		if i > 0 {
 			w.Write(", ")
 		}
-		w.Id(col.Name)
+		writeTargetPath(w, cp)
 	}
 	w.Write(")\n")
 	w.Write("overriding system value\n")
 	w.Write("select ")
-	for i, col := range cols {
+	for i, cp := range cols {
 		if i > 0 {
 			w.Write(", ")
 		}
 		w.Write("resolved.")
-		w.Id(col.Name)
+		w.Id(columnPathFlatName(cp))
 	}
 	w.Write(" from resolved\n")
 	identCols := identityColumns(node)
@@ -562,7 +609,7 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 
 	w := writer.NewSQL()
 	w.Write("with ")
-	if err := dc.writeResolvedCTE(w, node, dedupeColumns(cols, identCols)); err != nil {
+	if err := dc.writeResolvedCTE(w, node, dedupeColumnPaths(cols, wrapColumns(node, identCols))); err != nil {
 		return err
 	}
 	w.Write("\n")
@@ -570,13 +617,13 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	w.Write(node.Relation.Identifier.EscapedString())
 	w.Write(" t\n")
 	w.Write("set ")
-	for i, col := range cols {
+	for i, cp := range cols {
 		if i > 0 {
 			w.Write(", ")
 		}
-		w.Id(col.Name)
+		writeTargetPath(w, cp)
 		w.Write(" = resolved.")
-		w.Id(col.Name)
+		w.Id(columnPathFlatName(cp))
 	}
 	w.Write("\n")
 	w.Write("from resolved\n")
@@ -660,7 +707,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	// Never update the identity columns themselves via excluded.* — they're
 	// the conflict target, updating them is meaningless (and for a PK,
 	// actively wrong).
-	updateCols = excludeColumns(updateCols, identCols)
+	updateCols = excludeColumnPaths(updateCols, identCols)
 
 	w := writer.NewSQL()
 	w.Write("with ")
@@ -672,21 +719,21 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	w.Write("insert into ")
 	w.Write(node.Relation.Identifier.EscapedString())
 	w.Write(" (")
-	for i, col := range insertCols {
+	for i, cp := range insertCols {
 		if i > 0 {
 			w.Write(", ")
 		}
-		w.Id(col.Name)
+		writeTargetPath(w, cp)
 	}
 	w.Write(")\n")
 	w.Write("overriding system value\n")
 	w.Write("select ")
-	for i, col := range insertCols {
+	for i, cp := range insertCols {
 		if i > 0 {
 			w.Write(", ")
 		}
 		w.Write("resolved.")
-		w.Id(col.Name)
+		w.Id(columnPathFlatName(cp))
 	}
 	w.Write(" from resolved\n")
 	w.Write("on conflict (")
@@ -706,13 +753,20 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		w.Id(identCols[0].Name)
 	} else {
 		w.Write("update set ")
-		for i, col := range updateCols {
+		for i, cp := range updateCols {
 			if i > 0 {
 				w.Write(", ")
 			}
-			w.Id(col.Name)
-			w.Write(" = excluded.")
-			w.Id(col.Name)
+			writeTargetPath(w, cp)
+			w.Write(" = ")
+			// "excluded" is the proposed-insert ROW, unlike "resolved" (a
+			// flat CTE) — a composite sub-field read off it needs Postgres's
+			// row-value parenthesization ("(excluded.home).city", verified
+			// directly against Postgres 16 ; "excluded.home.city" is a
+			// syntax error, parsed as a table reference), same as any other
+			// composite navigation off an aliased row (WriteQualifiedPath,
+			// resolved_field.go).
+			WriteQualifiedPath(w, "excluded", cp.Path)
 		}
 	}
 	w.Write("\n")
@@ -749,36 +803,65 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-func dedupeColumns(a, b []*pg.Column) []*pg.Column {
-	seen := map[*pg.Column]bool{}
-	var out []*pg.Column
+// dedupeColumnPaths dedupes by ColumnPath.Key() rather than the terminal
+// *pg.Column pointer : two different composite sub-fields (e.g. home.city,
+// work.city) can share that same pointer once navigated into (two columns
+// of the same composite type yield the identical leaf *pg.Column), so the
+// pointer alone would wrongly collapse them — Key() includes the FULL path,
+// not just the leaf, and disambiguates correctly.
+func dedupeColumnPaths(a, b []ColumnPath) []ColumnPath {
+	seen := map[string]bool{}
+	var out []ColumnPath
 	for _, c := range a {
-		if !seen[c] {
-			seen[c] = true
+		k := c.Key()
+		if !seen[k] {
+			seen[k] = true
 			out = append(out, c)
 		}
 	}
 	for _, c := range b {
-		if !seen[c] {
-			seen[c] = true
+		k := c.Key()
+		if !seen[k] {
+			seen[k] = true
 			out = append(out, c)
 		}
 	}
 	return out
 }
 
-func excludeColumns(cols, exclude []*pg.Column) []*pg.Column {
+// excludeColumnPaths drops any cols entry matching one of exclude — always
+// plain columns (identity/on_conflict columns are never composite), so
+// only a len(Path)==1 entry can ever match.
+func excludeColumnPaths(cols []ColumnPath, exclude []*pg.Column) []ColumnPath {
 	ex := map[*pg.Column]bool{}
 	for _, c := range exclude {
 		ex[c] = true
 	}
-	var out []*pg.Column
+	var out []ColumnPath
 	for _, c := range cols {
-		if !ex[c] {
-			out = append(out, c)
+		if len(c.Path) == 1 && ex[c.Path[0]] {
+			continue
 		}
+		out = append(out, c)
 	}
 	return out
+}
+
+// writeTargetPath emits cp as an INSERT column-list item or an UPDATE/
+// UPSERT SET target : "col" for a plain column, or Postgres's own dotted
+// composite-sub-field target syntax, "col.field" (NOT parenthesized —
+// unlike a read reference off an aliased row, verified directly against
+// Postgres 16 that both "insert into t (col.field) values (...)" and
+// "update t set col.field = ..." accept the bare dotted form, no parens).
+// Multi-level (col.field.subfield) chains the same way — Postgres accepts
+// arbitrarily deep dotted targets identically.
+func writeTargetPath(w *writer.SQLWriter, cp ColumnPath) {
+	for i, col := range cp.Path {
+		if i > 0 {
+			w.Write(".")
+		}
+		w.Id(col.Name)
+	}
 }
 
 // ---- phase 2 : delete -----------------------------------------------------------------

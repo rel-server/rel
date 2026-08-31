@@ -31,18 +31,13 @@ case (`sql_expr.go`) — cross-checked tag by tag, nothing missing at that level
 and desc are nulls last by default") was a real bug, not just undocumented — fixed
 (`compileOrderBy`), with a regression test ; Postgres's actual default (`NULLS FIRST` for a
 bare `DESC`, confirmed directly against Postgres 16) was silently relied on instead of
-overridden. Two REAL gaps remain, deliberately left alone rather than fixed unbidden :
+overridden. Composite sub-field writes — flagged as fully unimplemented despite `##
+Writability` documenting them in detail — are now implemented too (`write_dml.go`'s
+`writeTargetPath`/`writeColumnCase`, `write_denormalize.go`'s `extractRowData`, both keyed
+on the synthetic `columnPathFlatName`, `resolved_field.go`) ; see `## Writability`'s own
+"Execution, not just derivation" paragraph for the mechanism. One real gap remains,
+deliberately left alone rather than fixed unbidden :
 
-- **Composite sub-field writes are entirely unimplemented, despite `query-engine.md ##
-  Writability` documenting them in detail** (occurrence-counting on the full `ColumnPath`,
-  the `["index", ...]` exclusion open question) as if the feature works. `write_dml.go`'s
-  `columnsFor` and `write_denormalize.go`'s `extractRowData` both hard-reject any writable
-  extractor whose `ColumnPath.Path` has more than one element — `TestExecuteWrite_
-  CompositeExtractorRejected` confirms this is a deliberate, tested rejection, not an
-  oversight, but `## Writability`'s own text never says so. Either implement it (the
-  `UPDATE t SET comp.field = ...` Postgres syntax `## Writability` already alludes to), or
-  add an explicit "derivation tracks this ; execution doesn't support it yet" note there —
-  currently a reader of that section alone would reasonably assume it's a working feature.
 - **A table-rooted node's `select` must be shape-producing** (`own`/`full`/their variants,
   an object literal, or a bare `get`/`get-set`) — `selectFieldsFor` hard-errors on anything
   else (`query/sql.go`, "a bare scalar select ... isn't supported yet"). `query.ts`'s own
