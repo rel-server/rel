@@ -34,9 +34,13 @@ export interface Relation {
     The name of a function to call, instead of querying a table/view directly.
     Mutually exclusive with `relation`.
 
-    If the function is table-valued, joining can be performed just like if the query is about the type of the returned table. When writing back, writes into the underlying table if it is actually writable (not a view, not a plain type ; physical table or a view with instead-of).
-
-    Note: this *might* be a problem to leave it writable, but I can't think _why_.
+    If the function is table-valued, joining can be performed just like if the query is about
+    the type of the returned table. A function-rooted (or function-embedded) node is NEVER
+    writable, unconditionally — regardless of whether its return type resolves to a real,
+    otherwise-writable table — see `query-engine.md ## Reading Algorithm ### Function-rooted
+    nodes` for the full reasoning (writes always target the underlying table directly, never
+    "through" the function, so any filtering the function's own body does would otherwise be
+    silently bypassed).
   */
   function?: string
 

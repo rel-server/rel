@@ -196,29 +196,23 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// disconnect or cancelled request must not skip this cleanup.
 	defer func() { _, _ = conn.Exec(context.Background(), "truncate _data") }()
 
+	if _, err := conn.Exec(ctx, "begin"); err != nil {
+		writeError(w, serverError(fmt.Errorf("begin: %w", err)))
+		return
+	}
+
 	// JWT Lifecycle steps 3 (Check) and 5 (Apply role) — see
 	// jwt.Middleware's own doc comment for why these two, unlike Verify/
 	// Renew, run here rather than as generic middleware : both need this
 	// connection, which doesn't exist yet when the middleware runs.
-	// SET ROLE (session-scoped), not SET LOCAL ROLE : /rel commits its
-	// write transaction and then runs every item's read query AFTER that
-	// commit (see below), all still on this same pinned connection — a
-	// transaction-scoped SET LOCAL ROLE would revert at the commit, before
-	// the reads that also need it ever run.
-	cleanup, err := applyRole(ctx, w, r, conn, cfg)
-	if cleanup != nil {
-		// Registered here, not inside applyRole : a defer registered in
-		// applyRole's own scope would fire the instant applyRole returns,
-		// undoing the role switch before this request ever used it.
-		defer cleanup()
-	}
-	if err != nil {
+	// SET LOCAL ROLE, not session-scoped SET ROLE : the whole request now
+	// runs as ONE transaction, write phase and every item's read-back alike
+	// (specs/query-engine.md ## Transactions) — a transaction-scoped role
+	// applies for the entire thing and reverts automatically at the single
+	// commit/rollback below, with no separate RESET ROLE cleanup needed.
+	if err := applyRole(ctx, w, r, conn, cfg); err != nil {
+		_, _ = conn.Exec(ctx, "rollback")
 		writeError(w, err)
-		return
-	}
-
-	if _, err := conn.Exec(ctx, "begin"); err != nil {
-		writeError(w, serverError(fmt.Errorf("begin: %w", err)))
 		return
 	}
 
@@ -242,10 +236,11 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		nodeIDs[i] = result.NodeIDs[item.root]
 	}
 
-	if _, err := conn.Exec(ctx, "commit"); err != nil {
-		writeError(w, serverError(fmt.Errorf("commit: %w", err)))
-		return
-	}
+	// NO commit here : specs/query-engine.md ## Transactions now keeps the
+	// write phase and every item's read-back in the SAME transaction, all
+	// the way through streaming below — the actual commit is the very last
+	// thing this handler does, after every item (write AND read alike) has
+	// fully succeeded.
 
 	// Compile every item's response statement BEFORE writing any response
 	// bytes : once streaming starts, a failure here can no longer produce a
@@ -287,16 +282,41 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		// comment for that inherent limitation).
 		cleanErrorPossible := !multi && i == 0
 		if err := streamItem(ctx, w, conn, item.root, statements[i], cleanErrorPossible); err != nil {
+			// A read failing now rolls back the whole transaction, write
+			// phase included — specs/query-engine.md ## Transactions : a
+			// read calling into a function that "goes awry" must not leave
+			// an already-committed write behind it. pgxpool would notice
+			// the connection isn't idle and discard it on Release() even
+			// without this, but an explicit rollback states the intent
+			// plainly rather than relying on that as the only signal.
+			_, _ = conn.Exec(ctx, "rollback")
 			if cse, ok := errors.AsType[*cleanStreamError](err); ok {
 				writeError(w, serverError(fmt.Errorf("item %d: %w", i, cse.Unwrap())))
 			}
-			// Otherwise the response is already partway through streaming
-			// (or the query genuinely failed after commit) — there is no
-			// clean error envelope to fall back to at this point ; the
-			// response is simply truncated/invalid JSON. See response.go's
-			// writeError doc comment for the same limitation.
+			// Otherwise the response is already partway through streaming —
+			// there is no clean error envelope to fall back to at this
+			// point ; the response is simply truncated/invalid JSON. See
+			// response.go's writeError doc comment for the same limitation.
 			return
 		}
+	}
+
+	// The single commit for the whole request, only now that every item —
+	// write AND read-back alike — has fully succeeded. A failure here is
+	// a genuinely new, accepted risk this ordering creates (specs/
+	// query-engine.md ## Transactions spells it out in full) : for a
+	// multi-item request, skipping the closing "]" below at least leaves
+	// the client with truncated, unparseable JSON — a real, if blunt,
+	// failure signal. For a SINGLE-item request there is no such cue : its
+	// entire response may already be fully streamed and look completely
+	// valid by the time this fails, so a client can in principle observe
+	// what looks like a successful response for a write that was then
+	// rolled back. There is no way to avoid this without buffering the
+	// whole response first, which ## Response Shape already rejects for
+	// memory reasons.
+	if _, err := conn.Exec(ctx, "commit"); err != nil {
+		slog.Default().Error("commit failed after streaming had already started", "error", err.Error())
+		return
 	}
 	if multi {
 		_, _ = w.Write([]byte("]"))
@@ -359,12 +379,14 @@ func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, 
 }
 
 // applyRole runs Lifecycle steps 3 (Check) and 5 (Apply role) on conn,
-// using the claims jwt.Middleware already verified/renewed. Returns a
-// cleanup func (RESET ROLE) the caller must defer once SET ROLE has
-// actually run — nil if it never ran (the request stays anonymous-eligible
-// only, or an error aborted before the switch). Any returned error is
-// already a *requestError, ready for writeError.
-func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) (cleanup func(), err error) {
+// using the claims jwt.Middleware already verified/renewed. conn must
+// already be inside an open transaction — SET LOCAL ROLE is transaction-
+// scoped and reverts automatically at that transaction's own commit/
+// rollback, so unlike an earlier version of this function there is no
+// cleanup closure to run : the caller's own rollback-on-error path (and,
+// on success, the request's single final commit) already does it. Any
+// returned error is already a *requestError, ready for writeError.
+func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) error {
 	claims, verified := jwtpkg.FromContext(r.Context())
 
 	if verified && cfg.Http.Functions.CheckSession != "" {
@@ -380,7 +402,7 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 			// so clearing the header outright is safe.
 			w.Header().Del("Set-Cookie")
 			http.SetCookie(w, jwtpkg.ClearCookie(cfg.Jwt))
-			return nil, classifyCheckSessionError(cerr)
+			return classifyCheckSessionError(cerr)
 		}
 	}
 
@@ -392,26 +414,16 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 		// Same reasoning as rpc/handler.go's identical guard : an empty
 		// role means query.anonymous_role was never configured (reachable
 		// via a hand-built *config.Config, e.g. config.Test()). Emitting
-		// `SET ROLE ""` is a Postgres syntax error, and skipping the
+		// `SET LOCAL ROLE ""` is a Postgres syntax error, and skipping the
 		// switch entirely would silently run the request as whatever role
 		// the pool connection already has — a privilege escalation for
 		// anonymous callers — so this is a hard error either way.
-		return nil, serverError(fmt.Errorf("no role configured (query.anonymous_role is unset and request is anonymous)"))
+		return serverError(fmt.Errorf("no role configured (query.anonymous_role is unset and request is anonymous)"))
 	}
-	if _, serr := conn.Exec(ctx, "SET ROLE "+dbauth.EscapeIdentifier(role)); serr != nil {
-		return nil, serverError(fmt.Errorf("applying role: %w", serr))
+	if _, serr := conn.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); serr != nil {
+		return serverError(fmt.Errorf("applying role: %w", serr))
 	}
-	return func() {
-		// A failure here leaves the pooled connection wearing a non-
-		// default role — the NEXT request to reuse it can then fail its
-		// own SET ROLE (a non-superuser role generally can't switch to a
-		// role it isn't a member of). pgxpool destroys a connection whose
-		// TxStatus isn't idle on release, which covers most failure modes,
-		// but this is still worth a log line rather than silence.
-		if _, rerr := conn.Exec(context.Background(), "reset role"); rerr != nil {
-			slog.Default().Error("resetting role on pooled connection", "error", rerr.Error())
-		}
-	}, nil
+	return nil
 }
 
 // classifyCheckSessionError maps an RSxxx exception raised by

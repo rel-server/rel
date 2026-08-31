@@ -65,6 +65,64 @@ func Install(cfg config.Logging) (*slog.Logger, error) {
 	return logger, nil
 }
 
+// For returns a *slog.Logger tagged with a "module" attribute — the
+// mechanism specs/logging.md ## Domain scoping describes : "logging must
+// show what module it came from... to help with context." Convention : one
+// package-level `var log = logging.For("<name>")` per package, `<name>`
+// matching the package/directory name (query, rpc, pg, dmut, boot, ...),
+// used for every log call in that package instead of calling slog.Default()
+// or the slog package funcs directly.
+//
+// Deliberately safe to store in a package-level var regardless of
+// initialization order : Go runs package-level var initializers before
+// main() ever gets a chance to call Install, so a naive
+// `slog.Default().With("module", name)` here would permanently freeze in
+// whatever handler slog.Default() happened to return AT THAT MOMENT — the
+// stdlib's own built-in default, not rel's configured pretty/JSON one
+// Install sets up later. For's own handler (dynamicHandler, below) instead
+// resolves slog.Default()'s CURRENT handler fresh on every single log call,
+// so a logger built before Install runs still picks up the real handler
+// once it exists.
+func For(module string) *slog.Logger {
+	return slog.New(dynamicHandler{attrs: []slog.Attr{slog.String("module", module)}})
+}
+
+// dynamicHandler holds only the extra attrs a For(...) logger (or a further
+// .With(...) off of one) has accumulated — never a handler of its own. See
+// For's own doc comment for why : resolving slog.Default().Handler() fresh
+// in Enabled/Handle, instead of capturing it once at construction time, is
+// what makes a package-level `var log = logging.For(...)` safe regardless
+// of whether it runs before or after logging.Install.
+type dynamicHandler struct {
+	attrs []slog.Attr
+}
+
+func (h dynamicHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return slog.Default().Handler().Enabled(ctx, level)
+}
+
+func (h dynamicHandler) Handle(ctx context.Context, r slog.Record) error {
+	handler := slog.Default().Handler()
+	if len(h.attrs) > 0 {
+		handler = handler.WithAttrs(h.attrs)
+	}
+	return handler.Handle(ctx, r)
+}
+
+func (h dynamicHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	merged := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
+	merged = append(merged, h.attrs...)
+	merged = append(merged, attrs...)
+	return dynamicHandler{attrs: merged}
+}
+
+// WithGroup is a no-op (returns h unchanged) — nothing in this package's
+// current scope produces groups, the same scope limit filterHandler's own
+// doc comment already states for the identical reason.
+func (h dynamicHandler) WithGroup(name string) slog.Handler {
+	return h
+}
+
 // parseLevel maps logging.level's four accepted strings (default "info")
 // onto slog.Level ; anything else is a configuration error.
 func parseLevel(level string) (slog.Level, error) {

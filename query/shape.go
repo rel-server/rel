@@ -131,6 +131,27 @@ func identityIsWritable(node *QueryNode, accum *writeAccum) bool {
 	if node.Relation == nil {
 		return false
 	}
+	// A function-rooted (or function-embedded) node is NEVER writable,
+	// unconditionally — see specs/query-engine.md ## Reading Algorithm
+	// ### Function-rooted nodes for the full "why." In short : the Writing
+	// Algorithm always targets node.Relation's own underlying table
+	// directly (INSERT/UPDATE/DELETE by name), never "through" the
+	// function that was used to read it — so any filtering the function's
+	// own SQL body does (a WHERE clause, a soft-delete filter, anything)
+	// is silently bypassed for writes. A Postgres VIEW has a real,
+	// enforced equivalent of this problem (auto-updatable views, or an
+	// INSTEAD OF trigger, are the ONLY way to write through one) ; a
+	// function has no such mechanism, and rel can't inspect a function's
+	// body at introspection time to tell "this is a safe passthrough"
+	// from "this embeds real access control," so it can't safely allow
+	// writes for some functions and not others either. This check is
+	// deliberately unconditional (checked before PrimaryKey/OnConflict
+	// below, which would otherwise make a function returning a real
+	// composite/relation type look writable purely because its
+	// underlying table happens to have a primary key).
+	if node.IsFunction() {
+		return false
+	}
 
 	var identityCols []*pg.Column
 	if len(node.OnConflictColumns) > 0 {

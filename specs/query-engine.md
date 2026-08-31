@@ -51,9 +51,49 @@ To avoid paying for parsing and preparing statements all the time, rel offers a 
 
 ## Transactions
 
-A query or several queries (in one HTTP request) run in a single transaction ; any error stops and rollbacks everything.
+A request is one transaction, full stop — a query or several queries (a `Sequence`, in one
+HTTP request) share a single `begin`/`commit`, covering the write phase AND every item's own
+read-back alike, not just the writes. Any error, in a write OR a read, rolls back the whole
+thing.
 
-**Implementation note (server/rel.go)** : this only actually opens/commits a transaction around the write phase (`begin` before phase 1/2 of every write item, `commit` after the last one — see `## Response Shape`). A `Sequence` made entirely of plain reads never opens a transaction at all ; each read runs as its own autocommit statement. This means several *pure reads* in one Sequence do not currently share a snapshot with each other, only writes-vs-writes (and a write's own reread) get that guarantee. If cross-read snapshot consistency for a read-only Sequence turns out to matter, wrapping the whole request (not just its write phase) in one transaction is the fix.
+> Why a request is one transaction, not just its writes : a read can call into a Postgres
+> function, and a function can raise. If a read "going awry" after a write has already
+> happened left that write committed, the request as a whole would have partially succeeded
+> in a way the client has no clean way to detect or recover from — treating the whole request
+> as one atomic unit is simpler to reason about, and consistency is worth it even though it
+> isn't free (see the accepted costs below). This applies uniformly, including a `Sequence`
+> made entirely of plain reads (no write item at all) — every item in it now shares one
+> snapshot, not just writes-vs-writes.
+
+**Implementation note (`server/rel.go`)** : `begin` runs before Lifecycle step 5 (Apply
+role — `SET LOCAL ROLE`, transaction-scoped, so it applies for the whole request and reverts
+automatically at the single commit/rollback below, no separate reset-role cleanup needed).
+Every write item's phase 1/2 runs, then every item's response statement streams — write
+items reading back what they just wrote, read items running their own query — all still
+inside that one open transaction. `commit` is the very last thing the handler does, only
+once every item (write and read alike) has fully succeeded ; any failure along the way,
+write or read, rolls back explicitly rather than relying only on the connection pool
+discarding a non-idle connection on release.
+
+**Accepted cost, not an oversight.** Because the read-back streams manually (`## Response
+Shape` — no `json_agg`, to keep memory roughly constant even for a large result), the
+transaction stays open, and its locks/snapshot stay held, for as long as the client takes to
+receive the full response, not just for the write itself. A slow or throttled client reading
+a large result therefore holds real Postgres locks (from the write phase) and a live snapshot
+open for that whole duration — on a busy table this can contend with other transactions
+touching the same rows, and a long-held snapshot also defers vacuum from reclaiming dead
+tuples. There is a second, more specific cost this ordering creates : commit only happens
+*after* streaming succeeds, so a commit failure at that exact point happens after the
+response may already be fully sent to the client. For a multi-item `Sequence`, the response
+is at least left truncated (missing its closing `]`) — genuinely invalid JSON, a real (if
+blunt) failure signal to any real parser. For a **single-item** request there is no such cue
+at all : its entire response can already look completely valid by the time a late commit
+failure happens, so a client can in principle observe what reads as a successful response for
+a write that was then rolled back. Avoiding this outright would mean buffering the whole
+response before writing anything, which is exactly the memory tradeoff `## Response Shape`
+already rejected — so this is named here as a known, accepted limitation, the same treatment
+`rpc.md`'s own "no true streaming to Postgres" note already sets precedent for, not a promise
+this document is pretending to keep.
 
 ## Scoping
 
@@ -192,9 +232,29 @@ Much simpler than writing : no phases, no `_data` temp table, no dependency orde
 
 ### Function-rooted nodes
 
-A function-rooted node also gets `Relation` populated — via `GetRelationByType` on its return type, when that resolves to a known composite/relation (an ordinary composite return, or `SETOF <relation>`) ; when it doesn't — a `RETURNS TABLE(...)`/OUT-parameter function, whose `prorettype` is always the single generic `pg_catalog.record` pseudo-type with no backing composite type for `GetRelationByType` to resolve — falling back to `fn.RecordRelation`, a synthetic `*Relation` built at introspection time directly from the function's own OUT/TABLE-mode arguments (`pg.Function.RecordRelation`, `specs/introspection.md ### Functions`) ; still nil for a function with no OUT arguments at all, i.e. a bare scalar return. A table-valued function is joinable/writable exactly like the type it returns — `QueryNode`'s "either Relation or Function" doc comment states this directly : `Function != nil` decides *kind*, `Relation` is what descendants/writes resolve against, and a function node legitimately has both set.
+A function-rooted node also gets `Relation` populated — via `GetRelationByType` on its return type, when that resolves to a known composite/relation (an ordinary composite return, or `SETOF <relation>`) ; when it doesn't — a `RETURNS TABLE(...)`/OUT-parameter function, whose `prorettype` is always the single generic `pg_catalog.record` pseudo-type with no backing composite type for `GetRelationByType` to resolve — falling back to `fn.RecordRelation`, a synthetic `*Relation` built at introspection time directly from the function's own OUT/TABLE-mode arguments (`pg.Function.RecordRelation`, `specs/introspection.md ### Functions`) ; still nil for a function with no OUT arguments at all, i.e. a bare scalar return. A table-valued function is joinable exactly like the type it returns — `QueryNode`'s "either Relation or Function" doc comment states this directly : `Function != nil` decides *kind*, `Relation` is what descendants/joins resolve against, and a function node legitimately has both set. It is NEVER writable, though — see the paragraph below.
 
 > A `RETURNS TABLE` function's `RecordRelation` is structurally barred from ever being eligible as the CHILD/joined-into side of any relationship — Postgres can't index a function's computed output, and `## Scoping ### Join eligibility` requires exactly that on the child side — only a query root or the parent/outer side of an outgoing join out to a real indexed relation.
+
+**A function-rooted (or function-embedded) node is unconditionally UNWRITABLE, regardless of
+`write_mode` or whether its `Relation` resolves to a real, otherwise-writable table.** The
+Writing Algorithm always targets `Relation`'s own underlying table directly (`insert into
+target_relation ...`, by name), never "through" the function that was used to read it — so
+any filtering a function's own SQL body does (a `where owner_id = ...`, a soft-delete filter,
+anything at all) is silently bypassed for writes. Concretely : a function defined as `select
+* from director where public = true` only ever shows public directors on read, but if writes
+were allowed through that same node, a client could upsert a row by `id` the function itself
+would never have exposed to them, since the write path never consults the function's own
+`where` at all. A Postgres VIEW has a real, enforced guard against exactly this : it can only
+ever be written through if Postgres itself considers it auto-updatable, or it has an `INSTEAD
+OF` trigger — either way, the view's own defining query is genuinely in the path of the
+write, or the write is refused outright. A function has no equivalent mechanism, and rel has
+no way to inspect a function's body at introspection time to distinguish "this is a safe
+passthrough" from "this embeds real access control" — so it can't safely allow writes for
+some functions and not others either. `query/shape.go`'s `identityIsWritable` enforces this
+unconditionally, checked before its `PrimaryKey`/`OnConflict` logic, so a function returning a
+real composite/relation type (with a real, otherwise-writable primary key) doesn't
+accidentally look writable purely because its underlying table happens to have one.
 
 ### Implementation
 
@@ -477,6 +537,6 @@ For performance reasons, there is no need to have postgres build a BIG json arra
 
 > Why this is sensible : `json_agg`-ing server-side means Postgres has to hold the entire result in memory as one growing value before sending anything, and the app then has to hold it again before it can write the first byte — manual streaming keeps both sides at roughly constant memory and lets the client start receiving data before the query has finished.
 
-For a write query, the entire write algorithm — phase 1 and phase 2 from `## Writing Algorithm`, for every query in the request (several queries in one HTTP request share a single transaction, see `## Transactions`) — runs and `COMMIT`s _before_ any selection work for the response begins. The response is always built from a separate, read-only statement issued after that commit, never from inside the write transaction.
+For a write query, the entire write algorithm — phase 1 and phase 2 from `## Writing Algorithm` — runs first, for every query in the request. The response's own read-back statements then run for every item (write items reading back what they just wrote, read items running their own query), still inside that SAME transaction — see `## Transactions` for why this now covers reads too, not just writes. `COMMIT` is the very last thing the whole request does, only once every item has fully streamed successfully ; nothing about response-building runs in a separate, later transaction or statement anymore.
 
-This has two consequences for `_data` (see `## Writing Algorithm` step 2) : it must be created `ON COMMIT PRESERVE ROWS`, not dropped or truncated at the write transaction's commit, since the read-back statement that builds the response needs to join against it (in particular against `keys`, populated during phase 1) on the same connection ; truncation happens once, at the very end of the whole request, after the response has been fully sent. And when a request bundles several queries sharing one transaction, none of their responses start streaming until that single shared commit lands, not as each query's own writes finish.
+This still has a consequence for `_data` (see `## Writing Algorithm` step 2) : it must be created `ON COMMIT PRESERVE ROWS`, not `ON COMMIT DROP` — not because the read-back needs to survive a commit that no longer happens before it runs, but because the deferred final cleanup (`truncate _data`, once per request, after the response has been fully sent) runs as its own statement AFTER the single commit above ; `ON COMMIT DROP` would drop the table out from under that cleanup step, which expects it to still exist (`create temp table if not exists` at the start of the next request would still recover from that, but the truncate call itself would fail first). And when a request bundles several queries sharing one transaction, none of their responses start streaming until every write item across the whole `Sequence` has finished phase 1/2 — reads and read-backs run afterward, in item order, still before the single commit.

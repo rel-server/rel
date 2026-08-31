@@ -232,6 +232,34 @@ func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
 	}
 }
 
+// TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation covers
+// specs/query-engine.md ## Reading Algorithm ### Function-rooted nodes : a
+// function-rooted node is NEVER writable, even when its return type
+// resolves to a real, otherwise-writable table via a real primary key
+// (fn_directors() returns setof director — its own Relation IS director's
+// real Relation, PK included). Without the query/shape.go IsFunction()
+// guard, this would look identical to writing through "director" directly
+// and silently succeed, bypassing whatever filtering the function's own SQL
+// body does.
+func TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{"function": "fn_directors", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	payload := []byte(`[{"name": "Via Function Root"}]`)
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err == nil {
+		t.Fatalf("expected ExecuteWrite to reject a write through a function-rooted node")
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from director where name = $1`, "Via Function Root").Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected no row written through the function-rooted node, found %d", count)
+	}
+}
+
 func TestExecuteWrite_Upsert(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()

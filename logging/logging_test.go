@@ -35,6 +35,61 @@ func buildTo(buf *bytes.Buffer, cfg config.Logging) (*slog.Logger, error) {
 	return slog.New(filtered), nil
 }
 
+// TestFor_ResolvesDefaultLazily is the regression test for For's own core
+// safety property : a logger built via For BEFORE slog.SetDefault ever runs
+// (exactly what happens when a package stores For's result in a package-
+// level var, since Go initializes those before main() gets to call
+// logging.Install) must still pick up whichever handler is installed later,
+// not freeze in whatever slog.Default() returned at construction time.
+func TestFor_ResolvesDefaultLazily(t *testing.T) {
+	original := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	// Simulates a package-level `var log = logging.For("query")` : built
+	// against whatever slog.Default() is RIGHT NOW (the stdlib's own
+	// built-in default in a real init-order scenario), before the real
+	// handler exists.
+	log := For("query")
+
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+
+	log.Info("hello")
+
+	var decoded map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("expected valid JSON from the handler installed AFTER For() was called, got %q: %v", buf.String(), err)
+	}
+	if decoded["module"] != "query" {
+		t.Errorf("expected module=query, got %v", decoded["module"])
+	}
+	if decoded["msg"] != "hello" {
+		t.Errorf("expected msg=hello, got %v", decoded["msg"])
+	}
+}
+
+// TestFor_WithAttrsAccumulates confirms a further .With(...) off a For(...)
+// logger keeps the module attribute rather than replacing it — dynamicHandler
+// merges attrs, it doesn't overwrite.
+func TestFor_WithAttrsAccumulates(t *testing.T) {
+	original := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+
+	log := For("rpc").With("request_id", "abc123")
+	log.Info("handled")
+
+	var decoded map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("unmarshal %q: %v", buf.String(), err)
+	}
+	if decoded["module"] != "rpc" || decoded["request_id"] != "abc123" {
+		t.Errorf("expected both module=rpc and request_id=abc123, got %v", decoded)
+	}
+}
+
 func TestBuild_UnrecognizedHandlerIsError(t *testing.T) {
 	if _, err := Build(config.Logging{Handler: "xml"}); err == nil {
 		t.Fatalf("expected an error for an unrecognized handler")

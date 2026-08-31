@@ -25,6 +25,9 @@ instead. Each entry covers roughly what the previous ones assume.
 15. [[oauth-saml.md]] — SAML/OIDC callback endpoints specifically (reserved, not yet
     specified — `authentication.md` already covers username/password and the session/JWT
     side of SAML/OIDC).
+16. [[testing.md]] — fixture/testcontainers conventions ; a developer-process doc, not part
+    of understanding the running system, but referenced from the sections above wherever
+    their own tests build on one of the two fixtures it describes.
 
 [[TODO.md]], alongside this directory, tracks spec completeness against the feature list
 below — not a topic of its own, consult it for what's still open in any of the above.

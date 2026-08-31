@@ -18,13 +18,34 @@ A `logging` package builds exactly one `*slog.Logger` at startup from the assemb
 
 ## Domain scoping
 
-On top of logging level, logging must show what module it came from (query / typescript / ...) to help with context.
+On top of logging level, every log line must show what module it came from (query / rpc / pg
+/ ...) to help with context — a `"module"` attribute, attached once per package rather than
+repeated at every call site.
+
+`logging.For(module string) *slog.Logger` returns a logger with `"module"` already attached.
+Convention : one package-level `var log = logging.For("<name>")` per package, `<name>`
+matching the package/directory name (`query`, `rpc`, `pg`, `dmut`, `boot`, `websec`, `static`,
+`config`, `jwt`, `dbauth`, ...) — every log call in that package goes through `log`, not
+`slog.Default()`/the bare `slog` package functions directly.
+
+`For`'s own handler resolves `slog.Default()`'s CURRENT handler fresh on every log call,
+rather than capturing whatever it was at construction time — this is what makes a
+package-level `var` initializer safe to use for this : Go initializes every package-level var
+before `main()` ever runs, unconditionally before `## Logger construction`'s `Install` has
+had a chance to install the real, configured handler. A naive `slog.Default().With("module",
+name)` would instead permanently freeze in the stdlib's own built-in default handler, silently
+never picking up the real one.
+
+Once `## Request-scoped logging`'s `logging.FromContext(ctx)` exists, request-scoped code
+layers its own package's module tag on top of the request-scoped logger rather than using the
+package-level `log` directly : `logging.FromContext(ctx).With("module", "rpc")` — `module` and
+`request_id` compose freely, since both are just attributes on the same logger.
 
 ## Request-scoped logging
 
 HTTP middleware, early in the chain, does the following for every incoming request:
 
-1. Reads a request ID from an inbound header (name TBD — e.g. `X-Request-Id`), or generates one if absent/blank.
+1. Reads a request ID from an inbound `X-Request-Id` header, or generates one if absent/blank.
 2. Derives a child logger via `logger.With("request_id", id, ...)`, including other stable per-request attributes (e.g. route, remote address) as they're decided.
 3. Stores that logger on the request's `context.Context`.
 

@@ -189,6 +189,60 @@ func TestRelHandler_Sequence_WriteThenReadWhatItWrote(t *testing.T) {
 	}
 }
 
+// TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite is the regression
+// test for specs/query-engine.md ## Transactions' current rule : the write
+// phase and every item's read-back now share ONE transaction, so a read
+// that fails during execution (not at compile/resolve time — this needs a
+// genuine runtime error, a division by zero, so it fails inside
+// streamItem's own conn.Query/rows.Next, after the first item has already
+// streamed real bytes to the client) rolls the whole request back,
+// including the first item's already-"streamed" write. Proven by checking
+// the database directly afterward, not just the HTTP response shape — a
+// truncated response alone wouldn't distinguish "rolled back" from "wrote
+// but failed to fully stream the read-back."
+func TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite(t *testing.T) {
+	const name = "Rollback Regression Director"
+	// Clean slate : this test's own pass/fail signal is "does this name
+	// exist afterward," so a leftover row from a previous run must not be
+	// there already.
+	if _, err := testDb.Pool.Exec(context.Background(), `delete from director where name = $1`, name); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+
+	rec := postRel(t, `[
+		{
+			"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"},
+			"data": [{"name": "`+name+`"}]
+		},
+		{
+			"relation": "director", "schema": "public",
+			"select": {"boom": ["/", 1, 0]}
+		}
+	]`)
+	// The first item already streamed real bytes (a "[" plus its own
+	// result) before the second item's division-by-zero fails at
+	// execution time — there is no clean error envelope left to produce at
+	// that point (see streamItem/cleanStreamError's own doc comments), so
+	// this asserts the response is genuinely incomplete, not a clean 4xx/5xx.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected the response to already be mid-stream (200 sent on first byte), got %d : %s", rec.Code, rec.Body.String())
+	}
+	if json.Valid(rec.Body.Bytes()) {
+		t.Fatalf("expected a truncated/invalid JSON body (streaming aborted mid-request), got complete JSON: %s", rec.Body.String())
+	}
+
+	// The real assertion : the first item's write must NOT be visible,
+	// proving the second item's later failure rolled back the whole
+	// transaction rather than leaving an already-committed write behind.
+	var count int
+	if err := testDb.Pool.QueryRow(context.Background(), `select count(*) from director where name = $1`, name).Scan(&count); err != nil {
+		t.Fatalf("querying back: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected the write to be rolled back by the later read failure, but found %d row(s) : %s", count, name)
+	}
+}
+
 func TestRelHandler_TwoWriteItemsInOneSequence(t *testing.T) {
 	// Both write items share one "_data" table within the same request —
 	// without a shared WriteState, each ExecuteWriteState call would
