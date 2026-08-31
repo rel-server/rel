@@ -7,7 +7,6 @@ package query
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/writer"
@@ -209,7 +208,7 @@ func incomingKeySource(node *QueryNode, col *pg.Column) (keyCol *pg.Column, ok b
 	if node.Parent == nil {
 		return nil, false
 	}
-	if !slices.Contains(node.Parent.IncomingNodes, node) {
+	if !isIncoming(node.Parent, node) {
 		return nil, false
 	}
 	for _, jc := range node.JoinColumns {
@@ -388,7 +387,7 @@ func keysColumns(node *QueryNode) []*pg.Column {
 	// node.Parent, and per query.ts's own "on" doc a to-one join may target
 	// any unique column, not just the primary key, so it isn't necessarily
 	// covered by identityColumns(node) already.
-	if node.Parent != nil && slices.Contains(node.Parent.OutgoingNodes, node) {
+	if node.Parent != nil && isOutgoingOf(node.Parent, node) {
 		for _, jc := range node.JoinColumns {
 			if !seen[jc.Local] {
 				seen[jc.Local] = true

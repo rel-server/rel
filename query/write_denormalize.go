@@ -119,7 +119,9 @@ func (d *denormalizer) walkNode(node *QueryNode, raw *ast.Node, parentID *int) e
 
 // isIncoming reports whether child is one of node's IncomingNodes (to-many,
 // payload shaped as an array) as opposed to OutgoingNodes (to-one, payload
-// shaped as a single object).
+// shaped as a single object). The canonical way to ask this anywhere in
+// this package — isOutgoingOf (sql.go) is its to-one counterpart ; reuse
+// one of the two rather than a fresh inline slices.Contains.
 func isIncoming(node, child *QueryNode) bool {
 	return slices.Contains(node.IncomingNodes, child)
 }

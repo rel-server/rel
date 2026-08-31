@@ -444,12 +444,25 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 // this file now goes through. The JSON envelope (not plain text) still
 // applies here : /rel and /rpc keep their own separate error framings per
 // their respective spec sections, this is only the classification shared.
-func classifyCheckSessionError(err error) *requestError {
-	wrapped := fmt.Errorf("check_session: %w", err)
+// classifyOrFallback routes wrapped through pgerr.Classify, returning the
+// classified *requestError (built from the classified Detail, never from
+// wrapped.Error() — see classifyWriteError's own doc comment for why that
+// matters : a wrapped chain can embed generated SQL text) when it unwraps
+// to a *pgconn.PgError, or fallback(wrapped) otherwise. The shared shape
+// behind classifyCheckSessionError/classifyWriteError/classifyReadError,
+// which differ only in their own wrap-context and which status/code
+// applies when nothing classifies.
+func classifyOrFallback(wrapped error, fallback func(error) *requestError) *requestError {
 	if status, code, tier, detail, ok := pgerr.Classify(wrapped); ok {
 		return pgClassified(status, code, tier, detail, wrapped)
 	}
-	return serverError(errcode.Internal, wrapped)
+	return fallback(wrapped)
+}
+
+func classifyCheckSessionError(err error) *requestError {
+	return classifyOrFallback(fmt.Errorf("check_session: %w", err), func(e error) *requestError {
+		return serverError(errcode.Internal, e)
+	})
 }
 
 // classifyWriteError distinguishes a problem with the query/data itself
@@ -464,11 +477,9 @@ func classifyCheckSessionError(err error) *requestError {
 // write_denormalize.go's own shape errors (a payload structure mismatch, an
 // unsupported composite write) — squarely "an error in the query/data."
 func classifyWriteError(err error, item int) *requestError {
-	wrapped := fmt.Errorf("item %d: %w", item, err)
-	if status, code, tier, detail, ok := pgerr.Classify(wrapped); ok {
-		return pgClassified(status, code, tier, detail, wrapped)
-	}
-	return badRequest(errcode.Unclassified, wrapped)
+	return classifyOrFallback(fmt.Errorf("item %d: %w", item, err), func(e error) *requestError {
+		return badRequest(errcode.Unclassified, e)
+	})
 }
 
 // classifyReadError is classifyWriteError's counterpart for a read that
@@ -479,9 +490,7 @@ func classifyWriteError(err error, item int) *requestError {
 // failure was never "bad data" in the request — anything unclassified here
 // falls back to a genuine 500, not badRequest.
 func classifyReadError(err error, item int) *requestError {
-	wrapped := fmt.Errorf("item %d: %w", item, err)
-	if status, code, tier, detail, ok := pgerr.Classify(wrapped); ok {
-		return pgClassified(status, code, tier, detail, wrapped)
-	}
-	return serverError(errcode.Internal, wrapped)
+	return classifyOrFallback(fmt.Errorf("item %d: %w", item, err), func(e error) *requestError {
+		return serverError(errcode.Internal, e)
+	})
 }

@@ -411,6 +411,15 @@ func wrapNodeAsValue(node *QueryNode, innerAlias string) string {
 	return innerAlias + ".__scalar"
 }
 
+// selectFieldsFor's own switch enumerates the identical type set
+// isShapeProducingSelect (above) checks — Go's type-switch dispatch can't
+// cheaply share a case list across two functions with different jobs
+// (classify vs. actually expand each case), so this is two independently-
+// written enumerations of the same 11 types. Kept deliberately adjacent in
+// this file so a future case added to query.ts's shape-producing family is
+// visibly added to both at once ; if either one drifts, isShapeProducingSelect
+// would call something "scalar" that this function still knows how to
+// expand (or vice versa), which wrapNodeAsValue would then wrap wrong.
 func selectFieldsFor(node *QueryNode) ([]selectField, error) {
 	var fields []selectField
 
@@ -575,7 +584,11 @@ func (c *sqlCompiler) compileEmbedField(child *QueryNode, parent *QueryNode, par
 // isOutgoingOf reports whether child is one of parent's OutgoingNodes (a
 // to-one embed) — used instead of trusting IsFunction/Relation-shape alone,
 // since a function-rooted embed is also classified outgoing/incoming by the
-// same ResolveJoin cardinality as any other node (node_resolve.go).
+// same ResolveJoin cardinality as any other node (node_resolve.go). The
+// canonical way to ask this question anywhere in this package — reuse it
+// rather than a fresh slices.Contains(parent.OutgoingNodes, child), which
+// is exactly this line with no name attached ; isIncoming
+// (write_denormalize.go) is its to-many counterpart.
 func isOutgoingOf(parent *QueryNode, child *QueryNode) bool {
 	return slices.Contains(parent.OutgoingNodes, child)
 }

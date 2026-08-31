@@ -36,30 +36,26 @@ func writeErrorForPgErr(w http.ResponseWriter, err error, dev bool) {
 	writePlainError(w, status, code, pgPlainText(code, tier, detail, dev))
 }
 
-// pgPlainText renders a classified Postgres error as plain text, mirroring
-// server/response.go's pgResponseText tier-by-tier but without a
-// structured pg_error field to fall back on (there's no JSON body on this
-// path) — the constraint/table/column detail a JSON client gets separately
-// is folded into one line here instead, still built only from pgerr.Detail's
-// allow-listed fields, never err.Error()'s wrapped chain.
+// pgPlainText renders a classified Postgres error as plain text — the
+// tiering itself (pgerr.AllowsDetail/FallbackMessage) is shared with
+// server/response.go's pgResponseText, so the two can't independently
+// drift on WHICH tier shows what ; only the RENDERING differs, since this
+// path has no structured pg_error field to fall back on (no JSON body
+// here) — the constraint/table/column detail a JSON client gets
+// separately is folded into one line instead, still built only from
+// pgerr.Detail's allow-listed fields, never err.Error()'s wrapped chain.
 func pgPlainText(code errcode.Code, tier pgerr.Tier, detail *pgerr.Detail, dev bool) string {
-	switch {
-	case pgerr.IsRSCode(code):
+	if pgerr.IsRSCode(code) {
 		return detail.Message
-	case tier == pgerr.TierConstraintViolation:
-		if detail.Detail != "" {
-			return detail.Message + ": " + detail.Detail
-		}
-		return detail.Message
-	case tier == pgerr.TierPermissionDenied:
-		if dev {
-			return detail.Message
-		}
-		return "insufficient permissions for this operation"
-	default: // TierUnclassified, not RSxxx.
-		if dev {
-			return detail.Message
-		}
-		return "internal error"
 	}
+	if !pgerr.AllowsDetail(tier, dev) {
+		return pgerr.FallbackMessage(tier)
+	}
+	if tier == pgerr.TierConstraintViolation && detail.Detail != "" {
+		return detail.Message + ": " + detail.Detail
+	}
+	// TierConstraintViolation with no extra Detail text, or
+	// TierPermissionDenied/TierUnclassified with AllowsDetail true (only
+	// reachable under dev).
+	return detail.Message
 }

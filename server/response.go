@@ -145,25 +145,24 @@ func writeError(w http.ResponseWriter, err error, dev bool) {
 // per tier — specs/error-handling.md ## Postgres error detail's three
 // tiers.
 func pgResponseText(code errcode.Code, tier pgerr.Tier, detail *pgerr.Detail, dev bool) (errorText string, pgError *pgerr.Detail) {
-	switch {
-	case pgerr.IsRSCode(code):
+	if pgerr.IsRSCode(code) {
 		// The raised message IS the safe, author-chosen text — always
 		// shown, exactly like today's RSxxx convention.
 		return detail.Message, nil
-	case tier == pgerr.TierConstraintViolation:
-		return "a database constraint was violated", detail
-	case tier == pgerr.TierPermissionDenied:
-		if dev {
-			return detail.Message, detail
-		}
-		return "insufficient permissions for this operation", nil
-	default: // TierUnclassified, not RSxxx : a genuine unclassified
-		// Postgres error, dev-gated like any other 5xx.
-		if dev {
-			return detail.Message, detail
-		}
-		return "internal error", nil
 	}
+	if !pgerr.AllowsDetail(tier, dev) {
+		return pgerr.FallbackMessage(tier), nil
+	}
+	if tier == pgerr.TierConstraintViolation {
+		// A short, safe headline — the raw detail.Message isn't needed
+		// here the way rpc/response.go's pgPlainText needs it, since this
+		// package has pgError (the full Detail) as its own separate field
+		// to carry the specifics in.
+		return "a database constraint was violated", detail
+	}
+	// TierPermissionDenied or TierUnclassified, with AllowsDetail true —
+	// only reachable under dev (see AllowsDetail, pgerr/classify.go).
+	return detail.Message, detail
 }
 
 // formatStackFrames renders oopsErr's captured frames as

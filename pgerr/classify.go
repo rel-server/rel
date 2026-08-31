@@ -116,3 +116,44 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 
 	return 500, errcode.Internal, TierUnclassified, d, true
 }
+
+// AllowsDetail reports whether specs/error-handling.md ## Postgres error
+// detail's tiering allows a client-facing response to include the
+// classified error's full Detail (raw Postgres message/constraint/column
+// names, or — for a caller with no separate structured field — folded
+// straight into its one text channel) : unconditionally true for a
+// constraint violation (the client's own submitted data caused it), true
+// for permission-denied/unclassified only under dev — the same condition
+// FallbackMessage's own callers gate on.
+//
+// The single source of truth for this decision, shared between /rel's
+// structured envelope (server/response.go, which additionally gets to
+// show Detail as its own separate pg_error field when this is true) and
+// /rpc's plain-text body (rpc/response.go, which folds Detail straight
+// into its one channel instead) — the two render an "allowed" case
+// differently, but must never independently drift on WHICH tier allows
+// what or under which condition, which is exactly what happened before
+// this was factored out : both packages carried their own copy of this
+// same switch.
+func AllowsDetail(tier Tier, dev bool) bool {
+	switch tier {
+	case TierConstraintViolation:
+		return true
+	case TierPermissionDenied:
+		return dev
+	default: // TierUnclassified
+		return dev
+	}
+}
+
+// FallbackMessage is the generic, safe-by-default text specs/error-handling.md
+// ## Postgres error detail names for tier 2 (permission-denied) and tier 3
+// (unclassified) in production — used whenever AllowsDetail(tier, dev) is
+// false. Meaningless for TierConstraintViolation, which AllowsDetail never
+// refuses.
+func FallbackMessage(tier Tier) string {
+	if tier == TierPermissionDenied {
+		return "insufficient permissions for this operation"
+	}
+	return "internal error"
+}
