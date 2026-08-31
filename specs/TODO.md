@@ -32,6 +32,26 @@ Grouped by how much they block implementation, not by file.
   before either can run inside a real request. `writer/` (the target-agnostic
   text-building writer, plus a Postgres-specific `SQLWriter` wrapper for
   bind-params/identifier-escaping) underpins both passes.
+  Two engine gaps found while building read-path benchmarks (`query_bench/`) were since
+  fixed : a row-type-taking computed column (`querying.md ## Scoping`'s `alias.func_name`/
+  `func_name(alias)` paragraph) called with the relation's own self-alias as its bare
+  argument now compiles (`query/sql_expr.go`'s `compileResolvedField` recognizes a
+  self-reference and emits its already-tracked SQL alias — a genuinely different node's
+  alias embedded as a bare value, e.g. a child/sibling, stays unsupported, that's a
+  materially harder LATERAL/subquery-correlation problem) ; and a `RETURNS TABLE(...)`
+  function's own output columns now resolve (`pg.Function.RecordRelation`, built at
+  introspection time directly from the function's OUT/TABLE-mode arguments, since every
+  record-returning function shares one generic `pg_catalog.record` prorettype with no
+  backing composite type for `Type.Relation` to ever resolve). Structurally verified
+  (not just asserted) that a `RETURNS TABLE` function still can never be the CHILD/
+  joined-into side of any relationship — Postgres can't index a function's computed
+  output, and `### Join eligibility` requires exactly that on the child side — only a
+  query root or the parent/outer side of an outgoing join out to a real indexed relation.
+  Benchmarks now exist for both the write path (`query/write_bench_test.go` : flat
+  insert, outgoing FK chains of varying depth/fan-out, batch-size scaling) and the read
+  path (`query_bench/`, against the richer hotel/booking fixture rather than movie/
+  director, for a realistic volume/shape signal) — meant as a baseline for catching
+  future performance regressions, not a one-off measurement.
 - **Connection pool / transaction lifecycle.** Never given its own spec, but several other
   documents assume it exists : `SET LOCAL ROLE` timing (`jwt-roles-and-http.md`), the
   commit-before-select response design (`querying.md ## Response Shape`), and `_data`
@@ -161,9 +181,9 @@ Grouped by how much they block implementation, not by file.
   `RelHttpResponse`/mimetype domains, dynamic `/rpc/{schema}/{function}` dispatch,
   `__VERB` suffix splitting, `allowed_routes`/`http.functions.allowed_auth` gating, and the full
   JWT lifecycle (`jwt/` : mint/sign/verify/renew, `check_session`, `SET LOCAL ROLE`
-  inside the request's own transaction). Still deferred : Jet template rendering
-  (`RelHttpResponse.template` is parsed but not acted on) and SAML/OIDC (see "Named but
-  empty" below).
+  inside the request's own transaction). Jet template rendering is also now implemented
+  (`rpc/templates.go` — see "Static file serving" below, same commit). Still deferred :
+  SAML/OIDC (see "Named but empty" below).
 - **`jwt.anonrole` renamed to `query.anonymous_role`**, reconciling a genuine drift :
   `jwt-roles-and-http.md` and `querying.md` named what reads as the identical setting
   (the role applied to unauthenticated/unverifiable requests) under two different keys,
@@ -177,14 +197,15 @@ Grouped by how much they block implementation, not by file.
   renewal to reapply it, and a private claim just to carry one rarely-used cookie
   attribute wasn't judged worth it.
 - **Static file serving** (`00-general.md`'s "configurable file access control based on path and
-  database queries" bullet) — RESOLVED, spec'd, not yet implemented. `specs/04-http-content.md
-  ## Static files` now fully specifies `http.static.path` (a colon-separated, PATH-style search
-  list, same convention `pg.query.wellknown_path` already uses, first directory doubling as the
-  one write target for `### Upload destinations`), the fixed `/static/` mount, no-listing/no-
-  dotfiles defaults, and the database-query-driven access control this bullet named but never
-  detailed (`### Access control` — named, prefix-scoped rules reusing `http.functions.check_
-  session`'s function-name/RSxxx-reject interaction shape). `### Upload destinations` additionally
-  specifies a two-function shape family, both mandatory, sharing one JSON domain (`RelUpload`,
+  database queries" bullet) — RESOLVED, spec'd AND IMPLEMENTED. `specs/04-http-content.md
+  ## Static files` fully specifies, and the `static` package (`static/static.go`) implements,
+  `http.static.path` (a colon-separated, PATH-style search list, same convention
+  `pg.query.wellknown_path` already uses, first directory doubling as the one write target for
+  `### Upload destinations`), the fixed `/static/` mount, no-listing/no-dotfiles defaults, and the
+  database-query-driven access control this bullet named but never detailed (`### Access control` —
+  named, prefix-scoped rules reusing `http.functions.check_session`'s function-name/RSxxx-reject
+  interaction shape). `### Upload destinations` (`rpc/upload_registry.go`/`rpc/upload_handler.go`)
+  implements the two-function shape family, both mandatory, sharing one JSON domain (`RelUpload`,
   `http.upload_domain_name`) reused progressively : `<name>__prepare(req, part jsonb) returns
   RelUpload` (read-only-transaction-enforced, runs before any bytes are received, makes a BINDING
   placement decision — path/mkdir/overwrite) and `<name>(req, upload RelUpload) returns
@@ -196,10 +217,11 @@ Grouped by how much they block implementation, not by file.
   function's transaction commits, narrowing the DB-commit-vs-disk-write consistency gap to that one
   final same-filesystem rename — the same limitation class as `jwt-roles-and-http.md`'s own "no
   true streaming to Postgres" note, just a much smaller window than a naive design would leave.
-  Same document's
-  `## Templates` section also gives `RelHttpResponse.template` (parsed since an earlier pass,
-  never acted on) real behavior, and `## CORS`/`## CSP` cover the security-header half of the same
-  document.
+  Same document's `## Templates` section is also now implemented (`rpc/templates.go`, Jet v6,
+  `Data`/`Req`/`Nonce` template variables, buffered execution so a runtime error is a clean 500
+  rather than a partial body), and `## CORS`/`## CSP` (the `websec` package) implement the
+  security-header half of the same document, composed into one middleware applied uniformly to
+  `/rel`, `/rpc`, and `/static`.
 - **TypeScript/JS export** (`/js/query.js`, `/js/schemas/*.ts`). Named as a feature in
   `00-general.md`. No spec on how types are generated from introspection + well-known
   queries, or what the runtime query-building helper actually does.
