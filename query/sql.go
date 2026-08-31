@@ -315,7 +315,13 @@ func (c *sqlCompiler) compileOrderBy(node *QueryNode) error {
 		}
 		switch term.Direction {
 		case OrderDesc:
-			c.w.Write(" desc")
+			// query.ts : "asc and desc are nulls last by default" — bare
+			// "desc" is NOT that on its own : Postgres's own default for
+			// DESC is NULLS FIRST (only plain ASC defaults to NULLS LAST),
+			// verified directly against Postgres 16. Must say so
+			// explicitly, or a bare `["desc", "col"]` order_by term
+			// silently sorts nulls opposite to what the spec promises.
+			c.w.Write(" desc nulls last")
 		case OrderAscNullsFirst:
 			c.w.Write(" asc nulls first")
 		case OrderDescNullsLast:

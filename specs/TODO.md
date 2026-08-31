@@ -22,6 +22,45 @@ Resolved items are not tracked here — this is a todo list, not a changelog ; c
   statements, exported to the TS client) but never given its own section : where they're
   defined/stored, `$param` casting rules, caching and versioning across schema reloads.
 
+## Found during a sqlgen (query/*.go) implementation-completeness review
+
+Every `query.ts` `Expression`/`UnaryOperator`/`BinaryOperator`/`FoldedOperator` tag has a
+parser case (`expression_parse.go`), a resolver case (`expression_resolve.go`), and a codegen
+case (`sql_expr.go`) — cross-checked tag by tag, nothing missing at that level. `order_by`'s
+`desc` term silently sorting nulls FIRST instead of LAST (contradicting `query.ts`'s own "asc
+and desc are nulls last by default") was a real bug, not just undocumented — fixed
+(`compileOrderBy`), with a regression test ; Postgres's actual default (`NULLS FIRST` for a
+bare `DESC`, confirmed directly against Postgres 16) was silently relied on instead of
+overridden. Two REAL gaps remain, deliberately left alone rather than fixed unbidden :
+
+- **Composite sub-field writes are entirely unimplemented, despite `query-engine.md ##
+  Writability` documenting them in detail** (occurrence-counting on the full `ColumnPath`,
+  the `["index", ...]` exclusion open question) as if the feature works. `write_dml.go`'s
+  `columnsFor` and `write_denormalize.go`'s `extractRowData` both hard-reject any writable
+  extractor whose `ColumnPath.Path` has more than one element — `TestExecuteWrite_
+  CompositeExtractorRejected` confirms this is a deliberate, tested rejection, not an
+  oversight, but `## Writability`'s own text never says so. Either implement it (the
+  `UPDATE t SET comp.field = ...` Postgres syntax `## Writability` already alludes to), or
+  add an explicit "derivation tracks this ; execution doesn't support it yet" note there —
+  currently a reader of that section alone would reasonably assume it's a working feature.
+- **A table-rooted node's `select` must be shape-producing** (`own`/`full`/their variants,
+  an object literal, or a bare `get`/`get-set`) — `selectFieldsFor` hard-errors on anything
+  else (`query/sql.go`, "a bare scalar select ... isn't supported yet"). `query.ts`'s own
+  type (`select?: Expression`) technically permits a bare scalar (`select: "name"`,
+  `select: ["+", "a", "b"]`) with nothing in the spec text saying it's invalid for a table
+  root — genuinely unclear whether this is a real missing feature (flatten a relation to a
+  scalar array, not a family of objects) or `select`'s type should be narrowed to rule it
+  out explicitly. Needs a decision, not a guess.
+
+Lower-severity, self-aware in the code (tested, with a clear reason in an existing comment)
+but not cross-referenced from any spec file — worth a one-line mention in `error-handling.md`
+or `query-engine.md` for discoverability, not urgent :
+- `$param` (well-known query params) has no codegen yet — already tracked above.
+- A child alias reached as a bare VALUE nested inside another expression (e.g. `["coalesce",
+  "director", null]`) resolves but doesn't compile — `TestCompileSelect_
+  EmbeddedChildAliasStillUnsupported`. Selecting the same alias as a top-level select entry
+  (an ordinary embed) is unaffected ; this is specifically the nested-as-an-operand case.
+
 ## Open questions already flagged, still unresolved
 
 - `error-handling.md` — implemented (`errcode` package, `pgerr.Classify`/`Detail`,

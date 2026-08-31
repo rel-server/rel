@@ -899,6 +899,84 @@ func TestCompileSelect_EmbeddedOrderByLimitOffset(t *testing.T) {
 	}
 }
 
+// TestCompileSelect_OrderByDescNullsLast proves query.ts's "asc and desc are
+// nulls last by default" for a bare "desc" term specifically — Postgres's
+// own native default for DESC is NULLS FIRST (only plain ASC defaults to
+// NULLS LAST), verified directly against Postgres 16 ; compileOrderBy must
+// emit "desc nulls last" explicitly rather than relying on Postgres's own
+// default, or this promise is silently broken for every descending sort.
+func TestCompileSelect_OrderByDescNullsLast(t *testing.T) {
+	ctx := context.Background()
+	var withStudioID, withoutStudioID int
+	var studioID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into studio (name) values ('DescNullsLast Studio') returning id`).Scan(&studioID); err != nil {
+		t.Fatalf("insert studio: %v", err)
+	}
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name, studio_id) values ('DescNullsLast With', $1) returning id`, studioID).Scan(&withStudioID); err != nil {
+		t.Fatalf("insert director with studio: %v", err)
+	}
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name, studio_id) values ('DescNullsLast Without', null) returning id`).Scan(&withoutStudioID); err != nil {
+		t.Fatalf("insert director without studio: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "studio_id": "studio_id"},
+		"where": ["in", "id", %d, %d],
+		"order_by": [["desc", "studio_id"]]
+	}`, withStudioID, withoutStudioID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d : %s", len(rows), sql)
+	}
+	if rows[0]["studio_id"] == nil {
+		t.Fatalf("expected the row WITH a studio_id first (desc, nulls last), got nil first : %#v (sql: %s)", rows, sql)
+	}
+	if rows[1]["studio_id"] != nil {
+		t.Errorf("expected the row WITHOUT a studio_id (null) last, got %#v (sql: %s)", rows, sql)
+	}
+}
+
+// TestCompileSelect_OrderByAscNullsFirst proves the explicit
+// "asc-nulls-first" tag (query.ts's own opt-out of ASC's usual nulls-last
+// default) actually reorders nulls to the front — previously untested :
+// nothing exercised this tag's SQL compilation at all before this test.
+func TestCompileSelect_OrderByAscNullsFirst(t *testing.T) {
+	ctx := context.Background()
+	var withStudioID, withoutStudioID int
+	var studioID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into studio (name) values ('AscNullsFirst Studio') returning id`).Scan(&studioID); err != nil {
+		t.Fatalf("insert studio: %v", err)
+	}
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name, studio_id) values ('AscNullsFirst With', $1) returning id`, studioID).Scan(&withStudioID); err != nil {
+		t.Fatalf("insert director with studio: %v", err)
+	}
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name, studio_id) values ('AscNullsFirst Without', null) returning id`).Scan(&withoutStudioID); err != nil {
+		t.Fatalf("insert director without studio: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "studio_id": "studio_id"},
+		"where": ["in", "id", %d, %d],
+		"order_by": [["asc-nulls-first", "studio_id"]]
+	}`, withStudioID, withoutStudioID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d : %s", len(rows), sql)
+	}
+	if rows[0]["studio_id"] != nil {
+		t.Fatalf("expected the row WITHOUT a studio_id first (asc-nulls-first), got %#v (sql: %s)", rows, sql)
+	}
+	if rows[1]["studio_id"] == nil {
+		t.Errorf("expected the row WITH a studio_id last, got %#v (sql: %s)", rows, sql)
+	}
+}
+
 func TestCompileSelect_DistinctOn(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
