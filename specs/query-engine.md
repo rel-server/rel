@@ -260,6 +260,22 @@ unconditionally, checked before its `PrimaryKey`/`OnConflict` logic, so a functi
 real composite/relation type (with a real, otherwise-writable primary key) doesn't
 accidentally look writable purely because its underlying table happens to have one.
 
+### Scalar-selected nodes
+
+A node's own `select` isn't required to be shape-producing (`own`/`full`/their variants, an object literal, or a bare `get`/`get-set`) — any other expression (a bare column, an arithmetic expression, a `call`, a bare `agg`, ...) is a valid top-level `select` too, and produces the "distinct shape" `## Response Shape` already gives a scalar (non-`SETOF`) *function* root : one bare JSON value per row, not a one-key object. This is the table-rooted (and embedded-node) analog of that same mechanism — a function root was never the only case with an inherently single, unambiguous value per row ; `select: "name"` on an ordinary relation has exactly the same property.
+
+Applies uniformly at every level a node can appear at, not just the root :
+
+- **Root** : `CompileSelect`/`CompileSelectForDataNode` (the write-then-reread path — they share this, and everything below, through `compileNodeCorrelated`) stream a flat JSON array of scalars instead of an array of objects.
+- **To-one embed** : the parent's key for that child becomes a bare value (e.g. `"director": "Denis Villeneuve"`) instead of a nested object.
+- **To-many embed** : the parent's key becomes a flat array of scalars (e.g. `"movies": ["A", "B"]`) instead of an array of objects — including when that same child is LATERAL-shared with an `agg` consumer (`## Reading Algorithm`'s own note on multiply-consumed incoming children) : `compileLateralJoin`'s own array materialization switches the same way.
+
+Compiled by `compileNodeCorrelated` itself : a single `to_jsonb(<compiled select expression>) as __scalar` column (`__scalar`, matching this codebase's own `__row_id`/`__node_id`/`__parent_id` convention for an internal name never meant to be a real column or exposed field) in place of the ordinary named-field list `select_fields_for` would otherwise emit — everything else (`from`, `where`, `order by`, `limit`, `distinct`/`distinct on`, LATERAL joins for the node's own incoming children) is unchanged, the same machinery either way. `to_jsonb(...)` isn't optional : the manual `"["/","/"]"` response streaming (`## Response Shape`) writes each row's single column straight through as response bytes, so it has to already be valid JSON regardless of the underlying Postgres type — an unquoted `text` value or a raw composite isn't.
+
+Every caller that turns an already-compiled node into a value (`CompileSelect`, `CompileSelectForDataNode`, `compileEmbedField`'s to-one/to-many wrapping, `compileLateralJoin`'s array materialization) goes through one shared helper (`wrapNodeAsValue`) that picks `row_to_json(alias)` or `alias.__scalar` based on the SAME shape-producing check — there is no second, independently-maintained copy of that decision anywhere.
+
+> Not specially rejected for a WRITE node : the ordinary writability rule (`## Writability` : the identity target must be present, writable, exactly once) already makes a scalar top-level select on the request's own root essentially unwritable in practice — a bare `select: "name"` never includes the primary key, so `identityIsWritable` correctly refuses it, the same as any other identity-omitting select. A scalar select on a *readonly* embedded child (or on a writable child whose own identity is independently satisfied) is unaffected — nothing here changes when writability applies, only what a read produces.
+
 ### Scalar hop through a to-one relation
 
 A `.` hop's right side can land on a *different* node than the one doing the selecting — `["own-and", {"director_name": [".", "director", "name"]}]` on a `movie` query, `director` being a joined alias, pulls `director.name` straight into `movie`'s own flat select, with no nested `director` object at all. This is a genuine alternative to embedding the whole child via `join`/`select`, not shorthand for it — the result carries just the one field, at the parent's own top level.

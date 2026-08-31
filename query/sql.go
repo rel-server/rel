@@ -86,7 +86,7 @@ func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 	}
 
 	alias := c.allocAlias()
-	c.w.Write("select row_to_json(").Write(alias).Write(") from (\n")
+	c.w.Write("select ").Write(wrapNodeAsValue(root, alias)).Write(" from (\n")
 	c.w.Indent()
 	err := c.compileNode(root, alias)
 	c.w.Unindent()
@@ -120,7 +120,7 @@ func CompileSelectForDataNode(root *QueryNode, nodeID int) (*writer.SQLWriter, e
 	c.dataScopeAlias = "__wq"
 
 	alias := c.allocAlias()
-	c.w.Write("select row_to_json(").Write(alias).Write(") from (\n")
+	c.w.Write("select ").Write(wrapNodeAsValue(root, alias)).Write(" from (\n")
 	c.w.Indent()
 	err := c.compileNode(root, alias)
 	c.w.Unindent()
@@ -159,11 +159,6 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 	c.laterals = laterals
 	defer func() { c.laterals = prevLaterals }()
 
-	fields, err := selectFieldsFor(node)
-	if err != nil {
-		return err
-	}
-
 	c.w.Write("select ")
 	if node.Distinct {
 		c.w.Write("distinct ")
@@ -174,18 +169,40 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 		}
 		c.w.Write(" ")
 	}
-	if len(fields) == 0 {
-		return fmt.Errorf("sql: node has no select fields to emit")
-	}
-	for i, f := range fields {
-		if i > 0 {
-			c.w.Write(", ")
-		}
-		if err := c.compileSelectField(node, alias, f); err != nil {
+
+	if isShapeProducingSelect(node.Select) {
+		fields, err := selectFieldsFor(node)
+		if err != nil {
 			return err
 		}
-		c.w.Write(" as ")
-		c.w.Id(f.key)
+		if len(fields) == 0 {
+			return fmt.Errorf("sql: node has no select fields to emit")
+		}
+		for i, f := range fields {
+			if i > 0 {
+				c.w.Write(", ")
+			}
+			if err := c.compileSelectField(node, alias, f); err != nil {
+				return err
+			}
+			c.w.Write(" as ")
+			c.w.Id(f.key)
+		}
+	} else {
+		// A scalar select — query-engine.md ## Reading Algorithm ###
+		// Scalar-selected nodes : one to_jsonb(...)-cast value per row,
+		// named "__scalar" (an internal name, never visible outside the
+		// SQL this package generates — matching __row_id/__node_id/
+		// __parent_id's own convention). to_jsonb, not a bare emission :
+		// server/response.go's streamRows writes each row's single column
+		// straight through as the response bytes, so it must already be
+		// valid JSON regardless of the expression's own Postgres type —
+		// unquoted text or a raw composite value isn't.
+		c.w.Write("to_jsonb(")
+		if err := c.compileExpr(node.Select, node); err != nil {
+			return err
+		}
+		c.w.Write(") as __scalar")
 	}
 
 	c.w.Write(" from ")
@@ -359,6 +376,41 @@ type selectField struct {
 	expr   Expression // set for a computed field
 }
 
+// isShapeProducingSelect reports whether sel is one of the constructs
+// selectFieldsFor knows how to expand into a named-field list — own/full
+// and their -except/-and variants, an inline object literal, or a bare
+// get/get-set. Anything else (a bare column/alias, an arithmetic
+// expression, a function call, "arr"/"lst", a bare "agg", ...) is a SCALAR
+// select instead : compileNodeCorrelated branches on this to decide
+// between the ordinary named-field select list and the single to_jsonb(...)
+// "__scalar" column ## Response Shape's "distinct shape... for a scalar
+// function" gets uniformly for a table-rooted node (or embed) too — see
+// query-engine.md ## Reading Algorithm ### Scalar-selected nodes.
+func isShapeProducingSelect(sel Expression) bool {
+	switch sel.(type) {
+	case OwnExpr, FullExpr, OwnExceptExpr, FullExceptExpr, OwnAndExpr, FullAndExpr, OwnExceptAndExpr, FullExceptAndExpr, ObjectExpr, *GetSetExpr, *GetExpr:
+		return true
+	default:
+		return false
+	}
+}
+
+// wrapNodeAsValue writes node's own already-compiled inner query (aliased
+// as innerAlias) as ONE jsonb value : row_to_json(innerAlias) for an
+// ordinary shape-producing select, or innerAlias's own single "__scalar"
+// column directly for a scalar one — compileNodeCorrelated's two branches,
+// query-engine.md ## Reading Algorithm ### Scalar-selected nodes. Shared
+// by every place that turns one already-compiled node into a value :
+// CompileSelect/CompileSelectForDataNode's own root wrapping,
+// compileEmbedField's to-one/to-many wrapping, and compileLateralJoin's
+// own json_agg(...) array materialization.
+func wrapNodeAsValue(node *QueryNode, innerAlias string) string {
+	if isShapeProducingSelect(node.Select) {
+		return "row_to_json(" + innerAlias + ")"
+	}
+	return innerAlias + ".__scalar"
+}
+
 func selectFieldsFor(node *QueryNode) ([]selectField, error) {
 	var fields []selectField
 
@@ -427,7 +479,16 @@ func selectFieldsFor(node *QueryNode) ([]selectField, error) {
 	case *GetExpr:
 		fields = append(fields, selectField{key: v.ResolvedColumn.Name, expr: v})
 	default:
-		return nil, fmt.Errorf("sql: node's own select (%T) isn't a shape-producing expression — a bare scalar select as a node's own top-level select isn't supported yet", node.Select)
+		// A scalar select (isShapeProducingSelect is false) has no named
+		// fields, and in particular no embeddable children reachable
+		// through top-level field iteration — write_denormalize.go's
+		// walkNode calls this unconditionally to discover embed children
+		// to walk into, and correctly finds none here, not an error : a
+		// "." hop inside a scalar expression reads a value, it doesn't
+		// expect a nested JSON payload shape the way a real embed does.
+		// compileNodeCorrelated (below) never reaches this branch at all —
+		// it checks isShapeProducingSelect itself and takes the
+		// to_jsonb(...) "__scalar" path instead of calling this function.
 	}
 	return fields, nil
 }
@@ -496,9 +557,9 @@ func (c *sqlCompiler) compileEmbedField(child *QueryNode, parent *QueryNode, par
 	c.w.Paren(func() {
 		c.w.Write("select ")
 		if isToOne {
-			c.w.Write("row_to_json(").Write(childAlias).Write(")")
+			c.w.Write(wrapNodeAsValue(child, childAlias))
 		} else {
-			c.w.Write("coalesce(json_agg(row_to_json(").Write(childAlias).Write(")), '[]'::json)")
+			c.w.Write("coalesce(json_agg(").Write(wrapNodeAsValue(child, childAlias)).Write("), '[]'::json)")
 		}
 		c.w.Write(" from (\n")
 		c.w.Indented(func() {
@@ -625,7 +686,7 @@ func (c *sqlCompiler) compileLateralJoin(child *QueryNode, parentAlias string, p
 		c.w.Write("select ")
 		first := true
 		if plan.hasArray {
-			c.w.Write("json_agg(row_to_json(").Write(childAlias).Write(")) as arr")
+			c.w.Write("json_agg(").Write(wrapNodeAsValue(child, childAlias)).Write(") as arr")
 			first = false
 		}
 		for _, a := range plan.aggs {

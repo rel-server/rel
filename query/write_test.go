@@ -848,6 +848,56 @@ func TestCompileSelectForDataNode_ScopesToWrittenRows(t *testing.T) {
 	}
 }
 
+// TestCompileSelectForDataNode_ScalarSelect proves the scalar-select
+// mechanism applies to the write-then-reread path too, not just an
+// ordinary read : CompileSelectForDataNode shares compileNodeCorrelated
+// with CompileSelect, so this is really confirming that sharing holds, not
+// testing a separately-implemented case. The scalar select lives on a
+// READONLY embedded child, not the root : a write's own root/writable
+// node always needs its identity columns present in select (##
+// Configuration), which a bare scalar select can never satisfy on its
+// own — a readonly child has no such requirement, and its own reread goes
+// through the exact same shared compileNodeCorrelated path regardless.
+func TestCompileSelectForDataNode_ScalarSelect(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"write_mode": "insert",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": "title", "write_mode": "readonly", "order_by": ["title"]}}
+	}`)
+	payload := []byte(`[{"name": "Scalar Reread Director", "movies": []}]`)
+	result, err := ExecuteWrite(ctx, conn, node, payload)
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+	var directorID int
+	if err := conn.QueryRow(ctx, `select id from director where name = 'Scalar Reread Director'`).Scan(&directorID); err != nil {
+		t.Fatalf("select id: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Alpha'), ($1, 'Beta')`, directorID); err != nil {
+		t.Fatalf("insert movies: %v", err)
+	}
+
+	w, err := CompileSelectForDataNode(node, result.NodeIDs[node])
+	if err != nil {
+		t.Fatalf("CompileSelectForDataNode: %v", err)
+	}
+	rows := runSelectOn(t, conn, w.String(), w.Args())
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), w.String())
+	}
+	movies, ok := rows[0]["movies"].([]any)
+	if !ok || len(movies) != 2 {
+		t.Fatalf("expected a flat 2-element array, got %#v (sql: %s)", rows[0]["movies"], w.String())
+	}
+	if movies[0] != "Alpha" || movies[1] != "Beta" {
+		t.Errorf("expected [\"Alpha\", \"Beta\"] (bare scalars), got %#v", movies)
+	}
+}
+
 func TestCompileSelectForDataNode_WithEmbeddedChild(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()

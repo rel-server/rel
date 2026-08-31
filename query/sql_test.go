@@ -45,6 +45,36 @@ func runSelect(t *testing.T, sql string, args []any) []map[string]any {
 	return out
 }
 
+// runSelectScalar is runSelect's counterpart for a scalar-selected node
+// (query-engine.md ## Reading Algorithm ### Scalar-selected nodes) : each
+// row's single "json" column is a bare value (a string, a JSON array, ...),
+// not an object, so it decodes into "any" rather than map[string]any.
+func runSelectScalar(t *testing.T, sql string, args []any) []any {
+	t.Helper()
+	rows, err := testDb.Pool.Query(context.Background(), sql, args...)
+	if err != nil {
+		t.Fatalf("query: %v\nsql: %s", err, sql)
+	}
+	defer rows.Close()
+
+	var out []any
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		var v any
+		if err := json.Unmarshal(raw, &v); err != nil {
+			t.Fatalf("unmarshal %s: %v", raw, err)
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+	return out
+}
+
 func TestCompileSelect_BareOwn(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Denis Villeneuve') returning id`); err != nil {
@@ -225,6 +255,118 @@ func TestCompileSelect_ToManyEmbed(t *testing.T) {
 	movies, ok := rows[0]["movies"].([]any)
 	if !ok || len(movies) != 2 {
 		t.Fatalf("expected 2 movies embedded, got %#v", rows[0]["movies"])
+	}
+}
+
+// TestCompileSelect_RootScalarSelect proves query-engine.md ## Reading
+// Algorithm ### Scalar-selected nodes : a table-rooted node whose own
+// select is a bare column (not own/full/an object literal) reads back as a
+// flat JSON array of scalars, not an array of one-key objects — the
+// "distinct shape" a scalar FUNCTION root already got (## Response Shape),
+// now available for an ordinary table root too. TEXT is the important type
+// to prove, not an integer : to_jsonb's quoting is what makes this safe at
+// all — an unquoted raw string is not valid JSON on its own.
+func TestCompileSelect_RootScalarSelect(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Scalar Root Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": "name", "where": ["=", "name", ["Scalar Root Director"]]}`)
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelectScalar(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if rows[0] != "Scalar Root Director" {
+		t.Errorf("expected bare scalar \"Scalar Root Director\", got %#v (sql: %s)", rows[0], sql)
+	}
+}
+
+// TestCompileSelect_RootScalarSelect_Expression proves the scalar branch
+// isn't limited to a bare column — any non-shape-producing expression
+// works, compiled and to_jsonb-cast the same way.
+func TestCompileSelect_RootScalarSelect_Expression(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Expr Root Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["format", "%s!", "name"], "where": ["=", "name", ["Expr Root Director"]]}`)
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelectScalar(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if rows[0] != "Expr Root Director!" {
+		t.Errorf("expected \"Expr Root Director!\", got %#v (sql: %s)", rows[0], sql)
+	}
+}
+
+// TestCompileSelect_ToOneEmbedScalarSelect proves the same mechanism
+// through a to-one embed : movie's "director" key becomes a bare string
+// (the director's name), not a nested {"name": ...} object.
+func TestCompileSelect_ToOneEmbedScalarSelect(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('ToOne Scalar Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	var movieID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into movie (director_id, title) values ($1, 'ToOne Scalar Movie') returning id`, directorID).Scan(&movieID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "movie", "schema": "public",
+		"select": {"title": "title", "director": "director"},
+		"where": ["=", "id", %d],
+		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": "name"}}
+	}`, movieID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if rows[0]["director"] != "ToOne Scalar Director" {
+		t.Errorf("expected director to be a bare string \"ToOne Scalar Director\", got %#v (sql: %s)", rows[0]["director"], sql)
+	}
+}
+
+// TestCompileSelect_ToManyEmbedScalarSelect proves the to-many side :
+// director's "movies" key becomes a flat array of bare title strings, not
+// an array of {"title": ...} objects.
+func TestCompileSelect_ToManyEmbedScalarSelect(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('ToMany Scalar Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Alpha'), ($1, 'Beta')`, directorID); err != nil {
+		t.Fatalf("insert movies: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "director", "schema": "public",
+		"select": {"name": "name", "movies": "movies"},
+		"where": ["=", "id", %d],
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": "title", "order_by": ["title"]}}
+	}`, directorID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	movies, ok := rows[0]["movies"].([]any)
+	if !ok || len(movies) != 2 {
+		t.Fatalf("expected a flat 2-element array, got %#v (sql: %s)", rows[0]["movies"], sql)
+	}
+	if movies[0] != "Alpha" || movies[1] != "Beta" {
+		t.Errorf("expected [\"Alpha\", \"Beta\"], got %#v", movies)
 	}
 }
 
@@ -507,6 +649,52 @@ func TestCompileSelect_LateralSharedChild(t *testing.T) {
 	movies, ok := rows[0]["movies"].([]any)
 	if !ok || len(movies) != 2 {
 		t.Fatalf("expected 2 movies embedded, got %#v", rows[0]["movies"])
+	}
+	count, ok := rows[0]["movie_count"].(float64)
+	if !ok || count != 2 {
+		t.Errorf("expected movie_count=2, got %#v (sql: %s)", rows[0]["movie_count"], sql)
+	}
+}
+
+// TestCompileSelect_LateralSharedChild_ScalarSelect is
+// TestCompileSelect_LateralSharedChild with "movies" itself scalar-selected
+// — the highest-risk path this session's scalar-select work touched :
+// compileLateralJoin's own json_agg(...) wrapping (the "arr" column shared
+// LATERAL children materialize once for every consumer) must also switch
+// between row_to_json and the bare "__scalar" column, or a LATERAL-shared
+// scalar child would silently embed {"__scalar": ...} objects instead of
+// bare values.
+func TestCompileSelect_LateralSharedChild_ScalarSelect(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Lateral Scalar Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into movie (director_id, title) values ($1, 'X'), ($1, 'Y')`, directorID); err != nil {
+		t.Fatalf("insert movies: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "movies": "movies", "movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]]},
+		"where": ["=", "id", %d],
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": "title", "order_by": ["title"]}}
+	}`, directorID))
+	sql, args := mustCompileSelect(t, node)
+	if !containsLateral(sql) {
+		t.Fatalf("expected a LATERAL join for a dual-consumed child, got:\n%s", sql)
+	}
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	movies, ok := rows[0]["movies"].([]any)
+	if !ok || len(movies) != 2 {
+		t.Fatalf("expected a flat 2-element array, got %#v (sql: %s)", rows[0]["movies"], sql)
+	}
+	if movies[0] != "X" || movies[1] != "Y" {
+		t.Errorf("expected [\"X\", \"Y\"] (bare scalars, not objects), got %#v", movies)
 	}
 	count, ok := rows[0]["movie_count"].(float64)
 	if !ok || count != 2 {

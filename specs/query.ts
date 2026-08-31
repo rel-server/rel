@@ -147,6 +147,12 @@ export interface Relation {
    I not specified, then it will be equivalent to select * from the relation, as well as the embeds defined by join if any.
 
    An error is raised when there is no select clause and a join alias conflicts with a column name.
+
+   Doesn't have to be shape-producing (own/full/their variants, an object literal, or a bare
+   get/get-set) — any other expression is valid too, and produces one bare JSON value per row
+   instead of a one-key object : a flat array of scalars at the root or a to-many embed, or a
+   single bare value for a to-one embed — see `query-engine.md ## Reading Algorithm ###
+   Scalar-selected nodes`.
   */
   select?: Expression
 

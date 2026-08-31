@@ -35,17 +35,13 @@ overridden. Composite sub-field writes — flagged as fully unimplemented despit
 Writability` documenting them in detail — are now implemented too (`write_dml.go`'s
 `writeTargetPath`/`writeColumnCase`, `write_denormalize.go`'s `extractRowData`, both keyed
 on the synthetic `columnPathFlatName`, `resolved_field.go`) ; see `## Writability`'s own
-"Execution, not just derivation" paragraph for the mechanism. One real gap remains,
-deliberately left alone rather than fixed unbidden :
-
-- **A table-rooted node's `select` must be shape-producing** (`own`/`full`/their variants,
-  an object literal, or a bare `get`/`get-set`) — `selectFieldsFor` hard-errors on anything
-  else (`query/sql.go`, "a bare scalar select ... isn't supported yet"). `query.ts`'s own
-  type (`select?: Expression`) technically permits a bare scalar (`select: "name"`,
-  `select: ["+", "a", "b"]`) with nothing in the spec text saying it's invalid for a table
-  root — genuinely unclear whether this is a real missing feature (flatten a relation to a
-  scalar array, not a family of objects) or `select`'s type should be narrowed to rule it
-  out explicitly. Needs a decision, not a guess.
+"Execution, not just derivation" paragraph for the mechanism. A table-rooted node's `select`
+being required to be shape-producing — flagged as unclear whether that was a real gap or an
+intended restriction — turned out to be a real gap too, confirmed by the user directly (the
+same "distinct shape" a scalar function root already gets, `## Response Shape`, now also
+available for an ordinary table root/embed) : implemented as `## Reading Algorithm ###
+Scalar-selected nodes` describes (`wrapNodeAsValue`, `sql.go`), uniformly at the root, a
+to-one embed, a to-many embed, and the LATERAL-shared case.
 
 Lower-severity, self-aware in the code (tested, with a clear reason in an existing comment)
 but not cross-referenced from any spec file — worth a one-line mention in `error-handling.md`
