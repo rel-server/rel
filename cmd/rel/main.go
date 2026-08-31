@@ -64,7 +64,7 @@ func main() {
 	// failed run is logged and startup continues regardless (dmut's own
 	// transaction discipline means a failed run is fully rolled back, so
 	// there's nothing half-migrated for introspection to see).
-	if _, err := dmut.Run(context.Background(), primaryURI, cfg.Dmut, logger); err != nil {
+	if _, err := dmut.Run(context.Background(), primaryURI, cfg.Dmut, logger.With("module", "dmut")); err != nil {
 		logger.Error("dmut run failed, continuing with the schema as it was before this attempt", "error", err.Error())
 	}
 
@@ -88,7 +88,7 @@ func main() {
 	// (/rel, /rpc/, /static/, uniformly wrapped in CORS/CSP middleware) —
 	// boot/reload.go's Reload calls the exact same function on every
 	// SIGUSR1, so the two call sites can't drift on what the mux contains.
-	mux, err := boot.BuildMux(db, cfg, rpcRegistry, logger)
+	mux, err := boot.BuildMux(db, cfg, rpcRegistry, logger.With("module", "boot"))
 	if err != nil {
 		logger.Error("building mux", "error", err.Error())
 		os.Exit(1)
@@ -99,7 +99,7 @@ func main() {
 	// once, below, and never touched again. Only the wrapper's own
 	// atomic.Pointer is ever swapped, by the reload sequence.
 	wrapper := boot.NewReloadableHandler(mux)
-	reloader := boot.NewReloader(wrapper, db, primaryURI, cfg, logger)
+	reloader := boot.NewReloader(wrapper, db, primaryURI, cfg, logger.With("module", "boot"))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Http.Host, cfg.Http.Port)
 	srv := &http.Server{

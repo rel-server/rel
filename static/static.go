@@ -10,7 +10,6 @@ package static
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -22,9 +21,14 @@ import (
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dbauth"
 	jwtpkg "github.com/ceymard/rel/jwt"
+	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/pgerr"
 )
+
+// log is this package's own module-tagged logger — specs/logging.md
+// ## Domain scoping's convention, one per package.
+var log = logging.For("static")
 
 // Server is a built, ready-to-mount static file server : Dirs is the
 // existing-only subset of http.static.path's colon-separated search list,
@@ -188,7 +192,7 @@ func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 				writePlainError(w, status, message)
 				return
 			}
-			slog.Default().Error("static: check_static_access", "function", rule.function, "path", upath, "error", err.Error())
+			log.Error("static: check_static_access", "function", rule.function, "path", upath, "error", err.Error())
 			writePlainError(w, http.StatusInternalServerError, "internal error")
 			return
 		}

@@ -9,7 +9,6 @@ package rpc
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 
 	"github.com/bytedance/sonic"
@@ -63,14 +62,14 @@ func NewTemplateSet(path string) *TemplateSet {
 // never a silent fallback to resp.content.
 func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *TemplateSet, resp relHttpResponsePayload, status int) {
 	if templates == nil || templates.set == nil {
-		slog.Default().Error("rpc: RelHttpResponse.template set but no http.templates.path configured/found", "template", resp.Template)
+		log.Error("rpc: RelHttpResponse.template set but no http.templates.path configured/found", "template", resp.Template)
 		writePlainError(w, http.StatusInternalServerError, "template rendering unavailable (no http.templates.path configured)")
 		return
 	}
 
 	tmpl, err := templates.set.GetTemplate(resp.Template)
 	if err != nil {
-		slog.Default().Error("rpc: loading template", "template", resp.Template, "error", err.Error())
+		log.Error("rpc: loading template", "template", resp.Template, "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, "loading template")
 		return
 	}
@@ -88,7 +87,7 @@ func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *Te
 	// pages, not multi-GB media) output is what makes that guarantee true.
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, vars, nil); err != nil {
-		slog.Default().Error("rpc: executing template", "template", resp.Template, "error", err.Error())
+		log.Error("rpc: executing template", "template", resp.Template, "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, "executing template")
 		return
 	}

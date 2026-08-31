@@ -72,9 +72,14 @@ var errNotFound = errors.New("not found")
 
 // logErr is a genuinely malformed value's single choke point : ## Accessing
 // configuration's "every retrieval error is logged... path only, never the
-// value" rule. Uses slog.Default() deliberately — config loading runs before
-// the real logger (built FROM this config) exists, matching logging.md's
-// "code with no request context uses slog.Default()".
+// value" rule. Uses slog.Default() deliberately, NOT logging.For(...) —
+// config loading runs before the real logger (built FROM this config)
+// exists, matching logging.md's "code with no request context uses
+// slog.Default()" ; this is also structural, not just ordering : the
+// logging package itself imports config (for config.Logging), so config
+// importing logging back would be a direct import cycle. Every other
+// package uses logging.For for its own module-tagged logger — this
+// package is the one deliberate, permanent exception.
 //
 // err's message MUST NOT include the resolved value — ## Error handling and
 // secrets is explicit that this applies "for every option, not only ones

@@ -40,6 +40,9 @@ func Load(args []string) (*Config, error) {
 
 	path, err := resolveConfigFilePath(args, os.Getenv("REL_CONFIG"), discoveryRoots())
 	if err != nil {
+		// slog.Default() throughout this file, not logging.For(...) — see
+		// reader.go's logErr doc comment for why (ordering AND an actual
+		// import cycle, not a convenience shortcut).
 		slog.Default().Error("config: resolving config file path", "error", err.Error())
 		return nil, err
 	}

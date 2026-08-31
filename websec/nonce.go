@@ -12,7 +12,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+
+	"github.com/ceymard/rel/logging"
 )
+
+// log is this package's own module-tagged logger — specs/logging.md
+// ## Domain scoping's convention, one per package.
+var log = logging.For("websec")
 
 // nonceContextKey is unexported so no other package can collide with it by
 // constructing an equal-by-value context key.

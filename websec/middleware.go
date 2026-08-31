@@ -4,7 +4,6 @@
 package websec
 
 import (
-	"log/slog"
 	"net/http"
 
 	"github.com/ceymard/rel/config"
@@ -23,7 +22,7 @@ func Middleware(cfg *config.Config) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			nonce, err := NewNonce()
 			if err != nil {
-				slog.Default().Error("websec: generating CSP nonce", "error", err.Error())
+				log.Error("websec: generating CSP nonce", "error", err.Error())
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}

@@ -8,14 +8,19 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 
 	"github.com/ceymard/rel/config"
+	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/jackc/pgx/v5"
 )
+
+// log is this package's own module-tagged logger — specs/logging.md
+// ## Domain scoping's convention, one per package, used by every file in
+// this package (registry.go, handler.go, templates.go, upload_*.go).
+var log = logging.For("rpc")
 
 // Route is one discovered route function : Function is the underlying
 // Postgres function ; MimeType is non-empty only when this route's return
@@ -117,21 +122,21 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 		return nil, err
 	}
 	if reqType == nil {
-		slog.Default().Warn("rpc: request domain not found, no argument-taking route functions will be discovered", "name", cfg.Http.RequestDomainName)
+		log.Warn("rpc: request domain not found, no argument-taking route functions will be discovered", "name", cfg.Http.RequestDomainName)
 	}
 	respType, err := resolveDomainByName(db, cfg.Http.ResponseDomainName)
 	if err != nil {
 		return nil, err
 	}
 	if respType == nil {
-		slog.Default().Warn("rpc: response domain not found, no RelHttpResponse route functions will be discovered", "name", cfg.Http.ResponseDomainName)
+		log.Warn("rpc: response domain not found, no RelHttpResponse route functions will be discovered", "name", cfg.Http.ResponseDomainName)
 	}
 	uploadType, err := resolveDomainByName(db, cfg.Http.UploadDomainName)
 	if err != nil {
 		return nil, err
 	}
 	if uploadType == nil {
-		slog.Default().Warn("rpc: upload domain not found, no upload-destination route functions will be discovered", "name", cfg.Http.UploadDomainName)
+		log.Warn("rpc: upload domain not found, no upload-destination route functions will be discovered", "name", cfg.Http.UploadDomainName)
 	}
 
 	var allowedRoutes *regexp.Regexp
@@ -187,12 +192,12 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 			// Already-conflicted key from an earlier duplicate — stays
 			// excluded ; a third+ function sharing it must not silently
 			// become the sole owner just because the map entry was cleared.
-			slog.Default().Error("rpc: ambiguous route, skipping", "schema", schema, "function", base, "verb", verb,
+			log.Error("rpc: ambiguous route, skipping", "schema", schema, "function", base, "verb", verb,
 				"target", fn.Identifier.String())
 			continue
 		}
 		if existing, dup := reg.routes[schema][base][verb]; dup {
-			slog.Default().Error("rpc: ambiguous route, skipping both", "schema", schema, "function", base, "verb", verb,
+			log.Error("rpc: ambiguous route, skipping both", "schema", schema, "function", base, "verb", verb,
 				"first", existing.Function.Identifier.String(), "second", fn.Identifier.String())
 			// The log line promises "skipping both" — a bare `continue` here
 			// only skips registering the SECOND function ; the first one,
@@ -322,7 +327,7 @@ func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, reg *Regist
 				route.AnonymousAuthorized = db.AnonymousRoleExists && anonOK
 				byVerb[verb] = route
 				if publicOK {
-					slog.Default().Warn("rpc: route is executable by PUBLIC", "schema", schema, "function", base, "verb", verb,
+					log.Warn("rpc: route is executable by PUBLIC", "schema", schema, "function", base, "verb", verb,
 						"target", route.Function.Identifier.String())
 				}
 			}

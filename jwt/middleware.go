@@ -2,11 +2,15 @@ package jwt
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 
 	"github.com/ceymard/rel/config"
+	"github.com/ceymard/rel/logging"
 )
+
+// log is this package's own module-tagged logger — specs/logging.md
+// ## Domain scoping's convention, one per package.
+var log = logging.For("jwt")
 
 // contextKey is unexported so no other package can collide with it by
 // constructing an equal-by-value context key.
@@ -73,7 +77,7 @@ func VerifyRequest(cfg config.Jwt, r *http.Request) (Claims, bool) {
 	}
 	claims, err := Verify(cfg, cookie.Value)
 	if err != nil {
-		slog.Default().Debug("jwt verification failed, treating as anonymous", "path", r.URL.Path, "error", err.Error())
+		log.Debug("jwt verification failed, treating as anonymous", "path", r.URL.Path, "error", err.Error())
 		return nil, false
 	}
 	return claims, true

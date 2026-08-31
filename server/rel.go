@@ -14,12 +14,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dbauth"
 	jwtpkg "github.com/ceymard/rel/jwt"
+	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/pgerr"
 	"github.com/ceymard/rel/query"
@@ -28,6 +28,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// log is this package's own module-tagged logger — specs/logging.md
+// ## Domain scoping's convention, one per package.
+var log = logging.For("server")
 
 // resolvedItem is one request-body item, past parsing AND pass-1/2
 // resolution — everything needed to either run its write (if any) or
@@ -315,7 +319,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// whole response first, which ## Response Shape already rejects for
 	// memory reasons.
 	if _, err := conn.Exec(ctx, "commit"); err != nil {
-		slog.Default().Error("commit failed after streaming had already started", "error", err.Error())
+		log.Error("commit failed after streaming had already started", "error", err.Error())
 		return
 	}
 	if multi {
