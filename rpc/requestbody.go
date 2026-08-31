@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
+
+	"github.com/ceymard/rel/errcode"
 )
 
 // requestPart is ## Request bodies' RequestPart TypeScript interface :
@@ -47,15 +49,20 @@ type requestPart struct {
 // 413/415.
 type requestBodyError struct {
 	status  int
+	code    errcode.Code
 	message string
 }
 
 func (e *requestBodyError) Error() string { return e.message }
 
-func badRequestBody(msg string) error { return &requestBodyError{http.StatusBadRequest, msg} }
-func tooLargeBody(msg string) error   { return &requestBodyError{http.StatusRequestEntityTooLarge, msg} }
+func badRequestBody(msg string) error {
+	return &requestBodyError{http.StatusBadRequest, errcode.MalformedMultipart, msg}
+}
+func tooLargeBody(msg string) error {
+	return &requestBodyError{http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, msg}
+}
 func unsupportedMediaType(msg string) error {
-	return &requestBodyError{http.StatusUnsupportedMediaType, msg}
+	return &requestBodyError{http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, msg}
 }
 
 // resolvedRequestBody is everything handleRpc needs, both to build

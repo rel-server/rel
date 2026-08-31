@@ -34,11 +34,11 @@ func TestRelHandler_AnonymousWriteDeniedOnRoleGatedTable(t *testing.T) {
 	}`)
 	// "~anonymous" has no privileges on secret_notes (server/testdata/
 	// roles.sql) — a genuine Postgres permission-denied error, classified
-	// as a server error (classifyWriteError), proving the request actually
-	// ran under the switched role rather than some elevated connecting
-	// role.
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 (permission denied), got %d: %s", rec.Code, rec.Body.String())
+	// via pgerr.Classify as PG_PERMISSION_DENIED/403 (specs/error-handling.md
+	// ### Postgres-raised codes), proving the request actually ran under
+	// the switched role rather than some elevated connecting role.
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (permission denied), got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -122,12 +122,13 @@ func TestRelHandler_AnonymousReadDeniedOnRoleGatedTable_CleanEnvelope(t *testing
 	// Same permission-denied cause as the write test above, but on the
 	// read path : the query fails inside conn.Query, before any response
 	// bytes are written, so this must still produce a clean JSON error
-	// envelope (500), not a 200 with an empty/invalid body.
+	// envelope (403, PG_PERMISSION_DENIED), not a 200 with an empty/
+	// invalid body.
 	rec := postRel(t, `{
 		"relation": "secret_notes", "schema": "public", "select": ["own"]
 	}`)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 (permission denied), got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (permission denied), got %d: %s", rec.Code, rec.Body.String())
 	}
 	var envelope map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {

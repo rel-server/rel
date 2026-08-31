@@ -24,12 +24,22 @@ Resolved items are not tracked here — this is a todo list, not a changelog ; c
 
 ## Open questions already flagged, still unresolved
 
-- `query-engine.md ## Errors` — `RelErrorResponse.error` is always the underlying Go
-  error's own message text, not a stable, machine-readable code. No taxonomy exists yet.
-- `error-handling.md ## Error Codes` — needs a decision on the `X-Rel-Errorcode` response
-  header / `errorcode` JSON property an earlier draft specified : abandoned deliberately,
-  or still-intended work that hasn't landed ? Neither exists in the code today. If the
-  latter, it belongs back in the doc as an explicit "not yet implemented" item.
+- `error-handling.md` — implemented (`errcode` package, `pgerr.Classify`/`Detail`,
+  `config.Dev`, `/rel`'s JSON envelope and `/rpc`'s plain-text path both wired through the
+  same tiering ; `server/rel.go`'s GET/POST-check-returns-405 fix landed too). Two real
+  gaps remain :
+  1. `## Rel-internal codes`' query-compile-error family (`UNKNOWN_IDENTIFIER`,
+     `JOIN_MISSING_INDEX`, `WRITE_FORBIDDEN`, `WRITE_FORBIDDEN_FUNCTION_ROOT`,
+     `QUERY_INVALID_EXPRESSION`) is NOT wired into the `query` package's own compile passes
+     yet — `server/rel.go`'s `ResolveQuery`/`ResolveExpressions`/`DeriveShapes` call sites
+     currently report every failure from those as `errcode.Unclassified` rather than the
+     specific code, since the `query` package doesn't tag its own errors with a `Code` at
+     the point each is raised. Requires threading `oc.Code(...)` through `query`'s own
+     error-construction sites, a separate, larger pass.
+  2. `pgerr.Classify`'s `PG_*` table only recognizes 5 SQLSTATEs (unique/FK/not_null/check
+     violation, permission_denied). Deliberately small per the spec's own "small fixed
+     table" wording — expand only if a concrete need for another class's HTTP semantics
+     shows up.
 - `typescript.md` has two mid-sentence truncations (line 16, "...but also eventual
   libraries that would want to _" ; line 25, "...given schema.json," with nothing after) —
   work in progress, being filled in directly.

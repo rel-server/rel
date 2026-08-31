@@ -440,6 +440,9 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// anonymous_role didn't share).
 	cfg.Pg.Query.WellKnownDirs = root.GetStringOrDefault("pg.query.wellknown_path", DefaultPgQueryWellKnownPath)
 
+	// dev : specs/configuration.md ## Development mode, default false.
+	cfg.Dev = root.GetBoolOrDefault("dev", false)
+
 	cfg.Logging.Handler = root.GetStringOrDefault("logging.handler", DefaultLoggingHandler)
 	cfg.Logging.Level = root.GetStringOrDefault("logging.level", DefaultLoggingLevel)
 	cfg.Logging.Filter = readStringMap(root, "logging.filter")

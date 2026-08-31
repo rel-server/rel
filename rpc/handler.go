@@ -10,6 +10,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dbauth"
+	"github.com/ceymard/rel/errcode"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/static"
@@ -54,11 +55,11 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// connection open, and never costs a connection-acquire round trip.
 	if !verified {
 		if !db.AnonymousRoleExists {
-			writePlainError(w, http.StatusUnauthorized, "anonymous access is disabled")
+			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabled, "anonymous access is disabled")
 			return
 		}
 		if !route.AnonymousAuthorized {
-			writePlainError(w, http.StatusUnauthorized, "anonymous access not permitted for this route")
+			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousRouteForbidden, "anonymous access not permitted for this route")
 			return
 		}
 	}
@@ -81,24 +82,24 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	resolved, err := resolveRequestBody(w, r, route, int64(cfg.Http.MaxBodySize), cfg.Http.MaxPartCount)
 	if err != nil {
 		if rbe, ok := errors.AsType[*requestBodyError](err); ok {
-			writePlainError(w, rbe.status, rbe.message)
+			writePlainError(w, rbe.status, rbe.code, rbe.message)
 			return
 		}
 		if bbe, ok := errors.AsType[*badBodyError](err); ok {
-			writePlainError(w, http.StatusBadRequest, bbe.Error())
+			writePlainError(w, http.StatusBadRequest, errcode.MalformedBody, bbe.Error())
 			return
 		}
-		writePlainError(w, http.StatusInternalServerError, "reading request body")
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "reading request body")
 		return
 	}
 
 	reqJSON, err := buildRelHttpRequest(r, resolved.BodyJSON, verified, claims)
 	if err != nil {
 		if bqe, ok := errors.AsType[*badQueryError](err); ok {
-			writePlainError(w, http.StatusBadRequest, bqe.Error())
+			writePlainError(w, http.StatusBadRequest, errcode.QueryMalformedJSON, bqe.Error())
 			return
 		}
-		writePlainError(w, http.StatusInternalServerError, "encoding request")
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
 		return
 	}
 	// Stashed for ## Templates' "Req" VarMap — the exact RelHttpRequest JSON
@@ -110,7 +111,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// resolved — does a pool connection get acquired.
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, "acquiring connection")
+		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
 		return
 	}
 	defer conn.Release()
@@ -121,7 +122,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// function has actually returned successfully.
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, "starting transaction")
+		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op if already committed
@@ -130,7 +131,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		if cfg.Http.Functions.CheckSession != "" {
 			if err := dbauth.CheckSession(ctx, tx, cfg.Http.Functions.CheckSession, claims); err != nil {
 				http.SetCookie(w, jwtpkg.ClearCookie(cfg.Jwt))
-				writeErrorForPgErr(w, err)
+				writeErrorForPgErr(w, err, cfg.Dev)
 				return
 			}
 		}
@@ -155,22 +156,22 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		// skipping the role switch entirely would silently run the request
 		// as whatever role the pool connection already has (a privilege
 		// escalation for anonymous callers), so this is a hard error.
-		writePlainError(w, http.StatusInternalServerError, "no role configured (query.anonymous_role is unset and request is anonymous)")
+		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, "no role configured (query.anonymous_role is unset and request is anonymous)")
 		return
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); err != nil {
-		writeErrorForPgErr(w, err)
+		writeErrorForPgErr(w, err, cfg.Dev)
 		return
 	}
 
 	raw, err := invokeRoute(ctx, tx, route, reqJSON, resolved.Files, resolved.PartsHeadersRaw)
 	if err != nil {
-		writeErrorForPgErr(w, err)
+		writeErrorForPgErr(w, err, cfg.Dev)
 		return
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		writePlainError(w, http.StatusInternalServerError, "committing transaction")
+		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
 		return
 	}
 

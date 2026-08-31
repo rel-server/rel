@@ -18,6 +18,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dbauth"
+	"github.com/ceymard/rel/errcode"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
@@ -25,7 +26,6 @@ import (
 	"github.com/ceymard/rel/query"
 	"github.com/ceymard/rel/querystring"
 	"github.com/ceymard/rel/writer"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -53,7 +53,8 @@ type resolvedItem struct {
 func NewRelHandler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
-			writeError(w, badRequest(fmt.Errorf("/rel only accepts GET or POST")))
+			w.Header().Set("Allow", "GET, POST")
+			writeError(w, methodNotAllowed(fmt.Errorf("/rel only accepts GET or POST")), cfg.Dev)
 			return
 		}
 		handleRel(w, r, db, cfg)
@@ -88,19 +89,19 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// comment), so claims/verified are already known with no DB access
 	// needed here.
 	if _, verified := jwtpkg.FromContext(r.Context()); !verified && !db.AnonymousRoleExists {
-		writeError(w, unauthorized(fmt.Errorf("anonymous access is disabled")))
+		writeError(w, unauthorized(errcode.AnonymousDisabled, fmt.Errorf("anonymous access is disabled")), cfg.Dev)
 		return
 	}
 
 	body, err := relQueryBytes(r)
 	if err != nil {
-		writeError(w, badRequest(err))
+		writeError(w, badRequest(errcode.MalformedBody, err), cfg.Dev)
 		return
 	}
 
 	pq, err := query.ParseQuery(body)
 	if err != nil {
-		writeError(w, badRequest(err))
+		writeError(w, badRequest(errcode.QueryMalformedJSON, err), cfg.Dev)
 		return
 	}
 
@@ -111,7 +112,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// point of the read-only/single-relation restriction if the decoder
 	// ever grew a way to produce one.
 	if r.Method == http.MethodGet && pq.Sequence != nil {
-		writeError(w, badRequest(fmt.Errorf("/rel GET decodes to a single relation, not a sequence")))
+		writeError(w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation, not a sequence")), cfg.Dev)
 		return
 	}
 
@@ -127,7 +128,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	rctx := &query.ResolveContext{Db: db, Config: cfg}
 	for i, item := range items {
 		if item.WellKnown != nil {
-			writeError(w, badRequest(fmt.Errorf("item %d: well-known queries are not yet supported", i)))
+			writeError(w, badRequest(errcode.WellKnownQueryUnsupported, fmt.Errorf("item %d: well-known queries are not yet supported", i)), cfg.Dev)
 			return
 		}
 
@@ -142,19 +143,26 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		case item.Relation != nil:
 			root, rerr = rctx.ResolveQuery(item.Relation)
 		default:
-			writeError(w, badRequest(fmt.Errorf("item %d: empty query", i)))
+			writeError(w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("item %d: empty query", i)), cfg.Dev)
 			return
 		}
 		if rerr != nil {
-			writeError(w, badRequest(fmt.Errorf("item %d: %w", i, rerr)))
+			// A catch-all bucket, deliberately : ResolveQuery's own failures
+			// span several of specs/error-handling.md's more specific
+			// QUERY_* codes (unknown identifier, join eligibility, write
+			// forbidden, ...) that the query package doesn't yet tag at the
+			// point they're raised — see specs/TODO.md's note on this gap.
+			// errcode.Unclassified over a fabricated specific code : false
+			// precision would be worse than an honest "not yet classified."
+			writeError(w, badRequest(errcode.Unclassified, fmt.Errorf("item %d: %w", i, rerr)), cfg.Dev)
 			return
 		}
 		if err := rctx.ResolveExpressions(root); err != nil {
-			writeError(w, badRequest(fmt.Errorf("item %d: %w", i, err)))
+			writeError(w, badRequest(errcode.Unclassified, fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
 		if err := rctx.DeriveShapes(root); err != nil {
-			writeError(w, badRequest(fmt.Errorf("item %d: %w", i, err)))
+			writeError(w, badRequest(errcode.Unclassified, fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
 		resolved = append(resolved, resolvedItem{root: root, isWrite: isWrite, data: data})
@@ -162,13 +170,13 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		writeError(w, serverError(fmt.Errorf("acquiring connection: %w", err)))
+		writeError(w, serverError(errcode.DBUnavailable, fmt.Errorf("acquiring connection: %w", err)), cfg.Dev)
 		return
 	}
 	defer conn.Release()
 
 	if _, err := conn.Exec(ctx, query.DataTableDDL); err != nil {
-		writeError(w, serverError(fmt.Errorf("preparing _data: %w", err)))
+		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("preparing _data: %w", err)), cfg.Dev)
 		return
 	}
 	// "_data" is owned by the connecting role (whoever ran the CREATE TEMP
@@ -180,7 +188,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// the first. Not a privilege concern in its own right : "_data" is
 	// request-scoped scratch space, invisible to any other session.
 	if _, err := conn.Exec(ctx, "grant all on _data to public"); err != nil {
-		writeError(w, serverError(fmt.Errorf("granting _data: %w", err)))
+		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("granting _data: %w", err)), cfg.Dev)
 		return
 	}
 	// Truncate BEFORE doing any work too, not just after — "_data" is
@@ -191,7 +199,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// correctness independent of the PREVIOUS request's cleanup having
 	// succeeded is worth the (cheap, empty-table) extra statement.
 	if _, err := conn.Exec(ctx, "truncate _data"); err != nil {
-		writeError(w, serverError(fmt.Errorf("clearing _data: %w", err)))
+		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("clearing _data: %w", err)), cfg.Dev)
 		return
 	}
 	// Truncation also happens once, at the very end of the whole request,
@@ -201,7 +209,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	defer func() { _, _ = conn.Exec(context.Background(), "truncate _data") }()
 
 	if _, err := conn.Exec(ctx, "begin"); err != nil {
-		writeError(w, serverError(fmt.Errorf("begin: %w", err)))
+		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("begin: %w", err)), cfg.Dev)
 		return
 	}
 
@@ -216,7 +224,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// commit/rollback below, with no separate RESET ROLE cleanup needed.
 	if err := applyRole(ctx, w, r, conn, cfg); err != nil {
 		_, _ = conn.Exec(ctx, "rollback")
-		writeError(w, err)
+		writeError(w, err, cfg.Dev)
 		return
 	}
 
@@ -234,7 +242,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		result, err := query.ExecuteWriteState(ctx, conn, item.root, item.data, state)
 		if err != nil {
 			_, _ = conn.Exec(ctx, "rollback")
-			writeError(w, classifyWriteError(err, i))
+			writeError(w, classifyWriteError(err, i), cfg.Dev)
 			return
 		}
 		nodeIDs[i] = result.NodeIDs[item.root]
@@ -260,7 +268,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			sw, cerr = query.CompileSelect(item.root)
 		}
 		if cerr != nil {
-			writeError(w, serverError(fmt.Errorf("item %d: compiling response: %w", i, cerr)))
+			writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: compiling response: %w", i, cerr)), cfg.Dev)
 			return
 		}
 		statements[i] = sw
@@ -295,7 +303,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			// plainly rather than relying on that as the only signal.
 			_, _ = conn.Exec(ctx, "rollback")
 			if cse, ok := errors.AsType[*cleanStreamError](err); ok {
-				writeError(w, serverError(fmt.Errorf("item %d: %w", i, cse.Unwrap())))
+				writeError(w, classifyReadError(cse.Unwrap(), i), cfg.Dev)
 			}
 			// Otherwise the response is already partway through streaming —
 			// there is no clean error envelope to fall back to at this
@@ -422,39 +430,58 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 		// switch entirely would silently run the request as whatever role
 		// the pool connection already has — a privilege escalation for
 		// anonymous callers — so this is a hard error either way.
-		return serverError(fmt.Errorf("no role configured (query.anonymous_role is unset and request is anonymous)"))
+		return serverError(errcode.NoRoleConfigured, fmt.Errorf("no role configured (query.anonymous_role is unset and request is anonymous)"))
 	}
 	if _, serr := conn.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); serr != nil {
-		return serverError(fmt.Errorf("applying role: %w", serr))
+		return serverError(errcode.Internal, fmt.Errorf("applying role: %w", serr))
 	}
 	return nil
 }
 
-// classifyCheckSessionError maps an RSxxx exception raised by
-// http.functions.check_session to its own HTTP status (## Postgres
-// Exceptions), same convention /rpc uses (rpc/response.go) — any other
-// error is a genuine 500. The JSON envelope (not plain text) still applies
-// here : /rel and /rpc keep their own separate error framings per their
-// respective spec sections, this is only the status-code mapping shared.
-func classifyCheckSessionError(err error) error {
-	if status, message, ok := pgerr.RSStatus(err); ok {
-		return &requestError{status: status, err: fmt.Errorf("%s", message)}
+// classifyCheckSessionError maps an exception raised by
+// http.functions.check_session — RSxxx first (## Postgres Exceptions), then
+// pgerr's PG_* table, same pgerr.Classify every Postgres-execution error in
+// this file now goes through. The JSON envelope (not plain text) still
+// applies here : /rel and /rpc keep their own separate error framings per
+// their respective spec sections, this is only the classification shared.
+func classifyCheckSessionError(err error) *requestError {
+	wrapped := fmt.Errorf("check_session: %w", err)
+	if status, code, tier, detail, ok := pgerr.Classify(wrapped); ok {
+		return pgClassified(status, code, tier, detail, wrapped)
 	}
-	return serverError(fmt.Errorf("check_session: %w", err))
+	return serverError(errcode.Internal, wrapped)
 }
 
 // classifyWriteError distinguishes a problem with the query/data itself
-// (400) from a genuine Postgres execution error (500) : write_dml.go's own
-// errors wrap a real *pgconn.PgError whenever a statement actually ran
-// against Postgres and failed there (a constraint violation, say) —
-// anything that DOESN'T unwrap to one is one of write_denormalize.go's own
-// shape errors (a payload structure mismatch, an unsupported composite
-// write), which is squarely "an error in the query/data" per this
-// session's confirmed error-status rule.
-func classifyWriteError(err error, item int) error {
+// (400) from a genuine Postgres execution error : write_dml.go's own errors
+// wrap a real *pgconn.PgError whenever a statement actually ran against
+// Postgres and failed there (a constraint violation, say) — routed through
+// pgerr.Classify so the response is built from the classified Detail, never
+// from wrapped.Error() (which embeds write_dml.go's own "insert:
+// %w\nsql: %s"-style generated-SQL text — see specs/error-handling.md's
+// codegen-fingerprinting concern, a live leak this classification closes).
+// Anything that DOESN'T unwrap to a *pgconn.PgError is one of
+// write_denormalize.go's own shape errors (a payload structure mismatch, an
+// unsupported composite write) — squarely "an error in the query/data."
+func classifyWriteError(err error, item int) *requestError {
 	wrapped := fmt.Errorf("item %d: %w", item, err)
-	if _, ok := errors.AsType[*pgconn.PgError](err); ok {
-		return serverError(wrapped)
+	if status, code, tier, detail, ok := pgerr.Classify(wrapped); ok {
+		return pgClassified(status, code, tier, detail, wrapped)
 	}
-	return badRequest(wrapped)
+	return badRequest(errcode.Unclassified, wrapped)
+}
+
+// classifyReadError is classifyWriteError's counterpart for a read that
+// failed cleanly (streamItem's *cleanStreamError case, single-item
+// requests only — see the caller's own comment) : the switched-role SELECT
+// can just as easily surface a permission-denied error, or an RSxxx raised
+// by a function it calls, as any write can. Unlike a write failure, a read
+// failure was never "bad data" in the request — anything unclassified here
+// falls back to a genuine 500, not badRequest.
+func classifyReadError(err error, item int) *requestError {
+	wrapped := fmt.Errorf("item %d: %w", item, err)
+	if status, code, tier, detail, ok := pgerr.Classify(wrapped); ok {
+		return pgClassified(status, code, tier, detail, wrapped)
+	}
+	return serverError(errcode.Internal, wrapped)
 }

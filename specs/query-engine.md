@@ -509,21 +509,9 @@ Rel does not use the native Postgres `MERGE` statement ; it stays on plain `INSE
 
 ## Errors
 
-HTTP status >= 400. The numeric status lives only in the HTTP response line itself, never repeated in the body.
+HTTP status >= 400. The numeric status lives only in the HTTP response line itself, never repeated in the body. `400` is used for a problem with the query/data itself (unknown relation, malformed query string, a compile-time rejection, ...) ; `500` for everything else. `401` is used when anonymous access is disabled outright and the request carries no usable credentials. An `RSxxx` status (`rpc.md`'s convention) is the one other status this envelope carries, raised by `http.functions.check_session`.
 
-Returns a JSON object with
-
-```typescript
-interface RelErrorResponse {
-  status: "error" // literal discriminant, always this string
-  error: string    // human-readable error message
-  pg_error?: string // present when the failure came from a Postgres error ; its own formatted error text
-}
-```
-
-`400` is used for a problem with the query/data itself (unknown relation, malformed query string, a compile-time rejection, ...) ; `500` for everything else. `401` is used when anonymous access is disabled outright and the request carries no usable credentials. An `RSxxx` status (`rpc.md`'s convention) is the one other status this envelope carries, raised by `http.functions.check_session`.
-
-> Why this shape and not a richer one : an earlier draft of this section specified `status_code`/`message`/`stacktrace`/`sql_statement`/`data` fields, none of which were ever built — implementation settled on this smaller, confirmed envelope instead (`server/response.go`'s `errorResponse`, `server/rel_test.go`). No error-code taxonomy exists yet ; `error` is always the underlying Go error's own message text, not a stable machine-readable code.
+The response body's exact shape (`RelErrorResponse`), the `code` taxonomy, and what's included under `dev` mode (`pg_error`, `stacktrace`) are specified in full in `error-handling.md` — kept there rather than duplicated here now that it covers both `/rel` and `/rpc` uniformly, not just this document's own concern.
 
 ## Query Shape
 

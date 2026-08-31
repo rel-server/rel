@@ -40,6 +40,9 @@ func FlagOf(key string) string {
 // order assemble() reads them, grouped by section for --help's own
 // rendering (Sections below defines the group boundaries).
 var Options = []Option{
+	// ---- dev : top-level, ungrouped ----
+	{"dev", "false", "Development mode : shows the real Postgres error text/stack trace on an otherwise-generic 5xx, and the real message on a permission-denied error, instead of a safe generic one. See error-handling.md ## Postgres error detail / ## Stack traces."},
+
 	// ---- pg.* : Postgres connection ----
 	{"pg.uri", "", "Full \"postgres://user:pass@host:port/db\" connection string. Authoritative when set — pg.user/password/host/port/database below are ignored. --pg.uri alone is enough to run rel."},
 	{"pg.user", "", "Primary login username, used when pg.uri is unset. Falls back for pg.query.user."},

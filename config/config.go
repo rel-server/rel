@@ -13,6 +13,11 @@ type Config struct {
 	Dmut    Dmut
 
 	Blacklist Blacklist
+
+	// Dev is specs/configuration.md ## Development mode's `dev` key,
+	// default false : gates the extra detail error-handling.md ##
+	// Postgres error detail and ## Stack traces add to error responses.
+	Dev bool
 }
 
 // Dmut is specs/migrations.md ## Configuration : dmut.path/reload_drain_timeout.

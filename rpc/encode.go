@@ -13,6 +13,7 @@ import (
 	"github.com/bytedance/sonic"
 
 	"github.com/ceymard/rel/config"
+	"github.com/ceymard/rel/errcode"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/querystring"
 	"github.com/ceymard/rel/websec"
@@ -194,7 +195,7 @@ type jwtAttrsPayload struct {
 func writeRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, route Route, raw []byte, templates *TemplateSet) {
 	var resp relHttpResponsePayload
 	if err := sonic.Unmarshal(raw, &resp); err != nil {
-		writePlainError(w, http.StatusInternalServerError, "decoding function response")
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding function response")
 		return
 	}
 
