@@ -27,7 +27,7 @@ import (
 	"github.com/ceymard/rel/rpc"
 )
 
-// Reloader owns the mutable state a SIGUSR1 reload (specs/03-dmut.md ##
+// Reloader owns the mutable state a SIGUSR1 reload (specs/migrations.md ##
 // Reloading) needs across calls : the reload-aware handler wrapper, and
 // the *pg.DbInfos currently backing it (so the NEXT reload's ReIntrospect
 // reuses this one's own Pool, per step 4). Built once, at startup, right
@@ -63,7 +63,7 @@ func (rl *Reloader) CurrentDbInfos() *pg.DbInfos {
 	return rl.db
 }
 
-// Reload runs specs/03-dmut.md ## Reloading's 7 numbered steps exactly.
+// Reload runs specs/migrations.md ## Reloading's 7 numbered steps exactly.
 // Step 3's dmut-failure branch, and the same log-and-continue policy
 // extended to a ReIntrospect/BuildRegistry failure (the spec doesn't say
 // what happens on THOSE failing mid-reload ; treated identically to a dmut

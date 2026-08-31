@@ -184,7 +184,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 // the node whose own expression is currently being compiled — needed to
 // distinguish a SELF-reference (r == n, e.g. "property" used as the bare
 // argument to a row-type-taking computed column, property_average_rating
-// (property) — specs/querying.md's "## Scoping"'s computed-column paragraph)
+// (property) — specs/query-engine.md's "## Scoping"'s computed-column paragraph)
 // from a reference to some OTHER node (a child/sibling/ancestor), which
 // stays unsupported below.
 func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) error {

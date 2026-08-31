@@ -13,8 +13,8 @@
 // limitations under the License.
 
 // Pass 1, resolution step : turns a decoded rawRelation tree (node_parse.go)
-// into a fully DB-resolved *QueryNode tree — see specs/query-compiler.md's
-// "Pass 1" section. Expression-typed fields are copied through as-is
+// into a fully DB-resolved *QueryNode tree — see specs/query-engine.md's
+// Pass 1 description (top of the file). Expression-typed fields are copied through as-is
 // (already parsed by node_parse.go via parseNode) ; nothing here resolves
 // identifiers inside them, that's pass 2.
 package query
@@ -77,9 +77,9 @@ var writeModeByString = map[string]WriteMode{
 // resolveNode resolves one node. parent is nil for the root. outerAlias is
 // the key this node sits under in its parent's `join` map (irrelevant, left
 // "" for the root). depth counts the root as 1 ; config.Query.MaxDepth
-// bounds it (querying.md/query-compiler.md's "not yet wired" maxdepth item).
+// bounds it (specs/query-engine.md ## Configuration's pg.query.max_depth).
 //
-// Order matters here — see specs/query-compiler.md and this session's plan :
+// Order matters here — see specs/query-engine.md's Pass 1 description :
 // the node's own relation/function must resolve before `on` can be checked
 // against it ; cardinality (isToOne) must be known before write_mode can be
 // defaulted/validated ; on_conflict/insert_columns/update_columns need
@@ -155,7 +155,7 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 		// Built directly from raw.On against each side's ColumnsMap, not
 		// from the *pg.Constraint ResolveJoin returns : that constraint's
 		// Target is nil on the non-FK eligibility path, and even when set,
-		// "which side" isn't reliably the child's — see query-compiler.md.
+		// "which side" isn't reliably the child's — see specs/query-engine.md.
 		localNames := make([]string, 0, len(raw.On))
 		for local := range raw.On {
 			localNames = append(localNames, local)

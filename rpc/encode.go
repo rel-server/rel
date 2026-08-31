@@ -19,7 +19,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// relHttpRequestPayload is specs/jwt-roles-and-http.md ## Request's
+// relHttpRequestPayload is specs/rpc.md ## Request's
 // RelHttpRequest — with ONE deliberate deviation, matching the spec file's
 // own ## Request note : Cookies is {[name]: string} (value only), not the
 // full Cookie shape (value/httponly/secure/samesite/maxage) the spec's
@@ -41,14 +41,14 @@ type relHttpRequestPayload struct {
 	Body    json.RawMessage   `json:"body"`
 	Cookies map[string]string `json:"cookies"`
 	Jwt     jwtpkg.Claims     `json:"jwt"`
-	// Query is specs/query_json.md's ## /rpc's query field : r.URL.RawQuery
+	// Query is specs/query-json.md's ## /rpc's query field : r.URL.RawQuery
 	// decoded through the STRUCTURAL layer only (querystring.DecodeQueryField
 	// — no filter expression grammar involvement, that's specific to
 	// Relation's where/select/order_by), handed to the Postgres function
 	// verbatim. nil (-> JSON null) when the request has no query string at
 	// all.
 	Query any `json:"query"`
-	// CspNonce is specs/04-http-content.md ## CSP ### Nonce's
+	// CspNonce is specs/http-content.md ## CSP ### Nonce's
 	// RelHttpRequest.csp_nonce — generated fresh by websec.Middleware for
 	// every request, unconditionally, before the route function runs.
 	CspNonce string `json:"csp_nonce"`
@@ -110,7 +110,7 @@ func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage
 }
 
 // badQueryError marks a request whose query string failed to decode
-// (specs/query_json.md's own structural layer, used here for /rpc's
+// (specs/query-json.md's own structural layer, used here for /rpc's
 // `query` field) — a 400, same as every other malformed-request case, not
 // a 500 ; handleRpc type-switches on this to pick the right status.
 type badQueryError struct{ err error }
@@ -166,14 +166,14 @@ type relHttpResponsePayload struct {
 	Cookies     map[string]json.RawMessage `json:"cookies"`
 	Jwt         json.RawMessage            `json:"jwt"`
 	JwtAttrs    *jwtAttrsPayload           `json:"jwt_attrs"`
-	// Template/TemplateData are specs/04-http-content.md ## Templates :
+	// Template/TemplateData are specs/http-content.md ## Templates :
 	// when Template is a non-empty string, it names a Jet template path
 	// (relative to http.templates.path) rendered in place of Content as the
 	// response body ; TemplateData is that template's Data variable (JSON
 	// null when unset).
 	Template     string          `json:"template"`
 	TemplateData json.RawMessage `json:"template_data"`
-	// Csp is specs/04-http-content.md ## CSP ### Per-response override : a
+	// Csp is specs/http-content.md ## CSP ### Per-response override : a
 	// raw policy string that replaces the process-wide default CSP header
 	// for this one response only, "" meaning "use the default".
 	Csp string `json:"csp"`

@@ -342,7 +342,7 @@ func TestRelHandler_WriteOutgoingChildFK_HTTP(t *testing.T) {
 // TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm (query/
 // operator_words_test.go, engine-level : proves the word form parses to an
 // identical AST) through the real HTTP surface : a POST /rel body using
-// specs/query_json.md's word-form operator spellings ("gte"/"lt" instead of
+// specs/query-json.md's word-form operator spellings ("gte"/"lt" instead of
 // ">="/"<") must produce the SAME query results as the canonical symbolic
 // spelling, end to end through JSON decode -> resolve -> SQL -> response
 // encode.
@@ -383,7 +383,7 @@ func TestRelHandler_WhereWordFormOperatorSynonyms_HTTP(t *testing.T) {
 }
 
 func TestRelHandler_UnwritableSelect_Rejected(t *testing.T) {
-	// specs/querying.md ## Configuration : a write whose select omits the
+	// specs/query-engine.md ## Configuration : a write whose select omits the
 	// identity column must be rejected outright (400, naming the offending
 	// relation), not silently accepted and return an empty/wrong reread —
 	// see query.findUnwritableNode's own doc comment for the failure mode

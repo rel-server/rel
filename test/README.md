@@ -28,7 +28,7 @@ test/
 ```
 
 Applied with `dmut`, not plain SQL scripts, because that's what rel itself is specified
-to use for migrations (`specs/03-dmut.md`) — this fixture exercises the same tool rel's
+to use for migrations (`specs/migrations.md`) — this fixture exercises the same tool rel's
 own schema management depends on, not a parallel setup script that could drift from it.
 
 ## Running
@@ -84,7 +84,7 @@ rather than assuming one.
 | `payments` | A charge/refund | UUID primary key, `numeric` + `char(3)` currency |
 | `reviews` | Guest review | Second, independent FTS column (`comment_search`) |
 | `rate_plans` | Property rate/cancellation policy | The one `interval`-typed column (`cancellation_window`) |
-| `staff` | Property staff | Self-referencing (`manager_id`) — the fixture's instance of `querying.md`'s own self-join example |
+| `staff` | Property staff | Self-referencing (`manager_id`) — the fixture's instance of `query-engine.md`'s own self-join example |
 
 ## Functions
 

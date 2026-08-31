@@ -185,7 +185,7 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 }
 
 // TestRelHandler_AnonymousRoleDoesNotExist_Is401 is
-// specs/jwt-roles-and-http.md "# Roles ## Anonymous role existence" for
+// specs/authentication.md "# Roles ## Anonymous role existence" for
 // /rel specifically : a completely separate DbInfos, built against the
 // SAME container/schema but with pg.query.anonymous_role pointed at a
 // role nothing ever created, must reject an unauthenticated request with

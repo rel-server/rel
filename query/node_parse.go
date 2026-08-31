@@ -14,7 +14,7 @@
 
 // Pass 1, decode step : query.ts's JSON shape decoded into the raw* types
 // below, hand-written over sonic/ast (no struct-tag unmarshal — see
-// querying.md ## Implementation details), mirroring expression_parse.go's
+// query-engine.md ## Implementation), mirroring expression_parse.go's
 // style and reusing its unexported helpers directly (same package). Nothing
 // here touches pg or config : that's node_resolve.go's job. Expression-typed
 // fields ARE resolved to query.Expression at this stage (via parseNode),

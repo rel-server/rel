@@ -47,7 +47,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// happens at all.
 	claims, verified := verifyRequestJWT(cfg, r)
 
-	// specs/jwt-roles-and-http.md "# Roles ## Anonymous role existence" and
+	// specs/authentication.md "# Roles ## Anonymous role existence" and
 	// "# HTTP ## Anonymous route authorization" : both checks run here,
 	// BEFORE the request body is read and BEFORE a pool connection is
 	// acquired — a request already known to be unauthorized never holds a
@@ -63,7 +63,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 	}
 
-	// specs/04-http-content.md ### Upload destinations : a genuinely
+	// specs/http-content.md ### Upload destinations : a genuinely
 	// different request flow (body resolved AFTER __prepare's placement
 	// decision, streamed straight to disk, never through resolveRequestBody
 	// at all) — dispatched to its own handler entirely, before any of the

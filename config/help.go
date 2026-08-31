@@ -59,7 +59,7 @@ var Options = []Option{
 	{"http.port", fmt.Sprint(DefaultHttpPort), "HTTP listen port."},
 	{"http.request_domain_name", DefaultHttpRequestDomainName, "Name of the JSON domain identifying a route function's request argument type."},
 	{"http.response_domain_name", DefaultHttpResponseDomainName, "Name of the JSON domain identifying a route function's response type."},
-	{"http.upload_domain_name", DefaultHttpUploadDomainName, "Name of the JSON domain used by the two-function upload-destinations mechanism (see specs/04-http-content.md)."},
+	{"http.upload_domain_name", DefaultHttpUploadDomainName, "Name of the JSON domain used by the two-function upload-destinations mechanism (see specs/http-content.md)."},
 	{"http.cookies_max_age", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route response, when unspecified. Doesn't apply to the JWT cookie — see jwt.max_age."},
 	{"http.max_body_size", fmt.Sprint(DefaultHttpMaxBodySize) + " (bytes)", "Hard cap on a /rpc request's entire body (for multipart, the whole envelope — boundaries and part headers included, not just part payload bytes). Rejected with 413 before any of it is buffered in memory."},
 	{"http.max_part_count", fmt.Sprint(DefaultHttpMaxPartCount), "Max number of multipart/form-data parts a single /rpc request may contain, independent of their total byte size."},

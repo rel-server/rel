@@ -63,7 +63,7 @@ func TestCompileSelect_BareOwn(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_ComputedColumnSelfAlias exercises specs/querying.md's
+// TestCompileSelect_ComputedColumnSelfAlias exercises specs/query-engine.md's
 // "## Scoping" computed-column paragraph : a row-type-taking function
 // (director_display_name(d director), pg/testdata/schema.sql) called with
 // the node's own declared alias as its bare argument — "d" resolves to the

@@ -1,6 +1,6 @@
 package rpc
 
-// This file implements specs/jwt-roles-and-http.md's "## Request bodies" :
+// This file implements specs/rpc.md's "## Request bodies" :
 // the multipart/form-data and single-raw-binary-POST support for a route
 // function declaring the extra "files bytea[]" (and optionally
 // "parts_headers jsonb") parameter beyond "req RelHttpRequest". It also

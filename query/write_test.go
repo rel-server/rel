@@ -201,7 +201,7 @@ func TestExecuteWrite_Update(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_UnwritableSelect_Rejected covers specs/querying.md
+// TestExecuteWrite_UnwritableSelect_Rejected covers specs/query-engine.md
 // ## Configuration : a relation is writable only when its identity target's
 // columns are present, unique, and untransformed in the select output. A
 // select omitting the identity column (here, "id") must be rejected up

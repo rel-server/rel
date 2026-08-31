@@ -1,6 +1,6 @@
 // Package config assembles Rel's runtime Config from three sources — a
 // config file, REL_ environment variables, and CLI flags — per
-// specs/01-configuration.md. Load is the entry point ; everything else in
+// specs/configuration.md. Load is the entry point ; everything else in
 // this file is Load's own machinery.
 package config
 
@@ -373,7 +373,7 @@ func rejectArrays(k *koanf.Koanf) error {
 		rv := reflect.ValueOf(v)
 		if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
 			slog.Default().Error("config: array value not allowed", "path", key)
-			return fmt.Errorf("config: %s: array values are not allowed (see specs/01-configuration.md ## No arrays)", key)
+			return fmt.Errorf("config: %s: array values are not allowed (see specs/configuration.md ## No arrays)", key)
 		}
 	}
 	return nil
@@ -405,7 +405,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Pg.Password = root.GetStringOrDefault("pg.password", "")
 	cfg.Pg.Host = root.GetStringOrDefault("pg.host", DefaultPgHost)
 	cfg.Pg.Port = root.GetIntOrDefault("pg.port", DefaultPgPort)
-	// pg.database : NOT in querying.md at all — config.Pg had no field
+	// pg.database : NOT in query-engine.md at all — config.Pg had no field
 	// naming which database to connect to, genuinely missing before this
 	// (see specs/TODO.md's own note on this invented key).
 	cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
@@ -534,7 +534,7 @@ func readStringMap(root *ConfigReader, path string) map[string]string {
 // readStaticAccess reads http.static.access.<name>.{prefix,function} into
 // a map[string]StaticAccessRule — same named-sub-key shape readBlacklist
 // uses for blacklist.functions/relations, since config can't hold arrays
-// (specs/04-http-content.md ### Access control). An absent/non-object path
+// (specs/http-content.md ### Access control). An absent/non-object path
 // yields an empty map, not an error — access control is entirely opt-in.
 func readStaticAccess(root *ConfigReader, path string) map[string]StaticAccessRule {
 	out := map[string]StaticAccessRule{}

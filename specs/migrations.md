@@ -96,7 +96,7 @@ in flight at that moment — the wrapper exists specifically so nothing ever nee
    been requested.
 4. **On success, rel reintrospects** — a fresh `pg.DbInfos`' worth of `Types`/`Functions`/
    `Relations`, built via the SAME introspection-connection dance `pg.NewInfosAdminQuery` already
-   does (INCLUDING the anonymous-role existence check, `specs/jwt-roles-and-http.md ## Anonymous
+   does (INCLUDING the anonymous-role existence check, `specs/authentication.md ## Anonymous
    role existence` — that document already promises this check runs "at startup, and any future
    schema reload" ; a mutation file is a completely ordinary way to `CREATE ROLE` the configured
    anonymous role for the first time, and reload must pick that up without a full process restart),
@@ -106,7 +106,7 @@ in flight at that moment — the wrapper exists specifically so nothing ever nee
    either way, only unnecessary connection cost to avoid).
 5. **The `/rpc` registry is rebuilt** from the new `pg.DbInfos` (`rpc.BuildRegistry`), same as at
    startup — new/changed route functions, anonymous-authorization caching (`specs/
-   jwt-roles-and-http.md ## Anonymous route authorization`), and the `PUBLIC`-executable warning
+   rpc.md ## Anonymous route authorization`), and the `PUBLIC`-executable warning
    all re-run against the post-reload schema.
 6. **A fresh inner mux is built** via `boot.BuildMux` — the same function the initial startup mux
    is built with, so the two call sites cannot drift on what the mux actually contains — composing

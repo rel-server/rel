@@ -1,4 +1,4 @@
-// This file implements specs/04-http-content.md ## CSP : assembling the
+// This file implements specs/http-content.md ## CSP : assembling the
 // Content-Security-Policy header value from either the individual
 // http.csp.* directives or a raw http.csp.policy/RelHttpResponse.csp
 // override, and injecting the per-request nonce into script-src/style-src

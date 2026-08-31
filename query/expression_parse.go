@@ -157,7 +157,7 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: expression array must start with a string tag, or contain exactly one string (a literal): %w", err)
 	}
-	// specs/query_json.md's word-form operator spelling is an accepted
+	// specs/query-json.md's word-form operator spelling is an accepted
 	// synonym here, normalized to its canonical query.ts tag immediately —
 	// before scope resolution or anything else downstream ever sees it. See
 	// operator_words.go's OperatorWords doc comment : same table the

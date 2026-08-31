@@ -34,7 +34,7 @@ model to keep in sync with it.
 
 ## Scope : GET /rel is read-only, single-relation
 
-Per `querying.md ## Configuration` ("all of them MUST be POST"), only reads move to `GET`.
+Per `query-engine.md ## Configuration` ("all of them MUST be POST"), only reads move to `GET`.
 Concretely, a `GET /rel` query string decodes to exactly one `Relation` (nested `join`s are
 still just one `Relation` tree) :
 
@@ -363,6 +363,6 @@ same as every other `RelHttpRequest` field.
 ## Errors
 
 A query string that fails to decode (structural layer) or parse (filter expression grammar)
-is a `400`, same status `querying.md ## Configuration` already assigns to "an unknown
+is a `400`, same status `query-engine.md ## Configuration` already assigns to "an unknown
 relation" and any other malformed-request case on `/rel` — a query-string-specific decode
 failure is not a new error class, just a new source for the same one.

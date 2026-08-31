@@ -20,7 +20,7 @@ func writePlainError(w http.ResponseWriter, status int, message string) {
 // writeErrorForPgErr classifies err (via rsStatus) and writes the
 // appropriate plain-text response : an RSxxx code maps directly, anything
 // else is a generic 500 (the dev-mode HTML error page from
-// 02-error-handling.md stays unimplemented — see specs/TODO.md).
+// error-handling.md stays unimplemented — see specs/TODO.md).
 func writeErrorForPgErr(w http.ResponseWriter, err error) {
 	if status, message, ok := pgerr.RSStatus(err); ok {
 		writePlainError(w, status, message)

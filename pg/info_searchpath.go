@@ -22,7 +22,7 @@ import (
 
 // FillSearchPath introspects the connecting role's resolved search path into
 // infos.SearchPath, in lookup order. Deliberately live-introspected here
-// rather than kept as static config : querying.md's ## Search path section
+// rather than kept as static config : query-engine.md's ## Search path section
 // is explicit that only the base connection's actual search path is ever
 // respected (switched-to roles' own search paths are not), so this is a
 // fact about the connection, same category as everything else pg

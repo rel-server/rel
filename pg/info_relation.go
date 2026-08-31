@@ -125,7 +125,7 @@ INNER JOIN pg_class ON pg_class.relname = col.table_name AND pg_class.relnamespa
 -- database, pg_catalog/information_schema included (e.g. a function returning
 -- a pg_catalog composite type still needs that type resolved). Restricting
 -- pg_catalog/information_schema as *query targets* is a compile-time concern
--- (querying.md ### Scoping's relation blacklist), not an introspection-time one.
+-- (query-engine.md ### Scoping's relation blacklist), not an introspection-time one.
 
 GROUP BY
 pg_class.oid, pg_class.relnamespace, pg_class.relname

@@ -26,7 +26,7 @@ import (
 // each mapped to how its structurally-decoded value (a string, from
 // DecodeStructural — nested maps only ever occur for "on" and "join")
 // compiles to the final Relation JSON. Fields not listed here (an unknown
-// query key) are a decode error — specs/query_json.md never says GET /rel
+// query key) are a decode error — specs/query-json.md never says GET /rel
 // should silently ignore an unrecognized key, and erroring catches typos
 // (e.g. "order-by" instead of "order_by") that would otherwise silently no-op.
 type fieldKind int
@@ -68,7 +68,7 @@ var relationFieldKinds = map[string]fieldKind{
 	"arguments":      kindArguments,
 }
 
-// getOnlyForbiddenFields is specs/query_json.md's ## Scope list, rejected
+// getOnlyForbiddenFields is specs/query-json.md's ## Scope list, rejected
 // anywhere in the decoded tree (root or any depth of join) on GET /rel.
 var getOnlyForbiddenFields = map[string]bool{
 	"write_mode":     true,
@@ -77,7 +77,7 @@ var getOnlyForbiddenFields = map[string]bool{
 	"update_columns": true,
 }
 
-// DecodeRelation implements specs/query_json.md end to end for GET /rel :
+// DecodeRelation implements specs/query-json.md end to end for GET /rel :
 // raw query string -> structural decode -> per-field compile (expression
 // grammar for where/select/order_by/distinct_on/arguments, own/full for
 // select, dot-path recursion for join) -> the read-only/single-relation
@@ -103,7 +103,7 @@ func DecodeRelation(raw string) ([]byte, error) {
 }
 
 // DecodeQueryField implements /rpc's `query` field : the structural layer
-// only (no filter expression grammar involvement — specs/query_json.md's
+// only (no filter expression grammar involvement — specs/query-json.md's
 // own ## /rpc's query field section), generalized to any shape, not scoped
 // to Relation's fixed keys. Returns nil (encodes as JSON null) for an empty
 // raw query string, matching "no query string at all" rather than "an empty
@@ -296,13 +296,13 @@ func stringSlice(items []any) ([]string, error) {
 	return out, nil
 }
 
-// compileArguments implements specs/query_json.md's `arguments.<key>=value`
+// compileArguments implements specs/query-json.md's `arguments.<key>=value`
 // rule : each value is one filter-value TOKEN (an atom : identifier or
 // literal — see ## Filter expression grammar's own atom production), never
 // a full condition (`arguments.0=eq(status,'open')` is an error, per the
 // spec's own worked note). All-digit sibling keys compile to the positional
 // (array) form ; any other key set compiles to the named (object) form —
-// this is a judgment call specs/query_json.md leaves implicit (see this
+// this is a judgment call specs/query-json.md leaves implicit (see this
 // session's report), chosen because query.ts's own "arguments" field is
 // itself `Expression[] | {[name]: Expression}` and a set of purely numeric
 // keys has no other sensible reading as anything but array indices.
@@ -429,7 +429,7 @@ func parseArgumentToken(s string) (any, error) {
 }
 
 // rejectGetOnlyFields walks the FULLY COMPILED Relation tree (never the raw
-// query string keys — see specs/query_json.md's own note on why a key-name
+// query string keys — see specs/query-json.md's own note on why a key-name
 // scan isn't equivalent) rejecting write_mode/on_conflict/insert_columns/
 // update_columns at the root and at every nested join.<alias>, recursing
 // only through "join" (a user-chosen select alias happening to be named
@@ -439,7 +439,7 @@ func parseArgumentToken(s string) (any, error) {
 func rejectGetOnlyFields(rel map[string]any) error {
 	for field := range getOnlyForbiddenFields {
 		if _, present := rel[field]; present {
-			return oops.Errorf("%q is not valid on GET /rel (read-only, per specs/query_json.md ## Scope)", field)
+			return oops.Errorf("%q is not valid on GET /rel (read-only, per specs/query-json.md ## Scope)", field)
 		}
 	}
 	if joinRaw, ok := rel["join"]; ok {

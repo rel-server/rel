@@ -21,7 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestReIntrospect_ReflectsSchemaChangeAndReusesPool covers specs/03-dmut.md
+// TestReIntrospect_ReflectsSchemaChangeAndReusesPool covers specs/migrations.md
 // ## Reloading step 4 : ReIntrospect must build a fresh *DbInfos reflecting
 // whatever the database looks like NOW (a migration-like DDL change applied
 // between two calls), while reusing the EXACT SAME pool pointer passed in —
@@ -87,7 +87,7 @@ func TestReIntrospect_ReflectsSchemaChangeAndReusesPool(t *testing.T) {
 
 // TestReIntrospect_AnonymousRoleCheck covers that ReIntrospect re-runs the
 // same pg_roles existence check NewInfosAdminQuery does — specs/
-// jwt-roles-and-http.md's "## Anonymous role existence" check must run "at
+// authentication.md's "## Anonymous role existence" check must run "at
 // startup, and any future schema reload."
 func TestReIntrospect_AnonymousRoleCheck(t *testing.T) {
 	ctx := context.Background()

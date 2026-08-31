@@ -2,7 +2,7 @@
 
 After running migrations/mutations, and prior to serving HTTP requests, rel introspects the Postgres server it will serve requests from, building an in-memory picture of every relation, constraint, index, function, and type it will need to compile queries against.
 
-Whenever mutations are re-run (via the `SIGUSR1` signal), the schema is reintrospected afterwards — see `specs/03-dmut.md ## Reloading` for the full sequence : the server is never shut down or restarted, new requests get a fixed `503` maintenance page while the reload is in progress, and the schema/registry are swapped in atomically once it succeeds.
+Whenever mutations are re-run (via the `SIGUSR1` signal), the schema is reintrospected afterwards — see `specs/migrations.md ## Reloading` for the full sequence : the server is never shut down or restarted, new requests get a fixed `503` maintenance page while the reload is in progress, and the schema/registry are swapped in atomically once it succeeds.
 
 ## What gets introspected
 
@@ -10,7 +10,7 @@ Implemented in the `pg` package (`github.com/ceymard/rel/pg`), tested against a 
 
 `pg.NewInfos(uri string) (*DbInfos, error)` opens a connection and fills a `*DbInfos` in one pass, in this order : functions, relations, constraints, indexes, types. Constraints and indexes are correlated to relations by Postgres OID (`PgRelId`), so they run after relations ; types run last because they read back into both functions and relations to resolve `PgTypeOid`/`PgReturnTypeOid` references.
 
-Introspection is deliberately unfiltered by schema — `pg_catalog` and `information_schema` are introspected exactly like any other schema, not excluded. This is intentionally separate from `querying.md ### Scoping`'s relation blacklist, which *does* refuse `pg_catalog`/`information_schema` as query targets — that's a compile-time check against a fully-known schema, not a reason to make introspection itself blind to those schemas.
+Introspection is deliberately unfiltered by schema — `pg_catalog` and `information_schema` are introspected exactly like any other schema, not excluded. This is intentionally separate from `query-engine.md ### Scoping`'s relation blacklist, which *does* refuse `pg_catalog`/`information_schema` as query targets — that's a compile-time check against a fully-known schema, not a reason to make introspection itself blind to those schemas.
 
 > Why : introspection needs the complete picture of the database, not just the part a query is allowed to touch. A function can return a `pg_catalog` composite type, or `SETOF` a system view — resolving that return type (`Type.IsComposite()`/`Type.Relation`, needed for TypeScript generation among other things) requires the backing relation to have actually been introspected, regardless of whether a client query could ever select from it directly. An earlier version of this file excluded both schemas at introspection time on the reasoning that they're never valid query targets anyway ; that conflated two different concerns; and it silently broke exactly this case, since a relation that was never introspected can't be resolved by `Type.Relation` no matter how that lookup is implemented.
 
@@ -28,11 +28,11 @@ Relations, columns, functions, and types (`### Types`, below) each carry their o
 
 > Question : should these four fields be wired up (`IsNotNull` from `information_schema.columns.is_nullable`, `IsPrimaryKey`/`IsParOfUnique` from the relation's own constraints, `IsGenerated` from `is_generated`/`generation_expression`), or are they dead and should be removed ? Nothing built so far depends on them either way.
 
-`DefaultExpression` is resolved from two distinct sources, not one : `pg_attrdef` for plain defaults (`nextval(...)`, a literal, `now()`, ...), and identity columns (`GENERATED ALWAYS | BY DEFAULT AS IDENTITY`) via `pg_get_serial_sequence`, since identity columns have no `pg_attrdef` row at all. See `querying.md ### Insertion / Updates` for how this feeds the write algorithm's default-value splicing, including the `OVERRIDING SYSTEM VALUE` requirement for `GENERATED ALWAYS` columns.
+`DefaultExpression` is resolved from two distinct sources, not one : `pg_attrdef` for plain defaults (`nextval(...)`, a literal, `now()`, ...), and identity columns (`GENERATED ALWAYS | BY DEFAULT AS IDENTITY`) via `pg_get_serial_sequence`, since identity columns have no `pg_attrdef` row at all. See `query-engine.md ### Insertion / Updates` for how this feeds the write algorithm's default-value splicing, including the `OVERRIDING SYSTEM VALUE` requirement for `GENERATED ALWAYS` columns.
 
 ### Constraints
 
-`Constraint` represents a `PRIMARY KEY`/`UNIQUE`, or one side of a foreign key. `ConstraintType` is one of `ConstraintTypePrimaryKey`, `ConstraintTypeUnique`, `ConstraintTypeOutgoingForeignKey`, `ConstraintTypeIncomingForeignKey` — the outgoing/incoming vocabulary matches `querying.md ### Definitions` exactly. For a foreign key, `Constraint.Target` is the reciprocal `Constraint` living on the other relation ; either side reaches the other via `.Target`, and `.Target.Relation` (or the `OtherRelation()` helper) is always "the other relation" regardless of direction.
+`Constraint` represents a `PRIMARY KEY`/`UNIQUE`, or one side of a foreign key. `ConstraintType` is one of `ConstraintTypePrimaryKey`, `ConstraintTypeUnique`, `ConstraintTypeOutgoingForeignKey`, `ConstraintTypeIncomingForeignKey` — the outgoing/incoming vocabulary matches `query-engine.md ### Definitions` exactly. For a foreign key, `Constraint.Target` is the reciprocal `Constraint` living on the other relation ; either side reaches the other via `.Target`, and `.Target.Relation` (or the `OtherRelation()` helper) is always "the other relation" regardless of direction.
 
 `Constraint.Columns` is in true declared order (from `pg_constraint.conkey`/`confkey`), and `Columns[i]` corresponds to `Target.Columns[i]` for a foreign key. This pairing must never be reconstructed from anywhere else — in particular, never from two independently-sorted column-name lists, which is not guaranteed to reproduce the true correspondence for a composite key.
 
@@ -46,7 +46,7 @@ Introspection does not require a superuser, or otherwise unrestricted, connectin
 
 ### Indexes
 
-`Index` is a distinct capability from constraints, not folded into them — a table's index inventory and its constraint inventory are related but separate facts, and the join-eligibility rule (`querying.md ### Join eligibility`) needs both. `Index.Columns` is the true leading-key-column order, already filtered to exclude what doesn't count for an equality lookup :
+`Index` is a distinct capability from constraints, not folded into them — a table's index inventory and its constraint inventory are related but separate facts, and the join-eligibility rule (`query-engine.md ### Join eligibility`) needs both. `Index.Columns` is the true leading-key-column order, already filtered to exclude what doesn't count for an equality lookup :
 
 - Only the first `indnkeyatts` columns of `pg_index.indkey` — an `INCLUDE`d column (covering index) sits past that boundary and cannot serve the lookup itself.
 - Partial indexes (`indpred IS NOT NULL`) are excluded entirely — they don't provably cover a query's actual row set.
@@ -84,13 +84,13 @@ func (r *Relation) IsIndexed(columns []string) bool
 func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constraint *Constraint, isToOne bool, err error)
 ```
 
-`ResolveJoin` is the one the query compiler actually calls per join in a query tree, given `r` (the relation being described, i.e. the child, per `query.ts`'s `on` field) and `parent` (the enclosing relation). It implements `querying.md ### Join eligibility` in full :
+`ResolveJoin` is the one the query compiler actually calls per join in a query tree, given `r` (the relation being described, i.e. the child, per `query.ts`'s `on` field) and `parent` (the enclosing relation). It implements `query-engine.md ### Join eligibility` in full :
 
-- Cardinality (`isToOne`) is decided purely by whether `r`'s own `on` columns are unique on `r` — independent of whether the relationship is foreign-key-backed, and independent of which side satisfies eligibility below (`querying.md ## Reading Algorithm`, "unique on the joined side -> object").
+- Cardinality (`isToOne`) is decided purely by whether `r`'s own `on` columns are unique on `r` — independent of whether the relationship is foreign-key-backed, and independent of which side satisfies eligibility below (`query-engine.md ## Reading Algorithm`, "unique on the joined side -> object").
 - Eligibility requires either a foreign key whose exact column pairing matches `on` (not just matching column sets on each side independently — a same-sets-different-pairing mapping is rejected), or a unique constraint on `r`'s columns or on `parent`'s columns.
 - Indexing on `r`'s own `on` columns is checked unconditionally and is a hard error if missing, no config escape hatch — the generated query always scans `r` filtered by them, once per parent row, regardless of cardinality.
 
-> Question : the non-FK eligibility branch checks column sets independently on each side, with no requirement that they correspond to each other. Since a foreign key's target is required to be backed by a unique constraint on exactly its column set, any permutation of a pairing over that same set is accepted as eligible via the non-FK path — even when a real FK exists between the same two relations and the permutation contradicts its actual declared correspondence. Same open question as `querying.md ### Join eligibility` ; not duplicated in full here, see there for the complete writeup and the regression test that found it (`pg/info_test.go`, `TestForeignKey_CompositePairing`).
+> Question : the non-FK eligibility branch checks column sets independently on each side, with no requirement that they correspond to each other. Since a foreign key's target is required to be backed by a unique constraint on exactly its column set, any permutation of a pairing over that same set is accepted as eligible via the non-FK path — even when a real FK exists between the same two relations and the permutation contradicts its actual declared correspondence. Same open question as `query-engine.md ### Join eligibility` ; not duplicated in full here, see there for the complete writeup and the regression test that found it (`pg/info_test.go`, `TestForeignKey_CompositePairing`).
 
 ## Testing
 

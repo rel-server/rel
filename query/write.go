@@ -1,6 +1,6 @@
 // Pass 4, the Writing Algorithm : denormalizes a JSON payload into the
 // shared "_data" temp table (write_denormalize.go), then executes phased
-// DML off it (write_dml.go) — per specs/querying.md's Writing Algorithm.
+// DML off it (write_dml.go) — per specs/query-engine.md's Writing Algorithm.
 // Scoped to codegen+execution only : the connection-pool/request lifecycle
 // ("_data"'s creation and truncation policy, one-connection-per-request
 // pinning) is deliberately out of scope here, same deferral this session
@@ -22,7 +22,7 @@ import (
 // both this package's own tests (query/write_test.go) and the HTTP server
 // (server/rel.go), so the two can't silently drift apart. "on commit
 // preserve rows" is required for the real server's own request flow
-// (specs/querying.md ## Response Shape : the write transaction commits
+// (specs/query-engine.md ## Response Shape : the write transaction commits
 // before the read-back statement that builds the response runs, and that
 // statement still needs to see this same request's rows) — write_test.go's
 // own per-test DROP+CREATE doesn't strictly need it (nothing there commits
@@ -61,7 +61,7 @@ type WriteResult struct {
 
 // assignNodeIDs walks root pre-order, assigning a distinct index per node
 // by tree position — never by table, so a self-join produces distinct IDs
-// for each occurrence (specs/querying.md ## Writing Algorithm step 1). A
+// for each occurrence (specs/query-engine.md ## Writing Algorithm step 1). A
 // READONLY node, and everything nested under it, is skipped entirely : its
 // own children have no parent key to correlate against once it's excluded
 // from "_data", so pruning has to take the whole subtree, not just the one
@@ -92,7 +92,7 @@ func assignNodeIDs(root *QueryNode, startAt int) (map[*QueryNode]int, int) {
 }
 
 // findUnwritableNode walks root, children first (post-order), looking for
-// the ORIGINATING non-writable node — specs/querying.md ## Configuration :
+// the ORIGINATING non-writable node — specs/query-engine.md ## Configuration :
 // "A user attempting a write on such a query receives an error indicating
 // the offending relation." Shape.Writable already folds every non-READONLY
 // descendant's failure into each ancestor as DeriveShapes computes it
@@ -137,7 +137,7 @@ func unwritableNodeName(node *QueryNode) string {
 }
 
 // hasDeleteComponent reports whether m's semantics include deleting rows
-// absent from the payload (specs/querying.md ## Writing Algorithm step 4).
+// absent from the payload (specs/query-engine.md ## Writing Algorithm step 4).
 func hasDeleteComponent(m WriteMode) bool {
 	switch m {
 	case MERGE, MERGE_NEW, MERGE_UPDATE, DELETE_ONLY:
@@ -149,7 +149,7 @@ func hasDeleteComponent(m WriteMode) bool {
 
 // WriteState carries the __node_id/__row_id allocators across several
 // ExecuteWriteState calls that share one "_data" table within a single
-// request — e.g. several write items in one Sequence (specs/querying.md
+// request — e.g. several write items in one Sequence (specs/query-engine.md
 // ## Transactions : "several queries... run in a single transaction").
 // Each call must continue numbering where the previous one left off : both
 // counters restart from 0 internally (assignNodeIDs/denormalize), so two
@@ -183,7 +183,7 @@ func ExecuteWriteState(ctx context.Context, conn Querier, root *QueryNode, paylo
 		return nil, fmt.Errorf("write: root node is readonly, nothing to write")
 	}
 	if bad := findUnwritableNode(root); bad != nil {
-		return nil, fmt.Errorf("write: relation %q is not writable — its identity columns must appear exactly once in the select output, untransformed and writable (specs/querying.md ## Configuration)", unwritableNodeName(bad))
+		return nil, fmt.Errorf("write: relation %q is not writable — its identity columns must appear exactly once in the select output, untransformed and writable (specs/query-engine.md ## Configuration)", unwritableNodeName(bad))
 	}
 
 	rows, nextRowID, err := denormalize(root, ids, payload, state.nextRowID)

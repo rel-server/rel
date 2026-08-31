@@ -14,7 +14,8 @@
 
 // Pass 2, resolution step : binds every bare Identifier and every call/agg
 // FunctionRef against a scope or the function catalog, in place — see
-// specs/query-compiler.md's "Pass 2" and "Identifier resolution" sections.
+// specs/query-engine.md's Pass 2 description and its "## Scoping ###
+// Identifier resolution" section.
 // Runs bottom-up (children before parents), since a "." chain into a
 // child's select needs that child already resolved.
 package query
@@ -48,7 +49,7 @@ func (ctx *ResolveContext) ResolveExpressions(node *QueryNode) error {
 	// resolution (node's own expressions must not see node's own computed
 	// select keys — same "no forward-reference within one select object, no
 	// sibling access" rule already applied elsewhere ; see
-	// specs/query-compiler.md's "Identifier resolution"). Bottom-up
+	// specs/query-engine.md's "## Scoping ### Identifier resolution"). Bottom-up
 	// ordering means nothing external can reach node here except node's own
 	// expressions, so this flag is unambiguous.
 	if ctx.resolvingOwn == nil {
@@ -736,7 +737,7 @@ func resolvedFieldsEqual(a, b ResolvedField) bool {
 // "id"]}) — ctx.shapeInProgress guards exactly that case, since nothing
 // legitimate needs a node's select to see its own shape (this node's own
 // where/select must not see its own computed keys, same as the no-sibling-
-// access rule ; see specs/query-compiler.md's "Identifier resolution").
+// access rule ; see specs/query-engine.md's "## Scoping ### Identifier resolution").
 // DeriveShapes (shape.go) reuses this same cache rather than recomputing.
 func (ctx *ResolveContext) selectShape(target *QueryNode, oc oops.OopsErrorBuilder) (Shape, error) {
 	if target.Shape != nil {

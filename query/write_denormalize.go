@@ -1,5 +1,5 @@
 // Denormalization : walks a JSON payload alongside the resolved query tree,
-// producing one flat "_data" row per node instance (specs/querying.md
+// producing one flat "_data" row per node instance (specs/query-engine.md
 // ## Writing Algorithm step 2). The payload is expected to mirror the same
 // shape reads produce for this tree — same selectFieldsFor (sql.go) that
 // answers "what does this node's JSON shape look like" for compiling a

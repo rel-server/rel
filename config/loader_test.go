@@ -84,7 +84,7 @@ func TestLoad_PrecedenceFileEnvFlag(t *testing.T) {
 	// own doc comment for the underlying behavior this works around).
 	t.Chdir(t.TempDir())
 	dir := t.TempDir()
-	// querying.md ## Configuration's real keys : pg.host/pg.port.
+	// query-engine.md ## Configuration's real keys : pg.host/pg.port.
 	p := writeFile(t, dir, "rel.toml", `
 [pg]
 host = "file-host"
@@ -123,7 +123,7 @@ port = 1111
 	}
 }
 
-// TestLoad_QueryUserDefaultsToPgUser covers querying.md's own explicit
+// TestLoad_QueryUserDefaultsToPgUser covers query-engine.md's own explicit
 // cross-default : "pg.query.user (default: pg.user if provided)" — the
 // default's VALUE is another config key, not a constant, so this needs its
 // own test distinct from the generic *OrDefault coverage elsewhere.
@@ -292,7 +292,7 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	}
 }
 
-// TestLoad_HttpContentKeys covers specs/04-http-content.md's new config
+// TestLoad_HttpContentKeys covers specs/http-content.md's new config
 // surface : CORS/CSP scalars, http.templates.path, http.upload_domain_name,
 // and the named http.static.access.<name>.{prefix,function} map — same
 // named-sub-key shape blacklist.functions/relations already use.

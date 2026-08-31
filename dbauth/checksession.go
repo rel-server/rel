@@ -1,4 +1,4 @@
-// Package dbauth is the half of jwt-roles-and-http.md's Lifecycle that
+// Package dbauth is the half of authentication.md's Lifecycle that
 // needs an actual Postgres connection — Check (step 3, the check_session
 // function) and identifier-escaping for Apply role (step 5) — shared
 // between /rpc (rpc/handler.go, its own transaction) and /rel
@@ -38,7 +38,7 @@ func CheckSession(ctx context.Context, exec Execer, qualifiedName string, claims
 }
 
 // CallJSONBFunction invokes qualifiedName(payload::jsonb) — the shared
-// calling convention specs/04-http-content.md ### Access control
+// calling convention specs/http-content.md ### Access control
 // deliberately reuses from CheckSession's own : "a configured function
 // name, called with a jsonb payload, RSxxx to reject, returning normally
 // to allow." Void-returning by convention (the caller never reads a

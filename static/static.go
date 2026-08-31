@@ -1,4 +1,4 @@
-// Package static implements specs/04-http-content.md ## Static files and
+// Package static implements specs/http-content.md ## Static files and
 // ### Access control : serving http.static.path's colon-separated
 // directory search list at the fixed /static/ URL prefix, with no
 // directory listing, no dotfiles, and an opt-in, named, prefix-scoped

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package querystring implements specs/query_json.md : GET /rel's and
+// Package querystring implements specs/query-json.md : GET /rel's and
 // /rpc's `query` field's textual encoding of a subset of query.ts's JSON
 // shapes, carried in a URL query string. Two cooperating layers, per that
 // spec :
@@ -30,7 +30,7 @@
 // float64, bool, nil, []any, map[string]any) — never a second, parallel
 // Expression AST. The tree is handed to sonic.Marshal and then to the
 // EXISTING query.ParseQuery/query.ParseExpression pipeline, unchanged — see
-// specs/query_json.md's own "no new JSON shape is introduced" framing, and
+// specs/query-json.md's own "no new JSON shape is introduced" framing, and
 // this session's architecture decision (one JSON-consuming Expression
 // parser in the codebase, not two to keep in sync).
 package querystring
@@ -47,12 +47,12 @@ import (
 // net/url.ParseQuery : that function rejects (empty result, error) any raw
 // query string containing a literal ';' character at all, anywhere —
 // including inside an otherwise-ordinary value — which would make
-// specs/query_json.md's own `own_except_and(a,b; total:agg(sum,orders.amount))`
+// specs/query-json.md's own `own_except_and(a,b; total:agg(sum,orders.amount))`
 // (the `;` is grammar-internal, inside one query key's VALUE, never a
 // query-string pair separator here) impossible to decode. Splitting on '&'
 // only, by hand, sidesteps that entirely : Go's own query strings still use
 // '&' as the only pair separator this package recognizes, exactly matching
-// every example in specs/query_json.md.
+// every example in specs/query-json.md.
 func parseRawPairs(raw string) ([][2]string, error) {
 	raw = strings.TrimPrefix(raw, "?")
 	if raw == "" {
@@ -67,7 +67,7 @@ func parseRawPairs(raw string) ([][2]string, error) {
 		k, v, _ := strings.Cut(p, "=")
 		// url.QueryUnescape, not url.PathUnescape : query-string convention
 		// decodes '+' as a literal space (form-encoding), which every
-		// example in specs/query_json.md relies on implicitly (nothing in
+		// example in specs/query-json.md relies on implicitly (nothing in
 		// this grammar's identifiers/literals needs a literal '+' outside a
 		// quoted string, and a quoted string wanting one spells it %2B).
 		kd, err := url.QueryUnescape(k)
@@ -83,7 +83,7 @@ func parseRawPairs(raw string) ([][2]string, error) {
 	return out, nil
 }
 
-// DecodeStructural implements specs/query_json.md's ## Structural layer :
+// DecodeStructural implements specs/query-json.md's ## Structural layer :
 // every query key is a dot-separated path into a nested JSON object,
 // repeating the exact same key builds an array. Values are plain strings —
 // callers needing something else (number/bool coercion, the filter

@@ -258,7 +258,7 @@ func (r *Relation) RelationshipsTo(other *Relation) []*Constraint {
 // pairingMatches checks the full ordered correspondence between a foreign key
 // constraint and a client-supplied `on` mapping — not just that the column
 // sets independently match, which would also silently accept an inverted
-// pairing (see querying.md ### Insertion / Updates for the analogous point on
+// pairing (see query-engine.md ### Insertion / Updates for the analogous point on
 // the write side).
 func pairingMatches(c *Constraint, on map[string]string) bool {
 	if c.Target == nil || len(c.Columns) != len(on) {
@@ -289,11 +289,11 @@ func splitOn(on map[string]string) (local, parent []string) {
 // reports whether the embed is to-one.
 //
 // Cardinality is decided purely by whether r's own `on` columns are unique on
-// r (querying.md ## Reading Algorithm : "unique on the joined side -> object")
+// r (query-engine.md ## Reading Algorithm : "unique on the joined side -> object")
 // — independent of whether the relationship is foreign-key-backed, and
 // independent of which side satisfies the eligibility check below.
 //
-// Eligibility (querying.md ### Scoping) requires either a foreign key whose
+// Eligibility (query-engine.md ### Scoping) requires either a foreign key whose
 // exact column pairing matches `on`, or a unique constraint on r's columns or
 // on parent's columns — and, unconditionally, an index on r's own `on`
 // columns : the generated query always scans r filtered by them, once per

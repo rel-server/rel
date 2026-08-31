@@ -1,4 +1,4 @@
-// This file implements specs/04-http-content.md ### Upload destinations'
+// This file implements specs/http-content.md ### Upload destinations'
 // numbered "Ordering" subsection : a genuinely different request flow from
 // handleRpc's own single-transaction one — the body is resolved (streamed
 // straight to a temp file on disk) AFTER __prepare's placement decision,

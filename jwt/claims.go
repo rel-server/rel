@@ -1,4 +1,4 @@
-// Package jwt implements specs/jwt-roles-and-http.md's "# JWT" claims/
+// Package jwt implements specs/authentication.md's "# JWT" claims/
 // sign/verify/renew mechanics, plus the Verify/Renew half of the HTTP
 // Lifecycle as genuine net/http middleware (middleware.go) : Verify and
 // Renew need no database, so they live here as ordinary
@@ -18,7 +18,7 @@ import (
 	"github.com/ceymard/rel/config"
 )
 
-// Claims is specs/jwt-roles-and-http.md ## Claims :
+// Claims is specs/authentication.md ## Claims :
 //
 //	{ role: string, iat: number, exp: number, auth_time: number, ...free-form }
 //

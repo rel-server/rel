@@ -1,4 +1,4 @@
-// Package websec implements specs/04-http-content.md's CORS and CSP
+// Package websec implements specs/http-content.md's CORS and CSP
 // sections : both apply uniformly to /rel, /rpc, AND /static (the spec's
 // own explicit statement), so this lives as its own leaf package rather
 // than inside rpc or server specifically — both need it, and rpc/encode.go

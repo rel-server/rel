@@ -1,4 +1,4 @@
-// This file implements specs/04-http-content.md ### Upload destinations'
+// This file implements specs/http-content.md ### Upload destinations'
 // discovery half : pairing a <name>__prepare/<name> function pair into one
 // Route, kept separate from registry.go's ordinary matchesRouteShape-based
 // discovery since this family is matched and paired by a genuinely

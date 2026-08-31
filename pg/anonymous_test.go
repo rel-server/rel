@@ -24,7 +24,7 @@ import (
 )
 
 // TestNewInfosAdminQuery_AnonymousRoleExistence exercises
-// specs/jwt-roles-and-http.md "# Roles ## Anonymous role existence"
+// specs/authentication.md "# Roles ## Anonymous role existence"
 // directly against NewInfosAdminQuery's own new anonymousRole parameter :
 // a role that exists in pg_roles sets AnonymousRoleExists true, a name
 // that doesn't (a typo, or simply never created) sets it false — non-
@@ -57,7 +57,7 @@ func TestNewInfosAdminQuery_AnonymousRoleExistence(t *testing.T) {
 
 // TestAnonymousAndPublicPrivilegeQuery_NonSuperuser runs the actual
 // has_schema_privilege/has_function_privilege two-conjunct query
-// rpc.BuildRegistry uses (specs/jwt-roles-and-http.md "# HTTP ## Anonymous
+// rpc.BuildRegistry uses (specs/rpc.md "# HTTP ## Anonymous
 // route authorization") against testdata/anon_priv.sql's fixture, under a
 // non-superuser connecting role (plain_login_role) — both privilege
 // functions ask about ANOTHER role (probe_role, PUBLIC), never the

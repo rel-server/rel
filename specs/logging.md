@@ -14,7 +14,7 @@ Use `log/slog` (standard library) for all logging. There is no wrapping logging 
 
 ## Logger construction
 
-A `logging` package builds exactly one `*slog.Logger` at startup from the assembled `Config` (see `01-configuration.md`), and installs it via `slog.SetDefault`. This is the only place `logging.handler`/`logging.level` are read.
+A `logging` package builds exactly one `*slog.Logger` at startup from the assembled `Config` (see `configuration.md`), and installs it via `slog.SetDefault`. This is the only place `logging.handler`/`logging.level` are read.
 
 ## Domain scoping
 
@@ -38,10 +38,10 @@ The same middleware logs one line per completed request, at `info` level, once t
 
 ## Error integration with `samber/oops`
 
-Per `02-error-handling.md`, errors are constructed/wrapped with `oops`, carrying structured context via its immutable `.With(key, value)` pattern.
+Per `error-handling.md`, errors are constructed/wrapped with `oops`, carrying structured context via its immutable `.With(key, value)` pattern.
 
 When an `oops` error is logged, its attached context MUST be flattened into `slog.Attr`s, not stringified into the message — the same key attached at the error site must be queryable in JSON logs. A helper (`logging.Error(err) slog.Attr`, exact shape TBD) is responsible for this conversion; call sites use it instead of `slog.Any("error", err)`.
 
 ## Redaction
 
-The same rule as configuration values (`01-configuration.md`, "Error handling and secrets") applies here: nothing considered a credential, token, or secret is ever written into a log line's value, including inside `oops` context attached via `.With(...)`. Call sites are responsible for not attaching secret values as log/error context in the first place — the logging layer does not attempt to guess or redact after the fact.
+The same rule as configuration values (`configuration.md`, "Error handling and secrets") applies here: nothing considered a credential, token, or secret is ever written into a log line's value, including inside `oops` context attached via `.With(...)`. Call sites are responsible for not attaching secret values as log/error context in the first place — the logging layer does not attempt to guess or redact after the fact.

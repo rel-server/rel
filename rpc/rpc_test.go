@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 	// anonymous role name : the fixture's "~anonymous" role must be found
 	// (DbInfos.AnonymousRoleExists) for this package's many
 	// anonymous-access test scenarios to keep working under the new
-	// anonymous-role-existence gate (specs/jwt-roles-and-http.md "# Roles
+	// anonymous-role-existence gate (specs/authentication.md "# Roles
 	// ## Anonymous role existence").
 	testDb, err = pg.NewInfosAdminQuery(uri, uri, 0, testCfg.Pg.Query.AnonymousRole)
 	if err != nil {

@@ -1,5 +1,5 @@
 // Package logging builds Rel's one process-wide *slog.Logger from
-// config.Logging, per specs/01-logging.md ## Configuration and ## Logger
+// config.Logging, per specs/logging.md ## Configuration and ## Logger
 // construction — the only two sections this package implements.
 //
 // Deliberately NOT implemented here (documented, not silently dropped) :
@@ -25,7 +25,7 @@ import (
 // Build constructs the *slog.Logger described by cfg, without installing it
 // as the process default — see Install for that. Every field is validated :
 // an unrecognized handler/level, or an invalid filter/exclude regexp, is a
-// configuration error (specs/01-configuration.md's own "malformed value" is
+// configuration error (specs/configuration.md's own "malformed value" is
 // fatal), not silently ignored.
 func Build(cfg config.Logging) (*slog.Logger, error) {
 	level, err := parseLevel(cfg.Level)

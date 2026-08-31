@@ -1,4 +1,4 @@
-// Package rpc implements specs/jwt-roles-and-http.md's "# HTTP" route
+// Package rpc implements specs/rpc.md's "# HTTP" route
 // functions : Postgres functions directly callable at
 // /rpc/{schema}/{function}, gated by the full JWT lifecycle (Verify/
 // Check/Renew/Apply-role from the jwt package, mint/logout from a route
@@ -32,7 +32,7 @@ type Route struct {
 	AcceptsFiles        bool
 	AcceptsPartsHeaders bool
 
-	// AnonymousAuthorized is specs/jwt-roles-and-http.md "# HTTP ##
+	// AnonymousAuthorized is specs/rpc.md "# HTTP ##
 	// Anonymous route authorization" : true iff, at the time the registry
 	// was built, the anonymous role could actually reach this route —
 	// has_schema_privilege(anon, schema, 'USAGE') AND
@@ -41,12 +41,12 @@ type Route struct {
 	// AnonymousRoleExists false) — callers must check that first, since an
 	// anonymous role that doesn't exist was never queried against here.
 	// For an upload-destinations route (IsUpload), this is the AND of both
-	// halves' own reachability — specs/04-http-content.md ### Upload
+	// halves' own reachability — specs/http-content.md ### Upload
 	// destinations' "Anonymous-route-authorization" : "fail-closed on
 	// either."
 	AnonymousAuthorized bool
 
-	// IsUpload is true for a specs/04-http-content.md ### Upload
+	// IsUpload is true for a specs/http-content.md ### Upload
 	// destinations route : a discovered <name>__prepare/<name> pair, both
 	// mandatory. Function is the MANDATORY (unsuffixed) half in this case ;
 	// PrepareFunction is the <name>__prepare half. MimeType/AcceptsFiles/
@@ -102,7 +102,7 @@ func (r *Registry) Lookup(schema, function, method string) (Route, bool) {
 // default to.
 //
 // Once every route function is discovered, BuildRegistry also runs
-// specs/jwt-roles-and-http.md "# HTTP ## Anonymous route authorization" :
+// specs/rpc.md "# HTTP ## Anonymous route authorization" :
 // one combined query against db.Pool computing, per route function, both
 // whether cfg.Pg.Query.AnonymousRole can reach it (schema USAGE + function
 // EXECUTE, both required — see Route.AnonymousAuthorized) and whether
@@ -224,7 +224,7 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 }
 
 // anonPublicPriv is one route function's cached anon/PUBLIC reachability,
-// per specs/jwt-roles-and-http.md "# HTTP ## Anonymous route
+// per specs/rpc.md "# HTTP ## Anonymous route
 // authorization" — both fields are the same two-conjunct check
 // (has_schema_privilege(role, schema, 'USAGE') AND
 // has_function_privilege(role, function, 'EXECUTE')), against the

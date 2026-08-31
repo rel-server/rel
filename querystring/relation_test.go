@@ -8,7 +8,7 @@ import (
 	"github.com/ceymard/rel/query"
 )
 
-// TestDecodeRelation_SpecWorkedExample reproduces specs/query_json.md's own
+// TestDecodeRelation_SpecWorkedExample reproduces specs/query-json.md's own
 // ## Structural layer worked example verbatim : the raw query string at the
 // top of that section must decode to exactly the JSON shown right below it.
 func TestDecodeRelation_SpecWorkedExample(t *testing.T) {

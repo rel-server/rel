@@ -1,6 +1,6 @@
 // Command rel is the process entrypoint : loads configuration
-// (specs/01-configuration.md), builds the process-wide logger
-// (specs/01-logging.md ## Configuration/## Logger construction), connects
+// (specs/configuration.md), builds the process-wide logger
+// (specs/logging.md ## Configuration/## Logger construction), connects
 // to Postgres, and serves POST /rel (server.NewRelHandler) and
 // /rpc/{schema}/{function} (rpc.NewHandler) until an interrupt/terminate
 // signal requests a graceful shutdown.
@@ -58,7 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// specs/03-dmut.md ## Execution : dmut runs BEFORE introspection,
+	// specs/migrations.md ## Execution : dmut runs BEFORE introspection,
 	// always — rel's introspected schema cache must reflect whatever dmut
 	// leaves the database in, never whatever it looked like before. A
 	// failed run is logged and startup continues regardless (dmut's own
@@ -94,7 +94,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// specs/03-dmut.md ## Reloading : http.Server.Handler is, permanently,
+	// specs/migrations.md ## Reloading : http.Server.Handler is, permanently,
 	// this small reload-aware wrapper — written to srv.Handler exactly
 	// once, below, and never touched again. Only the wrapper's own
 	// atomic.Pointer is ever swapped, by the reload sequence.

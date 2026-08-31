@@ -26,7 +26,8 @@ type QueryNode struct {
 	// If parent is non-nil, how it's being joined to it
 	JoinColumns []QueryJoinColumn
 	// the key name of the join ; accessible from the parent. Named OuterAlias
-	// (not just "alias") to match specs/query-compiler.md's Scope section,
+	// (not just "alias") to match specs/query-engine.md's "## Scoping ###
+	// Self-reference and child scope" section,
 	// which distinguishes this (usable by the parent) from InnerName
 	// (usable by this node and its own descendants).
 	OuterAlias string
@@ -37,7 +38,7 @@ type QueryNode struct {
 	// incoming when this node's own on-columns are the unique side (the
 	// child's on-columns, which must be indexed, point at them). This is
 	// cardinality-based, not FK-based : a join is classified this way whether
-	// or not a real foreign key backs it. See querying.md ### Definitions.
+	// or not a real foreign key backs it. See query-engine.md ### Definitions.
 	OutgoingNodes []*QueryNode
 	IncomingNodes []*QueryNode
 

@@ -91,7 +91,7 @@ func TestHandler_RouteAnonymousCannotReach_AuthenticatedStillWorks(t *testing.T)
 // TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies builds a completely
 // separate DbInfos/Registry/Handler against the SAME container/schema, but
 // with pg.query.anonymous_role pointed at a name nothing ever created —
-// specs/jwt-roles-and-http.md "# Roles ## Anonymous role existence" : with
+// specs/authentication.md "# Roles ## Anonymous role existence" : with
 // anonymous access disabled outright, every unauthenticated request gets a
 // uniform 401, regardless of which route it targets (fn_echo0 has no
 // route-level restriction at all — this is specifically the blanket gate,
@@ -432,7 +432,7 @@ func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 	}
 }
 
-// TestHandler_QueryFieldStructuralDecode proves specs/query_json.md's
+// TestHandler_QueryFieldStructuralDecode proves specs/query-json.md's
 // RelHttpRequest.query field : the request's raw query string, decoded
 // through the querystring package's structural layer only (dot-path ->
 // nested JSON, repeated keys -> arrays — no filter expression grammar

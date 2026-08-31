@@ -1,8 +1,8 @@
 package config
 
-// Config is rel's runtime configuration, as described in specs/querying.md
+// Config is rel's runtime configuration, as described in specs/query-engine.md
 // ## Configuration and ## Scoping. This is only the shape ; nothing loads it
-// from a file/env yet (config.tempindexthreshold, mentioned in querying.md's
+// from a file/env yet (config.tempindexthreshold, mentioned in query-engine.md's
 // Writing Algorithm as a tentative option the redactor was "torn" on, isn't
 // here either — deliberately, since it was never actually settled).
 type Config struct {
@@ -15,27 +15,27 @@ type Config struct {
 	Blacklist Blacklist
 }
 
-// Dmut is specs/03-dmut.md ## Configuration : dmut.path/reload_drain_timeout.
+// Dmut is specs/migrations.md ## Configuration : dmut.path/reload_drain_timeout.
 type Dmut struct {
 	// Path is dmut.path, default "/dmut" : directory containing the
 	// mutation files dmut reads recursively. Missing directory means dmut
-	// is skipped entirely, not an error — see specs/03-dmut.md ## Execution.
+	// is skipped entirely, not an error — see specs/migrations.md ## Execution.
 	Path string
 	// ReloadDrainTimeout is dmut.reload_drain_timeout, default 30
 	// (seconds) : how long a SIGUSR1 reload waits for in-flight requests
 	// to finish before cancelling their contexts and proceeding anyway —
-	// see specs/03-dmut.md ## Reloading.
+	// see specs/migrations.md ## Reloading.
 	ReloadDrainTimeout int
 }
 
-// DefaultDmutPath/DefaultDmutReloadDrainTimeout are specs/03-dmut.md ##
+// DefaultDmutPath/DefaultDmutReloadDrainTimeout are specs/migrations.md ##
 // Configuration's own stated defaults.
 const (
 	DefaultDmutPath               = "/dmut"
 	DefaultDmutReloadDrainTimeout = 30
 )
 
-// Jwt is jwt-roles-and-http.md ## Configuration : jwt.secret/cookie_name/
+// Jwt is authentication.md ## Configuration : jwt.secret/cookie_name/
 // algorithm/same_site/max_age/renew_after/max_session_age.
 type Jwt struct {
 	// Secret is jwt.secret, default "$FILE$jwt-secret$GEN$32" — the JWT
@@ -61,7 +61,7 @@ type Jwt struct {
 	MaxSessionAge int
 }
 
-// DefaultJwt* are jwt-roles-and-http.md ## Configuration's stated defaults.
+// DefaultJwt* are authentication.md ## Configuration's stated defaults.
 const (
 	DefaultJwtSecret        = "$FILE$jwt-secret$GEN$32"
 	DefaultJwtCookieName    = "accesstoken"
@@ -72,7 +72,7 @@ const (
 	DefaultJwtMaxSessionAge = 604800
 )
 
-// Logging is specs/01-logging.md ## Configuration : logging.handler,
+// Logging is specs/logging.md ## Configuration : logging.handler,
 // logging.level, logging.filter.*, logging.exclude.*.
 type Logging struct {
 	// Handler is logging.handler : "JSON" or "pretty" (default "pretty").
@@ -89,7 +89,7 @@ type Logging struct {
 
 // Http is the HTTP listen address (Host/Port — invented for cmd/rel, since
 // no spec under specs/ defines the bind host/port) plus
-// jwt-roles-and-http.md ## HTTP ## Configuration's own http.* keys, which
+// rpc.md ## HTTP ## Configuration's own http.* keys, which
 // govern /rpc route-function discovery and dispatch.
 type Http struct {
 	Host string
@@ -105,7 +105,7 @@ type Http struct {
 	ResponseDomainName string
 	// UploadDomainName is http.upload_domain_name, default "RelUpload" :
 	// the unquoted name of the JSON domain used by
-	// specs/04-http-content.md ## Static files ### Upload destinations'
+	// specs/http-content.md ## Static files ### Upload destinations'
 	// two-function upload mechanism. Not an error if it doesn't resolve —
 	// that mechanism simply isn't discovered, same non-fatal treatment as
 	// RequestDomainName/ResponseDomainName above.
@@ -118,7 +118,7 @@ type Http struct {
 	// cap, in bytes, on a /rpc request's ENTIRE body — for multipart, the
 	// whole envelope (boundaries and part headers included, not just the
 	// sum of part payload bytes). Enforced before any of it is buffered in
-	// memory — see jwt-roles-and-http.md ## Configuration. Scoped to /rpc
+	// memory — see rpc.md ## Configuration. Scoped to /rpc
 	// only, never /rel.
 	MaxBodySize int
 	// MaxPartCount is http.max_part_count, default 100 : max number of
@@ -134,7 +134,7 @@ type Http struct {
 	Csp       HttpCsp
 }
 
-// HttpTemplates is http.templates.* — specs/04-http-content.md ##
+// HttpTemplates is http.templates.* — specs/http-content.md ##
 // Templates.
 type HttpTemplates struct {
 	// Path is http.templates.path, default "/template" (renamed from the
@@ -143,7 +143,7 @@ type HttpTemplates struct {
 	Path string
 }
 
-// HttpCors is http.cors.* — specs/04-http-content.md ## CORS ##
+// HttpCors is http.cors.* — specs/http-content.md ## CORS ##
 // Configuration.
 type HttpCors struct {
 	// AllowedOrigins is http.cors.allowed_origins, default "" (CORS fully
@@ -162,7 +162,7 @@ type HttpCors struct {
 	MaxAge int
 }
 
-// HttpCsp is http.csp.* — specs/04-http-content.md ## CSP ## Configuration
+// HttpCsp is http.csp.* — specs/http-content.md ## CSP ## Configuration
 // : one config key per CSP directive, plus a raw full-policy override.
 type HttpCsp struct {
 	DefaultSrc     string
@@ -183,7 +183,7 @@ type HttpCsp struct {
 }
 
 // StaticAccessRule is one http.static.access.<name>.* entry —
-// specs/04-http-content.md ## Static files ### Access control.
+// specs/http-content.md ## Static files ### Access control.
 type StaticAccessRule struct {
 	// Prefix is http.static.access.<name>.prefix : the subpath prefix this
 	// rule gates.
@@ -194,7 +194,7 @@ type StaticAccessRule struct {
 	Function string
 }
 
-// HttpFunctions is jwt-roles-and-http.md's http.functions.* namespace.
+// HttpFunctions is rpc.md's http.functions.* namespace.
 type HttpFunctions struct {
 	// AllowedAuth is http.functions.allowed_auth, default "" (unrestricted)
 	// : regexp restricting which functions' responses rel will honor a
@@ -214,27 +214,27 @@ type HttpFunctions struct {
 }
 
 // HttpStatic is http.static.* — static file serving, per
-// specs/04-http-content.md ## Static files/### Access control : Path names
+// specs/http-content.md ## Static files/### Access control : Path names
 // a colon-separated list of FILESYSTEM directories (never the URL prefix,
 // which is always the fixed "/static/"), Access is the named, prefix-scoped
 // access-control rule set.
 type HttpStatic struct {
 	// Path is http.static.path, default "/static" : a COLON-SEPARATED list
 	// of filesystem directories served at the fixed /static/ URL prefix
-	// (search list, first match wins — see specs/04-http-content.md
+	// (search list, first match wins — see specs/http-content.md
 	// ## Static files). NOT the URL prefix itself, which is always the
 	// fixed, unconfigurable "/static/".
 	Path string
 	// Access is http.static.access.<name>.* — named, prefix-scoped access
-	// control rules (specs/04-http-content.md ### Access control).
+	// control rules (specs/http-content.md ### Access control).
 	Access map[string]StaticAccessRule
 }
 
 // DefaultLoggingHandler/DefaultLoggingLevel/DefaultHttpPort are
-// specs/01-logging.md's own stated defaults (Handler/Level) and this
+// specs/logging.md's own stated defaults (Handler/Level) and this
 // package's own invented default (Port — see Http's doc comment).
 // DefaultHttpRequestDomainName/DefaultHttpResponseDomainName/
-// DefaultHttpCookiesMaxAge are jwt-roles-and-http.md's own stated defaults.
+// DefaultHttpCookiesMaxAge are rpc.md's own stated defaults.
 // DefaultHttpStaticPath is this package's own invented default, matching
 // HttpStatic's doc comment.
 const (
@@ -250,27 +250,27 @@ const (
 	// http.max_part_count (100).
 	DefaultHttpMaxBodySize  = 10485760
 	DefaultHttpMaxPartCount = 100
-	// DefaultHttpUploadDomainName is jwt-roles-and-http.md's stated default
+	// DefaultHttpUploadDomainName is rpc.md's stated default
 	// for http.upload_domain_name.
 	DefaultHttpUploadDomainName = "RelUpload"
-	// DefaultHttpTemplatesPath is specs/04-http-content.md ## Templates'
+	// DefaultHttpTemplatesPath is specs/http-content.md ## Templates'
 	// stated default for http.templates.path.
 	DefaultHttpTemplatesPath = "/template"
 	// DefaultHttpCorsAllowedMethods/DefaultHttpCorsAllowedHeaders/
-	// DefaultHttpCorsMaxAge are specs/04-http-content.md ## CORS
+	// DefaultHttpCorsMaxAge are specs/http-content.md ## CORS
 	// ### Configuration's stated defaults. AllowedOrigins has no default
 	// constant — its default is the empty string (CORS fully closed).
 	DefaultHttpCorsAllowedMethods = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 	DefaultHttpCorsAllowedHeaders = "Content-Type"
 	DefaultHttpCorsMaxAge         = 600
-	// DefaultHttpCspDefaultSrc is specs/04-http-content.md ## CSP
+	// DefaultHttpCspDefaultSrc is specs/http-content.md ## CSP
 	// ### Configuration's stated default : only default-src has a value by
 	// default, every other directive is unset.
 	DefaultHttpCspDefaultSrc = "'self'"
 )
 
 // DefaultPgHost/DefaultPgPort/DefaultPgQueryAnonymousRole/
-// DefaultPgQueryWellKnownPath are querying.md/well-known-queries.md's own
+// DefaultPgQueryWellKnownPath are query-engine.md/well-known-queries.md's own
 // stated defaults for pg.host/pg.port/pg.query.anonymous_role/
 // pg.query.wellknown_path — named here (rather than left as inline
 // literals in loader.go's assemble()) so config/help.go's --help output
@@ -317,15 +317,15 @@ type PgQuery struct {
 
 	// AnonymousRole is pg.query.anonymous_role (default "~anonymous") :
 	// the role rel switches to, from Login, for requests with no
-	// credentials of their own — used both for /rel (querying.md) and JWT
-	// verification failures on /rpc (jwt-roles-and-http.md ## Roles, which
+	// credentials of their own — used both for /rel (query-engine.md) and JWT
+	// verification failures on /rpc (authentication.md ## Roles, which
 	// used to name this same setting jwt.anonrole ; reconciled onto
-	// query.anonymous_role, the name querying.md already used, itself
+	// query.anonymous_role, the name query-engine.md already used, itself
 	// later moved under pg.query.* for this same consistency pass).
 	AnonymousRole string
 
 	// MaxDepth is pg.query.max_depth : the maximum depth a query can
-	// specify. querying.md's default is 6.
+	// specify. query-engine.md's default is 6.
 	MaxDepth int
 
 	// WellKnownDirs is pg.query.wellknown_path (well-known-queries.md
@@ -360,7 +360,7 @@ type Pg struct {
 	// Host/Port/Database are pg.host/pg.port/pg.database, used when URI
 	// is unset — shared with PgQuery's own login when that's set, since
 	// it's always the same Postgres instance/database, only the
-	// credentials narrow. Database is NOT in querying.md at all ; this
+	// credentials narrow. Database is NOT in query-engine.md at all ; this
 	// struct had no field naming which database to connect to at all
 	// before this was added (see specs/TODO.md's own note on this
 	// invented key).
@@ -378,7 +378,7 @@ type Pg struct {
 	Query PgQuery
 }
 
-// Blacklist holds the function/relation blacklist from querying.md's
+// Blacklist holds the function/relation blacklist from query-engine.md's
 // ## Scoping : `blacklist.functions.<schema>.<function_name_or_operator or
 // *>` and `blacklist.relations.<schema>.<relation_name or *>`. Each is a
 // two-level map — outer key schema, inner key name-or-"*" — rather than a
@@ -393,7 +393,7 @@ type Blacklist struct {
 	Relations map[string]map[string]string
 }
 
-// IsTruthy interprets a raw config value the way querying.md's "`y` or
+// IsTruthy interprets a raw config value the way query-engine.md's "`y` or
 // `true`" phrasing implies : accept the common truthy spellings, treat
 // everything else (including an absent/empty entry) as false.
 func IsTruthy(v string) bool {
@@ -406,7 +406,7 @@ func IsTruthy(v string) bool {
 }
 
 // IsFunctionBlacklisted reports whether schema.name is blacklisted : the
-// exact name first, then the schema-wide "*" wildcard querying.md's key
+// exact name first, then the schema-wide "*" wildcard query-engine.md's key
 // syntax allows.
 func (b Blacklist) IsFunctionBlacklisted(schema, name string) bool {
 	return IsTruthy(b.Functions[schema][name]) || IsTruthy(b.Functions[schema]["*"])
@@ -417,12 +417,12 @@ func (b Blacklist) IsRelationBlacklisted(schema, name string) bool {
 	return IsTruthy(b.Relations[schema][name]) || IsTruthy(b.Relations[schema]["*"])
 }
 
-// DefaultMaxDepth is querying.md's pg.query.max_depth default.
+// DefaultMaxDepth is query-engine.md's pg.query.max_depth default.
 const DefaultMaxDepth = 6
 
-// DefaultBlacklist is querying.md ## Scoping's default blacklist, verbatim :
+// DefaultBlacklist is query-engine.md ## Scoping's default blacklist, verbatim :
 // pg_catalog and information_schema wholesale for relations (wildcarded
-// deliberately, not enumerated — see querying.md's own "Why" on that), and
+// deliberately, not enumerated — see query-engine.md's own "Why" on that), and
 // the specific dangerous pg_catalog functions for functions, including the
 // rest of the pg_advisory_*lock* family the spec's parenthetical calls out
 // by name pattern rather than listing individually (the _unlock variants are

@@ -1,4 +1,4 @@
-# Querying
+# Query Engine
 
 Rel's most important feature is its querying capabilities.
 
@@ -7,6 +7,14 @@ Similarly to GraphQL and PostgresT, it offers a complex query engine able to spa
 Unlike GraphQL, there are no "mutations" to describe ; unlike PostgresT, the complex form that it generates can be sent back as-is to the server so that it updates accordingly ; it makes inserting or updating rows of linked tables in a single transaction possible, even and especially when related rows depend on a identifying key not yet known (ids) because the parent doesn't already exist.
 
 Selecting is based on a relation. Foreign keys allow embedding of a distant resource into the result : whether from the table to another or in reverse. When embedding a remote relation that has multiple rows to the current one, embeds an array. Otherwise, stays as a simple object.
+
+Compiling a query JSON tree into SQL happens in two passes, both implemented and tested :
+
+- **Pass 1 — tree inflation + DB resolution** (`query/node_parse.go`'s decode step, `query/node_resolve.go`'s resolve step, plus `pg/info_searchpath.go` and `pg/info_lookup.go` for the search-path/by-name lookups it needed that `pg` didn't have yet — see those files' tests for coverage). Builds the `QueryNode` tree from JSON and resolves every DB-facing reference against `pg` introspection : `relation`/`function`+`schema`/`arguments` -> `*pg.Relation`/`*pg.Function` (`relation` and `function` are mutually exclusive — exactly one is required, and `arguments` is only legal alongside `function`), `on` -> `ResolveJoin`, `on_conflict` -> a real constraint. The relation/function-as-root blacklist check belongs here, at the point each node's own relation/function is resolved — not in pass 2. Expression-typed fields (`where`, `select`, `order_by`, `distinct_on`, function `arguments`) are parsed (`query/expression_parse.go`) but not resolved during pass 1 — bare strings stay opaque `Identifier` nodes.
+
+  > Why: a node's own relation/function is resolved against `pg` the same way `on`/`on_conflict` are, not against an `Expression` tree, so its blacklist check naturally sits next to that resolution rather than being duplicated into expression walking.
+
+- **Pass 2 — expression resolution** (`query/expression_resolve.go`'s resolution step, `query/shape.go`'s shape/writability step, `query/scope.go`'s `LookupInScope` — see those files' tests, plus `query/expression_resolve_test.go`, for coverage). Two steps, not one : **Resolution**, a generic walk (`ResolveExpressions`) binding every bare identifier to a column/alias/param and blacklist-checking every `call`/`agg` identifier — see `## Scoping` for the full mechanics ; and **Shape/writability derivation** (`DeriveShapes`) — see `## Writability`.
 
 ## Search path
 
@@ -17,7 +25,7 @@ Roles we switch to when requests are made are NOT respected, because that would 
 * `pg.uri` : a full `postgres://user:pass@host:port/db` connection string. When set, authoritative — the granular fields below are ignored entirely, not merged with it. The simplest possible setup is `pg.uri` alone.
 * `pg.user` / `pg.password` / `pg.host` / `pg.port` / `pg.database` : the primary Postgres connection, used when `pg.uri` is unset. This is the login rel uses to connect to the database to perform migrations with dmut, to introspect the database at startup, and — unless `pg.query.user` overrides it — to serve requests, i.e. the role from which `set role` to all other roles is executed.
 * `pg.query.user` / `pg.query.password` (default : `pg.user` / `pg.password` if provided) : an OPTIONAL, narrower-scoped login for the connection that actually serves requests specifically. Documented and encouraged for a hardened deployment, never required — `set role` per request, not this login's own privileges, is what actually restricts what a request can access ; introspection and dmut migrations always use the primary connection above, never this one.
-* `pg.query.anonymous_role` (default `~anonymous`) : the role rel switches to for requests without credentials of their own. Full lifecycle (when/how this applies, alongside JWT verification) is `jwt-roles-and-http.md`'s ## Roles' concern — this entry exists here only because it's also part of ## Configuration's connection-role settings.
+* `pg.query.anonymous_role` (default `~anonymous`) : the role rel switches to for requests without credentials of their own. Full lifecycle (when/how this applies, alongside JWT verification) is `authentication.md`'s `# Roles` concern — this entry exists here only because it's also part of `## Configuration`'s connection-role settings.
 * `pg.pool_size` (default `10`) : the max number of connections in the pool that serves requests. Never affects startup introspection or dmut migrations, which each use one short-lived connection regardless of this setting.
 
 * `pg.query.max_depth` (default `6`) : maximum depth a query can specify
@@ -28,23 +36,13 @@ When querying resources they're not allowed to access in the database, the statu
 
 `/rel` only returns JSON, even when it replies an error.
 
-For a query to be bidirectional, there is a notion of writability of a column ; a column is said to be writable if and only if it appears exactly once in the select expression and is not transformed by anything other than coalescing operators. Columns are tracked and are writable even if they appear in sub-objects.
-
-A relation's rows are writable iff the columns of its identity target (primary key by default, or whatever on_conflict explicitly designates as the  conflict-resolution unique constraint) are present and writable exactly *once* in the select output.
-
-If a child query disables writability for its own table, it disables it for the whole query, unless it was *explicitely* set to readonly. A user attempting a write on such a query receives an error indicating the offending relation. 
-
-`distinct` and `distinct_on` do not need to disable writability on their own ; the general contract two paragraphs up (identity target present and writable exactly once) already covers the only case that would actually be dangerous.
-
-> Why : you're not confused, this is right. Plain `distinct` deduplicates on the *entire* projected row. If the identity target is part of that row, two different underlying source rows can never produce equal tuples in the first place — the identity columns alone already guarantee tuple inequality between them — so `distinct` can never actually merge two source rows together when identity is present ; it's a no-op with respect to row correspondence. It only becomes dangerous when identity is *absent* from the select (e.g. `select distinct city`, where one output row could stand for many different users) — and that case is already excluded by the general rule regardless of `distinct`. `distinct_on` reasons the same way : it doesn't merge rows either, it picks exactly one real row per group (via `order_by`), so the identity columns on that output row still correctly name the one real row it came from.
-
 Group by and window functions are intentionally disabled ; these should be done inside views instead.
 
 > Why: too much abuse potential, and group by anyway disables writing back entirely on the relation. Rel is about selecting data to write it back (mostly,) the rest can be done in views.
 
-To avoid paying for parsing and preparing statements all the time, rel offers a "well-known" queries mechanism that are read on server startup or after reloading a schema. They are named and make use of the `["$param", ...]` expresion which are transformed into prepared statement param. Another advantage of well-known queries is that they're also exported by rel's typescript/javascript export and typed appropriately.
+To avoid paying for parsing and preparing statements all the time, rel offers a "well-known" queries mechanism that are read on server startup or after reloading a schema. They are named and make use of the `["$param", ...]` expresion which are transformed into prepared statement param. Another advantage of well-known queries is that they're also exported by rel's typescript/javascript export and typed appropriately. See `specs/well-known-queries.md` for the full mechanism.
 
-## Implementation details
+## Implementation
 
 * Use github.com/bytedance/sonic
 * Do not use struct tags ; JSON must be parsed using .Get and other iterative methods for performance
@@ -76,12 +74,75 @@ Default functions blacklist :
 - `blacklist.functions.pg_catalog.pg_cancel_backend` : `y`
 - `blacklist.functions.pg_catalog.pg_advisory_lock` : `y` (and the rest of the `pg_advisory_*lock*` family, minus the `_unlock` variants, which are harmless) — `PUBLIC`-executable by default, and holding a session/transaction advisory lock indefinitely is a cheap way to wedge a connection or contend with any advisory locks rel's own runtime might use internally.
 
-
 > Why these two and why wildcarded : this is what closes the open question raised in an earlier draft of this section — both schemas are readable by `PUBLIC` by default (`pg_settings`, `pg_stat_activity`, `information_schema.tables`, ...) and reachable through the ordinary `relation`/`schema` fields on a query, same as any table. Wildcarding the whole schema rather than naming individual views is deliberate here, unlike the function blacklist above : Postgres ships and changes the exact set of catalog/information_schema views across versions, so pinning specific names would need to be kept in sync with every version rel supports, whereas "nothing in these two schemas is a valid query target" is a version-independent rule that never needs updating. A user who genuinely wants to query one of these (introspection tooling, say) can still override the specific entry back to `n`.
 
 The database role rel connects with to the server in order to perform requests should never be `postgres` or superuser, and should never be a member of `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, or `pg_signal_backend` - a stark warning must be printed if this is the case. The developer must be incited to create a role of some kind that will receive grants for all subroles that shall exist within the database and give it to `pg.query.user`.
 
 > Why this still matters alongside the blacklist : the blacklist can only stop what it already knows the name of. It's a maintained list, not a closed one — a newly `CREATE EXTENSION`'d function (which defaults to `PUBLIC EXECUTE` the moment it's created, e.g. `dblink`, `postgres_fdw`) isn't covered until someone notices and adds it. The role restrictions above are the backstop for exactly that gap : as long as the role never holds those privileges/memberships, most of what makes a *newly discovered* dangerous function actually dangerous (arbitrary file/network/process access) stays unreachable regardless of whether the blacklist has caught up yet.
+
+### Self-reference and child scope
+
+A node's scope is its own relation's columns plus its visible children's join aliases (`OuterAlias`, per `OutgoingNodes`/`IncomingNodes`) — never its parent's, never a sibling's (sibling visibility is explicitly excluded for v1, despite `query.ts`'s alias comment mentioning siblings).
+
+A node's own declared alias (`InnerName`) resolves within its own expressions too, self-referencing its own columns — not only usable by children.
+
+> Why: even where redundant, self-qualification (`self_alias.column`) gives generated SQL an explicit, always-correct way to name a column, rather than relying on bare/unqualified names and real Postgres correlated-subquery scoping rules (inner scope shadows outer) to resolve correctly on their own.
+
+### Type checking
+
+No value-type checking (text/int/numeric/...) — Postgres already does that at prepare time, and duplicating it here would be large, error-prone, and redundant. Only *kind* checking (leaf vs. composite vs. embedded join vs. inline object literal) is needed, for dot-chain navigation — `ResolvedField` already models this. This applies to every path operator that chains through a value, not just `.` : `->`, `->>`, `#>`, `#>>` all resolve their later hops the same way.
+
+### Cycle detection : not needed
+
+Shape resolution doesn't need cycle detection or a "currently visiting" set. With sibling visibility excluded, a dot-chain can only travel downward into a node's own already-parsed children — a finite JSON-derived tree, not a graph, so no cycle is constructible. Memoization is still worth keeping (a shape can legitimately be requested from more than one place), but purely as a performance nicety now, not for correctness.
+
+### Identifier resolution
+
+Resolving an `Identifier` (or a later hop in a `.`/`->`/`->>`/`#>`/`#>>` chain) is the same operation as deriving a `ResolvedField` — resolving a name *is* producing (or looking up) a `ResolvedField`. What it can produce differs by position in the chain :
+
+- **First hop** (resolved against the current node's Scope) : a physical column of the current relation ; the node's own alias (`InnerName`), self-referencing its own columns ; a child join alias (`OuterAlias`), the start of an embed reference ; or unresolvable — a hard error.
+- **Later hops** (resolved against whatever the previous hop landed on, not against Scope) : a sub-field of a composite-typed column ; a further child join/embed, if the previous hop was itself one ; a key of an inline object literal in that node's `select` ; or a terminal scalar, valid only as the last hop.
+
+A bare name colliding across more than one thing in scope (a column, a child's join alias, and/or this node's own alias) is a **hard error** (`LookupInScope`), not silently resolved by precedence — picking one on a collision would let a query run and silently return data other than what the author meant.
+
+A function-position node's own call `arguments` resolve against its **parent**'s scope (correlating to the enclosing query, same as any subquery's arguments would) ; a root-level function call (no parent) can only use literals/params.
+
+Not part of this : `$param`'s name. It already has its own AST node (`ParamExpr`) and resolves against a well-known query's declared param list, never through Scope — keep that boundary, don't fold it into identifier resolution later.
+
+`ResolvedField` has three concrete variants (`query/resolved_field.go`) : `ColumnPath{Node, Path, ElementType}` (a plain relation column, or a composite sub-field — both are ultimately "this name is this physical column," just sourced from a different `ColumnsMap` ; `Node`+`Path` together, not the terminal `*pg.Column` alone, are the identity — two columns sharing a composite type yield the same terminal pointer once navigated into, which would otherwise collide ; `ElementType` overrides the type used for the *next* compositeness check, set only right after an `["index", ...]` hop unwraps one level of array), `*QueryNode` (an embed, self-reference included), and `Shape map[string]ResolvedField` (the landing of *any* select-shape-producing expression — `own`/`full` and their `-except`/`-and` variants, or an inline object literal — uniformly, at any nesting depth).
+
+**There is no special case anywhere in the resolver for "a node's own top-level `select`" versus "a shape-producing expression nested arbitrarily deep inside another one."** Both go through the exact same recursive mechanism (`resolveChain`'s cases for `OwnExpr`/`FullExpr`/`OwnExceptExpr`/`FullExceptExpr`/`OwnAndExpr`/`FullAndExpr`/`OwnExceptAndExpr`/`FullExceptAndExpr`/`ObjectExpr`, all delegating to the shared `buildShape` helper, `query/expression_resolve.go`). An `own-and` three levels inside an object literal builds its `Shape` and is chained into exactly the same way `own-and` used as a node's whole `select` is — this was an explicit correction : an earlier version of this design special-cased "top-level select" via a narrower `deriveComputedFields`, and that distinction turned out to have no principled justification (own/full-and's base-column-plus-computed-key shape is the same *kind* of thing regardless of where in the tree it appears), so it was removed in favor of one recursive mechanism.
+
+**A hop into an embedded `*QueryNode` reaches both physical columns/aliases (`LookupInScope`) and its exported `Shape` (`resolveExternalHop`, `query/expression_resolve.go`).** A name matching both is only a hard error if the two sources actually *disagree* on what it means (`resolvedFieldsEqual`) — agreement (e.g. an ordinary unrenamed column, legitimately found both via `LookupInScope` and via own/full's mirroring of that same column into `Shape`) is fine, not a false-positive collision. The `Shape` half is only legal for an *external* hop (from a parent) — a node's own `where`/`select`/`distinct_on`/`order_by` must not see that same node's own `Shape` (enforced by `ResolveContext.resolvingOwn`, set for that node's own-expression-resolution block regardless of which of those fields the self-hop originates from, since `where` resolves before `select` and must be blocked identically), matching the already-established "no forward-reference within one select object, no sibling access" rule. `resolveExternalHop` computes (and memoizes onto `target.Shape.Fields`, via `selectShape`) this on demand ; sound because resolution is strictly bottom-up, so a target's own `select` is always fully resolved before anything external can hop into it — no chicken-and-egg with the later, separate `DeriveShapes` pass, which reuses/completes the same cache (`selectShape`) rather than fighting it. `ResolveContext.shapeInProgress` is a second, narrower guard specifically on `selectShape`'s own reentrancy (a self-hop reached *from inside* the `select` being built, e.g. one computed key referencing another via a self-alias) — a backstop against unbounded recursion, kept even though `resolvingOwn` already rules out the same scenario at the `resolveExternalHop` level.
+
+One consequence worth naming explicitly : an `own-except-and`/`full-except-and` key that overrides an *omitted* column under that column's own name (legal per `query.ts`'s "merge_with can specify keys that were omitted ; they shall override it") is thereby unreferenceable from a parent's `where`/`order_by` under that same name — `LookupInScope` on the child always finds the real physical column regardless of what `select` exports it as, so an external hop by that name is genuinely ambiguous between "the real column" and "the overridden export value," and correctly hard-errors rather than picking one.
+
+`ObjectExpr` and `["index", ...]` are also chainable : a *nested* inline object literal (a literal used as the value of another key) produces a `Shape` landing instead of being silently opaque ; an array-index hop (`["index", "col", 1]`) unwraps one level of array before a further `.` hop, via `ColumnPath.ElementType`.
+
+`GetExpr`/`GetSetExpr` land directly on a `ColumnPath` (their own single column), not wrapped in a `Shape` — they reference one value, not a keyed object, so there's nothing to key into. A node whose top-level `select` is a bare `get`/`get-set` therefore does not synthesize a one-entry `Shape` named after its column — a parent hopping into such a child by that same column name already finds it via `LookupInScope` (the column is real and unrenamed) without needing `Shape` to duplicate it.
+
+Two Go-level domains do the actual resolving, and they're not the same mechanism :
+
+- **Scope-domain** : `Identifier` nodes (any hop position) plus three narrower cases that may *only* land on a plain physical column, never an alias or embed — `GetExpr.Column`, `SetExpr.Column`, `GetSetExpr.Column`, and the `[]string` `Except` lists (`OwnExceptExpr`, `FullExceptExpr`, `OwnExceptAndExpr`, `FullExceptAndExpr`). These are plain Go `string`/`[]string` fields, not `Identifier` nodes, so they need their own resolution path even though the underlying lookup (Scope -> column) is the same as `Identifier`'s.
+- **Catalog-domain** : `AggExpr.Identifier`/`CallExpr.Identifier`, typed `FunctionRef` (`query/expression.go`) — resolved against `pg`'s function catalog via search path, blacklist-checked against `config.Blacklist`, with no relationship to a `QueryNode`'s Scope at all. `FunctionRef` is parsed from either a bare string (an unqualified name, resolved via search path — never split on `.`, since a quoted Postgres identifier can itself contain a literal dot) or an explicit `{schema, name}` object ; see `FunctionRef`'s doc comment for the full reasoning.
+
+Not identifier resolution, despite looking similar : the keys of `ObjectExpr.Fields`/`OwnAndExpr.And`/etc. are output field names the query author is choosing, not references to anything, so there's no lookup to perform on them.
+
+### Composite-type introspection
+
+Composite-column chaining (the `Identifier resolution` section above) depends on `pg.Type.IsComposite()`/`.Relation` resolving correctly, which needed two `pg` package fixes :
+
+`INFO_QUERY_RELATIONS` (`pg/info_relation.go`) sourced its columns entirely from `information_schema.columns`, whose own view definition filters to `relkind IN ('r','v','m','f','p')` — a bare `CREATE TYPE ... AS (...)` composite type (`relkind = 'c'`) was never introspected at all, so `pg.Type.IsComposite()`/`.Relation` silently reported `false`/`nil` for exactly the case `ResolvedField`'s composite-navigation design depends on. Fixed by unioning in a second branch sourced directly from `pg_attribute` for `relkind = 'c'` relations — no overlap with the existing branch, since a table's own row type lives on the table's `pg_class` row (`relkind = 'r'`), never as a separate `'c'` entry.
+
+Separately : a domain over a composite type (`CREATE DOMAIN d AS some_composite_t`) has no `typrelid` of its own (only the base type does), so `IsComposite()` checked directly on a domain reports `false` even one hop from being composite. This turned out to *not* matter for a domain-typed table column — `information_schema.columns`' own `udt_name` already reports the base type directly for those, bypassing the domain layer before it ever reaches `pg.Column.Type` — but it does matter for a domain-typed *field of a composite type*, introspected via the `pg_attribute`-based branch above, which reads `atttypid` directly and does not auto-unwrap. Fixed with `pg.Type.Underlying()`/`CompositeRelation()`, which unwrap through any domain chain ; `ColumnPath`'s composite check now goes through `CompositeRelation()` rather than `IsComposite()`/`.Relation` directly.
+
+### Deferred validation and security
+
+Whether deferring `.`/jsonb navigation validation to Postgres (rather than resolving it eagerly at compile time) is a security concern : no. Rel's safety property (every SQL identifier checked against real `pg` introspection, every value `$N`-bound) holds regardless of *when* `.`/`->` resolution happens — the real question is never "syntax injection," it's "can deferred resolution let someone reach something the blacklist should have stopped." Traced case by case : jsonb navigation can't escape a value already read from an already-blacklist-checked column (an unknown key just returns NULL, doesn't even error) ; composite sub-fields aren't independently blacklistable objects, just names within an already-exposed type ; hopping into a computed `select` key only re-references an expression the *same* client already fully controlled earlier in the *same* query ; hopping into an embed at all was already gated once, when the embed was declared in `join` (pass 1's relation blacklist). No bypass path in any of these.
+
+Where "defer to Postgres" *would* have real teeth is proxying raw Postgres error text back to a client (schema-enumeration via error fingerprinting) — but that's a general error-sanitization gap independent of this decision, already tracked in `specs/TODO.md`'s `## Errors` entry (no taxonomy yet).
+
+The actual reason compile-time resolution is still needed is **not security** : for writes, the extractor's `JsonPath` has to be known before a request ever reaches Postgres (Postgres has zero visibility into rel's `data` JSON shape, nothing for it to validate there) ; for reads, codegen still needs to know *which* SQL construct to emit (composite access vs. correlated subquery vs. jsonb operator) rather than one generic form. Both hold regardless of the security question.
 
 ### Join eligibility : indexing, not just correctness
 
@@ -101,9 +162,39 @@ This requires introspecting `pg_index` itself (`indkey`, `indnkeyatts`, `indisun
 
 rel doesn't treat foreign keys as special to eligibility — the actual rule is "unique value, indexed access," and a foreign key is just one common way that's satisfied, via the unique constraint its target is required to have. But when a real FK *does* exist between two relations over exactly the column set an `on` mapping supplies, and the pairing doesn't match that FK's declared correspondence, rel rejects it rather than falling through to the generic set-only unique+indexed check. Not because the FK makes it structurally invalid — SQL-wise it's a perfectly legal join — but because reusing precisely the columns a real FK already claims, paired differently, is near-certainly a swapped/typo'd `on` rather than a deliberate second relationship. A genuinely distinct relationship using different columns is unaffected by this ; it only fires when the column sets coincide exactly with an existing FK's.
 
+## Writability
+
+For a query to be bidirectional, there is a notion of writability of a column ; a column is said to be writable if and only if it appears exactly once in the select expression and is not transformed by anything other than coalescing operators. Columns are tracked and are writable even if they appear in sub-objects.
+
+A relation's rows are writable iff the columns of its identity target (primary key by default, or whatever on_conflict explicitly designates as the conflict-resolution unique constraint) are present and writable exactly *once* in the select output.
+
+If a child query disables writability for its own table, it disables it for the whole query, unless it was *explicitely* set to readonly. A user attempting a write on such a query receives an error indicating the offending relation.
+
+`distinct` and `distinct_on` do not need to disable writability on their own ; the general contract two paragraphs up (identity target present and writable exactly once) already covers the only case that would actually be dangerous.
+
+> Why : you're not confused, this is right. Plain `distinct` deduplicates on the *entire* projected row. If the identity target is part of that row, two different underlying source rows can never produce equal tuples in the first place — the identity columns alone already guarantee tuple inequality between them — so `distinct` can never actually merge two source rows together when identity is present ; it's a no-op with respect to row correspondence. It only becomes dangerous when identity is *absent* from the select (e.g. `select distinct city`, where one output row could stand for many different users) — and that case is already excluded by the general rule regardless of `distinct`. `distinct_on` reasons the same way : it doesn't merge rows either, it picks exactly one real row per group (via `order_by`), so the identity columns on that output row still correctly name the one real row it came from.
+
+**Derivation** (`DeriveShapes`, `query/shape.go`) runs bottom-up, over the already-resolved `select` tree only — `where`/`order_by`/`distinct_on`/etc. don't produce an exported shape or writable columns, so this step doesn't touch them. Produces, per node (`query/node.go`'s `QueryNode.Shape`, a `*NodeShape`) : the exported shape (`query/resolved_field.go`'s `ResolvedField`), the extractor (column -> JSON path within a conforming `data` payload), and writability. **Writability is the last step, and is skipped entirely for read-only queries** — it only runs when the query is actually a write.
+
+A physical column is writable iff it's referenced exactly once in `select`, wrapped only by coalescing operators (`??`, `||?`, `coalesce`) or by `set`/`get-set`. `get` doesn't count toward this at all — it's read-only, excluded from write-side accounting entirely. `set`/`get-set` references share the *same* occurrence bucket as bare references to that column ; a column supplies its write value from exactly one place, full stop — that's the exactly-once rule, not a separate allowance for `set`/`get-set`.
+
+Composite sub-fields are independently writable (Postgres allows `UPDATE t SET comp.field = ...`) — occurrence-counting and the extractor key on the *full* `ColumnPath.Path`, not just the containing column, so `home` alone, `home.city`, and `work.city` (two columns sharing the same composite type) all track as distinct write targets, never colliding on the shared terminal `*pg.Column` pointer.
+
+A bare composite `.` chain used directly as a select value (e.g. `{"c": [".", "home", "city"]}`) counts as **one** clean reference to the terminal sub-field, same as a bare column reference — not two (the containing column plus the sub-field), which would make it permanently unwritable regardless of duplication. A `.` chain that hops **into a child** (e.g. `{"t": [".", "movies", "title"]}`) is never a write target of the node doing the selecting — that column belongs to the child's own, separately-derived Shape, not smuggled into the parent's.
+
+> Question: a `.` chain that hops through an `["index", ...]` anywhere along the way is conservatively excluded from writability entirely, even as an otherwise-clean single reference — `ColumnPath`'s identity key carries no record of *which* array element was navigated through, so two different indices would collapse onto the same key with no way for a write-side extractor to know which element a value belongs to. Whether an indexed array element should be a legal write target at all is still open, deferred to whoever designs the write extractor for that case rather than defaulted into silently here.
+
+`own`/`full` (and their `-except`/`-and` variants) enumerate physical columns only, sourced from `pg_attribute` at introspection time — they never implicitly pull in a computed column (a function taking the relation's row type as its argument, callable via `alias.func_name` or `func_name(alias)` in Postgres — see `## Scoping ### Identifier resolution` and `## Reading Algorithm ### Function-rooted nodes` for how a self-alias reaches this). A computed column is only included when named explicitly in `select`, at which point it resolves through the same function-identifier path — and is subject to the same `## Scoping` rules — as any other `["call", ...]`. It is never a candidate for writability, since it isn't a real column to begin with. Expression columns are not write candidates for the same reason.
+
 ## Reading Algorithm
 
 Much simpler than writing : no phases, no `_data` temp table, no dependency ordering — one recursive walk of the query tree that emits a single correlated `SELECT`, per node.
+
+### Function-rooted nodes
+
+A function-rooted node also gets `Relation` populated — via `GetRelationByType` on its return type, when that resolves to a known composite/relation (an ordinary composite return, or `SETOF <relation>`) ; when it doesn't — a `RETURNS TABLE(...)`/OUT-parameter function, whose `prorettype` is always the single generic `pg_catalog.record` pseudo-type with no backing composite type for `GetRelationByType` to resolve — falling back to `fn.RecordRelation`, a synthetic `*Relation` built at introspection time directly from the function's own OUT/TABLE-mode arguments (`pg.Function.RecordRelation`, `specs/introspection.md ### Functions`) ; still nil for a function with no OUT arguments at all, i.e. a bare scalar return. A table-valued function is joinable/writable exactly like the type it returns — `QueryNode`'s "either Relation or Function" doc comment states this directly : `Function != nil` decides *kind*, `Relation` is what descendants/writes resolve against, and a function node legitimately has both set.
+
+> A `RETURNS TABLE` function's `RecordRelation` is structurally barred from ever being eligible as the CHILD/joined-into side of any relationship — Postgres can't index a function's computed output, and `## Scoping ### Join eligibility` requires exactly that on the child side — only a query root or the parent/outer side of an outgoing join out to a real indexed relation.
 
 ### Implementation
 
@@ -116,7 +207,7 @@ Per node, recursively :
    - not unique on the joined side → `(select coalesce(json_agg(row_to_json(t)), '[]'::json) from (child's own where/order_by/limit/offset) t)`, so "no matches" is an empty array, not `null`.
 4. `where`, `order_by`, `distinct`/`distinct_on`, `limit`, `offset` on a node apply directly as ordinary clauses on that node's own subquery. Because it's correlated to its parent row regardless of whether it's phrased as a `SELECT`-list subquery or a `LATERAL` join, a `limit`/`offset` on an embedded (to-many) relation is naturally applied *per parent row* either way — this is the mechanism behind the note in `query.ts` ("When used in a subquery, applies them for each parent-row").
 5. **Exception : `LATERAL` is needed when a child relation's rows feed more than one output expression at the parent level.** This happens when an `agg`/`aggregate` expression (`query.ts` : "the expression to aggregate... must be an incoming relation") targets the same relation that's also embedded as an array, or when a node's `select` uses more than one `agg` over the same incoming relation. A `SELECT`-list subquery can only yield a single column, so it can't be reused for both the embedded array and a separate aggregate — and independently re-running the child's subquery for each one isn't just wasteful, it can genuinely disagree with itself : with a `limit`/`offset` and a non-total `order_by`, two separate evaluations of "the same" subquery aren't guaranteed to pick the same rows. In that case, materialize the child's row set once as `LEFT JOIN LATERAL (child subquery, with its own where/order_by/limit/offset applied) t ON TRUE`, and derive every parent-level expression that needs it (the embedded array, each `agg`) from that single `t`, so they're all looking at the same filtered/limited/ordered row set.
-6. A `function`-based node (a call rather than a `relation`-named table/view) is handled the same way once its result set is known : table-valued and multi-row behaves like any other joined relation (object vs. array per step 3) ; a scalar, non-set-returning function contributes its result directly, with no `row_to_json`/`json_agg` wrapping — this is also the case referenced in `## Response Shape` ("the scalar of the result of a scalar function").
+6. A `function`-based node (a call rather than a `relation`-named table/view) is handled the same way once its result set is known (see `### Function-rooted nodes` above for how its `Relation` resolves) : table-valued and multi-row behaves like any other joined relation (object vs. array per step 3) ; a scalar, non-set-returning function contributes its result directly, with no `row_to_json`/`json_agg` wrapping — this is also the case referenced in `## Response Shape` ("the scalar of the result of a scalar function").
 7. The root node's rows are what get streamed out per `## Response Shape` (`row_to_json` per row, manually delimited) — the root itself never gets its own `json_agg` wrapper, unlike every embedded to-many relation below it.
 
 ```sql
@@ -162,12 +253,6 @@ left join lateral (
 ) o on true
 ```
 
-### Computed columns
-
-`own`/`full` (and their `-except`/`-and` variants) enumerate physical columns only, sourced from `pg_attribute` at introspection time — they never implicitly pull in a computed column (a function taking the relation's row type as its argument, callable via `alias.func_name` or `func_name(alias)` in Postgres). A computed column is only included when named explicitly in `select`, at which point it resolves through the same function-identifier path — and is subject to the same `## Scoping` rules — as any other `["call", ...]`. It is never a candidate for writability (`## Configuration`), since it isn't a real column to begin with.
-
-Expression columns are not write candidates for similarly obvious reasons.
-
 ## Writing Algorithm
 
 ### Warnings
@@ -179,7 +264,7 @@ Expression columns are not write candidates for similarly obvious reasons.
 
 * node : a relation in the query tree, assigned by position in the tree
 * current relation : the relation being examined by the algorithm
-* _outgoing_ relationship : the current relation's own `on` columns point at a unique set of columns on the other relation. A foreign key is the common way this happens, but not the only one — see `### Scoping` / `### Join eligibility` : rel's actual eligibility rule is uniqueness + indexing, not "is there a declared FK". The current relation's own columns need no index of their own for this to be valid ; the mandatory index requirement below always falls on the *other* side.
+* _outgoing_ relationship : the current relation's own `on` columns point at a unique set of columns on the other relation. A foreign key is the common way this happens, but not the only one — see `## Scoping ### Join eligibility` : rel's actual eligibility rule is uniqueness + indexing, not "is there a declared FK". The current relation's own columns need no index of their own for this to be valid ; the mandatory index requirement below always falls on the *other* side.
 * _incoming_ relationship : the current relation's own `on` columns are the unique side, and the other relation's `on` columns — which point at them — are covered by an index. Again, commonly but not necessarily a declared FK.
 
 These two are exactly `ResolveJoin`'s existing `isToOne` result, viewed from the current node's side of a given edge : outgoing when the *other* side's columns are unique, incoming when *this* side's own columns are unique. They are not a redundant restatement of "is there a foreign key here" — a join can be eligible (and thus be one or the other) without any real FK backing it at all, as long as the uniqueness/indexing shape holds.
@@ -190,7 +275,7 @@ Nodes included through `join` in the query are _either_ incoming OR outgoing.
 ### Implementation
 
 1. rel assigns every node an index value that will be used in the write query. Nodes are identified by tree position, not by table : a self-join produces several distinct nodes for the same table (see note below).
-  - For each node, rel also introspects the select expression to determine where to find the columns of the relation ; it creates an "extractor" that will be able to reconstitute a row from the given JSON (and appends it to the big array mentioned afterwards). This is also where it verifies whether it has enough to perform writes on the table and controls whether it is intended to be readonly or not.
+  - For each node, rel also introspects the select expression to determine where to find the columns of the relation ; it creates an "extractor" that will be able to reconstitute a row from the given JSON (and appends it to the big array mentioned afterwards) — see `## Writability` for the exact rules an extractor is built from. This is also where it verifies whether it has enough to perform writes on the table and controls whether it is intended to be readonly or not.
   - Nodes found to be readonly are not processed further (for writing) and are ignored from here on out.
   - For each node and once the columns are known, it will create the corresponding `INSERT` / `UPDATE` / `DELETE` statement that will have to be executed.
   - Delete-bearing write modes (`merge`, `merge-new`, `merge-update`, `deleteonly`) are only valid on an incoming relation. Encountering one of these modes on an outgoing relation is a validation error at this stage. See `query.ts` for the write_mode defaults (root: `insert`, incoming: `merge`, outgoing: `upsert`).
@@ -376,7 +461,7 @@ interface RelErrorResponse {
 }
 ```
 
-`400` is used for a problem with the query/data itself (unknown relation, malformed query string, a compile-time rejection, ...) ; `500` for everything else. `401` is used when anonymous access is disabled outright and the request carries no usable credentials. An `RSxxx` status (`jwt-roles-and-http.md`'s convention) is the one other status this envelope carries, raised by `http.functions.check_session`.
+`400` is used for a problem with the query/data itself (unknown relation, malformed query string, a compile-time rejection, ...) ; `500` for everything else. `401` is used when anonymous access is disabled outright and the request carries no usable credentials. An `RSxxx` status (`rpc.md`'s convention) is the one other status this envelope carries, raised by `http.functions.check_session`.
 
 > Why this shape and not a richer one : an earlier draft of this section specified `status_code`/`message`/`stacktrace`/`sql_statement`/`data` fields, none of which were ever built — implementation settled on this smaller, confirmed envelope instead (`server/response.go`'s `errorResponse`, `server/rel_test.go`). No error-code taxonomy exists yet ; `error` is always the underlying Go error's own message text, not a stable machine-readable code.
 

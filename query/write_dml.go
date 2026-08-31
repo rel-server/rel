@@ -1,5 +1,5 @@
 // Phase 1 (insert/update/upsert) and phase 2 (delete) DML, per
-// specs/querying.md ## Writing Algorithm ### Implementation / ###
+// specs/query-engine.md ## Writing Algorithm ### Implementation / ###
 // Insertion-Updates. One dmlCompiler carries the shared state (connection,
 // node-ID assignment) across the whole tree walk.
 package query

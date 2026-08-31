@@ -1,4 +1,4 @@
-// Response framing : the manual "["/","/"]" streaming specs/querying.md's
+// Response framing : the manual "["/","/"]" streaming specs/query-engine.md's
 // ## Response Shape asks for (no json_agg, constant memory, first byte
 // before the query finishes), plus the error envelope confirmed this
 // session.
@@ -46,7 +46,7 @@ func serverError(err error) *requestError {
 	return &requestError{status: http.StatusInternalServerError, err: err}
 }
 
-// unauthorized is specs/jwt-roles-and-http.md "# Roles ## Anonymous role
+// unauthorized is specs/authentication.md "# Roles ## Anonymous role
 // existence" : 401 for an unauthenticated request when anonymous access is
 // disabled outright (db.AnonymousRoleExists false).
 func unauthorized(err error) *requestError {

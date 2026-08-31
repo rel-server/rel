@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package dmut drives github.com/ceymard/dmut/v2's mutations package
-// against rel's own configuration, per specs/03-dmut.md — the single entry
+// against rel's own configuration, per specs/migrations.md — the single entry
 // point both cmd/rel's startup sequence and boot's SIGUSR1 reload sequence
 // call. This package does not decide the "log and continue" policy on
 // failure itself (see Run's own doc comment) — both call sites apply that
@@ -36,7 +36,7 @@ import (
 // Run drives dmut against primaryURI using the mutation files under
 // cfg.Path. Returns (ran bool, err error) : ran is false when cfg.Path
 // doesn't exist on disk (dmut skipped entirely, logged at info level —
-// specs/03-dmut.md ## Execution's "effectively optional" case) ; err is
+// specs/migrations.md ## Execution's "effectively optional" case) ; err is
 // non-nil when the directory exists but the run itself failed (caller
 // decides the log-and-continue policy — this function does not swallow the
 // error itself, so both the startup and reload call sites can apply that
@@ -67,7 +67,7 @@ func Run(ctx context.Context, primaryURI string, cfg config.Dmut, logger *slog.L
 // io.Writer.Write call per log line, already newline-terminated (see
 // MutationRunnerOptions.Output's own doc comment in dmut), so each Write
 // call becomes one logger.Info call at "component"="dmut", per
-// specs/03-dmut.md ## dmut's own logging.
+// specs/migrations.md ## dmut's own logging.
 type logWriter struct {
 	logger *slog.Logger
 }

@@ -37,7 +37,7 @@
 //
 // Each benchmark truncates "_data" between iterations (b.StopTimer'd, so the
 // truncate itself isn't measured) — this mirrors the real per-request
-// lifecycle, not an arbitrary simplification : specs/querying.md's
+// lifecycle, not an arbitrary simplification : specs/query-engine.md's
 // ## Response Shape is explicit that "_data" truncation "happens once, at
 // the very end of the whole request, after the response has been fully
 // sent", i.e. each request starts against an empty "_data" and a fresh

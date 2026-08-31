@@ -76,7 +76,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// dmut.Run applies test/dmut's schema mutations — the same mechanism
-	// rel's own migrations use (specs/03-dmut.md), not a parallel SQL
+	// rel's own migrations use (specs/migrations.md), not a parallel SQL
 	// script that could drift from it.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	if _, err := dmut.Run(ctx, uri, config.Dmut{Path: "../test/dmut"}, logger); err != nil {

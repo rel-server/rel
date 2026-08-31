@@ -63,7 +63,7 @@ func (r *Relation) registerIndexCoverage(columns []string) {
 }
 
 // IsIndexed reports whether columns (as a set) form a usable leading prefix of
-// some index's key columns on r — see querying.md ### Scoping, "Join
+// some index's key columns on r — see query-engine.md ### Scoping, "Join
 // eligibility : indexing, not just correctness".
 func (r *Relation) IsIndexed(columns []string) bool {
 	_, ok := r.indexCoverage[sortedColumnKey(columns)]

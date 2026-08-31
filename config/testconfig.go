@@ -15,7 +15,7 @@ package config
 // hand-write that wouldn't just be a guess.
 //
 // Not meant to represent a real deployment's config : Query.User here is
-// the container's superuser, which querying.md ## Scoping explicitly says a
+// the container's superuser, which query-engine.md ## Scoping explicitly says a
 // real pg.query.user must never be. Fine for exercising query building/
 // running against a disposable test database ; not something to reach for
 // once the role-restriction check from that section actually exists.

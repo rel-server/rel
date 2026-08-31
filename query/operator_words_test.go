@@ -20,7 +20,7 @@ import (
 )
 
 // TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm is point 4 of
-// this session's task : specs/query_json.md's word-form operator spelling
+// this session's task : specs/query-json.md's word-form operator spelling
 // must be an accepted synonym in POST /rel's JSON body, resolving to the
 // EXACT same tree the canonical symbolic spelling already produces.
 func TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm(t *testing.T) {

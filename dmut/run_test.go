@@ -28,7 +28,7 @@ func testLogger(buf *bytes.Buffer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }
 
-// TestRun_MissingDirectorySkipsSilently covers specs/03-dmut.md ## Execution
+// TestRun_MissingDirectorySkipsSilently covers specs/migrations.md ## Execution
 // : a nonexistent dmut.path is not an error, dmut is simply skipped, logged
 // at info level.
 func TestRun_MissingDirectorySkipsSilently(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	koanf "github.com/knadh/koanf/v2"
 )
 
-// ConfigReader is specs/01-configuration.md ## Accessing configuration's
+// ConfigReader is specs/configuration.md ## Accessing configuration's
 // typed accessor over the merged koanf tree. k is always the SAME shared,
 // whole-tree *koanf.Koanf across every ConfigReader derived from one root —
 // path is this reader's own dotted scope prefix ("" at the root), prepended
@@ -73,7 +73,7 @@ var errNotFound = errors.New("not found")
 // logErr is a genuinely malformed value's single choke point : ## Accessing
 // configuration's "every retrieval error is logged... path only, never the
 // value" rule. Uses slog.Default() deliberately — config loading runs before
-// the real logger (built FROM this config) exists, matching 01-logging.md's
+// the real logger (built FROM this config) exists, matching logging.md's
 // "code with no request context uses slog.Default()".
 //
 // err's message MUST NOT include the resolved value — ## Error handling and
@@ -305,7 +305,7 @@ func (r *ConfigReader) GetBoolOrDefault(path string, def bool) bool {
 }
 
 // GetStrings reads path as a comma-separated string, trimmed and filtered
-// of empty entries — 01-configuration.md ## No arrays' convention for "a
+// of empty entries — configuration.md ## No arrays' convention for "a
 // list of plain, unnamed scalars".
 func (r *ConfigReader) GetStrings(path string) ([]string, error) {
 	s, err := r.GetString(path)

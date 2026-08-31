@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package boot houses the maintenance/reload mechanics that sit above
-// server+rpc, per specs/03-dmut.md ## Reloading : a permanent, reload-aware
+// server+rpc, per specs/migrations.md ## Reloading : a permanent, reload-aware
 // http.Handler wrapper (ReloadableHandler) that becomes http.Server.Handler
 // exactly once, at startup, and the orchestration (RunReload) tying
 // together dmut.Run/pg.ReIntrospect/rpc.BuildRegistry/server.NewRelHandler/
@@ -29,12 +29,12 @@ import (
 )
 
 // maintenancePageBody is the fixed, plain-text 503 page served for every
-// new request while a reload is in progress — specs/03-dmut.md ## Reloading
+// new request while a reload is in progress — specs/migrations.md ## Reloading
 // step 1 : "a small, fixed convenience page ... no templating."
 const maintenancePageBody = "rel is applying migrations, please retry shortly.\n"
 
 // ReloadableHandler is http.Server.Handler's own, permanent value — see
-// specs/03-dmut.md ## Reloading's "http.Server.Handler is, permanently...
+// specs/migrations.md ## Reloading's "http.Server.Handler is, permanently...
 // a small reload-aware wrapper holding an atomic.Pointer" paragraph. The
 // inner *http.Handler is only ever swapped via Swap ; ServeHTTP always
 // dispatches through the current pointer, so http.Server.Handler itself
@@ -57,7 +57,7 @@ type ReloadableHandler struct {
 // inflightRequest is one in-flight request's own cancel func, individually
 // cancellable on drain-timeout — a plain sync.WaitGroup alone can count
 // in-flight requests but can't cancel a specific straggler's context, which
-// specs/03-dmut.md ## Reloading step 2 requires (pgx honors context
+// specs/migrations.md ## Reloading step 2 requires (pgx honors context
 // cancellation and releases whatever locks that request was holding).
 type inflightRequest struct {
 	cancel context.CancelFunc
@@ -110,7 +110,7 @@ func (h *ReloadableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Swap stores next as the current inner handler — a single atomic pointer
-// store, never a write to http.Server.Handler itself (specs/03-dmut.md ##
+// store, never a write to http.Server.Handler itself (specs/migrations.md ##
 // Reloading step 6).
 func (h *ReloadableHandler) Swap(next http.Handler) {
 	h.inner.Store(&next)
@@ -127,7 +127,7 @@ func (h *ReloadableHandler) BeginMaintenance() {
 
 // Drain waits for every request that was already in flight when
 // BeginMaintenance was called to finish, up to timeout. Past that, it
-// cancels each still-running request's context (specs/03-dmut.md ##
+// cancels each still-running request's context (specs/migrations.md ##
 // Reloading step 2) and then waits for them to actually return : a
 // cancelled context only asks pgx/handlers to unwind, it doesn't force
 // ServeHTTP to return synchronously, and dmut's own DDL needs those

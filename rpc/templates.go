@@ -1,4 +1,4 @@
-// This file implements specs/04-http-content.md ## Templates :
+// This file implements specs/http-content.md ## Templates :
 // RelHttpResponse.template/template_data rendering via Jet. The Jet *Set
 // is rebuilt as part of the same SIGUSR1 reload sequence that rebuilds
 // everything else derived from config/schema (## Templates' own

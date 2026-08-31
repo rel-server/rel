@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Filter expression grammar : specs/query_json.md's ## Filter expression
+// Filter expression grammar : specs/query-json.md's ## Filter expression
 // grammar, a small S-expression-style parser producing the SAME plain Go
 // value tree shape query.ts's own JSON Expression uses (string, float64,
 // bool, nil, []any, map[string]any) — never a parallel Expression type.
@@ -41,7 +41,7 @@ type exprParser struct {
 
 func newExprParser(s string) *exprParser { return &exprParser{s: s} }
 
-// querystringOnlyKeywords covers call identifiers that specs/query_json.md
+// querystringOnlyKeywords covers call identifiers that specs/query-json.md
 // spells with the SAME word both here and in the underlying query.ts tag
 // (so they need no entry in query.OperatorWords — that table exists for
 // pass-1 JSON's word-form SYNONYM feature, and these tags never had a
@@ -80,7 +80,7 @@ func isIdentPart(c byte) bool {
 }
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
-// parseIdentifier consumes specs/query_json.md's `identifier` production :
+// parseIdentifier consumes specs/query-json.md's `identifier` production :
 // /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/ — e.g. "actors.name".
 func (p *exprParser) parseIdentifier() (string, error) {
 	start := p.i
@@ -228,7 +228,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 		canonical, known = querystringOnlyKeywords[ident], querystringOnlyKeywords[ident] != ""
 	}
 	if !known {
-		// Not a known operator/keyword word : per specs/query_json.md,
+		// Not a known operator/keyword word : per specs/query-json.md,
 		// `call`'s identifier "names an operator/function exactly as
 		// query.ts's ... aggregate or function name would" — an
 		// unrecognized name is a plain function call, query.ts's own
@@ -352,7 +352,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 	default:
 		// "-" and "~" each cover two query.ts operators of different arity
 		// (UnaryOperator vs. FoldedOperator/BinaryOperator) — see the word
-		// table's own note in specs/query_json.md : "each gets its own
+		// table's own note in specs/query-json.md : "each gets its own
 		// distinct word... so the collision doesn't carry over into this
 		// grammar at all." That guarantee only holds if the word chosen is
 		// actually checked against the arity it claims ; without this, e.g.
@@ -491,7 +491,7 @@ func parseFullExpr(s string) (any, error) {
 }
 
 // parseTopLevelExprList parses s as a comma-separated list of `expr`
-// entries (specs/query_json.md's "## Comma lists share the expression
+// entries (specs/query-json.md's "## Comma lists share the expression
 // grammar's own tokenizer"), reusing the exact same parseExpr/comma loop
 // parseArgList uses for a call's own argument list — the top level of a
 // comma-list is syntactically identical to being "inside a call's

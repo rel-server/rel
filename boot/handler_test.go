@@ -59,7 +59,7 @@ func TestReloadableHandler_FastRequestNotCancelled(t *testing.T) {
 }
 
 // TestReloadableHandler_SlowRequestObservesCancelOnTimeout covers
-// specs/03-dmut.md ## Reloading step 2 : a request still running past the
+// specs/migrations.md ## Reloading step 2 : a request still running past the
 // drain timeout must have its context cancelled.
 func TestReloadableHandler_SlowRequestObservesCancelOnTimeout(t *testing.T) {
 	started := make(chan struct{})

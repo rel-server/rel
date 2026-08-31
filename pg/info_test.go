@@ -390,7 +390,7 @@ func TestIntrospection_IncludesPgCatalog(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected pg_catalog.pg_class to be introspected as an ordinary relation — introspection must see the whole database ; excluding pg_catalog/information_schema is a query-compile-time concern (querying.md ### Scoping), not an introspection-time one")
+		t.Errorf("expected pg_catalog.pg_class to be introspected as an ordinary relation — introspection must see the whole database ; excluding pg_catalog/information_schema is a query-compile-time concern (query-engine.md ### Scoping), not an introspection-time one")
 	}
 }
 

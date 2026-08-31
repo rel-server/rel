@@ -1,4 +1,4 @@
-// This file implements specs/04-http-content.md ## CORS : origin
+// This file implements specs/http-content.md ## CORS : origin
 // matching, the `*` wildcard, and preflight detection — pure logic, no
 // http.Handler wiring (that's middleware.go).
 package websec

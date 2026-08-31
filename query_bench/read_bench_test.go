@@ -34,7 +34,7 @@
 //
 // ## Join eligibility shaped which "realistic" queries were even possible
 //
-// specs/querying.md's "### Join eligibility" requires the CHILD side of
+// specs/query-engine.md's "### Join eligibility" requires the CHILD side of
 // every join to be covered by an index on its own `on` columns — Postgres
 // does not auto-index the referencing side of a foreign key, and this
 // schema (deliberately realistic, not hand-tuned for rel) mostly doesn't
@@ -299,7 +299,7 @@ func BenchmarkSelect_DeepNestedEmbed(b *testing.B) {
 // ---- 5. Self-join : staff walking the manager_id hierarchy two levels -
 //
 // The fixture's own stated reason for existing (test/README.md : "the
-// fixture's instance of querying.md's own self-join example"). Each
+// fixture's instance of query-engine.md's own self-join example"). Each
 // "manager" hop is outgoing (staff.manager_id -> staff.id, the PK), so
 // eligible regardless of the incoming direction (direct reports) being
 // unindexed and therefore un-embeddable.

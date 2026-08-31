@@ -14,7 +14,7 @@ type contextKey struct{}
 
 // requestSession is what Middleware stashes in the request context : the
 // (possibly-renewed) claims and whether a session was actually verified —
-// jwt-roles-and-http.md ## HTTP's "dispatched dynamically... implemented as
+// rpc.md ## HTTP's "dispatched dynamically... implemented as
 // ordinary func(http.Handler) http.Handler middleware" applies only to
 // Verify (step 2) and Renew (step 4) here : Check (step 3, the
 // check_session function) and Apply role (step 5) both need the request's

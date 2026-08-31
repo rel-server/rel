@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// select.go compiles specs/query_json.md's `select=` value : either one
+// select.go compiles specs/query-json.md's `select=` value : either one
 // own/full-family call taking up the entire value (## own / full), or a
 // plain comma-list of [alias:]expr entries compiling to the OBJECT variant
 // of Expression (## select). The two are mutually exclusive per the spec,

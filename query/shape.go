@@ -14,8 +14,8 @@
 
 // Pass 2, shape/writability derivation step : runs after ResolveExpressions
 // (expression_resolve.go) has resolved every identifier, over each node's
-// now-resolved Select only — see specs/query-compiler.md's "Pass 2" section,
-// step 2.
+// now-resolved Select only — see specs/query-engine.md's Pass 2 description
+// and its "## Writability" section.
 package query
 
 import (
@@ -36,7 +36,7 @@ type NodeShape struct {
 	Fields map[string]ResolvedField
 
 	// Extractors is only populated when WriteMode != READONLY — see
-	// query-compiler.md : writability is skipped entirely for reads.
+	// specs/query-engine.md ## Writability : writability is skipped entirely for reads.
 	Extractors []Extractor
 
 	// Writable is this node's own identity-target columns (PK, or
@@ -185,7 +185,7 @@ func (a *writeAccum) record(path ColumnPath, jsonPath []string, isClean bool) {
 // walkSelectForWritability descends through expr, threading jsonPath (the
 // select-output key path so far) and coalesceOnly (whether every wrapper
 // seen since the start of the CURRENT field was a coalescing operator — see
-// query-compiler.md's writability rule). get's Column is never recorded at
+// specs/query-engine.md's ## Writability rule). get's Column is never recorded at
 // all (read-only, excluded entirely) ; get-set's/set's Column is recorded at
 // the CURRENT jsonPath (the output key this get-set/set sits at), which may
 // differ from Column's own name when nested under a renaming key. Default-

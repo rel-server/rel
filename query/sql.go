@@ -1,6 +1,6 @@
 // Pass 3, SQL codegen : compiles an already-resolved *QueryNode tree (pass
 // 1 + pass 2 — see node_resolve.go/expression_resolve.go/shape.go) into one
-// executable SQL statement, per specs/querying.md's Reading Algorithm.
+// executable SQL statement, per specs/query-engine.md's Reading Algorithm.
 // Covers the read path only ; the Writing Algorithm (temp tables,
 // extractors, phased DML) is separate, later work.
 package query
@@ -68,7 +68,7 @@ func (c *sqlCompiler) qualify(alias, name string) {
 // compileEmbedField), so the root needs no special-casing there. A
 // scalar (non-set-returning) function root is the one real exception,
 // per Reading Algorithm step 6 : its result contributes directly, with no
-// row_to_json wrapping at all (specs/querying.md ## Response Shape : "the
+// row_to_json wrapping at all (specs/query-engine.md ## Response Shape : "the
 // scalar of the result of a scalar function").
 //
 // The caller owns executing the statement and manually streaming the
@@ -102,7 +102,7 @@ func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 // touched, via "_data" — nodeID is root's own assigned __node_id (see
 // ExecuteWrite/WriteResult.NodeIDs), and only its root-level rows
 // (__parent_id is null) are in scope. Used for the write-then-reread
-// response (specs/querying.md ## Response Shape : the response is built by
+// response (specs/query-engine.md ## Response Shape : the response is built by
 // a separate, read-only statement issued after the write transaction's
 // commit, never from inside it) — "_data" must already exist and hold this
 // request's rows on the connection this statement later runs against.

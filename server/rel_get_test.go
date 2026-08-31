@@ -1,4 +1,4 @@
-// GET /rel : specs/query_json.md end to end against a real Postgres,
+// GET /rel : specs/query-json.md end to end against a real Postgres,
 // reusing testDb/testHandler from rel_test.go's TestMain (same shared
 // container/schema — pg/testdata/schema.sql's director/movie fixture,
 // director.id <-(idx_movie_director)- movie.director_id).

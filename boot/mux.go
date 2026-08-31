@@ -28,7 +28,7 @@ import (
 
 // BuildMux assembles the full inner http.Handler — /rel, /rpc/, and (when
 // at least one http.static.path directory exists) /static/ — wrapped
-// uniformly in websec.Middleware (specs/04-http-content.md's own explicit
+// uniformly in websec.Middleware (specs/http-content.md's own explicit
 // "CORS and CSP apply to /rel, /rpc, AND /static uniformly" rule). Both
 // cmd/rel/main.go (startup) and boot/reload.go's Reload (every SIGUSR1)
 // call this with a freshly built *rpc.Registry, so the two call sites

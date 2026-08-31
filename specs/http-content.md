@@ -44,10 +44,10 @@ corrected here rather than left to drift, per this session's own propagate-the-f
   override shadows the built version without needing to be merged into the same tree on disk).
   Directories that don't exist are silently skipped in the search, not an error ; `/static/*` isn't
   mounted at ALL only when EVERY listed directory is missing — same "feature not in use, not a
-  misconfiguration" treatment `specs/03-dmut.md ## Execution` already gives a missing `dmut.path`,
+  misconfiguration" treatment `specs/migrations.md ## Execution` already gives a missing `dmut.path`,
   extended here to "not a single one of them exists" rather than "the one directory doesn't exist."
   This check re-runs every time the inner mux is (re)built — at startup, AND on every `SIGUSR1`
-  reload (`specs/03-dmut.md ## Reloading` step 6, which already rebuilds the whole mux from
+  reload (`specs/migrations.md ## Reloading` step 6, which already rebuilds the whole mux from
   scratch) — so creating a listed directory and sending `SIGUSR1` is enough to make `/static` start
   being served (or start finding a path it couldn't before) without a full process restart, same as
   a schema change. `### Upload destinations` below writes into the FIRST listed directory
@@ -94,7 +94,7 @@ its own prefix — a request under an unlisted prefix is served exactly as befor
 per-subtree, never a global gate everything routes through, however many rules exist).
 
 Required signature, identical interaction shape to `http.functions.check_session`
-(`specs/jwt-roles-and-http.md ## Session invalidation`) — a configured function name, called with
+(`specs/authentication.md ## Session invalidation`) — a configured function name, called with
 a `jsonb` payload, `RSxxx` to reject, returning normally to allow — deliberately reusing that
 convention rather than inventing a second one :
 
@@ -115,13 +115,13 @@ $$;
 A plain, unguarded `/static/*` request has no connection/transaction/JWT-verification plumbing
 around it at all today (`## Static files`' own opening paragraph — no auth check applies). A
 request under a GATED prefix gains just enough of that machinery to run the one check : Verify
-(populating `payload->'jwt'`, `specs/jwt-roles-and-http.md ## Lifecycle` step 2 — no DB needed),
+(populating `payload->'jwt'`, `specs/authentication.md ## Lifecycle` step 2 — no DB needed),
 then a connection acquire for the single `check_static_access` call, then the actual file read.
 There is no `SET LOCAL ROLE`/Apply-role step here at all (unlike `check_session`) — a static file
 read is never itself a database operation needing a role, only the gate check is, and that check
 runs `security definer` same as `check_session` does, precisely so it doesn't need one.
 
-With anonymous access disabled (`specs/jwt-roles-and-http.md ## Anonymous role existence` — the
+With anonymous access disabled (`specs/authentication.md ## Anonymous role existence` — the
 configured anonymous role doesn't exist in the database), an unauthenticated request to a GATED
 prefix gets the same uniform `401` every other unauthenticated request gets under that condition —
 BEFORE the existence check below, not after : matching the existing "before route lookup, before
@@ -148,7 +148,7 @@ further here — named as a real caveat of the existence-first design, not an ov
 
 ### Upload destinations
 
-The upload mechanism `specs/jwt-roles-and-http.md ## Request bodies` already has (`files
+The upload mechanism `specs/rpc.md ## Request bodies` already has (`files
 bytea[]`) always routes the actual bytes THROUGH Postgres, as a `bytea[]` argument. That's the
 right shape when a function wants to inspect/store the bytes itself (`pg_largeobject`, a `bytea`
 column, ...). It's the wrong shape when a function only wants to decide WHERE an upload should
@@ -167,7 +167,7 @@ mechanism exists to avoid). Splitting the decision into two calls resolves this 
 one side of the tradeoff — and once split, the destination-deciding half can't be optional : nothing
 else in this mechanism ever runs before bytes are received, so if it's skipped there is structurally
 nothing to stream toward. Both functions share one JSON domain, `RelUpload` (`jsonb`-underlying,
-`http.upload_domain_name`, default `RelUpload`, resolved via `specs/jwt-roles-and-http.md
+`http.upload_domain_name`, default `RelUpload`, resolved via `specs/rpc.md
 ## Configuration`'s domain-name resolution rule, same as `RelHttpRequest`/`RelHttpResponse`) :
 
 ```ts
@@ -210,7 +210,7 @@ generic route discovery — and that's already achieved by `RelUpload` simply no
   streamed to a temp location chosen from `__prepare`'s own decision ; its role is purely the
   database write, not a second placement opinion.
 
-This whole family doesn't compose with `__VERB` (`specs/jwt-roles-and-http.md`'s verb-suffix rule)
+This whole family doesn't compose with `__VERB` (`specs/rpc.md`'s verb-suffix rule)
 in this pass — neither `<name>__prepare` nor the mandatory `<name>` is ever verb-suffixed ; a
 function named `upload__POST` is simply not discovered as a member of this family (it isn't
 excluded from OTHER discovery either — if it happens to also match a different shape, e.g. a plain
@@ -262,7 +262,7 @@ plus-file-part multipart submissions for THAT shape — this one, deliberately, 
 ordering below — is now caught and rejected BEFORE either function's own destination decision is
 treated as final, but it's still rejected, not folded in as a second thing this mechanism also
 describes. Metadata that needs to travel alongside an upload through THIS mechanism goes in the
-URL's own query string (`req.query`, `specs/query_json.md`) instead of a sibling form field.
+URL's own query string (`req.query`, `specs/query-json.md`) instead of a sibling form field.
 
 `part` is JSON `null` when the request carries no upload at all (no body, or a body that doesn't
 parse as either multipart or a single raw upload) — NOT a `415`, same "absence isn't a shape
@@ -295,7 +295,7 @@ a genuine last-moment race, called out explicitly there). Collision avoidance in
 for the deliberate-replace case, not a substitute for generating non-colliding paths up front.
 
 **Anonymous-route-authorization.** This is one route with two functions, not two independently
-reachable routes — `specs/jwt-roles-and-http.md ## Anonymous route authorization`'s
+reachable routes — `specs/rpc.md ## Anonymous route authorization`'s
 existence/EXECUTE check must pass for BOTH `<name>__prepare` and the mandatory `<name>` (both are
 now always present — see above) for the pair to be reachable anonymously at all ; fail-closed on
 either, don't cache reachability off the base name alone.
@@ -308,11 +308,11 @@ opposite ordering from `__prepare` (which runs before any bytes at all) — and 
 changes on disk AFTER that function's transaction has actually committed, never before :
 
 1. Route lookup, Verify, anonymous-route-authorization checks — unchanged from `/rpc`'s existing
-   ordering (`specs/jwt-roles-and-http.md ## Lifecycle`'s request-handling-order paragraph).
+   ordering (`specs/authentication.md ## Lifecycle`'s request-handling-order paragraph).
 2. Read ONLY the incoming upload's headers (the one multipart part's header, or — for a raw single
    POST — the request's own `Content-Type`/headers directly) : enough to build `part`, without
    touching a single byte of the actual payload.
-3. Connection acquire ; `check_session` (this is the FIRST — and, per `specs/jwt-roles-and-http.md`'s
+3. Connection acquire ; `check_session` (this is the FIRST — and, per `specs/authentication.md`'s
    "called once per request" rule, the ONLY — transaction of the request this runs on, as a plain
    statement BEFORE `BEGIN READ ONLY` opens, specifically so a `check_session` implementation that
    itself writes — nothing today forbids one — is never constrained by `__prepare`'s own read-only
@@ -374,7 +374,7 @@ changes on disk AFTER that function's transaction has actually committed, never 
    request), not the routine path. The mandatory function's own database-side effects remain
    committed regardless of what happens in this step — file writes are not part of Postgres's own
    transaction and cannot be made atomic together with it, the same honestly-documented-limitation
-   treatment `specs/jwt-roles-and-http.md`'s own "Known limitation : no true streaming to Postgres"
+   treatment `specs/rpc.md`'s own "Known limitation : no true streaming to Postgres"
    note already sets precedent for. `overwrite: 'disallow'` is not re-checked here — if a file
    appeared at `path` between step 3's early check and this step (the race step 3 flagged), the swap
    still proceeds, last-write-wins, logged as a warning ; the DB write already committed by this
@@ -391,7 +391,7 @@ changes on disk AFTER that function's transaction has actually committed, never 
 
 ## Templates
 
-`RelHttpResponse.template` already exists in `specs/jwt-roles-and-http.md ## Responses`'
+`RelHttpResponse.template` already exists in `specs/rpc.md ## Responses`'
 TypeScript shape (`template?: string`) but is parsed and never acted on (`specs/TODO.md`). This
 document gives it real behavior.
 
@@ -483,7 +483,7 @@ JSON-island pattern for script-embedded data) ; it isn't a Jet tutorial and does
 `html/template`'s own well-known escaping caveats beyond what's specific to rel's integration here.
 
 **Reload.** The Jet `Set` (and its template cache) is rebuilt as part of the SAME `SIGUSR1` reload
-sequence `specs/03-dmut.md ## Reloading` already specifies — no separate template-watching
+sequence `specs/migrations.md ## Reloading` already specifies — no separate template-watching
 mechanism ; a changed `.jet` file on disk takes effect the next time an operator reloads for any
 reason, same as a schema change does. `jet.InDevelopmentMode()` (disables Jet's own template
 cache, reparsing from disk every render) is NOT used — reload already exists as the one mechanism
@@ -492,7 +492,7 @@ reads) would just be two ways to do the same thing.
 
 ## CORS
 
-rel's session is a cookie (`specs/jwt-roles-and-http.md`), so cross-origin CORS here means
+rel's session is a cookie (`specs/authentication.md`), so cross-origin CORS here means
 cross-origin COOKIE-CARRYING requests specifically — the CORS spec forbids combining a wildcard
 origin (`Access-Control-Allow-Origin: *`) with `Access-Control-Allow-Credentials: true`, so
 "allow any origin" and "allow authenticated cross-origin calls" are mutually exclusive by
@@ -506,11 +506,11 @@ construction, not a rel-specific restriction.
   sends no `Access-Control-*` headers at all, and browsers enforce same-origin only — no
   cross-origin frontend can call `/rel`/`/rpc`, authenticated or not. This is the security-inclined
   default : opt-in only, same posture as `pg.query.anonymous_role`'s own existence check
-  (`specs/jwt-roles-and-http.md ## Anonymous role existence`) — nothing is reachable from outside
+  (`specs/authentication.md ## Anonymous role existence`) — nothing is reachable from outside
   the deployment's own origin until explicitly configured otherwise.
 * `http.cors.allowed_methods` (default `GET, POST, PUT, PATCH, DELETE, OPTIONS`) : methods a
   preflight may approve — matches the full set of verb suffixes a route function can declare
-  (`specs/jwt-roles-and-http.md`'s `__VERB` suffix rule), not just the two `/rel` itself accepts.
+  (`specs/rpc.md`'s `__VERB` suffix rule), not just the two `/rel` itself accepts.
 * `http.cors.allowed_headers` (default `Content-Type`) : request headers a preflight may approve,
   beyond the small set every browser always allows regardless (`Accept`, `Accept-Language`,
   `Content-Language`, and simple `Content-Type` values).
@@ -557,7 +557,7 @@ the preflight outright).
 rel distinguishes a preflight from an ordinary `OPTIONS` request the standard way — a real browser
 preflight always carries BOTH an `Origin` header and an `Access-Control-Request-Method` header ;
 an `OPTIONS` request missing either one proceeds to normal route dispatch instead. This matters
-because `__VERB` suffixes are case-insensitive and unrestricted (`specs/jwt-roles-and-http.md`),
+because `__VERB` suffixes are case-insensitive and unrestricted (`specs/rpc.md`),
 so a route function named `fn__options` is a perfectly legal, real route today — the preflight
 responder must not silently shadow it.
 
@@ -611,7 +611,7 @@ route that starts returning HTML), but only has teeth once one actually does.
 rel generates a fresh, cryptographically random nonce for EVERY request (cheap — one `crypto/
 rand` read — so this happens unconditionally, not only for routes that end up using it), before
 invoking the route function : `RelHttpRequest.csp_nonce` (a base64 string — `RelHttpRequest`'s
-authoritative TypeScript shape lives in `specs/jwt-roles-and-http.md ## Request`, which gains this
+authoritative TypeScript shape lives in `specs/rpc.md ## Request`, which gains this
 field as a companion edit alongside this document ; `query.ts` is the unrelated query-language
 grammar and does not describe HTTP request/response shapes at all). A route function returning
 hand-built HTML embeds it directly — illustrated here as plpgsql string-building, not Jet syntax
@@ -661,7 +661,7 @@ response actually uses it — an ordinary JSON-returning `/rpc` route simply nev
 
 ### Per-response override
 
-`RelHttpResponse`'s own authoritative TypeScript shape (`specs/jwt-roles-and-http.md
+`RelHttpResponse`'s own authoritative TypeScript shape (`specs/rpc.md
 ## Responses`) gains an optional `csp` field as a companion edit alongside this document
 (`string | undefined`, TypeScript-optional, not `| null` — there is no "explicitly disable CSP
 for this response" case, only "use the default" vs "use this instead") : when a route function
