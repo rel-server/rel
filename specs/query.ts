@@ -52,7 +52,7 @@ export interface Relation {
 
    Joining is limited to columns that are part of a foreign key constraint, or to distant columns where a unique constraint exists on either the local columns or the parent columns.
 
-   Whichever side of the join is the "many" side (the side without the unique constraint — for a plain FK join, this is always the referencing/local side, since the referenced/parent side is unique by construction) MUST additionally be covered by an index on those exact columns, or the query is rejected — see `querying.md` ### Scoping. This applies uniformly to FK-backed and non-FK joins alike : Postgres does not automatically index the referencing side of a foreign key, so an FK-backed to-many embed is just as capable of silently compiling into a per-parent-row sequential scan as an ad-hoc one.
+   The relation's OWN `on` columns (the child side being described here, whichever side of the resulting embed ends up "one" or "many") MUST additionally be covered by an index on those exact columns, or the query is rejected — see `querying.md` ### Join eligibility. This applies uniformly to FK-backed and non-FK joins alike : Postgres does not automatically index the referencing side of a foreign key, so an FK-backed embed is just as capable of silently compiling into a per-parent-row sequential scan as an ad-hoc one.
   */
   on?: { [local_column: string]: string }
 
@@ -277,7 +277,7 @@ export type Expression<K extends string = string> =
 
   /** Aggregate an expression. `identifier` must be an allowed aggregate function. The second expression is the expression to aggregate. It must be an incoming relation. The last expression, if given, is a filter expression. Aggregates can only be called from a parent relation.
 
-  `identifier` is a FunctionIdentifier, not an Expression : function/operator allowlisting (see querying.md ### Scoping) has to be checkable at query-compile time against a static, schema-qualified name, which isn't possible if the identifier could itself be a computed expression. */
+  `identifier` is a FunctionIdentifier, not an Expression : function/operator allowlisting (see querying.md ## Scoping) has to be checkable at query-compile time against a static, schema-qualified name, which isn't possible if the identifier could itself be a computed expression. */
   | [
       "agg" | "aggregate",
       identifier: FunctionIdentifier,

@@ -411,9 +411,11 @@ coupling worth avoiding, and `content` already has its own, different, well-esta
 When a route function's `RelHttpResponse.template` is a non-empty string, rel treats it as a
 template PATH relative to `http.templates.path` (`"dashboard.jet"`, `"emails/welcome.jet"`) :
 
-1. `set.GetTemplate(resp.template)` loads (and, outside `logging.level=debug` — see below —
-   caches) the named template. A template that fails to load (missing file, parse error) is a
-   `500`, logged with the template path — never a silent fallback to raw `resp.content`.
+1. `set.GetTemplate(resp.template)` loads and caches the named template — unconditionally, not
+   gated on any logging level (see `**Reload**` below for why : Jet's own development mode, which
+   would disable this caching, is deliberately not used). A template that fails to load (missing
+   file, parse error) is a `500`, logged with the template path — never a silent fallback to raw
+   `resp.content`.
 2. The template EXECUTES with Jet's own positional `data` argument always `nil` — rel doesn't use
    it at all — and instead exposes everything a template needs through NAMED variables (Jet's
    `VarMap`, `Template.Execute(w, variables, data)`'s second argument), so there's exactly ONE
@@ -591,7 +593,10 @@ reflected value to a different origin.
   found, leaving every other segment untouched.
 
 CSP is ON by default (`default-src 'self'`) — a real `Content-Security-Policy` header is sent on
-every `/rel`/`/rpc`/`/static` response even with zero configuration. This is the one place this document
+every `/rel`/`/rpc`/`/static` response even with zero configuration, EXCEPT a CORS preflight
+response (`## CORS ### Preflight handling`) : a preflight is a bodyless `204`, answered before any
+route function runs, with no `RelHttpResponse` to read a per-response `csp` override from either
+way, so there is nothing for a CSP header to usefully govern there. This is the one place this document
 picks a default that can change existing behavior on upgrade rather than only ever being
 stricter-by-omission : a deployment already relying on inline scripts or external assets in HTML
 a route function returns will see them start being blocked. `default-src 'self'` is nonetheless
@@ -633,12 +638,22 @@ no explicit `script-src`/`style-src`), there is no existing `script-src` directi
 nonce onto — and injecting a bare `script-src 'nonce-x'` in that case would be actively wrong :
 CSP's own fallback rule (an unset directive inherits `default-src`) stops applying the instant
 `script-src` exists at all, which would silently BLOCK same-origin file scripts a `'self'`
-`default-src` was otherwise allowing. So nonce injection ALWAYS ensures `script-src`/`style-src`
-exist in the assembled directive set before appending the nonce to them — synthesizing each
-missing one as a copy of the effective `default-src` value plus the nonce
-(`script-src 'self' 'nonce-<value>'` under the zero-config default), never as the nonce alone.
-This is what makes `req.csp_nonce` actually usable out of the box, with no `http.csp.*`
-configuration at all — the user-facing case this document opened with.
+`default-src` was otherwise allowing. So nonce injection ensures `script-src`/`style-src`
+exist in the assembled directive set before appending the nonce to them, WHENEVER `default-src`
+itself is present to synthesize from — synthesizing each missing one as a copy of the effective
+`default-src` value plus the nonce (`script-src 'self' 'nonce-<value>'` under the zero-config
+default), never as the nonce alone. This is what makes `req.csp_nonce` actually usable out of the
+box, with no `http.csp.*` configuration at all — the user-facing case this document opened with.
+
+If `default-src` is ALSO absent from the assembled directive set (a raw `http.csp.policy` or
+`resp.csp` override that omits it entirely), synthesis is skipped for whichever of
+`script-src`/`style-src` is still missing — nonce injection simply does nothing for that
+directive, rather than adding it as a nonce-only value. A nonce-only `script-src 'nonce-x'` with
+no `default-src` behind it would be strictly MORE restrictive than the base policy asked for : CSP's
+browser-level fallback for a directive that's entirely absent is "unrestricted," and injecting a
+nonce-only directive in that case would silently narrow it. A `script-src`/`style-src` that IS
+already present (empty or not) still always gets the nonce appended regardless of `default-src` ;
+only the synthesize-a-new-directive case is gated on `default-src` existing.
 
 The nonce is generated and available on `RelHttpRequest` regardless of whether the route's own
 response actually uses it — an ordinary JSON-returning `/rpc` route simply never reads

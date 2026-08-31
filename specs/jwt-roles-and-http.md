@@ -121,6 +121,15 @@ A function whose name does **not** start with `_`, and that takes the argument s
 
 Such a function's name can end with `__VERB` (`__GET`, `__POST`, ...) to restrict which HTTP verb it answers to; case doesn't matter. If a verb-suffixed function is defined alongside an unsuffixed one, the unsuffixed function is the fallback for verbs with no specific match. Conforming to web semantics (e.g. `__GET` must not mutate state — see the CSRF note under Cookies) is the function author's responsibility; rel does not enforce it.
 
+Two or more discovered functions sharing the same (schema, base name, verb) key — the same schema,
+the same name once any `__VERB` suffix is stripped, and the same resolved verb — is an ambiguous
+route: NEITHER function becomes the registered route at that key, not just whichever one lost a
+first-vs-second conflict. Route discovery logs an error naming both colliding functions, and a
+third (or later) function sharing that same key is excluded the same way once a key is known
+ambiguous — a later collision never silently becomes the sole owner just because an earlier
+conflict already vacated the slot. This is a discovery-time warning, not a fatal error: the
+affected key is simply never routable until the collision is resolved in the schema itself.
+
 `RelHttpResponse` can render via [Jet templates](github.com/CloudyKit/jet) through the optional `template` key — see `specs/04-http-content.md ## Templates` for the full rendering/escaping contract.
 
 ```sql

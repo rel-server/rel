@@ -108,8 +108,11 @@ in flight at that moment — the wrapper exists specifically so nothing ever nee
    startup — new/changed route functions, anonymous-authorization caching (`specs/
    jwt-roles-and-http.md ## Anonymous route authorization`), and the `PUBLIC`-executable warning
    all re-run against the post-reload schema.
-6. **A fresh inner mux is built** (`server.NewRelHandler`/`rpc.NewHandler` against the new
-   `pg.DbInfos`/registry, same constructors, unchanged signatures) and stored into the wrapper's
+6. **A fresh inner mux is built** via `boot.BuildMux` — the same function the initial startup mux
+   is built with, so the two call sites cannot drift on what the mux actually contains — composing
+   `/rel` (`server.NewRelHandler`), `/rpc/` (`rpc.NewHandler`), and, when at least one
+   `http.static.path` directory exists, `/static/`, against the new `pg.DbInfos`/registry, all
+   wrapped uniformly in `websec.Middleware` (CORS/CSP). The result is stored into the wrapper's
    `atomic.Pointer` — a single pointer store, not a write to `http.Server.Handler` itself.
 7. **The wrapper flips out of maintenance mode** ; new requests resume being served, against the
    new inner mux.

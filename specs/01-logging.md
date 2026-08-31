@@ -8,7 +8,7 @@ Use `log/slog` (standard library) for all logging. There is no wrapping logging 
   - `JSON` uses `slog.NewJSONHandler` — one JSON object per line, for production/machine consumption.
   - `pretty` uses `github.com/lmittmann/tint` — colored, human-readable single-line output, for local development.
 - `logging.level` (`debug`, `info`, `warn`, `error`, default `info`) sets the minimum level emitted by the handler.
-- `logging.filter.*` (default empty) for each key specified, a regexp on the values that it must contain to be displayed. Log payloads that do *not* anything to filter against are displayed
+- `logging.filter.*` (default empty) for each key specified, a regexp on the values that it must contain to be displayed. Log payloads that do *not have* anything to filter against are displayed
 - `logging.exclude.*` (default empty) similar to filter except will suppress the log entry. Applies *after* filter if specified.
 - Output is always stdout. No file destinations, rotation, or multi-writer configuration — the process supervisor/container runtime owns log capture.
 

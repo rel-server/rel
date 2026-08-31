@@ -201,7 +201,9 @@ Nodes included through `join` in the query are _either_ incoming OR outgoing.
 
   The request payload's root is always an array of row objects, one per root-level row being written — unlike a nested embed, whose cardinality (a single object vs. an array) comes from its outgoing/incoming classification against its parent, the root has no parent to derive that from : a write request is inherently "here are N rows to write", plural, even when N is 1.
 
-  The temporary table that will house them will be like create temp table _data ( `__node_id` int, `__row_id` int, `__parent_id` int, `data` jsonb, `keys` jsonb ), where `__node_id` is the node index in the query, `__row_id` is an absolute row counter and `__parent_id` is the row_id of the parent node containing the current object. This temporary table should exist for all connections of a pool and be properly truncated whenever a query ends. (I'm torn on indexing this table ; maybe the indices on node_id and row_id could be created once COPY is done if there are many rows in this table - sometimes seq scanning is faster. maybe a configuration option like `query.tempindexthreshold` ?)
+  The temporary table that will house them will be like create temp table _data ( `__node_id` int, `__row_id` int, `__parent_id` int, `data` jsonb, `keys` jsonb ), where `__node_id` is the node index in the query, `__row_id` is an absolute row counter and `__parent_id` is the row_id of the parent node containing the current object. This temporary table should exist for all connections of a pool and be properly truncated whenever a query ends.
+
+  > Question: whether `_data` should be indexed on `__node_id`/`__row_id` is still open. A large payload might benefit from creating those indices after `COPY` loads it, rather than maintaining them incrementally — but for a small payload, a sequential scan can be faster than paying for the index at all. A config option (something like `pg.query.temp_index_threshold`) is one way to make this a size-based decision rather than an always-on or never-on one, but this hasn't been settled ; `_data` is currently created with no indices beyond its `__row_id` primary key (see `query.DataTableDDL`).
 
   keys will have null initially, but will be populated once the DML statement runs for a given node_id - and will be so _only_ with the needed columns and no more. Depending on the statement (see `### Insertion / Updates` below), this is either the `RETURNING` clause of the DML itself, or a separate `UPDATE ... FROM` against `_data`. `data` itself is never touched.
 
@@ -362,21 +364,21 @@ Rel does not use the native Postgres `MERGE` statement ; it stays on plain `INSE
 
 ## Errors
 
-HTTP status >= 400
+HTTP status >= 400. The numeric status lives only in the HTTP response line itself, never repeated in the body.
 
 Returns a JSON object with
 
 ```typescript
 interface RelErrorResponse {
-  status_code: number // http
-  error: string // error code, to be documented
-  message: string
-  pg_error?: /* pg fields */
-  stacktrace?: Frame[] // maybe frame is just a string, unclear at this moment
-  sql_statement?: string // in debug mode, give the faulty SQL statement
-  data?: any // in debug mode, maybe behind a config option, to know what data did cause the crash - the flat node that we were trying to insert, for instance, especially useful when debugging
+  status: "error" // literal discriminant, always this string
+  error: string    // human-readable error message
+  pg_error?: string // present when the failure came from a Postgres error ; its own formatted error text
 }
 ```
+
+`400` is used for a problem with the query/data itself (unknown relation, malformed query string, a compile-time rejection, ...) ; `500` for everything else. `401` is used when anonymous access is disabled outright and the request carries no usable credentials. An `RSxxx` status (`jwt-roles-and-http.md`'s convention) is the one other status this envelope carries, raised by `http.functions.check_session`.
+
+> Why this shape and not a richer one : an earlier draft of this section specified `status_code`/`message`/`stacktrace`/`sql_statement`/`data` fields, none of which were ever built — implementation settled on this smaller, confirmed envelope instead (`server/response.go`'s `errorResponse`, `server/rel_test.go`). No error-code taxonomy exists yet ; `error` is always the underlying Go error's own message text, not a stable machine-readable code.
 
 ## Query Shape
 

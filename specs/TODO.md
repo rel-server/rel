@@ -231,22 +231,38 @@ Grouped by how much they block implementation, not by file.
 
 ## Open questions already flagged, still unresolved
 
-- `querying.md ### Join eligibility` — the one live `> Question:` : the non-FK
-  eligibility path checks column sets independently on each side, with no requirement
-  that they correspond to an existing FK's actual pairing when one exists.
-- `querying.md ## Errors` — `RelErrorResponse.error` is literally typed as `// error
-  code, to be documented`. No taxonomy exists yet.
-- `querying.md ## Errors` — `RelErrorResponse.stacktrace` shape marked "unclear at this
-  moment."
+- **RESOLVED, remove from future passes** : `querying.md ### Join eligibility`'s FK-pairing
+  question is no longer live — the `> Question:` marker itself is gone from the spec, and its
+  text (a real FK's declared pairing rejects a mismatched `on`) matches
+  `pg/info_constraint.go:319-333`'s `ResolveJoin` exactly. Left here as a record of when this
+  was confirmed, not as an open item — the next pass over this file should delete this bullet
+  entirely rather than re-check it.
+- `querying.md ## Errors` — the `RelErrorResponse` ENVELOPE shape itself is now settled and
+  accurate (`{status: "error", error, pg_error?}`, matching `server/response.go`'s
+  `errorResponse` and tested in `server/rel_test.go` — the spec's own earlier draft shape,
+  `status_code`/`message`/`stacktrace`/`sql_statement`/`data`, was never built and has been
+  replaced in the spec text). What's still genuinely open : `error` is always the underlying Go
+  error's own message text, not a stable, machine-readable code — no taxonomy exists.
+- `02-error-handling.md ## Error Codes` was rewritten to describe only what's actually
+  implemented (the `RSxxx` convention, `pgerr` package) — this surfaced a real, unresolved
+  design question rather than just a stale-doc one : the previous text specified an
+  `X-Rel-Errorcode` response header and an `errorcode` JSON property, neither of which exists
+  anywhere in the code (`grep`-confirmed). Needs a decision : was this abandoned deliberately,
+  or is it still-intended work that just hasn't landed yet ? If the latter, it belongs back in
+  this document as an explicit "not yet implemented" item, not silently dropped.
+- `00-general.md` vs. `05-typescript.md` disagree on where the generated TS/JS client files
+  live — `00-general.md` says `/js/query.js`/`/js/query.ts`/`/js/schemas/schema1.js`;
+  `05-typescript.md` says `/rel/query.js`/`/rel/query.ts`/`/rel/db.json`/`/rel/db/<schema>.json`.
+  Neither path is implemented in code, so nothing today favors one over the other — needs a
+  decision, not a guess.
+- `05-typescript.md` has two mid-sentence truncations (line 16, "...but also eventual
+  libraries that would want to _" ; line 25, "...given schema.json," with nothing after) —
+  needs the redactor's own original intent, can't be completed by inference.
 - `query.ts`'s `arguments` (function-relation) writability note — "this *might* be a
   problem to leave it writable, but I can't think why." Never promoted to a tracked
   `> Question:`, still just sitting in a comment.
 - `01-logging.md ## Domain scoping` — section header only, no content. Request-ID header
   name also marked TBD.
-- `02-error-handling.md` (6 lines) — doesn't cross-reference `querying.md`'s
-  `RelErrorResponse` shape, doesn't specify the dev-mode error page's route/content, and
-  there's no central Postgres-error → HTTP-status mapping (only partial coverage, via
-  `jwt-roles-and-http.md`'s `RSxxx` convention for route functions specifically).
 
 ## Not started
 

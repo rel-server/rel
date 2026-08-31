@@ -39,7 +39,7 @@ interface WellKnownParam {
 }
 ```
 
-> Note: I think that the [$param ] operator had semantics a little different
+> Question: `["$param", ...]`'s exact semantics (casting rules, required-vs-defaulted handling) may need reconciling against how `ParamExpr` actually resolves in `query/expression_parse.go`/`query/expression_resolve.go` once well-known query loading itself is implemented — nothing loads or executes a well-known query yet (see `specs/TODO.md`'s "Well-known queries" bullet), so this can't be checked against real behavior today.
 
 ## Compilation Errors
 

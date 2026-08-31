@@ -2,9 +2,7 @@
 
 After running migrations/mutations, and prior to serving HTTP requests, rel introspects the Postgres server it will serve requests from, building an in-memory picture of every relation, constraint, index, function, and type it will need to compile queries against.
 
-Whenever mutations are re-run (via the `SIGUSR1` signal), the schema is reintrospected afterwards.
-
-> Question : the original wording here said the HTTP server is shut down and restarted on reload. That's not specified anywhere else, and it doesn't say what happens to requests that arrive during that window (queued ? rejected ? served against the stale schema until the swap completes ?). This needs its own decision, tied to how the connection pool and request lifecycle actually work — neither of which has a spec yet (see `TODO.md`).
+Whenever mutations are re-run (via the `SIGUSR1` signal), the schema is reintrospected afterwards — see `specs/03-dmut.md ## Reloading` for the full sequence : the server is never shut down or restarted, new requests get a fixed `503` maintenance page while the reload is in progress, and the schema/registry are swapped in atomically once it succeeds.
 
 ## What gets introspected
 
@@ -42,6 +40,10 @@ Relations, columns, functions, and types (`### Types`, below) each carry their o
 
 Relations do not expose their constraint maps directly. The only public surface is the lookup API below — canonicalization (sorting a column set into a comparable key) happens once, inside the package, never in calling code.
 
+Introspection does not require a superuser, or otherwise unrestricted, connecting role. `pg_constraint` (unlike `information_schema.columns`) is world-readable and unfiltered by the connecting role's own privileges, so it can list constraints on relations — system tables such as `pg_authid`, `pg_subscription`, `pg_replication_origin` — that role can't actually see. A constraint (or, per `### Indexes` below, an index) whose relation wasn't itself introspected is skipped rather than treated as an error : a relation the connecting role can't see can never be a query target either, so skipping it costs nothing downstream. A foreign key is skipped the same way if either side's relation is invisible.
+
+> Why : this only matters under a real, properly-locked-down (non-superuser) connecting role — a superuser connection can see everything, which is why the gap went unnoticed until tested under a restricted role.
+
 ### Indexes
 
 `Index` is a distinct capability from constraints, not folded into them — a table's index inventory and its constraint inventory are related but separate facts, and the join-eligibility rule (`querying.md ### Join eligibility`) needs both. `Index.Columns` is the true leading-key-column order, already filtered to exclude what doesn't count for an equality lookup :
@@ -63,6 +65,11 @@ Relations do not expose their constraint maps directly. The only public surface 
 `Function` carries `Identifier`, `Arguments []FunctionArgument`, `ReturnType`/`ReturnsSet`, and the usual volatility/strictness flags. Argument resolution falls back from `pg_proc.proallargtypes`/`proargmodes` to `proargtypes` (renormalized from its 0-indexed `oidvector` form) when the former are `NULL`.
 
 > Why the fallback : `proallargtypes`/`proargmodes` are only populated by Postgres when a function has at least one `OUT`/`INOUT`/`VARIADIC`/`TABLE` argument — for a plain function with only `IN` arguments (the common case, verified directly against Postgres 16), both are `NULL`, and without the fallback `Arguments` comes back empty. Regression-tested : `pg/info_test.go`, `TestFunctionArguments_PlainInArgs`.
+
+A function's return-type-as-relation resolves through one of two distinct paths, not always `ReturnType.Relation` :
+
+- An ordinary composite or `SETOF <relation>` return resolves through `ReturnType.Relation`, same as any other composite `Type`.
+- A `RETURNS TABLE(...)` function, or one with `OUT` arguments, resolves through `Function.RecordRelation` instead — a synthetic `*Relation` (`IsSynthetic` true, no primary key, no indexes) built directly from that function's own `OUT`-mode/`TABLE`-mode arguments (`FunctionArgument.IsOut()`/`IsTableColumn()` ; `INOUT` arguments are not included). This is necessary because Postgres gives every such function the exact same `prorettype` — the single shared `pg_catalog.record` pseudo-type, with no backing `pg_class` row — so `ReturnType.Relation` can never resolve a specific column list for it. `RecordRelation` is `nil` for every other function, including one returning `SETOF` a real relation ; those keep resolving through `ReturnType.Relation` as before.
 
 ## The lookup API
 
