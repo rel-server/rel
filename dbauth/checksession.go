@@ -37,6 +37,45 @@ func CheckSession(ctx context.Context, exec Execer, qualifiedName string, claims
 	return CallJSONBFunction(ctx, exec, qualifiedName, claimsJSON)
 }
 
+// CheckSessionIfConfigured folds the "verified && a check_session function
+// is actually configured" gate every call site (server/rel.go's applyRole,
+// rpc/handler.go, rpc/upload_handler.go) restated independently before
+// calling CheckSession — a no-op (nil) whenever either half of the
+// condition doesn't hold, matching each of their own previous inline
+// checks exactly.
+func CheckSessionIfConfigured(ctx context.Context, exec Execer, qualifiedName string, claims jwtpkg.Claims, verified bool) error {
+	if !verified || qualifiedName == "" {
+		return nil
+	}
+	return CheckSession(ctx, exec, qualifiedName, claims)
+}
+
+// SetLocalRole is Lifecycle step 5's role switch : SET LOCAL ROLE only
+// takes effect for the current transaction (or, for a plain *pgxpool.Conn
+// with no transaction open, until the next one starts) — the exact
+// statement server/rel.go's applyRole, rpc/handler.go, and
+// rpc/upload_handler.go's two call sites each built by hand. Returns the
+// raw Postgres error uninterpreted ; each caller still decides how to wrap
+// or classify it, exactly as before this was factored out (server/rel.go
+// wraps it as a generic serverError, /rpc classifies it via
+// writeErrorForPgErr — that difference in RENDERING is deliberate, not
+// something this shared helper should paper over).
+func SetLocalRole(ctx context.Context, exec Execer, role string) error {
+	_, err := exec.Exec(ctx, "SET LOCAL ROLE "+EscapeIdentifier(role))
+	return err
+}
+
+// NoRoleConfiguredMessage is Lifecycle step 5's hard-error text : an empty
+// role means query.anonymous_role was never configured (reachable via a
+// hand-built *config.Config, e.g. config.Test()) — emitting `SET LOCAL ROLE
+// ""` would be a Postgres syntax error, and skipping the switch entirely
+// would silently run the request as whatever role the connection already
+// has, a privilege escalation for anonymous callers. Every SET LOCAL ROLE
+// call site raises this as its own status/error-shape (server/rel.go's
+// requestError vs /rpc's plain-text body), but must never independently
+// drift on the wording — shared here for that reason alone.
+const NoRoleConfiguredMessage = "no role configured (query.anonymous_role is unset and request is anonymous)"
+
 // CallJSONBFunction invokes qualifiedName(payload::jsonb) — the shared
 // calling convention specs/http-content.md ### Access control
 // deliberately reuses from CheckSession's own : "a configured function

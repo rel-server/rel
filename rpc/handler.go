@@ -46,7 +46,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// Verify (Lifecycle step 2) needs no DB connection — run it first, so
 	// "is this request anonymous" is knowable before anything DB-related
 	// happens at all.
-	claims, verified := verifyRequestJWT(cfg, r)
+	claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
 
 	// specs/authentication.md "# Roles ## Anonymous role existence" and
 	// "# HTTP ## Anonymous route authorization" : both checks run here,
@@ -55,7 +55,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// connection open, and never costs a connection-acquire round trip.
 	if !verified {
 		if !db.AnonymousRoleExists {
-			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabled, "anonymous access is disabled")
+			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabled, errcode.AnonymousDisabledMessage)
 			return
 		}
 		if !route.AnonymousAuthorized {
@@ -81,15 +81,7 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// way (see resolveRequestBody's own doc comment).
 	resolved, err := resolveRequestBody(w, r, route, int64(cfg.Http.MaxBodySize), cfg.Http.MaxPartCount)
 	if err != nil {
-		if rbe, ok := errors.AsType[*requestBodyError](err); ok {
-			writePlainError(w, rbe.status, rbe.code, rbe.message)
-			return
-		}
-		if bbe, ok := errors.AsType[*badBodyError](err); ok {
-			writePlainError(w, http.StatusBadRequest, errcode.MalformedBody, bbe.Error())
-			return
-		}
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "reading request body")
+		writeRequestBodyError(w, err)
 		return
 	}
 
@@ -127,39 +119,21 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op if already committed
 
-	if verified {
-		if cfg.Http.Functions.CheckSession != "" {
-			if err := dbauth.CheckSession(ctx, tx, cfg.Http.Functions.CheckSession, claims); err != nil {
-				http.SetCookie(w, jwtpkg.ClearCookie(cfg.Jwt))
-				writeErrorForPgErr(w, err, cfg.Dev)
-				return
-			}
-		}
-		if jwtpkg.ShouldRenew(cfg.Jwt, claims) {
-			renewed := jwtpkg.Renew(cfg.Jwt, claims)
-			token, serr := jwtpkg.Sign(cfg.Jwt, renewed)
-			if serr == nil {
-				http.SetCookie(w, jwtpkg.CookieValue(cfg.Jwt, token, renewed, ""))
-			}
-			claims = renewed
-		}
-	}
-
-	role := cfg.Pg.Query.AnonymousRole
-	if verified {
-		role = jwtpkg.Role(claims)
-	}
-	if role == "" {
-		// An empty role means query.anonymous_role was never configured — a
-		// hand-built *config.Config (e.g. config.Test()) can reach this.
-		// Emitting `SET LOCAL ROLE ""` would be a Postgres syntax error, and
-		// skipping the role switch entirely would silently run the request
-		// as whatever role the pool connection already has (a privilege
-		// escalation for anonymous callers), so this is a hard error.
-		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, "no role configured (query.anonymous_role is unset and request is anonymous)")
+	if err := dbauth.CheckSessionIfConfigured(ctx, tx, cfg.Http.Functions.CheckSession, claims, verified); err != nil {
+		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
+		writeErrorForPgErr(w, err, cfg.Dev)
 		return
 	}
-	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); err != nil {
+	if verified {
+		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
+	}
+
+	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
+	if role == "" {
+		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
+		return
+	}
+	if err := dbauth.SetLocalRole(ctx, tx, role); err != nil {
 		writeErrorForPgErr(w, err, cfg.Dev)
 		return
 	}
@@ -183,14 +157,6 @@ func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 
 	writeRelHttpResponse(w, r, cfg, route, raw, templates)
-}
-
-// verifyRequestJWT reads cfg.Jwt.CookieName off r and verifies it. Any
-// failure (missing cookie, bad signature, expired, session-ceiling
-// exceeded) is "no session", per Lifecycle step 2 — never an error in its
-// own right.
-func verifyRequestJWT(cfg *config.Config, r *http.Request) (jwtpkg.Claims, bool) {
-	return jwtpkg.VerifyRequest(cfg.Jwt, r)
 }
 
 // invokeRoute calls route.Function with the argument list matching

@@ -89,7 +89,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// comment), so claims/verified are already known with no DB access
 	// needed here.
 	if _, verified := jwtpkg.FromContext(r.Context()); !verified && !db.AnonymousRoleExists {
-		writeError(w, unauthorized(errcode.AnonymousDisabled, fmt.Errorf("anonymous access is disabled")), cfg.Dev)
+		writeError(w, unauthorized(errcode.AnonymousDisabled, fmt.Errorf("%s", errcode.AnonymousDisabledMessage)), cfg.Dev)
 		return
 	}
 
@@ -401,38 +401,23 @@ func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, 
 func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) error {
 	claims, verified := jwtpkg.FromContext(r.Context())
 
-	if verified && cfg.Http.Functions.CheckSession != "" {
-		if cerr := dbauth.CheckSession(ctx, conn, cfg.Http.Functions.CheckSession, claims); cerr != nil {
-			// jwt.Middleware runs Renew (step 4) BEFORE this handler ever
-			// gets to run Check (step 3) — the reverse of the spec's own
-			// step order, unavoidable here since Renew needs no DB and
-			// Check does (see jwt/middleware.go's doc comment). A renewed-
-			// but-now-rejected session would otherwise leave TWO Set-Cookie
-			// headers on the response (http.SetCookie uses Header().Add,
-			// not Set) : a still-valid renewed token, then the clear.
-			// Nothing else can have set a cookie on /rel before this point,
-			// so clearing the header outright is safe.
-			w.Header().Del("Set-Cookie")
-			http.SetCookie(w, jwtpkg.ClearCookie(cfg.Jwt))
-			return classifyCheckSessionError(cerr)
-		}
+	// jwt.Middleware runs Renew (step 4) BEFORE this handler ever gets to
+	// run Check (step 3) — the reverse of the spec's own step order,
+	// unavoidable here since Renew needs no DB and Check does (see
+	// jwt/middleware.go's doc comment). jwtpkg.ClearSessionCookie's own
+	// Header().Del is what makes clearing safe despite that ordering : a
+	// renewed-but-now-rejected session would otherwise leave TWO Set-Cookie
+	// headers (http.SetCookie uses Header().Add, not Set).
+	if cerr := dbauth.CheckSessionIfConfigured(ctx, conn, cfg.Http.Functions.CheckSession, claims, verified); cerr != nil {
+		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
+		return classifyCheckSessionError(cerr)
 	}
 
-	role := cfg.Pg.Query.AnonymousRole
-	if verified {
-		role = jwtpkg.Role(claims)
-	}
+	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
 	if role == "" {
-		// Same reasoning as rpc/handler.go's identical guard : an empty
-		// role means query.anonymous_role was never configured (reachable
-		// via a hand-built *config.Config, e.g. config.Test()). Emitting
-		// `SET LOCAL ROLE ""` is a Postgres syntax error, and skipping the
-		// switch entirely would silently run the request as whatever role
-		// the pool connection already has — a privilege escalation for
-		// anonymous callers — so this is a hard error either way.
-		return serverError(errcode.NoRoleConfigured, fmt.Errorf("no role configured (query.anonymous_role is unset and request is anonymous)"))
+		return serverError(errcode.NoRoleConfigured, fmt.Errorf("%s", dbauth.NoRoleConfiguredMessage))
 	}
-	if _, serr := conn.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); serr != nil {
+	if serr := dbauth.SetLocalRole(ctx, conn, role); serr != nil {
 		return serverError(errcode.Internal, fmt.Errorf("applying role: %w", serr))
 	}
 	return nil

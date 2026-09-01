@@ -65,6 +65,40 @@ func unsupportedMediaType(msg string) error {
 	return &requestBodyError{http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, msg}
 }
 
+// tooLargeIfContentLengthExceeds is http.max_body_size's own "before any
+// part is buffered in memory, not after" rule : a declared Content-Length
+// already over the limit is rejected outright, without reading anything —
+// http.MaxBytesReader alone only catches this AFTER reading limit+1 bytes
+// (the chunked, no declared Content-Length case, or a lying Content-
+// Length), so both checks are needed together. resolveRequestBody and
+// upload_handler.go's own body-size enforcement both start with this exact
+// check, immediately before wrapping r.Body in http.MaxBytesReader.
+func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64) error {
+	if r.ContentLength > maxBodySize {
+		return tooLargeBody("request body exceeds http.max_body_size")
+	}
+	return nil
+}
+
+// writeRequestBodyError renders any error resolveRequestBody (or
+// upload_handler.go's own body-size precheck, which reuses
+// tooLargeIfContentLengthExceeds above and so can return the same
+// *requestBodyError) can produce : a *requestBodyError carries its own
+// status/code/message ; a *badBodyError is always a 400 malformed body ;
+// anything else is a generic 500. The three-way dispatch handleRpc used to
+// restate inline at its own resolveRequestBody call site.
+func writeRequestBodyError(w http.ResponseWriter, err error) {
+	if rbe, ok := errors.AsType[*requestBodyError](err); ok {
+		writePlainError(w, rbe.status, rbe.code, rbe.message)
+		return
+	}
+	if bbe, ok := errors.AsType[*badBodyError](err); ok {
+		writePlainError(w, http.StatusBadRequest, errcode.MalformedBody, bbe.Error())
+		return
+	}
+	writePlainError(w, http.StatusInternalServerError, errcode.Internal, "reading request body")
+}
+
 // resolvedRequestBody is everything handleRpc needs, both to build
 // RelHttpRequest.body and to invoke a files/parts_headers-aware route :
 // Files and PartsHeadersRaw are always non-nil (an empty array, never a SQL
@@ -84,14 +118,8 @@ type resolvedRequestBody struct {
 func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, maxBodySize int64, maxPartCount int) (resolvedRequestBody, error) {
 	contentTypeHeader := r.Header.Get("Content-Type")
 
-	// http.max_body_size's own "before any part is buffered in memory, not
-	// after" rule : a declared Content-Length already over the limit is
-	// rejected outright, without reading anything — http.MaxBytesReader
-	// alone only catches this AFTER reading limit+1 bytes (the chunked, no
-	// declared Content-Length case, or a lying Content-Length), so both
-	// checks are needed together.
-	if r.ContentLength > maxBodySize {
-		return resolvedRequestBody{}, tooLargeBody("request body exceeds http.max_body_size")
+	if err := tooLargeIfContentLengthExceeds(r, maxBodySize); err != nil {
+		return resolvedRequestBody{}, err
 	}
 
 	limited := http.MaxBytesReader(w, r.Body, maxBodySize)

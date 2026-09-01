@@ -46,6 +46,12 @@ const (
 	NoRoleConfigured        Code = "NO_ROLE_CONFIGURED"
 )
 
+// AnonymousDisabledMessage is specs/authentication.md "# Roles ## Anonymous
+// role existence"'s own wording — the message text at every one of this
+// code's call sites (server/rel.go, rpc/handler.go, static/static.go),
+// shared here so the three can't independently drift on it.
+const AnonymousDisabledMessage = "anonymous access is disabled"
+
 // Query compile errors (query-engine.md).
 const (
 	QueryMalformedJSON         Code = "QUERY_MALFORMED_JSON"

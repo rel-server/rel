@@ -20,6 +20,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dbauth"
+	"github.com/ceymard/rel/errcode"
 	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
@@ -169,7 +170,11 @@ func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 		// information-leak reason (stat-then-401 would otherwise leak
 		// existence to a caller who was never getting past the gate).
 		if !verified && !db.AnonymousRoleExists {
-			writePlainError(w, http.StatusUnauthorized, "anonymous access is disabled")
+			// No X-Rel-Errorcode header here — this package's writePlainError
+			// never carried one, unlike /rel and /rpc's own 401s for the same
+			// condition (out of scope for this factoring pass, flagged
+			// separately rather than silently changed).
+			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabledMessage)
 			return
 		}
 

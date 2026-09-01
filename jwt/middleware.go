@@ -46,12 +46,8 @@ func Middleware(cfg config.Jwt) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, verified := verifyRequest(cfg, r)
-			if verified && ShouldRenew(cfg, claims) {
-				renewed := Renew(cfg, claims)
-				if token, err := Sign(cfg, renewed); err == nil {
-					http.SetCookie(w, CookieValue(cfg, token, renewed, ""))
-				}
-				claims = renewed
+			if verified {
+				claims = RenewIfDue(cfg, w, claims)
 			}
 			ctx := context.WithValue(r.Context(), contextKey{}, requestSession{claims: claims, verified: verified})
 			next.ServeHTTP(w, r.WithContext(ctx))

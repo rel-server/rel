@@ -69,8 +69,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	if r.ContentLength > int64(cfg.Http.MaxBodySize) {
-		writePlainError(w, http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, "request body exceeds http.max_body_size")
+	if err := tooLargeIfContentLengthExceeds(r, int64(cfg.Http.MaxBodySize)); err != nil {
+		writeRequestBodyError(w, err)
 		return
 	}
 	limitedBody := http.MaxBytesReader(w, r.Body, int64(cfg.Http.MaxBodySize))
@@ -133,29 +133,20 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	if verified && cfg.Http.Functions.CheckSession != "" {
-		if err := dbauth.CheckSession(ctx, conn, cfg.Http.Functions.CheckSession, claims); err != nil {
-			conn.Release()
-			http.SetCookie(w, jwtpkg.ClearCookie(cfg.Jwt))
-			writeErrorForPgErr(w, err, cfg.Dev)
-			return
-		}
+	if err := dbauth.CheckSessionIfConfigured(ctx, conn, cfg.Http.Functions.CheckSession, claims, verified); err != nil {
+		conn.Release()
+		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
+		writeErrorForPgErr(w, err, cfg.Dev)
+		return
 	}
-	if verified && jwtpkg.ShouldRenew(cfg.Jwt, claims) {
-		renewed := jwtpkg.Renew(cfg.Jwt, claims)
-		if token, serr := jwtpkg.Sign(cfg.Jwt, renewed); serr == nil {
-			http.SetCookie(w, jwtpkg.CookieValue(cfg.Jwt, token, renewed, ""))
-		}
-		claims = renewed
+	if verified {
+		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
 	}
 
-	role := cfg.Pg.Query.AnonymousRole
-	if verified {
-		role = jwtpkg.Role(claims)
-	}
+	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
 	if role == "" {
 		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, "no role configured (query.anonymous_role is unset and request is anonymous)")
+		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
 		return
 	}
 
@@ -165,7 +156,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting read-only transaction")
 		return
 	}
-	if _, err := tx1.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); err != nil {
+	if err := dbauth.SetLocalRole(ctx, tx1, role); err != nil {
 		_ = tx1.Rollback(ctx)
 		conn.Release()
 		writeErrorForPgErr(w, err, cfg.Dev)
@@ -206,6 +197,18 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// !hasUpload, per step 2's own "part: null... whatever path/mkdir/
 	// overwrite it returned is simply never acted on" rule.
 	var finalPath, tempPath, overwrite string
+	// Every error return past this point used to repeat its own
+	// "if tempPath != \"\" { os.Remove(tempPath) }" by hand — a future
+	// error return added without that line would silently leak a temp
+	// file. One unconditional defer instead : safe even past a successful
+	// swap (swapUploadIntoPlace's own os.Rename has already moved tempPath
+	// away by then, so this becomes a no-op on an already-gone path) or
+	// the discard-case's own removal below.
+	defer func() {
+		if tempPath != "" {
+			_ = os.Remove(tempPath)
+		}
+	}()
 	if hasUpload {
 		if upload.Path != nil && *upload.Path != "" {
 			if writeDir == "" {
@@ -269,7 +272,6 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		_ = f.Close()
 		size = n
 		if cerr != nil {
-			_ = os.Remove(tempPath)
 			var maxErr *http.MaxBytesError
 			if errors.As(cerr, &maxErr) {
 				writePlainError(w, http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, "request body exceeds http.max_body_size")
@@ -281,7 +283,6 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		if isMultipart {
 			_ = currentPart.Close()
 			if _, nerr := mr.NextPart(); nerr != io.EOF {
-				_ = os.Remove(tempPath)
 				if nerr == nil {
 					writePlainError(w, http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, "route accepts exactly one upload part, request carried more than one")
 				} else {
@@ -294,9 +295,6 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	uploadForMandatory, err := buildUploadForMandatory(uploadRaw, partJSON, hasUpload, size)
 	if err != nil {
-		if tempPath != "" {
-			_ = os.Remove(tempPath)
-		}
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
@@ -305,9 +303,6 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// NOT repeated here, they already ran exactly once, in step 3.
 	conn2, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		if tempPath != "" {
-			_ = os.Remove(tempPath)
-		}
 		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
 		return
 	}
@@ -315,17 +310,11 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	tx2, err := conn2.Begin(ctx)
 	if err != nil {
-		if tempPath != "" {
-			_ = os.Remove(tempPath)
-		}
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
 		return
 	}
-	if _, err := tx2.Exec(ctx, "SET LOCAL ROLE "+dbauth.EscapeIdentifier(role)); err != nil {
+	if err := dbauth.SetLocalRole(ctx, tx2, role); err != nil {
 		_ = tx2.Rollback(ctx)
-		if tempPath != "" {
-			_ = os.Remove(tempPath)
-		}
 		writeErrorForPgErr(w, err, cfg.Dev)
 		return
 	}
@@ -336,33 +325,23 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if err := mrow.Scan(&respRaw); err != nil {
 		_ = tx2.Rollback(ctx)
 		// "If the mandatory function raises (no commit) : the temp file is
-		// deleted, nothing further happens."
-		if tempPath != "" {
-			_ = os.Remove(tempPath)
-		}
+		// deleted, nothing further happens." — the deferred cleanup above.
 		writeErrorForPgErr(w, err, cfg.Dev)
 		return
 	}
 	if err := tx2.Commit(ctx); err != nil {
-		if tempPath != "" {
-			_ = os.Remove(tempPath)
-		}
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
 		return
 	}
 
 	// Step 9 : ONLY on a successful commit, and ONLY if path was set, the
-	// disk swap finalizes. Path omitted : the temp file is deleted here
-	// instead — not an error.
-	if hasUpload {
-		if finalPath != "" {
-			if err := swapUploadIntoPlace(tempPath, finalPath, overwrite); err != nil {
-				log.Error("rpc: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
-				writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
-				return
-			}
-		} else {
-			_ = os.Remove(tempPath)
+	// disk swap finalizes. Path omitted : the deferred cleanup above deletes
+	// the temp file instead — not an error.
+	if hasUpload && finalPath != "" {
+		if err := swapUploadIntoPlace(tempPath, finalPath, overwrite); err != nil {
+			log.Error("rpc: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
+			writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
+			return
 		}
 	}
 
