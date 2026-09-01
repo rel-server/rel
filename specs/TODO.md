@@ -22,10 +22,6 @@ Resolved items are not tracked here — this is a todo list, not a changelog ; c
 
 ## Known gaps in implemented features
 
-- A child alias reached as a bare VALUE nested inside another expression (e.g. `["coalesce",
-  "director", null]`) resolves but doesn't compile (`query/sql_expr.go`) — `TestCompileSelect_
-  EmbeddedChildAliasStillUnsupported`. Selecting the same alias as a top-level select entry
-  (an ordinary embed) is unaffected ; this is specifically the nested-as-an-operand case.
 - `pgerr.Classify`'s `PG_*` table only recognizes 5 SQLSTATEs (unique/FK/not_null/check
   violation, permission_denied). Deliberately small per the spec's own "small fixed table"
   wording — expand only if a concrete need for another class's HTTP semantics shows up.

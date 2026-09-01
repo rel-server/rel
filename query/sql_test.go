@@ -127,27 +127,95 @@ func TestCompileSelect_ComputedColumnSelfAlias(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_EmbeddedChildAliasStillUnsupported confirms the fix is
-// scoped to self-references only : a DIFFERENT node's alias (a joined
-// child's) embedded as a bare value must still be rejected, not silently
-// emit some other node's alias — the harder cross-subquery-scope case the
-// fix deliberately doesn't attempt.
-func TestCompileSelect_EmbeddedChildAliasStillUnsupported(t *testing.T) {
-	// Selecting "director" directly as a top-level select entry is a
-	// perfectly normal embed (compileSelectField's own job, a completely
-	// different path from compileResolvedField) — NOT the case this test is
-	// after. The still-unsupported case is a child alias reaching
-	// compileResolvedField NESTED inside another expression, e.g. as a
-	// coalesce() argument — resolution succeeds (LookupInScope's alias
-	// case), but pass 3 (codegen) must still refuse to emit a bare value
-	// for it.
-	node := mustResolveQuery(t, `{
+// TestCompileSelect_EmbeddedChildAlias_ToOneChild proves a direct to-one
+// child's own alias, embedded as a bare value NESTED inside another
+// expression (e.g. a coalesce() argument, not a top-level select entry —
+// that's compileSelectField's own, completely different path), compiles as
+// a self-contained correlated subquery selecting the child's own row alias
+// (compileChildRowValue) : Postgres returns that as the row's composite
+// type, which coalesce() (or any other function taking a row argument)
+// consumes directly.
+func TestCompileSelect_EmbeddedChildAlias_ToOneChild(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Embedded Alias Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	var movieID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into movie (director_id, title) values ($1, 'Embedded Alias Movie') returning id`, directorID).Scan(&movieID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "movie", "schema": "public", "alias": "m",
 		"select": {"x": ["coalesce", "director", null]},
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+		"where": ["=", "id", %d],
+		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}
+	}`, movieID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	obj, ok := rows[0]["x"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected x to decode as a JSON object (the director row's composite type), got %#v (sql: %s)", rows[0]["x"], sql)
+	}
+	if obj["name"] != "Embedded Alias Director" {
+		t.Errorf("expected x.name=\"Embedded Alias Director\", got %#v", obj)
+	}
+	if fmt.Sprintf("%v", obj["id"]) != fmt.Sprintf("%d", directorID) {
+		t.Errorf("expected x.id=%d, got %#v", directorID, obj["id"])
+	}
+}
+
+// TestCompileSelect_EmbeddedChildAlias_NullTarget proves the same
+// mechanism reads back as JSON null, not an error, when the to-one
+// relation doesn't exist (director.studio_id is nullable) — the
+// correlated subquery returns zero rows, and Postgres's own
+// scalar-subquery "no rows -> NULL" rule does the rest, same as
+// compileScalarHop's own null-target case.
+func TestCompileSelect_EmbeddedChildAlias_NullTarget(t *testing.T) {
+	ctx := context.Background()
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('No Studio Embedded Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "director", "schema": "public",
+		"select": {"x": ["coalesce", "studio", null]},
+		"where": ["=", "id", %d],
+		"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}
+	}`, directorID))
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if rows[0]["x"] != nil {
+		t.Errorf("expected x=nil (no studio set), got %#v", rows[0]["x"])
+	}
+}
+
+// TestCompileSelect_EmbeddedChildAlias_ToManyChild_Rejected proves the
+// to-many case (an incoming child's own alias, embedded as a bare value)
+// is still rejected — there is no single row for a to-many child's alias
+// to name, same reasoning compileScalarHop's own to-many rejection uses.
+func TestCompileSelect_EmbeddedChildAlias_ToManyChild_Rejected(t *testing.T) {
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"x": ["coalesce", "movies", null]},
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
 	}`)
-	if _, err := CompileSelect(node); err == nil {
-		t.Fatalf("expected embedding a child alias as a bare value to still fail to compile")
+	_, err := CompileSelect(node)
+	if err == nil {
+		t.Fatal("expected embedding a to-many child's alias as a bare value to fail to compile")
+	}
+	if !strings.Contains(err.Error(), "to-many") {
+		t.Errorf("expected the error to explain the to-many rejection, got: %v", err)
 	}
 }
 

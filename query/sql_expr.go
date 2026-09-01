@@ -211,12 +211,16 @@ func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) er
 			c.w.Write(alias)
 			return nil
 		}
-		// A DIFFERENT node (child/sibling/ancestor) embedded as a bare
-		// value is a genuinely harder problem — e.g. a to-many child
-		// compiled via LATERAL has no single row to name, and even a
-		// to-one child's alias may not be a valid correlated reference at
-		// this exact point in the subquery tree. Left unsupported.
-		return fmt.Errorf("sql: embedding a child alias (other than the node's own self-reference) as a bare expression value is not yet supported")
+		// A DIFFERENT node embedded as a bare value : LookupInScope's own
+		// scope rule (scope.go) means r is always a DIRECT child of n here
+		// — "never a parent's or a sibling's" — so this is always r.Parent
+		// == n, never an ancestor or cousin. Compiled the same way a "."
+		// hop's scalar landing is (compileScalarHop, below) : a self-
+		// contained correlated subquery, except selecting the child's own
+		// row alias directly instead of one of its columns, since the
+		// whole row (as a composite value) is what was asked for here, not
+		// a single field.
+		return c.compileChildRowValue(r, n)
 	case Shape:
 		return fmt.Errorf("sql: a literal-object landing reached as a bare expression value is not yet supported")
 	default:
@@ -316,6 +320,42 @@ func (c *sqlCompiler) compileScalarHop(cp ColumnPath, n *QueryNode) error {
 	c.w.Paren(func() {
 		c.w.Write("select ")
 		c.compileColumnPathN(alias, cp.Path, len(cp.Path)-1)
+		c.w.Write(" from ")
+		if err := c.compileFrom(child, alias); err != nil {
+			innerErr = err
+			return
+		}
+		if err := c.compileScalarHopWhere(child, alias, n); err != nil {
+			innerErr = err
+		}
+	})
+	return innerErr
+}
+
+// compileChildRowValue compiles a bare reference to a direct to-one child's
+// own alias (e.g. `["coalesce", "director", null]`, "director" being a
+// joined-in child's OuterAlias) — the *QueryNode-landing counterpart of
+// compileScalarHop's ColumnPath one : same self-contained correlated
+// subquery shape, same to-one-only restriction (child.Parent is always ==
+// n here — see compileResolvedField's own call site), but selecting
+// child's own row alias directly rather than compileColumnPathN-ing one of
+// its columns, since what was asked for is the whole row as a composite
+// value, not a single field. `select alias from schema.rel alias where
+// ...` : selecting a table alias bare like this is what makes Postgres
+// return the row's own composite type — exactly the value a function
+// like coalesce() taking that row type as an argument expects, and a
+// zero-row match (an optional to-one FK with nothing on the other end)
+// yields SQL NULL automatically, same as any other scalar subquery.
+func (c *sqlCompiler) compileChildRowValue(child *QueryNode, n *QueryNode) error {
+	if !isOutgoingOf(child.Parent, child) {
+		return fmt.Errorf("sql: %q is a to-many relation — a child's own alias can only be compiled as a bare value when it's a to-one relation, since there is no single row to reference otherwise (aggregate it with \"agg\" instead)", child.OuterAlias)
+	}
+	alias := c.allocAlias()
+
+	var innerErr error
+	c.w.Paren(func() {
+		c.w.Write("select ")
+		c.w.Write(alias)
 		c.w.Write(" from ")
 		if err := c.compileFrom(child, alias); err != nil {
 			innerErr = err
