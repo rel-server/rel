@@ -29,10 +29,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// log is this package's own module-tagged logger — specs/logging.md
-// ## Domain scoping's convention, one per package.
-var log = logging.For("server")
-
 // resolvedItem is one request-body item, past parsing AND pass-1/2
 // resolution — everything needed to either run its write (if any) or
 // compile its response, with no further chance of a "the query itself is
@@ -328,7 +324,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// whole response first, which ## Response Shape already rejects for
 	// memory reasons.
 	if _, err := conn.Exec(ctx, "commit"); err != nil {
-		log.Error("commit failed after streaming had already started", "error", err.Error())
+		logging.FromContext(ctx).With("module", "server").Error("commit failed after streaming had already started", "error", err.Error())
 		return
 	}
 	if multi {

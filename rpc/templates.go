@@ -17,6 +17,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/errcode"
+	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/websec"
 )
 
@@ -62,15 +63,16 @@ func NewTemplateSet(path string) *TemplateSet {
 // response body. A load or runtime execution failure is a 500, logged,
 // never a silent fallback to resp.content.
 func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *TemplateSet, resp relHttpResponsePayload, status int) {
+	rlog := logging.FromContext(r.Context()).With("module", "rpc")
 	if templates == nil || templates.set == nil {
-		log.Error("rpc: RelHttpResponse.template set but no http.templates.path configured/found", "template", resp.Template)
+		rlog.Error("rpc: RelHttpResponse.template set but no http.templates.path configured/found", "template", resp.Template)
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "template rendering unavailable (no http.templates.path configured)")
 		return
 	}
 
 	tmpl, err := templates.set.GetTemplate(resp.Template)
 	if err != nil {
-		log.Error("rpc: loading template", "template", resp.Template, "error", err.Error())
+		rlog.Error("rpc: loading template", "template", resp.Template, "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "loading template")
 		return
 	}
@@ -88,7 +90,7 @@ func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *Te
 	// pages, not multi-GB media) output is what makes that guarantee true.
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, vars, nil); err != nil {
-		log.Error("rpc: executing template", "template", resp.Template, "error", err.Error())
+		rlog.Error("rpc: executing template", "template", resp.Template, "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "executing template")
 		return
 	}

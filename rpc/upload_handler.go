@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"github.com/ceymard/rel/dbauth"
 	"github.com/ceymard/rel/errcode"
 	jwtpkg "github.com/ceymard/rel/jwt"
+	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/static"
 )
@@ -49,6 +51,7 @@ type relUploadPayload struct {
 // built directly here.
 func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, route Route, staticSrv *static.Server, templates *TemplateSet, verified bool, claims jwtpkg.Claims) {
 	ctx := r.Context()
+	rlog := logging.FromContext(ctx).With("module", "rpc")
 
 	reqJSON, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims)
 	if err != nil {
@@ -181,7 +184,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	var upload relUploadPayload
 	if err := sonic.Unmarshal(uploadRaw, &upload); err != nil {
-		log.Error("rpc: decoding __prepare's RelUpload response", "function", route.PrepareFunction.Identifier.String(), "error", err.Error())
+		rlog.Error("rpc: decoding __prepare's RelUpload response", "function", route.PrepareFunction.Identifier.String(), "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
@@ -212,13 +215,13 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if hasUpload {
 		if upload.Path != nil && *upload.Path != "" {
 			if writeDir == "" {
-				log.Error("rpc: upload route resolved a path but no http.static.path directory is configured/exists", "path", *upload.Path)
+				rlog.Error("rpc: upload route resolved a path but no http.static.path directory is configured/exists", "path", *upload.Path)
 				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 				return
 			}
 			cleaned, ok := resolveUnderDir(writeDir, *upload.Path)
 			if !ok {
-				log.Error("rpc: upload __prepare returned a path escaping http.static.path", "path", *upload.Path)
+				rlog.Error("rpc: upload __prepare returned a path escaping http.static.path", "path", *upload.Path)
 				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 				return
 			}
@@ -236,7 +239,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			}
 			if upload.Mkdir {
 				if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
-					log.Error("rpc: upload mkdir", "path", finalPath, "error", err.Error())
+					rlog.Error("rpc: upload mkdir", "path", finalPath, "error", err.Error())
 					writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
 					return
 				}
@@ -248,7 +251,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			// accurate size.
 			tempPath = filepath.Join(writeDir, ".upload-"+randomToken())
 		} else {
-			log.Error("rpc: upload route has no http.static.path directory configured/exists to stage the discarded upload into")
+			rlog.Error("rpc: upload route has no http.static.path directory configured/exists to stage the discarded upload into")
 			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 			return
 		}
@@ -260,7 +263,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if hasUpload {
 		f, ferr := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if ferr != nil {
-			log.Error("rpc: creating temp upload file", "path", tempPath, "error", ferr.Error())
+			rlog.Error("rpc: creating temp upload file", "path", tempPath, "error", ferr.Error())
 			writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
 			return
 		}
@@ -338,8 +341,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// disk swap finalizes. Path omitted : the deferred cleanup above deletes
 	// the temp file instead — not an error.
 	if hasUpload && finalPath != "" {
-		if err := swapUploadIntoPlace(tempPath, finalPath, overwrite); err != nil {
-			log.Error("rpc: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
+		if err := swapUploadIntoPlace(rlog, tempPath, finalPath, overwrite); err != nil {
+			rlog.Error("rpc: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
 			writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
 			return
 		}
@@ -391,7 +394,7 @@ func randomToken() string {
 // caller has already committed the mandatory function's own DB write by
 // the time this runs, so this failure window never rolls that back, only
 // logs/500s per the spec's own documented limitation.
-func swapUploadIntoPlace(tempPath, finalPath, overwrite string) error {
+func swapUploadIntoPlace(rlog *slog.Logger, tempPath, finalPath, overwrite string) error {
 	dir := filepath.Dir(finalPath)
 	backupPath := filepath.Join(dir, ".upload-backup-"+randomToken())
 	hadExisting := false
@@ -405,7 +408,7 @@ func swapUploadIntoPlace(tempPath, finalPath, overwrite string) error {
 		// check passing means exactly such a race happened — worth a warning
 		// even though it isn't an error.
 		if overwrite == "disallow" {
-			log.Warn("rpc: upload overwrote an existing file at commit time despite overwrite:'disallow' — a concurrent request won the race after the early existence check", "path", finalPath)
+			rlog.Warn("rpc: upload overwrote an existing file at commit time despite overwrite:'disallow' — a concurrent request won the race after the early existence check", "path", finalPath)
 		}
 		if err := os.Rename(finalPath, backupPath); err != nil {
 			_ = os.Remove(tempPath)

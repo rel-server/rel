@@ -1,13 +1,14 @@
 // Package logging builds Rel's one process-wide *slog.Logger from
-// config.Logging, per specs/logging.md ## Configuration and ## Logger
-// construction — the only two sections this package implements.
+// config.Logging (## Configuration, ## Logger construction), and derives
+// per-request child loggers (## Request-scoped logging, request.go :
+// RequestMiddleware, FromContext) — three of specs/logging.md's five
+// sections.
 //
 // Deliberately NOT implemented here (documented, not silently dropped) :
-// ## Request-scoped logging (request-ID middleware, logging.FromContext),
-// ## Access logging (per-request log line), and ## Error integration with
-// samber/oops (a logging.Error(err) slog.Attr helper) — these belong with
-// the HTTP middleware/auth work that doesn't exist yet either, not a bare
-// process entrypoint. See cmd/rel's own plan notes.
+// ## Access logging (per-request summary log line) and ## Error
+// integration with samber/oops (a logging.Error(err) slog.Attr helper) —
+// no concrete driving need for either yet, unlike request-scoped logging
+// itself (specs/TODO.md tracked it as a real gap until it landed).
 package logging
 
 import (

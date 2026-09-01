@@ -74,9 +74,3 @@ or `query-engine.md` for discoverability, not urgent :
 - `typescript.md` has two mid-sentence truncations (line 16, "...but also eventual
   libraries that would want to _" ; line 25, "...given schema.json," with nothing after) —
   work in progress, being filled in directly.
-- `logging.md ## Request-scoped logging` is specified (request ID header : `X-Request-Id`,
-  confirmed) but not implemented — no middleware reads/generates the header, derives the
-  per-request child logger, or stores it on `context.Context` yet. `## Domain scoping`
-  (the `"module"` attribute) IS implemented (`logging.For`) ; this is the other, still-open
-  half of the same document.
-  >: Implement it, the header is not important as seeing the request ID in the logs

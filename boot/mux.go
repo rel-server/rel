@@ -19,6 +19,7 @@ import (
 	"net/http"
 
 	"github.com/ceymard/rel/config"
+	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/rpc"
 	"github.com/ceymard/rel/server"
@@ -28,8 +29,11 @@ import (
 
 // BuildMux assembles the full inner http.Handler — /rel, /rpc/, and (when
 // at least one http.static.path directory exists) /static/ — wrapped
-// uniformly in websec.Middleware (specs/http-content.md's own explicit
-// "CORS and CSP apply to /rel, /rpc, AND /static uniformly" rule). Both
+// uniformly in logging.RequestMiddleware (specs/logging.md ## Request-
+// scoped logging, so every log line any handler emits via
+// logging.FromContext(ctx) carries the same request_id) and
+// websec.Middleware (specs/http-content.md's own explicit "CORS and CSP
+// apply to /rel, /rpc, AND /static uniformly" rule). Both
 // cmd/rel/main.go (startup) and boot/reload.go's Reload (every SIGUSR1)
 // call this with a freshly built *rpc.Registry, so the two call sites
 // cannot drift on what the mux actually contains — registry-building
@@ -49,5 +53,5 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *rpc.Registry, logger *slo
 		logger.Debug("boot: no http.static.path directory found, /static/ is not mounted")
 	}
 
-	return websec.Middleware(cfg)(mux), nil
+	return logging.RequestMiddleware(websec.Middleware(cfg)(mux)), nil
 }
