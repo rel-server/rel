@@ -14,6 +14,4 @@ hotel.rate_plans:
       );
 
   meta:
-    - up: |
-        comment on table hotel.rate_plans is 'A property''s named rate/cancellation policy. cancellation_window is the one interval-typed column in this schema.';
-      down:
+    - comment on table hotel.rate_plans is 'A property''s named rate/cancellation policy. cancellation_window is the one interval-typed column in this schema.';

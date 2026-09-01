@@ -29,9 +29,40 @@ hotel.guests:
       );
 
   meta:
+    - comment on table hotel.guests is 'A person who can book a room.';
+    - comment on column hotel.guests.billing_address is 'Composite-typed column (hotel.address), not a join to a separate table - a guest only ever has one current billing address.';
+
+# Computed column : simplest possible case, a pure function of the row's own
+# columns.
+hotel.guest_full_name:
+  needs: [hotel.guests]
+  meta:
+    - |
+      create function hotel.guest_full_name(guest hotel.guests) returns text
+      language sql immutable strict as $$
+        select guest.first_name || ' ' || guest.last_name
+      $$;
+
+    - comment on function hotel.guest_full_name(hotel.guests) is 'Computed column : the guest''s display name.';
+
+# Test-purpose : exercises the OUT-argument-mode introspection path, which is
+# the uncommon case (proallargtypes/proargmodes only populate for OUT/INOUT/
+# VARIADIC/TABLE) — complements the plain-IN regression test in pg/. Paired
+# here with hotel.guest_full_name (join vs split of a name), not because it's
+# actually related to hotel.guests' own data.
+hotel.split_name:
+  needs: [hotel]
+  meta:
+    # Explicit up/down rather than relying on auto-down : dmut's auto-down for
+    # CREATE FUNCTION incorrectly includes OUT-mode parameters in the DROP
+    # FUNCTION signature, but Postgres's function signature for DROP purposes
+    # only includes IN/INOUT/VARIADIC parameters — verified directly, this is
+    # a dmut bug (separate repo, github.com/ceymard/dmut/v2), not a mistake
+    # here. Worked around rather than fixed, since it's out of scope for rel.
     - up: |
-        comment on table hotel.guests is 'A person who can book a room.';
-      down:
-    - up: |
-        comment on column hotel.guests.billing_address is 'Composite-typed column (hotel.address), not a join to a separate table - a guest only ever has one current billing address.';
-      down:
+        create function hotel.split_name(full_name text, out first_name text, out last_name text)
+        language sql immutable strict as $$
+          select split_part(full_name, ' ', 1), split_part(full_name, ' ', 2)
+        $$;
+      down: |
+        drop function hotel.split_name(text);

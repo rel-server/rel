@@ -11,6 +11,4 @@ hotel.loyalty_tiers:
       );
 
   meta:
-    - up: |
-        comment on table hotel.loyalty_tiers is 'Loyalty program tiers, looked up by name - deliberately a lookup table rather than an enum, unlike hotel.room_status/booking_status/payment_status.';
-      down:
+    - comment on table hotel.loyalty_tiers is 'Loyalty program tiers, looked up by name - deliberately a lookup table rather than an enum, unlike hotel.room_status/booking_status/payment_status.';

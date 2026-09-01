@@ -10,9 +10,7 @@ hotel.amenities:
       );
 
   meta:
-    - up: |
-        comment on table hotel.amenities is 'A catalog of amenities a property can offer (pool, gym, parking, ...).';
-      down:
+    - comment on table hotel.amenities is 'A catalog of amenities a property can offer (pool, gym, parking, ...).';
 
 hotel.property_amenities:
   needs: [hotel.properties, hotel.amenities]
@@ -25,6 +23,4 @@ hotel.property_amenities:
       );
 
   meta:
-    - up: |
-        comment on table hotel.property_amenities is 'Many-to-many: which amenities a property offers. Deliberately parallel to rooms.features (a plain array) - same kind of fact, modeled two different ways.';
-      down:
+    - comment on table hotel.property_amenities is 'Many-to-many: which amenities a property offers. Deliberately parallel to rooms.features (a plain array) - same kind of fact, modeled two different ways.';

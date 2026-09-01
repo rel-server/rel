@@ -14,6 +14,4 @@ hotel.room_types:
       );
 
   meta:
-    - up: |
-        comment on table hotel.room_types is 'A category of room offered by a property (e.g. Deluxe, Suite), with its own base price and capacity.';
-      down:
+    - comment on table hotel.room_types is 'A category of room offered by a property (e.g. Deluxe, Suite), with its own base price and capacity.';

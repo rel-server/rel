@@ -20,6 +20,4 @@ hotel.payments:
       );
 
   meta:
-    - up: |
-        comment on table hotel.payments is 'A charge (or refund) against a booking.';
-      down:
+    - comment on table hotel.payments is 'A charge (or refund) against a booking.';

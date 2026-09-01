@@ -21,6 +21,4 @@ hotel.reviews:
     - create index reviews_comment_search_idx on hotel.reviews using gin (comment_search);
 
   meta:
-    - up: |
-        comment on table hotel.reviews is 'A guest''s review of a property, optionally tied to the specific booking it followed.';
-      down:
+    - comment on table hotel.reviews is 'A guest''s review of a property, optionally tied to the specific booking it followed.';

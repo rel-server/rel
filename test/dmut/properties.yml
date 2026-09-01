@@ -22,6 +22,32 @@ hotel.properties:
     - create index properties_description_search_idx on hotel.properties using gin (description_search);
 
   meta:
-    - up: |
-        comment on table hotel.properties is 'A single hotel property belonging to a chain.';
-      down:
+    - comment on table hotel.properties is 'A single hotel property belonging to a chain.';
+
+# Computed column, aggregate over an incoming relation.
+hotel.property_average_rating:
+  needs: [hotel.properties, hotel.reviews]
+  meta:
+    - |
+      create function hotel.property_average_rating(property hotel.properties) returns numeric
+      language sql stable strict as $$
+        select avg(rating)
+        from hotel.reviews
+        where property_id = property.id
+      $$;
+
+    - comment on function hotel.property_average_rating(hotel.properties) is 'Computed column : average review rating for this property.';
+
+# Test-purpose : a table-valued/SETOF function, exercising query.ts's
+# `arguments`-driven function-relations (not a computed column — this is a
+# node in its own right, joinable/selectable like any other relation).
+# Searches hotel.properties.description_search, the FTS column built above.
+hotel.search_properties:
+  needs: [hotel.properties]
+  meta:
+    - |
+      create function hotel.search_properties(query text) returns setof hotel.properties
+      language sql stable as $$
+        select * from hotel.properties
+        where description_search @@ websearch_to_tsquery('english', query)
+      $$;

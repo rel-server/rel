@@ -23,6 +23,4 @@ hotel.payment_methods:
       );
 
   meta:
-    - up: |
-        comment on table hotel.payment_methods is 'A guest''s saved payment method. Only ever stores a non-reversible summary (brand/last4/expiry) - never a full card number, even in test fixtures.';
-      down:
+    - comment on table hotel.payment_methods is 'A guest''s saved payment method. Only ever stores a non-reversible summary (brand/last4/expiry) - never a full card number, even in test fixtures.';

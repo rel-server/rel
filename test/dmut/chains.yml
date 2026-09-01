@@ -9,6 +9,4 @@ hotel.chains:
       );
 
   meta:
-    - up: |
-        comment on table hotel.chains is 'A hotel group operating one or more properties under a shared brand.';
-      down:
+    - comment on table hotel.chains is 'A hotel group operating one or more properties under a shared brand.';

@@ -21,6 +21,52 @@ hotel.rooms:
       );
 
   meta:
-    - up: |
-        comment on table hotel.rooms is 'A single physical room within a property.';
-      down:
+    - comment on table hotel.rooms is 'A single physical room within a property.';
+
+# Computed column, a one-hop lookup through an outgoing relation.
+hotel.room_effective_rate:
+  needs: [hotel.rooms, hotel.room_types]
+  meta:
+    - |
+      create function hotel.room_effective_rate(room hotel.rooms) returns numeric
+      language sql stable strict as $$
+        select base_price from hotel.room_types where id = room.room_type_id
+      $$;
+
+    - comment on function hotel.room_effective_rate(hotel.rooms) is 'Computed column : this room''s nightly rate, from its room type.';
+
+# Test-purpose : a default argument value (on_date defaults to current_date).
+# FunctionArgument doesn't currently capture default values at all — this
+# exists to surface that gap, not to fix it here.
+#
+# Same parameter/column name collision as hotel.booking_stats ; same fix
+# (qualify with the function's own name).
+hotel.rooms_available:
+  needs: [hotel.rooms, hotel.bookings]
+  meta:
+    - |
+      create function hotel.rooms_available(property_id bigint, on_date date default current_date)
+      returns setof hotel.rooms
+      language sql stable as $$
+        select r.* from hotel.rooms r
+        where r.property_id = rooms_available.property_id
+        and not exists (
+          select 1 from hotel.bookings b
+          where b.room_id = r.id
+          and b.stay @> on_date::timestamptz
+          and b.status in ('confirmed', 'checked_in')
+        )
+      $$;
+
+# Test-purpose : exercises VARIADIC argument-mode introspection. Paired here
+# with hotel.rooms since it's a natural helper over rooms.features (a plain
+# text[] column) — building a display string from it — not because the
+# function itself references the column.
+hotel.concat_features:
+  needs: [hotel]
+  meta:
+    - |
+      create function hotel.concat_features(sep text, variadic parts text[]) returns text
+      language sql immutable as $$
+        select array_to_string(parts, sep)
+      $$;

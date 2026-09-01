@@ -11,6 +11,4 @@ hotel.booking_guests:
       );
 
   meta:
-    - up: |
-        comment on table hotel.booking_guests is 'Many-to-many: every guest actually staying on a booking, beyond just the primary booker on hotel.bookings.guest_id.';
-      down:
+    - comment on table hotel.booking_guests is 'Many-to-many: every guest actually staying on a booking, beyond just the primary booker on hotel.bookings.guest_id.';

@@ -13,6 +13,4 @@ hotel.staff:
       );
 
   meta:
-    - up: |
-        comment on table hotel.staff is 'Property staff, self-referencing via manager_id - kept as the fixture''s instance of the self-join case from query-engine.md''s own worked example.';
-      down:
+    - comment on table hotel.staff is 'Property staff, self-referencing via manager_id - kept as the fixture''s instance of the self-join case from query-engine.md''s own worked example.';
