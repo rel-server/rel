@@ -63,11 +63,12 @@ func RenewIfDue(cfg config.Jwt, w http.ResponseWriter, claims Claims) Claims {
 // ClearSessionCookie deletes any Set-Cookie header already written to w and
 // writes the clearing cookie in its place — server/rel.go's applyRole and
 // /rpc's two check-session-rejection sites all need this exact sequence :
-// Header().Del first, since http.SetCookie itself only Adds, and a renewed-
-// but-now-rejected session would otherwise leave two Set-Cookie headers (a
-// still-valid renewed token, then the clear). Safe to call even where
-// nothing has been set yet (the /rpc sites, where renewal always happens
-// AFTER check_session) — Del is then just a no-op.
+// Header().Del first, since http.SetCookie itself only Adds. Renewal (step
+// 4) always runs AFTER check_session (step 3) at every one of these call
+// sites, so nothing has actually set a cookie yet by the time this runs —
+// the Del is a no-op today, kept as a guard against a future call site
+// that renews earlier for some reason (a still-valid renewed token would
+// otherwise leave two Set-Cookie headers alongside the clear).
 func ClearSessionCookie(cfg config.Jwt, w http.ResponseWriter) {
 	w.Header().Del("Set-Cookie")
 	http.SetCookie(w, ClearCookie(cfg))

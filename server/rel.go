@@ -47,9 +47,10 @@ type resolvedItem struct {
 // ("all of them MUST be POST") and ## Response Shape. db.Pool is acquired
 // from once per request ; cfg drives scope/blacklist resolution exactly as
 // query.ResolveContext already does in every pass-1/2 test. Wrapped in
-// jwt.Middleware (Lifecycle steps 2/Verify and 4/Renew) — handleRel itself
-// does step 3/Check and step 5/Apply role once it has a connection, reading
-// the (possibly-renewed) claims jwt.FromContext left behind.
+// jwt.Middleware (Lifecycle step 2/Verify only) — applyRole (called from
+// handleRel once it has a connection) does step 3/Check, step 4/Renew, and
+// step 5/Apply role, in that order, reading the claims jwt.FromContext
+// left behind.
 func NewRelHandler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
@@ -213,9 +214,9 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	// JWT Lifecycle steps 3 (Check) and 5 (Apply role) — see
-	// jwt.Middleware's own doc comment for why these two, unlike Verify/
-	// Renew, run here rather than as generic middleware : both need this
+	// JWT Lifecycle steps 3 (Check), 4 (Renew), and 5 (Apply role) — see
+	// jwt.Middleware's own doc comment for why these three, unlike Verify,
+	// run here rather than as generic middleware : all three need this
 	// connection, which doesn't exist yet when the middleware runs.
 	// SET LOCAL ROLE, not session-scoped SET ROLE : the whole request now
 	// runs as ONE transaction, write phase and every item's read-back alike
@@ -390,27 +391,32 @@ func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, 
 	return streamRows(w, rows, cleanErrorPossible)
 }
 
-// applyRole runs Lifecycle steps 3 (Check) and 5 (Apply role) on conn,
-// using the claims jwt.Middleware already verified/renewed. conn must
-// already be inside an open transaction — SET LOCAL ROLE is transaction-
-// scoped and reverts automatically at that transaction's own commit/
-// rollback, so unlike an earlier version of this function there is no
-// cleanup closure to run : the caller's own rollback-on-error path (and,
+// applyRole runs Lifecycle steps 3 (Check), 4 (Renew), and 5 (Apply role)
+// on conn, using the claims jwt.Middleware already verified — in that exact
+// order, matching rpc/handler.go's handleRpc and rpc/upload_handler.go's
+// handleUploadRoute (see jwt/middleware.go's own doc comment for why Renew
+// belongs here rather than in Middleware : /rel used to renew before
+// check, the other two after — the spec's own order — so check_session
+// saw different claims depending on transport ; git log has the commit
+// that unified it). conn must already be inside an open transaction — SET
+// LOCAL ROLE is transaction-scoped and reverts automatically at that
+// transaction's own commit/rollback, so unlike an earlier version of this
+// function there is no cleanup closure to run : the caller's own rollback-on-error path (and,
 // on success, the request's single final commit) already does it. Any
 // returned error is already a *requestError, ready for writeError.
 func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) error {
 	claims, verified := jwtpkg.FromContext(r.Context())
 
-	// jwt.Middleware runs Renew (step 4) BEFORE this handler ever gets to
-	// run Check (step 3) — the reverse of the spec's own step order,
-	// unavoidable here since Renew needs no DB and Check does (see
-	// jwt/middleware.go's doc comment). jwtpkg.ClearSessionCookie's own
-	// Header().Del is what makes clearing safe despite that ordering : a
-	// renewed-but-now-rejected session would otherwise leave TWO Set-Cookie
-	// headers (http.SetCookie uses Header().Add, not Set).
+	// jwtpkg.ClearSessionCookie's own Header().Del guards against a stray
+	// Set-Cookie some earlier point in the request already wrote — nothing
+	// does today (Renew runs AFTER this, not before), but the Del keeps
+	// this safe even if that ever changes, at zero cost when it's a no-op.
 	if cerr := dbauth.CheckSessionIfConfigured(ctx, conn, cfg.Http.Functions.CheckSession, claims, verified); cerr != nil {
 		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
 		return classifyCheckSessionError(cerr)
+	}
+	if verified {
+		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
 	}
 
 	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)

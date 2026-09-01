@@ -185,6 +185,66 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	}
 }
 
+// TestRelHandler_CheckSessionSeesPreRenewalClaims proves applyRole's
+// Check-then-Renew ordering (specs/TODO.md's resolved "SET LOCAL ROLE /
+// auth timing" entry) actually took effect on /rel, matching /rpc : a
+// token past renewafter still gets check_session called with its
+// ORIGINAL (pre-renewal) "iat", never the renewed one, since Renew (step
+// 4) now runs strictly after Check (step 3) here too — /rel used to renew
+// first, inside jwt.Middleware, before this handler ever got a chance to
+// run check_session at all.
+func TestRelHandler_CheckSessionSeesPreRenewalClaims(t *testing.T) {
+	cfg := config.Test()
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
+	cfg.Http.Functions.CheckSession = "public.check_session"
+	cfg.Jwt.MaxAge = 5
+	cfg.Jwt.RenewAfter = 0.1
+	handler := NewRelHandler(testDb, cfg)
+
+	toggleSessionControl(t, false)
+	defer toggleSessionControl(t, false)
+
+	originalClaims := jwtpkg.Mint(cfg.Jwt, "authenticated_user", time.Now(), cfg.Jwt.MaxAge, nil)
+	token, err := jwtpkg.Sign(cfg.Jwt, originalClaims)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	cookie := jwtpkg.CookieValue(cfg.Jwt, token, originalClaims, "")
+	originalIat := jwtpkg.IssuedAt(originalClaims).Unix()
+
+	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold
+
+	rec := postRelWithCookie(t, handler, `{
+		"relation": "secret_notes", "schema": "public", "select": ["own"]
+	}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	renewed := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cfg.Jwt.CookieName && c.Value != cookie.Value {
+			renewed = true
+		}
+	}
+	if !renewed {
+		t.Fatalf("expected a renewed Set-Cookie (precondition for this test), got %v", rec.Result().Cookies())
+	}
+
+	conn, err := testDb.Pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+	var seenIat float64
+	if err := conn.QueryRow(context.Background(), "select iat from last_check_session_iat").Scan(&seenIat); err != nil {
+		t.Fatalf("reading last_check_session_iat: %v", err)
+	}
+	if int64(seenIat) != originalIat {
+		t.Errorf("expected check_session to see the pre-renewal iat=%d, got %v", originalIat, seenIat)
+	}
+}
+
 // TestRelHandler_AnonymousRoleDoesNotExist_Is401 is
 // specs/authentication.md "# Roles ## Anonymous role existence" for
 // /rel specifically : a completely separate DbInfos, built against the

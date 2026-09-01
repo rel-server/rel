@@ -17,38 +17,43 @@ var log = logging.For("jwt")
 type contextKey struct{}
 
 // requestSession is what Middleware stashes in the request context : the
-// (possibly-renewed) claims and whether a session was actually verified —
+// verified claims and whether a session was actually verified —
 // rpc.md ## HTTP's "dispatched dynamically... implemented as
 // ordinary func(http.Handler) http.Handler middleware" applies only to
-// Verify (step 2) and Renew (step 4) here : Check (step 3, the
-// check_session function) and Apply role (step 5) both need the request's
-// own DB connection/transaction, which doesn't exist yet at the point
-// generic middleware runs — those two steps stay the calling handler's own
-// responsibility (see rpc/handler.go's handleRpc, and server/rel.go's
-// applyRole), immediately after acquiring a connection. This divergence
-// from the spec's literal "all four steps are middleware" wording is
-// recorded in specs/TODO.md under "SET LOCAL ROLE / auth timing".
+// Verify (step 2) here : Check (step 3, the check_session function), Renew
+// (step 4), and Apply role (step 5) all need the request's own DB
+// connection/transaction, which doesn't exist yet at the point generic
+// middleware runs — those three steps stay the calling handler's own
+// responsibility, immediately after acquiring a connection, in that exact
+// order (rpc/handler.go's handleRpc, rpc/upload_handler.go's
+// handleUploadRoute, and server/rel.go's applyRole all now do Check then
+// Renew then Apply role uniformly — this used to diverge, /rel renewing
+// here in Middleware BEFORE Check ever ran, so check_session saw
+// post-renewal claims on /rel but pre-renewal claims on /rpc ; fixed by
+// moving Renew out of Middleware and into applyRole, see git log for the
+// commit that changed it).
 type requestSession struct {
 	claims   Claims
 	verified bool
 }
 
-// Middleware implements Lifecycle steps 2 (Verify) and 4 (Renew) : reads
+// Middleware implements Lifecycle step 2 (Verify) only : reads
 // cfg.Jwt.CookieName off the request, verifies it (any failure — missing
 // cookie, bad signature, expired, session-ceiling exceeded — is "no
-// session", never an error in its own right, per step 2), renews and writes
-// a fresh Set-Cookie if due, then stashes the resulting claims in the
-// request context for the next handler to read via FromContext. Verify
-// failures are logged at Debug (reason only, never the token) since a
-// forged token and an honestly-expired one are otherwise indistinguishable
-// to an operator.
+// session", never an error in its own right, per step 2), then stashes the
+// claims in the request context for the next handler to read via
+// FromContext. Verify failures are logged at Debug (reason only, never the
+// token) since a forged token and an honestly-expired one are otherwise
+// indistinguishable to an operator.
+//
+// Renew (step 4) is deliberately NOT run here — see requestSession's own
+// doc comment : it needs to run AFTER Check (step 3), which needs a DB
+// connection Middleware doesn't have, so bundling Renew into this
+// DB-independent middleware would put it before Check, the wrong order.
 func Middleware(cfg config.Jwt) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, verified := verifyRequest(cfg, r)
-			if verified {
-				claims = RenewIfDue(cfg, w, claims)
-			}
 			ctx := context.WithValue(r.Context(), contextKey{}, requestSession{claims: claims, verified: verified})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

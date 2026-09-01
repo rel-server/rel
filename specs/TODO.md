@@ -66,6 +66,7 @@ or `query-engine.md` for discoverability, not urgent :
      specific code, since the `query` package doesn't tag its own errors with a `Code` at
      the point each is raised. Requires threading `oc.Code(...)` through `query`'s own
      error-construction sites, a separate, larger pass.
+    >: Well, they should, implement it
   2. `pgerr.Classify`'s `PG_*` table only recognizes 5 SQLSTATEs (unique/FK/not_null/check
      violation, permission_denied). Deliberately small per the spec's own "small fixed
      table" wording — expand only if a concrete need for another class's HTTP semantics
@@ -78,17 +79,4 @@ or `query-engine.md` for discoverability, not urgent :
   per-request child logger, or stores it on `context.Context` yet. `## Domain scoping`
   (the `"module"` attribute) IS implemented (`logging.For`) ; this is the other, still-open
   half of the same document.
-- **`/rel` vs `/rpc`'s JWT renew/check-session ordering ("SET LOCAL ROLE / auth timing").**
-  `jwt.Middleware` (wrapping `/rel`) runs Renew (Lifecycle step 4) before the handler ever
-  reaches Check (step 3, `check_session`), since Renew needs no DB and Check does — the
-  reverse of the spec's own step order. `rpc/handler.go`'s `handleRpc` and
-  `rpc/upload_handler.go`'s `handleUploadRoute` instead check first, then renew, matching
-  the spec's own ordering, because both already hold a connection/transaction by the point
-  Verify/Renew would otherwise run. Net effect : `check_session` sees pre-renewal claims
-  (iat/exp) on `/rpc` but post-renewal claims on `/rel`. Deliberately left unmerged during
-  the role/session sharing pass that factored `jwt.RenewIfDue`/`jwt.ResolveRole`/
-  `dbauth.CheckSessionIfConfigured` — using `RenewIfDue` in Middleware to also drive `/rpc`
-  would unify the ordering, but changes which claims `check_session` sees, a behavior
-  change, not a pure refactor. Needs a decision : is this divergence acceptable (each
-  transport's own DB-availability constraint dictating its own step order), or should
-  `check_session` always see the same claims regardless of transport?
+  >: Implement it, the header is not important as seeing the request ID in the logs
