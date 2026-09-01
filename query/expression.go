@@ -128,12 +128,12 @@ const (
 	UnaryNeg        UnaryOperator = "-"
 	UnaryNot        UnaryOperator = "not"
 	UnaryBitNot     UnaryOperator = "~"
-	UnaryIsNull     UnaryOperator = "is-null"
-	UnaryIsTrue     UnaryOperator = "is-true"
-	UnaryIsFalse    UnaryOperator = "is-false"
-	UnaryIsNotNull  UnaryOperator = "is-not-null"
-	UnaryIsNotTrue  UnaryOperator = "is-not-true"
-	UnaryIsNotFalse UnaryOperator = "is-not-false"
+	UnaryIsNull     UnaryOperator = "is_null"
+	UnaryIsTrue     UnaryOperator = "is_true"
+	UnaryIsFalse    UnaryOperator = "is_false"
+	UnaryIsNotNull  UnaryOperator = "is_not_null"
+	UnaryIsNotTrue  UnaryOperator = "is_not_true"
+	UnaryIsNotFalse UnaryOperator = "is_not_false"
 	UnarySqrt       UnaryOperator = "|/"
 	UnaryCubeRoot   UnaryOperator = "||/"
 )
@@ -209,11 +209,11 @@ const (
 	// ParseExpression normalizes the latter into this at parse time, so
 	// nothing downstream has to know both spellings exist.
 	FoldNeq FoldedOperator = "<>"
-	// FoldIsDistinctFrom is canonical for both "is-distinct-from" and "!==".
-	FoldIsDistinctFrom FoldedOperator = "is-distinct-from"
-	// FoldIsNotDistinctFrom is canonical for both "is-not-distinct-from" and
+	// FoldIsDistinctFrom is canonical for both "is_distinct_from" and "!==".
+	FoldIsDistinctFrom FoldedOperator = "is_distinct_from"
+	// FoldIsNotDistinctFrom is canonical for both "is_not_distinct_from" and
 	// "===".
-	FoldIsNotDistinctFrom FoldedOperator = "is-not-distinct-from"
+	FoldIsNotDistinctFrom FoldedOperator = "is_not_distinct_from"
 )
 
 // FoldedExpr is the post-folding, always-exactly-two-operand form of a
@@ -230,14 +230,14 @@ type FoldedExpr struct {
 
 // ---- between / in / any-all ----------------------------------------------------
 
-// BetweenExpr is ["between"|"not-between", min, exp, max].
+// BetweenExpr is ["between"|"not_between", min, exp, max].
 type BetweenExpr struct {
 	notYetValidated
 	Negate        bool
 	Min, Exp, Max Expression
 }
 
-// InCandidate is one candidate of an in/not-in list. A bare JSON string
+// InCandidate is one candidate of an in/not_in list. A bare JSON string
 // candidate means a literal string there — query.ts's explicit carve-out
 // ("candidates literal strings are here treated as literal strings and not
 // columns") — unlike every other Expression position, where a bare string
@@ -249,7 +249,7 @@ type InCandidate struct {
 	Expr      Expression
 }
 
-// InExpr is ["in"|"not-in", subject, ...candidates].
+// InExpr is ["in"|"not_in", subject, ...candidates].
 type InExpr struct {
 	notYetValidated
 	Negate     bool
@@ -351,31 +351,31 @@ type OwnExpr struct{ notYetValidated }
 // when unspecified.
 type FullExpr struct{ notYetValidated }
 
-// OwnExceptExpr is ["own-except", except].
+// OwnExceptExpr is ["own_except", except].
 type OwnExceptExpr struct {
 	notYetValidated
 	Except []string
 }
 
-// FullExceptExpr is ["full-except", except].
+// FullExceptExpr is ["full_except", except].
 type FullExceptExpr struct {
 	notYetValidated
 	Except []string
 }
 
-// OwnAndExpr is ["own-and", and].
+// OwnAndExpr is ["own_and", and].
 type OwnAndExpr struct {
 	notYetValidated
 	And map[string]Expression
 }
 
-// FullAndExpr is ["full-and", and].
+// FullAndExpr is ["full_and", and].
 type FullAndExpr struct {
 	notYetValidated
 	And map[string]Expression
 }
 
-// OwnExceptAndExpr is ["own-except-and", except, and]. merge_with (And)
+// OwnExceptAndExpr is ["own_except_and", except, and]. merge_with (And)
 // cannot shadow keys implicitly per query.ts's comment ; that's a pass 2
 // validation concern, not enforced by this shape.
 type OwnExceptAndExpr struct {
@@ -384,7 +384,7 @@ type OwnExceptAndExpr struct {
 	And    map[string]Expression
 }
 
-// FullExceptAndExpr is ["full-except-and", except, and]. Same shadowing note
+// FullExceptAndExpr is ["full_except_and", except, and]. Same shadowing note
 // as OwnExceptAndExpr.
 type FullExceptAndExpr struct {
 	notYetValidated

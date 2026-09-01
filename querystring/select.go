@@ -78,7 +78,6 @@ func tryCompileOwnFull(s string) (any, bool, error) {
 		return nil, false, nil
 	}
 	p.i++ // consume '('
-	tag := strings.ReplaceAll(ident, "_", "-")
 
 	switch ident {
 	case "own_except", "full_except":
@@ -89,7 +88,7 @@ func tryCompileOwnFull(s string) (any, bool, error) {
 		if err := requireExhausted(p); err != nil {
 			return nil, true, err
 		}
-		return []any{tag, except}, true, nil
+		return []any{ident, except}, true, nil
 
 	case "own_and", "full_and":
 		and, err := parseAndMapUntilClose(p)
@@ -99,7 +98,7 @@ func tryCompileOwnFull(s string) (any, bool, error) {
 		if err := requireExhausted(p); err != nil {
 			return nil, true, err
 		}
-		return []any{tag, and}, true, nil
+		return []any{ident, and}, true, nil
 
 	case "own_except_and", "full_except_and":
 		except, and, err := parseExceptAndUntilClose(p)
@@ -109,7 +108,7 @@ func tryCompileOwnFull(s string) (any, bool, error) {
 		if err := requireExhausted(p); err != nil {
 			return nil, true, err
 		}
-		return []any{tag, except, and}, true, nil
+		return []any{ident, except, and}, true, nil
 	}
 	return nil, false, nil
 }

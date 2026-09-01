@@ -28,7 +28,7 @@ import (
 type NodeShape struct {
 	// Fields is node.Select's resolved Shape (see selectShape,
 	// expression_resolve.go) — own/full column expansion, child aliases, and
-	// computed (own-and/full-and/object-literal) keys uniformly, at any
+	// computed (own_and/full_and/object-literal) keys uniformly, at any
 	// nesting depth. nil for a computed key whose expression isn't itself
 	// chainable (e.g. arithmetic), which is a legitimately opaque terminal,
 	// not a gap ; empty entirely if Select isn't a shape-producing

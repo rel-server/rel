@@ -562,7 +562,7 @@ func TestCompileSelect_ToOneEmbed(t *testing.T) {
 }
 
 // TestCompileSelect_ScalarHopThroughOutgoing proves query-engine.md's new
-// "." hop through a to-one relation : ["own-and", {"director_name": [".",
+// "." hop through a to-one relation : ["own_and", {"director_name": [".",
 // "director", "name"]}] pulls director.name straight into movie's own flat
 // select, with no nested "director" object at all — the mechanism
 // discussed this session as an alternative to always embedding the whole
@@ -580,7 +580,7 @@ func TestCompileSelect_ScalarHopThroughOutgoing(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "movie", "schema": "public",
-		"select": ["own-and", {"director_name": [".", "director", "name"]}],
+		"select": ["own_and", {"director_name": [".", "director", "name"]}],
 		"where": ["=", "id", %d],
 		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}
 	}`, movieID))
@@ -615,7 +615,7 @@ func TestCompileSelect_ScalarHopThroughOutgoing_NullTarget(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "director", "schema": "public",
-		"select": ["own-and", {"studio_name": [".", "studio", "name"]}],
+		"select": ["own_and", {"studio_name": [".", "studio", "name"]}],
 		"where": ["=", "id", %d],
 		"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}
 	}`, directorID))
@@ -651,7 +651,7 @@ func TestCompileSelect_ScalarHopThroughTwoOutgoingLevels(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "movie", "schema": "public",
-		"select": ["own-and", {"studio_name": [".", [".", "director", "studio"], "name"]}],
+		"select": ["own_and", {"studio_name": [".", [".", "director", "studio"], "name"]}],
 		"where": ["=", "id", %d],
 		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"},
 			"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}
@@ -688,7 +688,7 @@ func TestCompileSelect_ScalarHopAlongsideFullEmbed(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "movie", "schema": "public",
-		"select": ["own-and", {"director": "director", "director_name": [".", "director", "name"]}],
+		"select": ["own_and", {"director": "director", "director_name": [".", "director", "name"]}],
 		"where": ["=", "id", %d],
 		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
 	}`, movieID))
@@ -715,7 +715,7 @@ func TestCompileSelect_ScalarHopAlongsideFullEmbed(t *testing.T) {
 func TestCompileSelect_ScalarHopThroughIncoming_Rejected(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own-and", {"a_title": [".", "movies", "title"]}],
+		"select": ["own_and", {"a_title": [".", "movies", "title"]}],
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
 	}`)
 	_, err := CompileSelect(node)
@@ -761,7 +761,7 @@ func TestCompileSelect_AggSingleConsumer_NoLateral(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "director", "schema": "public",
-		"select": ["own-and", {"movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]]}],
+		"select": ["own_and", {"movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]]}],
 		"where": ["=", "id", %d],
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
 	}`, directorID))
@@ -1010,7 +1010,7 @@ func TestCompileSelect_Between(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "director", "schema": "public",
-		"select": ["own-except", []],
+		"select": ["own_except", []],
 		"where": ["between", %d, "id", %d]
 	}`, directorID, directorID))
 	sql, args := mustCompileSelect(t, node)
@@ -1029,7 +1029,7 @@ func TestCompileSelect_InLiteralAndExpr(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own-except", []],
+		"select": ["own_except", []],
 		"where": ["in", "name", "In Test Director", "Someone Else"]
 	}`)
 	sql, args := mustCompileSelect(t, node)
@@ -1048,7 +1048,7 @@ func TestCompileSelect_AnyAll(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "director", "schema": "public",
-		"select": ["own-except", []],
+		"select": ["own_except", []],
 		"where": ["any", "=", "id", ["arr", %d, -1]]
 	}`, directorID))
 	sql, args := mustCompileSelect(t, node)
@@ -1136,13 +1136,13 @@ func TestCompileSelect_NestedShapeAsValue(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	// own-except reached as a nested VALUE (not the node's own top-level
+	// own_except reached as a nested VALUE (not the node's own top-level
 	// select) exercises compileShapeAsJsonObject — a separate codepath
 	// from compileNode's plain-column select list, and one that also
 	// binds its keys via jsonb_build_object.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "basic": ["own-except", ["id"]]},
+		"select": {"id": "id", "basic": ["own_except", ["id"]]},
 		"where": ["=", "name", ["Nested Shape Director"]]
 	}`)
 	sql, args := mustCompileSelect(t, node)
@@ -1165,12 +1165,12 @@ func TestCompileSelect_UnaryOperators(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	// "not" (prefix) and "is-not-null" (postfix) exercise both templates
+	// "not" (prefix) and "is_not_null" (postfix) exercise both templates
 	// in compileUnary's per-operator table — untested until now.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own-except", []],
-		"where": ["and", ["is-not-null", "name"], ["not", ["=", "name", ["Someone Else"]]]]
+		"select": ["own_except", []],
+		"where": ["and", ["is_not_null", "name"], ["not", ["=", "name", ["Someone Else"]]]]
 	}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
@@ -1192,13 +1192,13 @@ func TestCompileSelect_NotInAndNotBetween(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	// Negate is set (not-in / not-between) but never exercised — a wrong
+	// Negate is set (not_in / not_between) but never exercised — a wrong
 	// "not " placement here is a syntax error at execution, not a compile
 	// error, so this needs to run against real Postgres.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own-except", []],
-		"where": ["and", ["not-in", "name", "Someone Else", "Nobody"], ["not-between", "id", -1, 0]]
+		"select": ["own_except", []],
+		"where": ["and", ["not_in", "name", "Someone Else", "Nobody"], ["not_between", "id", -1, 0]]
 	}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)

@@ -231,7 +231,7 @@ func TestResolveExpressions_GetSetUnknownColumn(t *testing.T) {
 }
 
 func TestResolveExpressions_ExceptValidation(t *testing.T) {
-	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": ["full-except", ["no_such_column"]]}`)
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": ["full_except", ["no_such_column"]]}`)
 	if err == nil {
 		t.Fatalf("expected an unknown except column to be rejected")
 	}
@@ -366,7 +366,7 @@ func TestDeriveShapes_RelationRequiresIdentityWritable(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"write_mode": "update",
-		"select": ["own-except", ["id"]]
+		"select": ["own_except", ["id"]]
 	}`)
 	if node.Shape.Writable {
 		t.Errorf("expected the relation to be unwritable when its PK is excluded from select")
@@ -394,7 +394,7 @@ func TestDeriveShapes_TreeLevelReadOnlyPropagation(t *testing.T) {
 			"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
 				"write_mode": "update",
-				"select": ["own-except", ["id"]]
+				"select": ["own_except", ["id"]]
 			}
 		}
 	}`)
@@ -415,7 +415,7 @@ func TestDeriveShapes_ExplicitReadonlyChildDoesNotPropagate(t *testing.T) {
 			"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
 				"write_mode": "readonly",
-				"select": ["own-except", ["id"]]
+				"select": ["own_except", ["id"]]
 			}
 		}
 	}`)
@@ -467,7 +467,7 @@ func TestResolveExpressions_ComputedKeyHop(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own-and", {"t": "title"}]
+			"select": ["own_and", {"t": "title"}]
 		}},
 		"where": [".", "movies", "t"]
 	}`)
@@ -503,7 +503,7 @@ func TestResolveExpressions_OwnAndNestedInsideObjectLiteral(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": {"info": ["own-and", {"t": "title"}]}
+			"select": {"info": ["own_and", {"t": "title"}]}
 		}},
 		"where": [".", [".", "movies", "info"], "t"]
 	}`)
@@ -511,7 +511,7 @@ func TestResolveExpressions_OwnAndNestedInsideObjectLiteral(t *testing.T) {
 	id := outer.Right.(*Identifier)
 	cp, ok := id.Resolved.(ColumnPath)
 	if !ok || cp.Path[0].Name != "title" {
-		t.Fatalf("expected own-and's computed key \"t\", nested inside an object literal, to land on movie.title, got %#v", id.Resolved)
+		t.Fatalf("expected own_and's computed key \"t\", nested inside an object literal, to land on movie.title, got %#v", id.Resolved)
 	}
 }
 
@@ -521,7 +521,7 @@ func TestResolveExpressions_OwnAndNestedInsideObjectLiteral_BaseColumn(t *testin
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": {"info": ["own-and", {"t": "title"}]}
+			"select": {"info": ["own_and", {"t": "title"}]}
 		}},
 		"where": [".", [".", "movies", "info"], "id"]
 	}`)
@@ -529,12 +529,12 @@ func TestResolveExpressions_OwnAndNestedInsideObjectLiteral_BaseColumn(t *testin
 	id := outer.Right.(*Identifier)
 	cp, ok := id.Resolved.(ColumnPath)
 	if !ok || cp.Path[0].Name != "id" {
-		t.Fatalf("expected own-and's base column \"id\", nested inside an object literal, to be reachable, got %#v", id.Resolved)
+		t.Fatalf("expected own_and's base column \"id\", nested inside an object literal, to be reachable, got %#v", id.Resolved)
 	}
 }
 
 func TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn(t *testing.T) {
-	// query.ts's own-except-and/full-except-and comment : "and" MAY specify a
+	// query.ts's own_except_and/full_except_and comment : "and" MAY specify a
 	// key that was omitted via "except" — that's a legal override, not a
 	// build-time collision, since the base no longer has that column once
 	// omitted. (A parent hopping externally into "movies.title" afterwards
@@ -548,7 +548,7 @@ func TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own-except-and", ["title"], {"title": "id"}]
+			"select": ["own_except_and", ["title"], {"title": "id"}]
 		}}
 	}`)
 	movies := node.IncomingNodes[0]
@@ -561,14 +561,14 @@ func TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn(t *testing.T) {
 
 func TestResolveExpressions_AndKeyImplicitlyShadowsColumn_Error(t *testing.T) {
 	// query.ts's comment : "merge_with cannot shadow keys implicitly ; this
-	// is an error" — a plain own-and colliding with a real, non-omitted
+	// is an error" — a plain own_and colliding with a real, non-omitted
 	// column must be rejected, not silently overridden.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own-except-and", ["director_id"], {"title": "id"}]
+			"select": ["own_except_and", ["director_id"], {"title": "id"}]
 		}},
 		"where": [".", "movies", "title"]
 	}`)
@@ -592,7 +592,7 @@ func TestResolveExpressions_SelfHopInsideOwnSelect_Error(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"alias": "d",
-		"select": ["own-and", {"x": "name", "y": [".", "d", "x"]}]
+		"select": ["own_and", {"x": "name", "y": [".", "d", "x"]}]
 	}`)
 	if err == nil {
 		t.Fatalf("expected a select hopping into one of its own node's computed keys via a self-alias to be rejected, not silently resolved or to hang")
@@ -605,14 +605,14 @@ func TestResolveExpressions_SelfHopFromWhereIntoOwnShape_Error(t *testing.T) {
 	// select (ResolveExpressions), so without ctx.resolvingOwn this hop
 	// would reach selectShape while node.Select is still fully unresolved
 	// scope-only (LookupInScope finds nothing for a name that only exists
-	// as an own-and computed key), silently returning the computed value
+	// as an own_and computed key), silently returning the computed value
 	// instead of being rejected — a node's own where must not see its own
 	// select's computed keys, regardless of resolution order between them.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
 		"alias": "d",
-		"select": ["own-and", {"x": "name"}],
+		"select": ["own_and", {"x": "name"}],
 		"where": [".", "d", "x"]
 	}`)
 	if err == nil {
@@ -634,7 +634,7 @@ func TestResolveExpressions_ExceptAndOverrideAmbiguousFromOutside_Error(t *testi
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own-except-and", ["title"], {"title": "id"}]
+			"select": ["own_except_and", ["title"], {"title": "id"}]
 		}},
 		"where": [".", "movies", "title"]
 	}`)
@@ -649,7 +649,7 @@ func TestResolveExpressions_ComputedKeyCollidesWithColumn_Error(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own-and", {"title": "id"}]
+			"select": ["own_and", {"title": "id"}]
 		}},
 		"where": [".", "movies", "title"]
 	}`)
@@ -664,7 +664,7 @@ func TestResolveExpressions_UnknownComputedKey_Error(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own-and", {"t": "title"}]
+			"select": ["own_and", {"t": "title"}]
 		}},
 		"where": [".", "movies", "no_such_key"]
 	}`)
@@ -713,7 +713,7 @@ func TestResolveExpressions_FullAndKeyCollidesWithChildAlias_Error(t *testing.T)
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}},
-		"select": ["full-and", {"movies": "name"}]
+		"select": ["full_and", {"movies": "name"}]
 	}`)
 	if err == nil {
 		t.Fatalf("expected an \"and\" key colliding with a child join alias (via full's base) to be rejected")
@@ -990,7 +990,7 @@ func TestResolveExpressions_SelfHopFromOrderByIntoOwnShape_Error(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"alias": "d",
-		"select": ["own-and", {"x": "name"}],
+		"select": ["own_and", {"x": "name"}],
 		"order_by": [[".", "d", "x"]]
 	}`)
 	if err == nil {

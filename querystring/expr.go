@@ -53,12 +53,12 @@ func newExprParser(s string) *exprParser { return &exprParser{s: s} }
 var querystringOnlyKeywords = map[string]string{
 	"bigint":          "bigint",
 	"numeric":         "numeric",
-	"own_except":      "own-except",
-	"full_except":     "full-except",
-	"own_and":         "own-and",
-	"full_and":        "full-and",
-	"own_except_and":  "own-except-and",
-	"full_except_and": "full-except-and",
+	"own_except":      "own_except",
+	"full_except":     "full_except",
+	"own_and":         "own_and",
+	"full_and":        "full_and",
+	"own_except_and":  "own_except_and",
+	"full_except_and": "full_except_and",
 }
 
 func (p *exprParser) skipSpace() {
@@ -212,7 +212,7 @@ func (p *exprParser) parseExpr() (any, error) {
 // parseCall consumes "(" [expr ("," expr)*] ")" (the cursor is already
 // positioned right at "(") and compiles ident(args...) to its query.ts
 // array form. Special-cased tags whose JSON shape isn't a plain
-// [tag, ...compiledArgs] : between/not-between, bigint/numeric, in/not-in
+// [tag, ...compiledArgs] : between/not_between, bigint/numeric, in/not_in
 // (candidates are literals, not sub-expressions), agg/call (FunctionRef
 // first argument), own/full and family (rejected here — see relation.go's
 // doc comment on why they're select-only, not a sub-expression form).
@@ -247,7 +247,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 	}
 
 	switch canonical {
-	case "own", "full", "own-except", "full-except", "own-and", "full-and", "own-except-and", "full-except-and":
+	case "own", "full", "own_except", "full_except", "own_and", "full_and", "own_except_and", "full_except_and":
 		return nil, oops.Errorf("%q is only valid as select='s entire value, not inside another expression", ident)
 
 	case "any", "all":
@@ -277,7 +277,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 		}
 		return []any{canonical, string(s)}, nil
 
-	case "in", "not-in":
+	case "in", "not_in":
 		if len(args) < 1 {
 			return nil, oops.Errorf("%q needs a subject and at least one candidate", ident)
 		}
@@ -290,7 +290,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 				// type (string | Expression) — only a bare, unquoted
 				// IDENTIFIER candidate is rejected here (it decoded to a
 				// plain Go string, meaning "column reference", which the
-				// spec explicitly disallows for in/not-in candidates).
+				// spec explicitly disallows for in/not_in candidates).
 				if pa, isPlain := a.(plainArg); isPlain {
 					if s, isIdent := pa.v.(string); isIdent {
 						return nil, oops.Errorf("%q candidate %q must be a quoted literal, not a bare identifier", ident, s)
@@ -384,7 +384,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 // literalString marks an argument that was written as a quoted string
 // literal, as opposed to a bare identifier that happens to also be a Go
 // string once compiled (parseExpr's identifier case) — callers needing to
-// tell "the user wrote 'x'" from "the user wrote x" (in/not-in candidates,
+// tell "the user wrote 'x'" from "the user wrote x" (in/not_in candidates,
 // bigint/numeric's argument) switch on this wrapper type rather than on the
 // compiled value's own Go type, which is identical (string) in both cases.
 type literalString string

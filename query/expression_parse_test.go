@@ -126,7 +126,7 @@ func TestParseExpression_InWithLiteralCandidate(t *testing.T) {
 }
 
 func TestParseExpression_Object(t *testing.T) {
-	obj, ok := mustParse(t, `{"movie": ["full-except", ["year"]], "actors": "actors"}`).(ObjectExpr)
+	obj, ok := mustParse(t, `{"movie": ["full_except", ["year"]], "actors": "actors"}`).(ObjectExpr)
 	if !ok {
 		t.Fatalf("expected ObjectExpr, got %#v", obj)
 	}

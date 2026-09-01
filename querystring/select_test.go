@@ -21,14 +21,14 @@ func TestCompileSelect(t *testing.T) {
 		}},
 		{"own bare", "own", []any{"own"}},
 		{"full bare", "full", []any{"full"}},
-		{"own_except", "own_except(a,b)", []any{"own-except", []string{"a", "b"}}},
-		{"full_except", "full_except(a,b)", []any{"full-except", []string{"a", "b"}}},
-		{"own_and", "own_and(actors,total:agg(sum,orders.amount))", []any{"own-and", map[string]any{
+		{"own_except", "own_except(a,b)", []any{"own_except", []string{"a", "b"}}},
+		{"full_except", "full_except(a,b)", []any{"full_except", []string{"a", "b"}}},
+		{"own_and", "own_and(actors,total:agg(sum,orders.amount))", []any{"own_and", map[string]any{
 			"actors": "actors",
 			"total":  []any{"agg", "sum", []any{"orders.amount"}},
 		}}},
 		{"own_except_and", "own_except_and(a,b; total:agg(sum,orders.amount))", []any{
-			"own-except-and",
+			"own_except_and",
 			[]string{"a", "b"},
 			map[string]any{"total": []any{"agg", "sum", []any{"orders.amount"}}},
 		}},

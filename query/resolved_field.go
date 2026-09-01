@@ -111,8 +111,8 @@ func columnPathFlatName(cp ColumnPath) string {
 // (and their -except/-and variants), an inline object literal, or one
 // nested inside another of these. There's no distinction here between "the
 // top-level select of a node" and "a shape-producing expression appearing
-// anywhere else in the tree" — own-and nested three levels inside an object
-// literal builds and is chained into exactly the same way own-and used as a
+// anywhere else in the tree" — own_and nested three levels inside an object
+// literal builds and is chained into exactly the same way own_and used as a
 // node's whole select is. Built eagerly (every key's own landing resolved
 // as part of producing the Shape, via resolveChain — see buildShape in
 // expression_resolve.go), so a later hop into it is just a map lookup, no

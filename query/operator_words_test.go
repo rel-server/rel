@@ -30,8 +30,8 @@ func TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm(t *testing.T) {
 	}{
 		{`["gte", "year", 1999]`, `[">=", "year", 1999]`},
 		{`["eq", "active", true]`, `["=", "active", true]`},
-		{`["is_null", "name"]`, `["is-null", "name"]`},
-		{`["not_in", "status", "open", "closed"]`, `["not-in", "status", "open", "closed"]`},
+		{`["is_null", "name"]`, `["is_null", "name"]`},
+		{`["not_in", "status", "open", "closed"]`, `["not_in", "status", "open", "closed"]`},
 		{`["and", ["gte", "year", 1999], ["lt", "year", 2020]]`, `["and", [">=", "year", 1999], ["<", "year", 2020]]`},
 	}
 	for _, tc := range cases {
@@ -76,8 +76,8 @@ func TestOperatorWordSynonym_AnyAllOperatorPosition(t *testing.T) {
 // silently reinterpret existing, already-persisted JSON.
 func TestOperatorWords_NoCollisionWithExistingTags(t *testing.T) {
 	fixedKeywords := map[string]bool{
-		"between": true, "not-between": true, "bigint": true, "numeric": true,
-		"in": true, "not-in": true, "any": true, "all": true,
+		"between": true, "not_between": true, "bigint": true, "numeric": true,
+		"in": true, "not_in": true, "any": true, "all": true,
 		"concat_ws": true, "coalesce": true, "format": true,
 		// "aggregate" deliberately excluded : parseArrayExpression's own
 		// switch already treats "agg" and "aggregate" as exact synonyms
@@ -87,9 +87,9 @@ func TestOperatorWords_NoCollisionWithExistingTags(t *testing.T) {
 		// kind this test actually guards against.
 		"agg": true, "call": true,
 		"own": true, "full": true,
-		"own-except": true, "full-except": true,
-		"own-and": true, "full-and": true,
-		"own-except-and": true, "full-except-and": true,
+		"own_except": true, "full_except": true,
+		"own_and": true, "full_and": true,
+		"own_except_and": true, "full_except_and": true,
 		"arr": true, "array": true, "lst": true, "list": true,
 		"index": true, "slice": true,
 		"get-set": true, "get": true, "set": true,

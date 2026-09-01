@@ -65,19 +65,19 @@ var OperatorWords = map[string]string{
 	"eq":  "=",
 	"ne":  "<>",
 
-	"is_distinct_from":     "is-distinct-from",
-	"is_not_distinct_from": "is-not-distinct-from",
+	"is_distinct_from":     "is_distinct_from",
+	"is_not_distinct_from": "is_not_distinct_from",
 
 	"neg":  "-",
 	"not":  "not",
 	"bnot": "~",
 
-	"is_null":      "is-null",
-	"is_true":      "is-true",
-	"is_false":     "is-false",
-	"is_not_null":  "is-not-null",
-	"is_not_true":  "is-not-true",
-	"is_not_false": "is-not-false",
+	"is_null":      "is_null",
+	"is_true":      "is_true",
+	"is_false":     "is_false",
+	"is_not_null":  "is_not_null",
+	"is_not_true":  "is_not_true",
+	"is_not_false": "is_not_false",
 
 	"sqrt": "|/",
 	"cbrt": "||/",
@@ -111,12 +111,12 @@ var OperatorWords = map[string]string{
 	"matches_ts": "@@",
 
 	"in":     "in",
-	"not_in": "not-in",
+	"not_in": "not_in",
 	"any":    "any",
 	"all":    "all",
 
 	"between":     "between",
-	"not_between": "not-between",
+	"not_between": "not_between",
 
 	"agg":       "agg",
 	"aggregate": "agg",

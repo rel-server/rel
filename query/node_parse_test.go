@@ -192,7 +192,7 @@ func TestParseRawRelation_OffsetLimit(t *testing.T) {
 // as an [direction, Expression] tuple — this is the exact ambiguity the
 // tag-membership check in parseOrderByTerm exists to avoid.
 func TestParseRawRelation_OrderBy_NoTagCollision(t *testing.T) {
-	pq, err := ParseQuery([]byte(`{"relation": "movie", "order_by": [["own-except", ["title"]]]}`))
+	pq, err := ParseQuery([]byte(`{"relation": "movie", "order_by": [["own_except", ["title"]]]}`))
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}

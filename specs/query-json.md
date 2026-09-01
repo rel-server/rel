@@ -178,12 +178,12 @@ Query-string spellings of `query.ts`'s `own`/`full` `Expression` family — hyph
 |---|---|
 | `own` | `["own"]` |
 | `full` | `["full"]` |
-| `own_except(a,b)` | `["own-except", ["a","b"]]` |
-| `full_except(a,b)` | `["full-except", ["a","b"]]` |
-| `own_and(actors,total:agg(sum,orders.amount))` | `["own-and", {"actors":"actors","total":["agg","sum",["orders.amount"]]}]` |
-| `full_and(...)` | `["full-and", {...}]`, same shape as `own_and` |
-| `own_except_and(a,b; total:agg(sum,orders.amount))` | `["own-except-and", ["a","b"], {"total":[...]}]` |
-| `full_except_and(...)` | `["full-except-and", [...], {...}]`, same shape |
+| `own_except(a,b)` | `["own_except", ["a","b"]]` |
+| `full_except(a,b)` | `["full_except", ["a","b"]]` |
+| `own_and(actors,total:agg(sum,orders.amount))` | `["own_and", {"actors":"actors","total":["agg","sum",["orders.amount"]]}]` |
+| `full_and(...)` | `["full_and", {...}]`, same shape as `own_and` |
+| `own_except_and(a,b; total:agg(sum,orders.amount))` | `["own_except_and", ["a","b"], {"total":[...]}]` |
+| `full_except_and(...)` | `["full_except_and", [...], {...}]`, same shape |
 
 `own_except`/`full_except`'s arguments are a plain comma-list of bare identifiers — the
 "except" list, homogeneous, no special handling needed beyond the shared tokenizer.
@@ -226,15 +226,19 @@ literal     := "'" ( any-char-except-quote | "''" )* "'"              -- 'it''s 
 No hyphens anywhere in `identifier` — deliberately, to keep a leading `-` on a number
 literal (`-4`) unambiguous : an identifier can never start with `-` or a digit, so the
 lexer never has to decide whether a leading `-` opens a negative number or an operator
-name. Every `query.ts` operator/keyword that's itself hyphenated (`is-null`, `not-in`,
-`own-except`, ...) is spelled with an underscore here instead (`is_null`, `not_in`) — see
-the table below for the full, authoritative mapping.
+name. `query.ts`'s own multi-word operator/keyword tags (`is_null`, `not_in`, `own_except`,
+...) are underscore-separated too, for exactly this reason — the querystring grammar's
+identifier restriction is what settled the separator convention project-wide, not something
+this grammar has to work around with a separate spelling — see the table below for the
+full, authoritative mapping.
 
 - **`call`'s `identifier`** names an operator/function exactly as `query.ts`'s
   `FoldedOperator`/`BinaryOperator`/`UnaryOperator`/aggregate or function name would.
   Symbolic operators (`>=`, `<=`, `<>`, `~`, ...) are NEVER written symbolically here —
-  `call`'s `identifier` must be a legal unquoted identifier, so every symbolic or hyphenated
-  `query.ts` operator gets exactly one word-form name below ; the compiler maps word form →
+  `call`'s `identifier` must be a legal unquoted identifier, so every symbolic `query.ts`
+  operator gets exactly one word-form name below (an already-underscore-separated `query.ts`
+  tag, like `is_null` or `own_except`, needs no separate word form at all — it already is
+  one) ; the compiler maps word form →
   `query.ts`'s actual operator string 1:1, a fixed table, no synonyms, no ambiguity. Two
   `query.ts` symbols collide across `UnaryOperator`/`FoldedOperator` (`-` is both negate and
   subtract ; `~` is both `UnaryOperator`'s bitwise-not and `BinaryOperator`'s regex-match) —
@@ -256,12 +260,12 @@ the table below for the full, authoritative mapping.
   | `<=` | `lte` | | `>=` | `gte` |
   | `<` | `lt` | | `>` | `gt` |
   | `=` | `eq` | | `<>` / `!=` | `ne` |
-  | `is-distinct-from` / `!==` | `is_distinct_from` | | `is-not-distinct-from` / `===` | `is_not_distinct_from` |
+  | `is_distinct_from` / `!==` | `is_distinct_from` | | `is_not_distinct_from` / `===` | `is_not_distinct_from` |
   | `-` (unary, negate) | `neg` | | `not` | `not` |
-  | `~` (unary, bitwise not) | `bnot` | | `is-null` | `is_null` |
-  | `is-true` | `is_true` | | `is-false` | `is_false` |
-  | `is-not-null` | `is_not_null` | | `is-not-true` | `is_not_true` |
-  | `is-not-false` | `is_not_false` | | `\|/` (sqrt) | `sqrt` |
+  | `~` (unary, bitwise not) | `bnot` | | `is_null` | `is_null` |
+  | `is_true` | `is_true` | | `is_false` | `is_false` |
+  | `is_not_null` | `is_not_null` | | `is_not_true` | `is_not_true` |
+  | `is_not_false` | `is_not_false` | | `\|/` (sqrt) | `sqrt` |
   | `\|\|/` (cube root) | `cbrt` | | `like` | `like` |
   | `ilike` | `ilike` | | `~` (binary, regex match) | `match` |
   | `~*` (case-insensitive regex) | `imatch` | | `::` (cast) | `cast` |
@@ -272,9 +276,9 @@ the table below for the full, authoritative mapping.
   | `?\|` (has any key) | `has_any_key` | | `?&` (has all keys) | `has_all_keys` |
   | `&<` | `overlaps_or_left` | | `&>` | `overlaps_or_right` |
   | `?:` | `op_qcolon` *(name TBD)* | | `@@` (tsvector match) | `matches_ts` |
-  | `in` | `in` | | `not-in` | `not_in` |
+  | `in` | `in` | | `not_in` | `not_in` |
   | `any` | `any` | | `all` | `all` |
-  | `between` | `between` | | `not-between` | `not_between` |
+  | `between` | `between` | | `not_between` | `not_between` |
   | `agg` / `aggregate` | `agg` | | `call` | `call` |
   | `concat_ws` | `concat_ws` | | `coalesce` (variadic form) | `coalesce` |
   | `format` | `format` | | | |
@@ -323,13 +327,13 @@ the table below for the full, authoritative mapping.
   double-decoding confusion (is it escaping the grammar's quote, or something the transport
   already unescaped?) ; doubling has no such ambiguity and is a rule most users already know
   from SQL string literals.
-- `in`/`not-in`/`any`/`all` need no special list syntax — they're just `call` with several
+- `in`/`not_in`/`any`/`all` need no special list syntax — they're just `call` with several
   arguments, exactly matching `query.ts`'s own variadic array form :
   `in(status,'open','closed')` → `["in", "status", "open", "closed"]` (candidates are always
   literals here per `query.ts`'s own note — a bare, unquoted candidate is still an error, not
   silently treated as a column, matching the JSON form's `string | Expression` split for
   `in`'s own candidates).
-- `between`/`not-between` : `between(0,age,150)` → `["between", 0, "age", 150]` — same
+- `between`/`not_between` : `between(0,age,150)` → `["between", 0, "age", 150]` — same
   positional order as `query.ts`.
 - `["bigint", ...]`/`["numeric", ...]` : written `bigint('9223372036854775807')` /
   `numeric('123.456')` — a `call` whose sole argument is always a quoted string, matching

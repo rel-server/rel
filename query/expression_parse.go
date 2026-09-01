@@ -170,7 +170,7 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 	rest := items[1:]
 
 	switch tag {
-	case "between", "not-between":
+	case "between", "not_between":
 		if len(rest) != 3 {
 			return nil, fmt.Errorf("query: %q needs exactly 3 operands, got %d", tag, len(rest))
 		}
@@ -186,14 +186,14 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		if err != nil {
 			return nil, err
 		}
-		return BetweenExpr{Negate: tag == "not-between", Min: minE, Exp: expE, Max: maxE}, nil
+		return BetweenExpr{Negate: tag == "not_between", Min: minE, Exp: expE, Max: maxE}, nil
 
 	case "bigint":
 		return parseValidatedStringArgLiteral(tag, rest, validBigIntLiteral, func(v string) Expression { return BigIntLiteral{Value: v} })
 	case "numeric":
 		return parseValidatedStringArgLiteral(tag, rest, validNumericLiteral, func(v string) Expression { return NumericLiteral{Value: v} })
 
-	case "in", "not-in":
+	case "in", "not_in":
 		if len(rest) < 1 {
 			return nil, fmt.Errorf("query: %q needs a subject", tag)
 		}
@@ -214,7 +214,7 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 			}
 			candidates = append(candidates, InCandidate{Expr: expr})
 		}
-		return InExpr{Negate: tag == "not-in", Subject: subject, Candidates: candidates}, nil
+		return InExpr{Negate: tag == "not_in", Subject: subject, Candidates: candidates}, nil
 
 	case "any", "all":
 		if len(rest) != 3 {
@@ -321,27 +321,27 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 	case "full":
 		return FullExpr{}, nil
 
-	case "own-except", "full-except":
+	case "own_except", "full_except":
 		except, err := parseStringListArg(tag, rest)
 		if err != nil {
 			return nil, err
 		}
-		if tag == "own-except" {
+		if tag == "own_except" {
 			return OwnExceptExpr{Except: except}, nil
 		}
 		return FullExceptExpr{Except: except}, nil
 
-	case "own-and", "full-and":
+	case "own_and", "full_and":
 		and, err := parseExpressionObjectArg(tag, rest)
 		if err != nil {
 			return nil, err
 		}
-		if tag == "own-and" {
+		if tag == "own_and" {
 			return OwnAndExpr{And: and}, nil
 		}
 		return FullAndExpr{And: and}, nil
 
-	case "own-except-and", "full-except-and":
+	case "own_except_and", "full_except_and":
 		if len(rest) != 2 {
 			return nil, fmt.Errorf("query: %q needs exactly [except, and]", tag)
 		}
@@ -353,7 +353,7 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		if err != nil {
 			return nil, err
 		}
-		if tag == "own-except-and" {
+		if tag == "own_except_and" {
 			return OwnExceptAndExpr{Except: except, And: and}, nil
 		}
 		return FullExceptAndExpr{Except: except, And: and}, nil

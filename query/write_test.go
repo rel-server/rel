@@ -575,7 +575,7 @@ func TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "venue", "schema": "public",
-		"select": ["own-and", {"city_again": [".", "home", "city"]}],
+		"select": ["own_and", {"city_again": [".", "home", "city"]}],
 		"write_mode": "insert"
 	}`)
 	_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Both Venue", "home": {"street": "S", "city": "C"}, "city_again": "C2"}]`))

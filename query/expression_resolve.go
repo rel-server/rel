@@ -584,7 +584,7 @@ func ownFullBase(n *QueryNode, except []string, includeAliases bool) map[string]
 // with base (already-resolved fields — own/full's physical columns/aliases,
 // or nil for a bare object literal) into one Shape. A name in and colliding
 // with one already in base is a hard error, not a silent overwrite — e.g.
-// `["own-and", {"title": "id"}]` renaming id to the same output key as the
+// `["own_and", {"title": "id"}]` renaming id to the same output key as the
 // real title column would otherwise silently discard the fact that "title"
 // already means something else.
 func (ctx *ResolveContext) buildShape(n *QueryNode, base map[string]ResolvedField, and map[string]Expression, oc oops.OopsErrorBuilder) (Shape, error) {
@@ -677,7 +677,7 @@ func (ctx *ResolveContext) resolveHopInto(right Expression, into ResolvedField, 
 // mirrors the relation's own columns, so an ordinary unrenamed column is
 // legitimately found by both without that being a real conflict. Only a
 // genuine disagreement (the two sources naming the same key but landing on
-// different things — e.g. an own-and computed key renamed to collide with a
+// different things — e.g. an own_and computed key renamed to collide with a
 // child's join alias) is a hard error ; picking one silently would let a
 // query run and return data other than what the author meant.
 func (ctx *ResolveContext) resolveExternalHop(target *QueryNode, name string, oc oops.OopsErrorBuilder) (ResolvedField, error) {

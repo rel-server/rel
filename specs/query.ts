@@ -174,17 +174,17 @@ export interface Relation {
 }
 
 export type UnaryOperator =
-  | "-"
+  | "-" | "neg"
   | "not"
-  | "~"
-  | "is-null"
-  | "is-true"
-  | "is-false"
-  | "is-not-null"
-  | "is-not-true"
-  | "is-not-false"
-  | "|/" // square root
-  | "||/" // cube root
+  | "~" | "bnot"
+  | "is_null"
+  | "is_true"
+  | "is_false"
+  | "is_not_null"
+  | "is_not_true"
+  | "is_not_false"
+  | "|/" | "sqrt" // square root
+  | "||/" | "cbrt" // cube root
 
 // These operators are binary operators but that can be applied over a long list starting from the left and two by two
 // ["-", 4, 3, 2, 1] -> ["-", ["-", ["-", 4, 3], 2], 1]
@@ -193,52 +193,52 @@ export type UnaryOperator =
 export type FoldedOperator =
   | "and"
   | "or"
-  | "+"
-  | "-"
-  | "*"
-  | "/"
-  | "^"
-  | "%"
-  | "|"
-  | "&"
-  | "->"
-  | "->>"
-  | "#>"
-  | "#>>"
-  | "."
-  | "||" // does NOT coalesce
-  | "||?" // coalescing ||, not a postgres operator, synonymous with concat : coalesces individual operands with ''
-  | "??" // alias for coalesce, borrowed from javascript
-  | "<="
-  | ">="
-  | "<"
-  | ">"
-  | "="
-  | "<>" | "!="
-  | "is-distinct-from" | "!==" // javascript alias
-  | "is-not-distinct-from" | "===" // javascript alias
+  | "+" | "add"
+  | "-" | "sub"
+  | "*" | "mul"
+  | "/" | "div"
+  | "^" | "pow"
+  | "%" | "mod"
+  | "|" | "bor"
+  | "&" | "band"
+  | "->" | "json_get"
+  | "->>" | "json_get_text"
+  | "#>" | "json_path"
+  | "#>>" | "json_path_text"
+  | "." | "dot"
+  | "||" | "concat" // does NOT coalesce
+  | "||?" | "concat_coalesce" // coalescing ||, not a postgres operator, synonymous with concat : coalesces individual operands with ''
+  | "??" | "ifnull" // alias for coalesce, borrowed from javascript
+  | "<=" | "lte"
+  | ">=" | "gte"
+  | "<" | "lt"
+  | ">" | "gt"
+  | "=" | "eq"
+  | "<>" | "!=" | "ne"
+  | "is_distinct_from" | "!==" // javascript alias
+  | "is_not_distinct_from" | "===" // javascript alias
 
 // Here are all binary for who folding makes little sense
 export type BinaryOperator =
   | "like" // warning : need configuration as they can be abused for DDoS attacks
   | "ilike" // warning : need configuration as they can be abused for DDoS attacks
-  | "~" // warning : need configuration as they can be abused for DDoS attacks
-  | "~*" // warning : need configuration as they can be abused for DDoS attacks
-  | "::" // type cast
-  | "&&"
-  | "<->"
-  | "-|-"
-  | "<<"
-  | ">>"
-  | "@>"
-  | "<@"
-  | "?"
-  | "?|"
-  | "&<"
-  | "&>"
-  | "?&"
-  | "?:"
-  | "@@"
+  | "~" | "match" // warning : need configuration as they can be abused for DDoS attacks
+  | "~*" | "imatch" // warning : need configuration as they can be abused for DDoS attacks
+  | "::" | "cast" // type cast
+  | "&&" | "overlap"
+  | "<->" | "distance"
+  | "-|-" | "adjacent"
+  | "<<" | "shl"
+  | ">>" | "shr"
+  | "@>" | "contains"
+  | "<@" | "contained_by"
+  | "?" | "has_key"
+  | "?|" | "has_any_key"
+  | "&<" | "overlaps_or_left"
+  | "&>" | "overlaps_or_right"
+  | "?&" | "has_all_keys"
+  | "?:" | "op_qcolon"
+  | "@@" | "matches_ts"
 
 /** Names a function/aggregate for "call"/"agg" — a bare string (an
 unqualified name, resolved against the configured search path) or an
@@ -268,7 +268,7 @@ export type Expression<K extends string = string> =
   | [UnaryOperator, Expression]
   | [BinaryOperator, left: Expression, right: Expression]
   | ["between", min: Expression, exp: Expression, max: Expression]
-  | ["not-between", min: Expression, exp: Expression, max: Expression]
+  | ["not_between", min: Expression, exp: Expression, max: Expression]
 
   // explicit bigint support for queries. in responses, the user can choose to have another parser than JSON.parse _if_ they absolutely need bigints
   | ["bigint", value: string]
@@ -278,7 +278,7 @@ export type Expression<K extends string = string> =
 
   // avoid having to create ["arr", ...] for the contained expression
   // here is an exception : candidates literal strings are here treated as literal strings and not columns. Column comparison should be performed by other operators
-  | ["in" | "not-in", subject: Expression, ...canditates: (string | Expression)[]]
+  | ["in" | "not_in", subject: Expression, ...canditates: (string | Expression)[]]
   | ["any" | "all", op: FoldedOperator | BinaryOperator, subject: Expression, array_or_list: Expression]
 
   | ["concat_ws", separator: Expression, ...Expression[]]
@@ -307,11 +307,11 @@ export type Expression<K extends string = string> =
   | ["own"] // an object with all the columns of the current relation ; takes precedence over the [string] literal form above
   | ["full"] // a variant ; includes the joined rels. This is select's "default" value ; also takes precedence over [string]
   /* Similar, but omits columns */
-  | ["own-except" | "full-except", except: string[]]
+  | ["own_except" | "full_except", except: string[]]
   /* Similar, but adds computed columns */
-  | ["own-and" | "full-and", and: {[name: string]: Expression}]
+  | ["own_and" | "full_and", and: {[name: string]: Expression}]
   /* Select all except omitted_keys and add the computed keys in merge_with. merge_with can specify keys that were omitted ; they shall override it. merge_with cannot shadow keys implicitely ; this is an error */
-  | ["own-except-and" | "full-except-and", except: string[], and: {[name: string]: Expression}]
+  | ["own_except_and" | "full_except_and", except: string[], and: {[name: string]: Expression}]
 
   | ["arr" | "array", ...Expression[]] // may need to be behind a flag ?
   | ["index", array: Expression, index: Expression] // 1-indexed, just like PG
@@ -344,7 +344,7 @@ export type Expression<K extends string = string> =
     },
   }
   select: {
-    movie: ["full-except", ["movie_id", "year"]],
+    movie: ["full_except", ["movie_id", "year"]],
     actors: "actors",
   }
 }
