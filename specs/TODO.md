@@ -56,21 +56,12 @@ or `query-engine.md` for discoverability, not urgent :
 
 - `error-handling.md` — implemented (`errcode` package, `pgerr.Classify`/`Detail`,
   `config.Dev`, `/rel`'s JSON envelope and `/rpc`'s plain-text path both wired through the
-  same tiering ; `server/rel.go`'s GET/POST-check-returns-405 fix landed too). Two real
-  gaps remain :
-  1. `## Rel-internal codes`' query-compile-error family (`UNKNOWN_IDENTIFIER`,
-     `JOIN_MISSING_INDEX`, `WRITE_FORBIDDEN`, `WRITE_FORBIDDEN_FUNCTION_ROOT`,
-     `QUERY_INVALID_EXPRESSION`) is NOT wired into the `query` package's own compile passes
-     yet — `server/rel.go`'s `ResolveQuery`/`ResolveExpressions`/`DeriveShapes` call sites
-     currently report every failure from those as `errcode.Unclassified` rather than the
-     specific code, since the `query` package doesn't tag its own errors with a `Code` at
-     the point each is raised. Requires threading `oc.Code(...)` through `query`'s own
-     error-construction sites, a separate, larger pass.
-    >: Well, they should, implement it
-  2. `pgerr.Classify`'s `PG_*` table only recognizes 5 SQLSTATEs (unique/FK/not_null/check
-     violation, permission_denied). Deliberately small per the spec's own "small fixed
-     table" wording — expand only if a concrete need for another class's HTTP semantics
-     shows up.
+  same tiering ; `server/rel.go`'s GET/POST-check-returns-405 fix landed too ; the
+  `## Rel-internal codes` query-compile-error family is now attached at each raise site too).
+  One real gap remains : `pgerr.Classify`'s `PG_*` table only recognizes 5 SQLSTATEs
+  (unique/FK/not_null/check violation, permission_denied). Deliberately small per the spec's
+  own "small fixed table" wording — expand only if a concrete need for another class's HTTP
+  semantics shows up.
 - `typescript.md` has two mid-sentence truncations (line 16, "...but also eventual
   libraries that would want to _" ; line 25, "...given schema.json," with nothing after) —
   work in progress, being filled in directly.

@@ -15,6 +15,7 @@
 package query
 
 import (
+	"github.com/ceymard/rel/errcode"
 	"github.com/ceymard/rel/pg"
 	"github.com/samber/oops"
 )
@@ -31,7 +32,7 @@ import (
 // the author meant, with no signal anything was ambiguous. The author
 // controls the alias that collided ; renaming it is the fix.
 func (n *QueryNode) LookupInScope(name string) (ResolvedField, error) {
-	oc := oops.With("name", name)
+	oc := oops.With("name", name).Code(errcode.UnknownIdentifier)
 	if n.InnerName != "" {
 		oc = oc.With("node", n.InnerName)
 	}

@@ -13,8 +13,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ceymard/rel/errcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/samber/oops"
 )
 
 // DataTableDDL creates "_data" if it doesn't already exist on the
@@ -180,10 +182,19 @@ func ExecuteWrite(ctx context.Context, conn Querier, root *QueryNode, payload []
 func ExecuteWriteState(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState) (*WriteResult, error) {
 	ids, nextNodeID := assignNodeIDs(root, state.nextNodeID)
 	if _, ok := ids[root]; !ok {
-		return nil, fmt.Errorf("write: root node is readonly, nothing to write")
+		return nil, oops.Code(errcode.WriteForbidden).Errorf("write: root node is readonly, nothing to write")
 	}
 	if bad := findUnwritableNode(root); bad != nil {
-		return nil, fmt.Errorf("write: relation %q is not writable — its identity columns must appear exactly once in the select output, untransformed and writable (specs/query-engine.md ## Configuration)", unwritableNodeName(bad))
+		// WriteForbiddenFunctionRoot specifically when the offending node is
+		// function-rooted (specs/query-engine.md ## Reading Algorithm
+		// ### Function-rooted nodes' own unconditionally-unwritable rule) —
+		// a distinct, documented rule from the generic "identity columns
+		// aren't writable" case, worth a client being able to tell apart.
+		code := errcode.WriteForbidden
+		if bad.IsFunction() {
+			code = errcode.WriteForbiddenFunctionRoot
+		}
+		return nil, oops.With("relation", unwritableNodeName(bad)).Code(code).Errorf("write: relation %q is not writable — its identity columns must appear exactly once in the select output, untransformed and writable (specs/query-engine.md ## Configuration)", unwritableNodeName(bad))
 	}
 
 	rows, nextRowID, err := denormalize(root, ids, payload, state.nextRowID)

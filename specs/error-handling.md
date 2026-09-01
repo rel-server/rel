@@ -4,7 +4,7 @@ Use https://github.com/samber/oops everywhere and provide context for all errors
 
 Logs log errors' full attached context (`logging.md ## Error integration with samber/oops`), regardless of what a client response is allowed to contain — the client-facing redaction this document specifies is about the HTTP response only, never about what gets logged server-side.
 
-> Status: implemented. `errcode` (rel-internal codes), `pgerr.Classify` (RSxxx + PG_* classification, the `Detail` field allow-list), `config.Dev`, and both `/rel` (`server/response.go`) and `/rpc` (`rpc/response.go`) envelopes/gating are wired through. The rel-internal code list (`## Rel-internal codes`) is a first pass, not exhaustively wired into every `query` package compile-error site yet — see `specs/TODO.md`.
+> Status: implemented. `errcode` (rel-internal codes), `pgerr.Classify` (RSxxx + PG_* classification, the `Detail` field allow-list), `config.Dev`, and both `/rel` (`server/response.go`) and `/rpc` (`rpc/response.go`) envelopes/gating are wired through. The `## Rel-internal codes` query-compile-error family (`UNKNOWN_IDENTIFIER`, `JOIN_MISSING_INDEX`, `WRITE_FORBIDDEN`, `WRITE_FORBIDDEN_FUNCTION_ROOT`, `QUERY_INVALID_EXPRESSION`) is now attached at each `query`/`pg` package raise site via `oc.Code(errcode.X)`, and read back by `server/rel.go`'s `codeOrUnclassified` — `errcode.Unclassified` is only the fallback for whatever residual case isn't covered by the taxonomy yet.
 
 ## Configuration
 

@@ -23,6 +23,7 @@ package query
 import (
 	"maps"
 
+	"github.com/ceymard/rel/errcode"
 	"github.com/ceymard/rel/pg"
 	"github.com/samber/oops"
 )
@@ -376,11 +377,11 @@ func (ctx *ResolveContext) resolveExprSlice(exprs []Expression, n *QueryNode, oc
 // or embed, unlike LookupInScope.
 func (ctx *ResolveContext) resolvePlainColumn(n *QueryNode, name string, oc oops.OopsErrorBuilder) (*pg.Column, error) {
 	if n == nil || n.Relation == nil {
-		return nil, oc.Errorf("no relation in scope to resolve column %q", name)
+		return nil, oc.Code(errcode.UnknownIdentifier).Errorf("no relation in scope to resolve column %q", name)
 	}
 	col := n.Relation.ColumnsMap[name]
 	if col == nil {
-		return nil, oc.With("column", name).Errorf("unknown column %q", name)
+		return nil, oc.With("column", name).Code(errcode.UnknownIdentifier).Errorf("unknown column %q", name)
 	}
 	return col, nil
 }
@@ -409,7 +410,7 @@ func (ctx *ResolveContext) resolveChain(e Expression, n *QueryNode, oc oops.Oops
 	switch v := e.(type) {
 	case *Identifier:
 		if n == nil {
-			return nil, nil, oc.Errorf("no scope available to resolve identifier %q", v.Name)
+			return nil, nil, oc.Code(errcode.UnknownIdentifier).Errorf("no scope available to resolve identifier %q", v.Name)
 		}
 		field, err := n.LookupInScope(v.Name)
 		if err != nil {
@@ -426,7 +427,7 @@ func (ctx *ResolveContext) resolveChain(e Expression, n *QueryNode, oc oops.Oops
 			}
 			v.Left = newLeft
 			if landing == nil {
-				return nil, nil, oc.Errorf("cannot chain \".\" off a JSON-opaque value")
+				return nil, nil, oc.Code(errcode.QueryInvalidExpression).Errorf("cannot chain \".\" off a JSON-opaque value")
 			}
 			newRight, hopLanding, err := ctx.resolveHopInto(v.Right, landing, oc)
 			if err != nil {
@@ -456,7 +457,7 @@ func (ctx *ResolveContext) resolveChain(e Expression, n *QueryNode, oc oops.Oops
 		}
 		arrType := cp.CurrentType().Underlying()
 		if arrType == nil || !arrType.IsArray() {
-			return nil, nil, oc.Errorf("cannot index a non-array value")
+			return nil, nil, oc.Code(errcode.QueryInvalidExpression).Errorf("cannot index a non-array value")
 		}
 		return v, ColumnPath{Node: cp.Node, Path: cp.Path, ElementType: arrType.ElementType}, nil
 
@@ -591,7 +592,7 @@ func (ctx *ResolveContext) buildShape(n *QueryNode, base map[string]ResolvedFiel
 	maps.Copy(shape, base)
 	for k, expr := range and {
 		if _, exists := shape[k]; exists {
-			return nil, oc.Errorf("computed key %q collides with an own/full column or alias of the same name", k)
+			return nil, oc.Code(errcode.QueryInvalidExpression).Errorf("computed key %q collides with an own/full column or alias of the same name", k)
 		}
 		resolved, landing, err := ctx.resolveChain(expr, n, oc)
 		if err != nil {
@@ -617,7 +618,7 @@ func (ctx *ResolveContext) buildShape(n *QueryNode, base map[string]ResolvedFiel
 func (ctx *ResolveContext) resolveHopInto(right Expression, into ResolvedField, oc oops.OopsErrorBuilder) (Expression, ResolvedField, error) {
 	ident, ok := right.(*Identifier)
 	if !ok {
-		return nil, nil, oc.Errorf("a \".\" hop must be a plain name, got %T", right)
+		return nil, nil, oc.Code(errcode.QueryInvalidExpression).Errorf("a \".\" hop must be a plain name, got %T", right)
 	}
 
 	switch land := into.(type) {
@@ -629,11 +630,11 @@ func (ctx *ResolveContext) resolveHopInto(right Expression, into ResolvedField, 
 		// for an ["index", ...] hop overriding to the array's element type.
 		rel := land.CurrentType().CompositeRelation()
 		if rel == nil {
-			return nil, nil, oc.Errorf("column %q is not composite, cannot chain \".%s\" past it", last.Name, ident.Name)
+			return nil, nil, oc.Code(errcode.QueryInvalidExpression).Errorf("column %q is not composite, cannot chain \".%s\" past it", last.Name, ident.Name)
 		}
 		col := rel.ColumnsMap[ident.Name]
 		if col == nil {
-			return nil, nil, oc.Errorf("unknown field %q on composite column %q", ident.Name, last.Name)
+			return nil, nil, oc.Code(errcode.UnknownIdentifier).Errorf("unknown field %q on composite column %q", ident.Name, last.Name)
 		}
 		newPath := make([]*pg.Column, len(land.Path)+1)
 		copy(newPath, land.Path)
@@ -653,13 +654,13 @@ func (ctx *ResolveContext) resolveHopInto(right Expression, into ResolvedField, 
 	case Shape:
 		field, ok := land[ident.Name]
 		if !ok {
-			return nil, nil, oc.Errorf("unknown field %q", ident.Name)
+			return nil, nil, oc.Code(errcode.UnknownIdentifier).Errorf("unknown field %q", ident.Name)
 		}
 		ident.Resolved = field
 		return ident, field, nil
 
 	default:
-		return nil, nil, oc.Errorf("cannot chain \".%s\" further here", ident.Name)
+		return nil, nil, oc.Code(errcode.QueryInvalidExpression).Errorf("cannot chain \".%s\" further here", ident.Name)
 	}
 }
 
@@ -703,7 +704,7 @@ func (ctx *ResolveContext) resolveExternalHop(target *QueryNode, name string, oc
 		if resolvedFieldsEqual(scopeField, shapeField) {
 			return scopeField, nil
 		}
-		return nil, oc.Errorf("identifier %q is ambiguous : scope and the select shape disagree on what it means", name)
+		return nil, oc.Code(errcode.UnknownIdentifier).Errorf("identifier %q is ambiguous : scope and the select shape disagree on what it means", name)
 	case scopeOK:
 		return scopeField, nil
 	case shapeOK:
@@ -753,7 +754,7 @@ func (ctx *ResolveContext) selectShape(target *QueryNode, oc oops.OopsErrorBuild
 		return target.Shape.Fields, nil
 	}
 	if ctx.shapeInProgress[target] {
-		return nil, oc.Errorf("a node's select cannot reference itself through its own shape (self-referential \".\" chain)")
+		return nil, oc.Code(errcode.QueryInvalidExpression).Errorf("a node's select cannot reference itself through its own shape (self-referential \".\" chain)")
 	}
 	if ctx.shapeInProgress == nil {
 		ctx.shapeInProgress = map[*QueryNode]bool{}

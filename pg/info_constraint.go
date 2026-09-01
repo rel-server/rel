@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ceymard/rel/errcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/samber/oops"
 )
@@ -300,7 +301,14 @@ func splitOn(on map[string]string) (local, parent []string) {
 // parent row, regardless of whether the embed turns out to be to-one or
 // to-many. This is a hard error, not a warning.
 func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constraint *Constraint, isToOne bool, err error) {
-	oc := oops.With("relation", r.Identifier.String()).With("parent", parent.Identifier.String()).With("on", on)
+	// errcode.JoinMissingIndex on the shared builder, once : every error
+	// this function raises is part of specs/error-handling.md's "## Join
+	// eligibility's compile-time rejection" family, even the ones not
+	// literally about a missing index (an empty `on`, an inverted FK
+	// pairing, no backing constraint at all) — the taxonomy's own wording
+	// groups them as one client-actionable category, distinct from a
+	// plain typo'd identifier (errcode.UnknownIdentifier).
+	oc := oops.With("relation", r.Identifier.String()).With("parent", parent.Identifier.String()).With("on", on).Code(errcode.JoinMissingIndex)
 
 	if len(on) == 0 {
 		return nil, false, oc.Errorf("on must not be empty")

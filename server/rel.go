@@ -27,6 +27,7 @@ import (
 	"github.com/ceymard/rel/querystring"
 	"github.com/ceymard/rel/writer"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/samber/oops"
 )
 
 // resolvedItem is one request-body item, past parsing AND pass-1/2
@@ -144,22 +145,20 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			return
 		}
 		if rerr != nil {
-			// A catch-all bucket, deliberately : ResolveQuery's own failures
-			// span several of specs/error-handling.md's more specific
-			// QUERY_* codes (unknown identifier, join eligibility, write
-			// forbidden, ...) that the query package doesn't yet tag at the
-			// point they're raised — see specs/TODO.md's note on this gap.
-			// errcode.Unclassified over a fabricated specific code : false
-			// precision would be worse than an honest "not yet classified."
-			writeError(w, badRequest(errcode.Unclassified, fmt.Errorf("item %d: %w", i, rerr)), cfg.Dev)
+			// codeFromOopsErr reads back the specific QUERY_*/WRITE_*/
+			// UNKNOWN_IDENTIFIER/JOIN_MISSING_INDEX code the query package's
+			// own oc.Code(...) call sites attach at the point each failure is
+			// actually raised — errcode.Unclassified only as the fallback for
+			// whatever residual case isn't covered by that taxonomy yet.
+			writeError(w, badRequest(codeOrUnclassified(rerr), fmt.Errorf("item %d: %w", i, rerr)), cfg.Dev)
 			return
 		}
 		if err := rctx.ResolveExpressions(root); err != nil {
-			writeError(w, badRequest(errcode.Unclassified, fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
+			writeError(w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
 		if err := rctx.DeriveShapes(root); err != nil {
-			writeError(w, badRequest(errcode.Unclassified, fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
+			writeError(w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
 		resolved = append(resolved, resolvedItem{root: root, isWrite: isWrite, data: data})
@@ -425,6 +424,26 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 	return nil
 }
 
+// codeOrUnclassified reads back the errcode.Code a query-package oc.Code(...)
+// call site attached to err (or one of its wrapped ancestors — oops.OopsError's
+// own Code() walks to the deepest wrapped error that set one, so an outer
+// oc.Wrapf(...,"context") call on the way back up through resolveNode/
+// resolveJoin/etc. doesn't need to restate it), falling back to
+// errcode.Unclassified when err isn't an *oops.OopsError at all, or none of
+// its layers ever called .Code(...). The single place this fallback decision
+// is made, so the query-compile-error 400 paths (the resolve loop above) and
+// classifyWriteError's own fallback below can't independently drift on it.
+func codeOrUnclassified(err error) errcode.Code {
+	oe, ok := oops.AsOops(err)
+	if !ok {
+		return errcode.Unclassified
+	}
+	if code, ok := oe.Code().(errcode.Code); ok {
+		return code
+	}
+	return errcode.Unclassified
+}
+
 // classifyCheckSessionError maps an exception raised by
 // http.functions.check_session — RSxxx first (## Postgres Exceptions), then
 // pgerr's PG_* table, same pgerr.Classify every Postgres-execution error in
@@ -465,7 +484,7 @@ func classifyCheckSessionError(err error) *requestError {
 // unsupported composite write) — squarely "an error in the query/data."
 func classifyWriteError(err error, item int) *requestError {
 	return classifyOrFallback(fmt.Errorf("item %d: %w", item, err), func(e error) *requestError {
-		return badRequest(errcode.Unclassified, e)
+		return badRequest(codeOrUnclassified(err), e)
 	})
 }
 

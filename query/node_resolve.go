@@ -23,6 +23,7 @@ import (
 	"sort"
 
 	"github.com/ceymard/rel/config"
+	"github.com/ceymard/rel/errcode"
 	"github.com/ceymard/rel/pg"
 	"github.com/samber/oops"
 )
@@ -129,10 +130,10 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 	} else {
 		rel := ctx.Db.ResolveRelation(raw.Schema, raw.Relation)
 		if rel == nil {
-			return nil, oc.Errorf("unknown relation")
+			return nil, oc.Code(errcode.UnknownIdentifier).Errorf("unknown relation")
 		}
 		if ctx.Config.Blacklist.IsRelationBlacklisted(rel.Identifier.Schema, rel.Identifier.Name) {
-			return nil, oc.Errorf("relation %q is blacklisted", rel.Identifier.String())
+			return nil, oc.Code(errcode.UnknownIdentifier).Errorf("relation %q is blacklisted", rel.Identifier.String())
 		}
 		node.Relation = rel
 	}
@@ -140,10 +141,10 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 	isToOne := false
 	if parent != nil {
 		if node.Relation == nil {
-			return nil, oc.Errorf("cannot join into this node : it has no resolvable relation (the function's return type isn't a known relation)")
+			return nil, oc.Code(errcode.JoinMissingIndex).Errorf("cannot join into this node : it has no resolvable relation (the function's return type isn't a known relation)")
 		}
 		if parent.Relation == nil {
-			return nil, oc.Errorf("cannot join : the parent node has no resolvable relation")
+			return nil, oc.Code(errcode.JoinMissingIndex).Errorf("cannot join : the parent node has no resolvable relation")
 		}
 
 		var err error
@@ -166,11 +167,11 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 			parentCol := raw.On[local]
 			localCol := node.Relation.ColumnsMap[local]
 			if localCol == nil {
-				return nil, oc.Errorf("on: unknown local column %q", local)
+				return nil, oc.Code(errcode.UnknownIdentifier).Errorf("on: unknown local column %q", local)
 			}
 			distCol := parent.Relation.ColumnsMap[parentCol]
 			if distCol == nil {
-				return nil, oc.Errorf("on: unknown parent column %q", parentCol)
+				return nil, oc.Code(errcode.UnknownIdentifier).Errorf("on: unknown parent column %q", parentCol)
 			}
 			node.JoinColumns = append(node.JoinColumns, QueryJoinColumn{Local: localCol, Distant: distCol})
 		}
@@ -195,32 +196,32 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 	} else {
 		wm, ok := writeModeByString[raw.WriteMode]
 		if !ok {
-			return nil, oc.Errorf("unknown write_mode %q", raw.WriteMode)
+			return nil, oc.Code(errcode.WriteForbidden).Errorf("unknown write_mode %q", raw.WriteMode)
 		}
 		writeMode = wm
 	}
 	if parent != nil && isToOne {
 		switch writeMode {
 		case MERGE, MERGE_NEW, MERGE_UPDATE, DELETE_ONLY:
-			return nil, oc.Errorf("write_mode %q is not valid on an outgoing (to-one) relation", raw.WriteMode)
+			return nil, oc.Code(errcode.WriteForbidden).Errorf("write_mode %q is not valid on an outgoing (to-one) relation", raw.WriteMode)
 		}
 	}
 	node.WriteMode = writeMode
 
 	if raw.OnConflictConstraintName != "" || len(raw.OnConflictColumns) > 0 {
 		if node.Relation == nil {
-			return nil, oc.Errorf("on_conflict given but this node has no resolvable relation")
+			return nil, oc.Code(errcode.WriteForbidden).Errorf("on_conflict given but this node has no resolvable relation")
 		}
 		if raw.OnConflictConstraintName != "" {
 			c := node.Relation.FindConstraintByName(raw.OnConflictConstraintName)
 			if c == nil {
-				return nil, oc.Errorf("unknown constraint %q", raw.OnConflictConstraintName)
+				return nil, oc.Code(errcode.WriteForbidden).Errorf("unknown constraint %q", raw.OnConflictConstraintName)
 			}
 			node.OnConflictConstraintName = c.Name
 		} else {
 			c := node.Relation.FindUniqueConstraint(raw.OnConflictColumns)
 			if c == nil {
-				return nil, oc.Errorf("no unique/primary-key constraint matches on_conflict columns %v", raw.OnConflictColumns)
+				return nil, oc.Code(errcode.WriteForbidden).Errorf("no unique/primary-key constraint matches on_conflict columns %v", raw.OnConflictColumns)
 			}
 			node.OnConflictConstraintName = c.Name
 			node.OnConflictColumns = raw.OnConflictColumns
@@ -232,12 +233,12 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 
 	for _, col := range raw.InsertColumns {
 		if node.Relation == nil || node.Relation.ColumnsMap[col] == nil {
-			return nil, oc.Errorf("insert_columns: unknown column %q", col)
+			return nil, oc.Code(errcode.UnknownIdentifier).Errorf("insert_columns: unknown column %q", col)
 		}
 	}
 	for _, col := range raw.UpdateColumns {
 		if node.Relation == nil || node.Relation.ColumnsMap[col] == nil {
-			return nil, oc.Errorf("update_columns: unknown column %q", col)
+			return nil, oc.Code(errcode.UnknownIdentifier).Errorf("update_columns: unknown column %q", col)
 		}
 	}
 	node.InsertColumns = raw.InsertColumns
@@ -311,7 +312,7 @@ func resolveFunctionCandidate(
 		}
 	}
 	if len(filtered) == 0 {
-		return nil, oc.Errorf("unknown function")
+		return nil, oc.Code(errcode.UnknownIdentifier).Errorf("unknown function")
 	}
 
 	var matches []*pg.Function
@@ -331,15 +332,15 @@ func resolveFunctionCandidate(
 	}
 
 	if len(matches) == 0 {
-		return nil, oc.Errorf("no overload of %q matches the given arguments", name)
+		return nil, oc.Code(errcode.QueryInvalidExpression).Errorf("no overload of %q matches the given arguments", name)
 	}
 	if len(matches) > 1 {
-		return nil, oc.Errorf("ambiguous function %q : %d overloads match the given arguments", name, len(matches))
+		return nil, oc.Code(errcode.QueryInvalidExpression).Errorf("ambiguous function %q : %d overloads match the given arguments", name, len(matches))
 	}
 
 	fn := matches[0]
 	if bl.IsFunctionBlacklisted(fn.Identifier.Schema, fn.Identifier.Name) {
-		return nil, oc.Errorf("function %q is blacklisted", fn.Identifier.String())
+		return nil, oc.Code(errcode.UnknownIdentifier).Errorf("function %q is blacklisted", fn.Identifier.String())
 	}
 	return fn, nil
 }
