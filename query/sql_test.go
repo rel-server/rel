@@ -196,6 +196,100 @@ func TestCompileSelect_Cast(t *testing.T) {
 	}
 }
 
+// TestParseExpression_BigIntLiteral_RejectsMalformed proves
+// ["bigint", v]/["numeric", v]'s own v is validated at PARSE time, before
+// it ever has a chance to reach SQL text — v used to be written straight
+// into the query with no validation at all, a SQL injection (a crafted v
+// like "1) OR (1=1) --" closed the parenthesis early and appended
+// arbitrary SQL). Now malformed v is a clean parse error instead.
+func TestParseExpression_BigIntLiteral_RejectsMalformed(t *testing.T) {
+	_, err := ParseExpression([]byte(`["bigint", "1) OR (1=1) --"]`))
+	if err == nil {
+		t.Fatal("expected a parse error for a non-integer bigint literal")
+	}
+	if !strings.Contains(err.Error(), "not a valid") {
+		t.Errorf("expected the error to explain the format rejection, got: %v", err)
+	}
+}
+
+func TestParseExpression_NumericLiteral_RejectsMalformed(t *testing.T) {
+	_, err := ParseExpression([]byte(`["numeric", "1); drop table director; --"]`))
+	if err == nil {
+		t.Fatal("expected a parse error for a non-numeric numeric literal")
+	}
+	if !strings.Contains(err.Error(), "not a valid") {
+		t.Errorf("expected the error to explain the format rejection, got: %v", err)
+	}
+}
+
+// TestCompileSelect_BigIntLiteral_BoundAsParam proves a well-formed
+// ["bigint", v] compiles to a bound $n parameter (never v inlined into the
+// SQL text) — both closing the injection risk at the root (Postgres itself
+// validates/parses v as data, never as SQL) and keeping the compiled SQL
+// text identical across different id values, which is what lets pgx's
+// automatic statement cache actually reuse the plan across requests
+// carrying different literal values.
+func TestCompileSelect_BigIntLiteral_BoundAsParam(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('BigInt Literal Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"n": ["::", ["bigint", "123456789012345"], "text"]},
+		"where": ["=", "name", ["BigInt Literal Director"]]
+	}`)
+	sql, args := mustCompileSelect(t, node)
+	if !strings.Contains(sql, "::bigint") {
+		t.Errorf("expected a ::bigint cast in the compiled SQL, got: %s", sql)
+	}
+	if strings.Contains(sql, "123456789012345") {
+		t.Errorf("expected the literal value NOT to appear inlined in the SQL text, got: %s", sql)
+	}
+	found := false
+	for _, a := range args {
+		if a == "123456789012345" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected \"123456789012345\" among the bound args, got %#v", args)
+	}
+	rows := runSelect(t, sql, args)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if got := fmt.Sprintf("%v", rows[0]["n"]); got != "123456789012345" {
+		t.Errorf("expected n=123456789012345, got %v", rows[0]["n"])
+	}
+}
+
+func TestCompileSelect_NumericLiteral_BoundAsParam(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Numeric Literal Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"n": ["numeric", "42.5"]},
+		"where": ["=", "name", ["Numeric Literal Director"]]
+	}`)
+	sql, args := mustCompileSelect(t, node)
+	if !strings.Contains(sql, "::numeric") {
+		t.Errorf("expected a ::numeric cast in the compiled SQL, got: %s", sql)
+	}
+	if strings.Contains(sql, "42.5") {
+		t.Errorf("expected the literal value NOT to appear inlined in the SQL text, got: %s", sql)
+	}
+	rows := runSelect(t, sql, args)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if got := fmt.Sprintf("%v", rows[0]["n"]); got != "42.5" {
+		t.Errorf("expected n=42.5, got %v", rows[0]["n"])
+	}
+}
+
 func TestCompileSelect_Cast_MultiWordTypeName(t *testing.T) {
 	// Multi-word standard SQL type names ("character varying") must still
 	// compile — validCastTypeName's whole point is to distinguish these

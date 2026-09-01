@@ -3,6 +3,7 @@ package query
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 
 	"github.com/bytedance/sonic/ast"
 )
@@ -188,9 +189,9 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return BetweenExpr{Negate: tag == "not-between", Min: minE, Exp: expE, Max: maxE}, nil
 
 	case "bigint":
-		return parseStringArgLiteral(tag, rest, func(v string) Expression { return BigIntLiteral{Value: v} })
+		return parseValidatedStringArgLiteral(tag, rest, validBigIntLiteral, func(v string) Expression { return BigIntLiteral{Value: v} })
 	case "numeric":
-		return parseStringArgLiteral(tag, rest, func(v string) Expression { return NumericLiteral{Value: v} })
+		return parseValidatedStringArgLiteral(tag, rest, validNumericLiteral, func(v string) Expression { return NumericLiteral{Value: v} })
 
 	case "in", "not-in":
 		if len(rest) < 1 {
@@ -636,13 +637,35 @@ func parseFunctionRef(n *ast.Node) (FunctionRef, error) {
 	}
 }
 
-func parseStringArgLiteral(tag string, rest []ast.Node, build func(string) Expression) (Expression, error) {
+// validBigIntLiteral/validNumericLiteral gate ["bigint", v]/["numeric", v]'s
+// own v — query.ts's escape hatch for arbitrary-precision values a JSON
+// float64 can't carry losslessly. sql_expr.go's compileExpr binds v as a
+// $n parameter (text) with a ::bigint/::numeric cast, same as any other
+// literal — Postgres itself rejects a malformed cast target at execution
+// time regardless, so this gate isn't the only thing standing between a
+// malformed v and the database the way castTypeName (below) is for a
+// cast's type-name operand (which genuinely can't be bound, being SQL
+// syntax rather than a value). It exists so a malformed v is a clean 400
+// at parse time instead of a raw Postgres "invalid input syntax" error
+// surfacing through pgerr's unclassified tier.
+var (
+	validBigIntLiteral  = regexp.MustCompile(`^-?[0-9]+$`)
+	validNumericLiteral = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$`)
+)
+
+// parseValidatedStringArgLiteral is parseStringArgLiteral plus a format
+// gate on the string itself, for the two literal kinds whose value is
+// written straight into SQL text rather than bound as a parameter.
+func parseValidatedStringArgLiteral(tag string, rest []ast.Node, valid *regexp.Regexp, build func(string) Expression) (Expression, error) {
 	if len(rest) != 1 {
 		return nil, fmt.Errorf("query: %q expects exactly one string argument, got %d", tag, len(rest))
 	}
 	v, err := rest[0].StrictString()
 	if err != nil {
 		return nil, fmt.Errorf("query: %q expects a string argument: %w", tag, err)
+	}
+	if !valid.MatchString(v) {
+		return nil, fmt.Errorf("query: %q: %q is not a valid %s literal", tag, v, tag)
 	}
 	return build(v), nil
 }

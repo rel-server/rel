@@ -45,11 +45,13 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 		return nil
 
 	case BigIntLiteral:
-		c.w.Write(v.Value).Write("::bigint")
+		c.w.Bind(v.Value)
+		c.w.Write("::bigint")
 		return nil
 
 	case NumericLiteral:
-		c.w.Write(v.Value).Write("::numeric")
+		c.w.Bind(v.Value)
+		c.w.Write("::numeric")
 		return nil
 
 	case DefaultKeyword:
