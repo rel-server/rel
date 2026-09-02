@@ -125,7 +125,15 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	resolved := make([]resolvedItem, 0, len(items))
 	rctx := &query.ResolveContext{Db: db, Config: cfg}
 	for i, item := range items {
-		if item.WellKnown != nil {
+		// A well-known query can appear bare (item.WellKnown, a read) or
+		// wrapped in WriteQuery.query (item.Write.WellKnown, a write) — the
+		// exact same two positions a Relation can appear in, per query.ts's
+		// own union. Neither is supported through /rel yet ; both reject
+		// the same way. Checking item.Write.WellKnown here, before the
+		// switch below, also guards against item.Write.Query being nil in
+		// that case (WriteQuery.query is Relation | WellKnownQuery, only
+		// one of rawWriteQuery's Query/WellKnown fields is ever set).
+		if item.WellKnown != nil || (item.Write != nil && item.Write.WellKnown != nil) {
 			writeError(w, badRequest(errcode.WellKnownQueryUnsupported, fmt.Errorf("item %d: well-known queries are not invoked through /rel — use /wellknown instead", i)), cfg.Dev)
 			return
 		}

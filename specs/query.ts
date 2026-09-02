@@ -11,11 +11,10 @@ export type Query = WriteQuery | Relation | WellKnownQuery | Query[]
 export interface WellKnownQuery {
   wellknown: string
   params?: any
-  data?: any
 }
 
 export interface WriteQuery {
-  query: Relation
+  query: Relation | WellKnownQuery
 
   /**
   The data to modify the database with. It must conform to the shape of the query.

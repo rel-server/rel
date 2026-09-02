@@ -43,20 +43,29 @@ type ParsedQuery struct {
 	Sequence  []ParsedQuery
 }
 
-// rawWriteQuery is query.ts's WriteQuery. Data is query.ts's `data: any` —
-// not interpreted here ; kept as raw JSON for whichever later stage
-// (writing algorithm) actually walks it against the resolved tree.
+// rawWriteQuery is query.ts's WriteQuery : `query: Relation | WellKnownQuery`
+// — exactly one of Query/WellKnown is set, mirroring the union. A
+// WellKnownQuery is written to the exact same way a Relation is : wrapped
+// in {query, data}, never carrying its own inline "data" (see rawWellKnown's
+// own doc comment). Data is query.ts's `data: any` — not interpreted here ;
+// kept as raw JSON for whichever later stage (writing algorithm) actually
+// walks it against the resolved tree.
 type rawWriteQuery struct {
-	Query *rawRelation
-	Data  []byte
+	Query     *rawRelation  // nil if WellKnown is set instead
+	WellKnown *rawWellKnown // nil if Query is set instead
+	Data      []byte
 }
 
-// rawWellKnown is query.ts's WellKnownQuery. Params/Data are `any` — same
-// "not this stage's job" reasoning as rawWriteQuery.Data.
+// rawWellKnown is query.ts's WellKnownQuery : `{wellknown, params?}`, no
+// "data" field of its own — a well-known query is invoked read-only when
+// it appears bare (ParsedQuery.WellKnown), or written to by wrapping it in
+// WriteQuery.query (rawWriteQuery.WellKnown) exactly like a Relation would
+// be, never by giving the bare form its own inline "data". Params is `any`
+// — not interpreted here, same "not this stage's job" reasoning as
+// rawWriteQuery.Data.
 type rawWellKnown struct {
 	WellKnown string
 	Params    []byte
-	Data      []byte
 }
 
 // ParseQuery decodes one top-level query.ts Query value.
@@ -88,30 +97,35 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 
 	case ast.V_OBJECT:
 		if wk := n.Get("wellknown"); wk.Exists() {
-			name, err := wk.StrictString()
+			rawWK, err := parseRawWellKnown(n, wk)
 			if err != nil {
-				return ParsedQuery{}, fmt.Errorf(`query: "wellknown" must be a string: %w`, err)
+				return ParsedQuery{}, err
 			}
-			rawWK := &rawWellKnown{WellKnown: name}
-			if p := n.Get("params"); p.Exists() {
-				if raw, err := p.Raw(); err == nil {
-					rawWK.Params = []byte(raw)
-				}
-			}
-			if d := n.Get("data"); d.Exists() {
-				if raw, err := d.Raw(); err == nil {
-					rawWK.Data = []byte(raw)
-				}
+			// A bare "wellknown" query, like a bare Relation, never carries
+			// its own "data" — write to it by wrapping it in
+			// {"query": {"wellknown": ...}, "data": ...} instead, exactly
+			// the same way a Relation is written to.
+			if n.Get("data").Exists() {
+				return ParsedQuery{}, fmt.Errorf(`query: a bare "wellknown" query never takes "data" directly — wrap it in {"query": {...}, "data": ...} instead`)
 			}
 			return ParsedQuery{WellKnown: rawWK}, nil
 		}
 
 		if q := n.Get("query"); q.Exists() {
-			rel, err := parseRawRelation(q)
-			if err != nil {
-				return ParsedQuery{}, fmt.Errorf(`query: "query": %w`, err)
+			rawWQ := &rawWriteQuery{}
+			if wk := q.Get("wellknown"); wk.Exists() {
+				rawWK, err := parseRawWellKnown(q, wk)
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "query": %w`, err)
+				}
+				rawWQ.WellKnown = rawWK
+			} else {
+				rel, err := parseRawRelation(q)
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "query": %w`, err)
+				}
+				rawWQ.Query = rel
 			}
-			rawWQ := &rawWriteQuery{Query: rel}
 			d := n.Get("data")
 			if !d.Exists() {
 				return ParsedQuery{}, fmt.Errorf(`query: a WriteQuery needs "data"`)
@@ -133,6 +147,26 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 	default:
 		return ParsedQuery{}, fmt.Errorf("query: top-level query must be an object or an array, got type %d", n.TypeSafe())
 	}
+}
+
+// parseRawWellKnown decodes {wellknown, params?} off n (the object the
+// "wellknown" key was found on — either the top-level query object, for a
+// bare invocation, or a WriteQuery's own "query" object, for a written-to
+// one) given wk, n.Get("wellknown") already confirmed to exist by the
+// caller. Shared between both call sites in parseQueryNode so the two
+// don't drift on how params gets decoded.
+func parseRawWellKnown(n *ast.Node, wk *ast.Node) (*rawWellKnown, error) {
+	name, err := wk.StrictString()
+	if err != nil {
+		return nil, fmt.Errorf(`query: "wellknown" must be a string: %w`, err)
+	}
+	rawWK := &rawWellKnown{WellKnown: name}
+	if p := n.Get("params"); p.Exists() {
+		if raw, err := p.Raw(); err == nil {
+			rawWK.Params = []byte(raw)
+		}
+	}
+	return rawWK, nil
 }
 
 // rawRelation is query.ts's Relation, decoded one field at a time but not

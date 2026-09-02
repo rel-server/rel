@@ -490,3 +490,16 @@ func TestRelHandler_WellKnown_NotYetSupported(t *testing.T) {
 		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestRelHandler_WellKnownWrite_NotYetSupported is
+// TestRelHandler_WellKnown_NotYetSupported's counterpart for a well-known
+// query wrapped in WriteQuery.query (query.ts's `query: Relation |
+// WellKnownQuery`) — the other position a well-known query can appear in,
+// and the one that would nil-dereference item.Write.Query if the /rel
+// handler ever fell through to its ResolveQuery(item.Write.Query) call.
+func TestRelHandler_WellKnownWrite_NotYetSupported(t *testing.T) {
+	rec := postRel(t, `{"query": {"wellknown": "some_query"}, "data": [{"a": 1}]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
+	}
+}

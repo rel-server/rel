@@ -32,6 +32,41 @@ func TestParseQuery_WellKnown(t *testing.T) {
 	}
 }
 
+// TestParseQuery_WellKnownWrite pins query.ts's current shape : a
+// WellKnownQuery is written to exactly the same way a Relation is —
+// wrapped in {"query": {"wellknown": ...}, "data": ...} — never via an
+// inline "data" field on the bare wellknown object itself.
+func TestParseQuery_WellKnownWrite(t *testing.T) {
+	pq, err := ParseQuery([]byte(`{"query": {"wellknown": "my_query", "params": {"a": 1}}, "data": {"title": "x"}}`))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if pq.Write == nil {
+		t.Fatalf("expected a Write query, got %#v", pq)
+	}
+	if pq.Write.Query != nil {
+		t.Fatalf("expected Write.Query to be nil for a well-known write, got %#v", pq.Write.Query)
+	}
+	if pq.Write.WellKnown == nil || pq.Write.WellKnown.WellKnown != "my_query" || len(pq.Write.WellKnown.Params) == 0 {
+		t.Fatalf("expected Write.WellKnown to be populated, got %#v", pq.Write.WellKnown)
+	}
+	if len(pq.Write.Data) == 0 {
+		t.Fatalf("expected Write.Data to be populated, got %#v", pq.Write)
+	}
+}
+
+// TestParseQuery_WellKnownRejectsInlineData pins the removal of
+// WellKnownQuery's own "data" field : a bare {"wellknown": ..., "data": ...}
+// is no longer a valid shape now that WriteQuery.query accepts
+// Relation | WellKnownQuery — the write path is exclusively through that
+// wrapper, matching how a bare Relation was already required to write.
+func TestParseQuery_WellKnownRejectsInlineData(t *testing.T) {
+	_, err := ParseQuery([]byte(`{"wellknown": "my_query", "data": {"title": "x"}}`))
+	if err == nil {
+		t.Fatalf("expected an error for a bare wellknown query carrying inline data")
+	}
+}
+
 func TestParseQuery_Sequence(t *testing.T) {
 	pq, err := ParseQuery([]byte(`[{"relation": "a"}, {"relation": "b"}]`))
 	if err != nil {
