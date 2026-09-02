@@ -17,15 +17,17 @@ instead. Each entry covers roughly what the previous ones assume.
 7. [[query-json.md]] — `GET /rel`'s query-string encoding of the same query shape.
 8. [[query.ts]] — canonical TypeScript type reference for the query JSON shape.
 9. [[well-known-queries.md]] — named, pre-parsed queries exported to the TS client.
-10. [[authentication.md]] — JWT/session lifecycle, roles, SAML/OIDC/username-password auth.
-11. [[rpc.md]] — `/rpc` route dispatch, request/response shapes, cookies, Postgres exceptions.
-12. [[http-content.md]] — static file serving, Jet templates, CORS, CSP.
-13. [[realtime.md]] — WebSockets + Postgres `LISTEN`/`NOTIFY` (reserved, not yet specified).
-14. [[typescript.md]] — the generated TS/JS client export.
-15. [[oauth-saml.md]] — SAML/OIDC callback endpoints specifically (reserved, not yet
+10. [[well-known-queries-get.md]] — `GET /wellknown`'s query-string encoding of the same
+    `{name, params, data}` shape — `query-json.md`'s counterpart for `/wellknown`.
+11. [[authentication.md]] — JWT/session lifecycle, roles, SAML/OIDC/username-password auth.
+12. [[rpc.md]] — `/rpc` route dispatch, request/response shapes, cookies, Postgres exceptions.
+13. [[http-content.md]] — static file serving, Jet templates, CORS, CSP.
+14. [[realtime.md]] — WebSockets + Postgres `LISTEN`/`NOTIFY` (reserved, not yet specified).
+15. [[typescript.md]] — the generated TS/JS client export.
+16. [[oauth-saml.md]] — SAML/OIDC callback endpoints specifically (reserved, not yet
     specified — `authentication.md` already covers username/password and the session/JWT
     side of SAML/OIDC).
-16. [[testing.md]] — fixture/testcontainers conventions ; a developer-process doc, not part
+17. [[testing.md]] — fixture/testcontainers conventions ; a developer-process doc, not part
     of understanding the running system, but referenced from the sections above wherever
     their own tests build on one of the two fixtures it describes.
 

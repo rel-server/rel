@@ -39,9 +39,9 @@ Concretely, a `GET /rel` query string decodes to exactly one `Relation` (nested 
 still just one `Relation` tree) :
 
 - No `WriteQuery` (no `data`), no `Query[]` sequence, no `WellKnownQuery` — WellKnownQuery
-  in particular already accepts arbitrary `params`/`data` and is reachable by name alone ; a
-  `GET`-friendly encoding for it, if ever wanted, is a separate, later addition, not part of
-  this one.
+  in particular already accepts arbitrary `params`/`data` and is reachable by name alone ;
+  its own `GET`-friendly encoding is `well-known-queries-get.md`, a separate document with
+  its own (much simpler) grammar, not part of this one.
 - `write_mode`, `on_conflict`, `insert_columns`, `update_columns` are therefore never valid
   on a `GET /rel` query string — decoding one that sets any of them is a `400`, not silently
   ignored. This check runs on the fully decoded `Relation` tree (recursively, into every

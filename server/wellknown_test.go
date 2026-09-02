@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -194,6 +195,26 @@ func TestWellKnownHandler_GET_QuotedParamStaysString(t *testing.T) {
 	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
 	if len(rows) != 1 || rows[0]["name"] != "12345" {
 		t.Fatalf("expected 1 row named 12345, got %v", rows)
+	}
+}
+
+// TestDecodeWellKnownGET_ArrayParamValue pins specs/well-known-queries-get.md
+// ## params value coercion's array/object case : a whole-value JSON array,
+// URL-encoded into one params.<name>= key, round-trips through
+// querystring.DecodeQueryField + coerceQueryStringLeaves intact.
+func TestDecodeWellKnownGET_ArrayParamValue(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/wellknown?name=q&params.tags=%5B1%2C2%2C3%5D", nil)
+	got, err := decodeWellKnownGET(req)
+	if err != nil {
+		t.Fatalf("decodeWellKnownGET: %v", err)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(got.Params, &params); err != nil {
+		t.Fatalf("unmarshal params: %v", err)
+	}
+	tags, ok := params["tags"].([]any)
+	if !ok || len(tags) != 3 {
+		t.Fatalf("expected tags=[1,2,3], got %#v", params["tags"])
 	}
 }
 

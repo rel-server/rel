@@ -14,17 +14,22 @@ Resolved items are not tracked here — this is a todo list, not a changelog ; c
   ordinary `/rpc/{schema}/{function}` call. Username/password login is NOT part of this gap
   — it needs no special route, just an ordinary route function using the already-specified
   `RelHttpResponse.jwt` mint mechanism.
-- **Well-known queries.** Named in `query-engine.md ## Configuration` (`$param`, prepared
-  statements, exported to the TS client) but never given its own section : where they're
-  defined/stored, `$param` casting rules, caching and versioning across schema reloads.
-  Codegen for `$param` doesn't exist yet either (`sql_expr.go` errors outright), and `/rel`
-  rejects `ParsedQuery.WellKnown` outright — both waiting on this design, not separate gaps.
 
 ## Known gaps in implemented features
 
 - `pgerr.Classify`'s `PG_*` table only recognizes 5 SQLSTATEs (unique/FK/not_null/check
   violation, permission_denied). Deliberately small per the spec's own "small fixed table"
   wording — expand only if a concrete need for another class's HTTP semantics shows up.
+- **Well-known queries' write-side compile/execute split** (`well-known-queries.md
+  ## Behaviour`) isn't built : a well-known write query's DML is recompiled per request, same
+  as a plain `/rel` write already is, rather than reusing SQL text compiled once at load
+  time. Functionally complete either way (including `$param` support) — this is purely the
+  performance property `## Behaviour`'s own "prepared... ready to be queried for maximum
+  performance" framing promises for reads but doesn't yet deliver for writes.
+- **`$param`'s declared `type` doesn't drive its usage sites' SQL cast** (`well-known-queries.md
+  ## Definition`) : `type` governs the Go-side request validation, `cast` (per usage site,
+  defaulting to `::jsonb`) governs the actual SQL — currently independent, no auto-fill from
+  one to the other.
 
 ## Needs your attention
 
