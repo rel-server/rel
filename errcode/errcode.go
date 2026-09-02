@@ -63,6 +63,23 @@ const (
 	WellKnownQueryUnsupported  Code = "WELL_KNOWN_QUERY_UNSUPPORTED"
 )
 
+// Well-known query compile errors (specs/well-known-queries.md ##
+// Compilation Errors) — raised once, at load/reload time, against a file's
+// cached tree, never re-checked per request.
+const (
+	WellKnownDuplicateName Code = "WELL_KNOWN_DUPLICATE_NAME"
+	WellKnownUnusedParam   Code = "WELL_KNOWN_UNUSED_PARAM"
+	WellKnownUnknownParam  Code = "WELL_KNOWN_UNKNOWN_PARAM"
+)
+
+// Well-known query execution errors (specs/well-known-queries.md ##
+// Execution Errors) — raised per request, against a /wellknown invocation.
+const (
+	WellKnownUnknownQuery      Code = "WELL_KNOWN_UNKNOWN_QUERY"
+	WellKnownParamTypeMismatch Code = "WELL_KNOWN_PARAM_TYPE_MISMATCH"
+	WellKnownParamRequired     Code = "WELL_KNOWN_PARAM_REQUIRED"
+)
+
 // Runtime / infra.
 const (
 	DBUnavailable    Code = "DB_UNAVAILABLE"

@@ -83,3 +83,73 @@ func TestSQLWriter_Bind_FreshPerWriter(t *testing.T) {
 		t.Fatalf("expected w2.Args() == [z], got %#v", w2.Args())
 	}
 }
+
+func TestSQLWriter_BindParam_SharesPositionalSequenceWithBind(t *testing.T) {
+	w := NewSQL()
+	w.Write("select ")
+	w.Bind("literal")
+	w.Write(", ")
+	w.BindParam("name")
+	w.Write(", ")
+	w.Bind(7)
+
+	if got, want := w.String(), "select $1, $2, $3"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestSQLWriter_Args_PanicsWithUnresolvedParam(t *testing.T) {
+	w := NewSQL()
+	w.BindParam("x")
+
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("expected Args() to panic on an unresolved $param")
+		}
+	}()
+	w.Args()
+}
+
+func TestSQLWriter_ParamNames_DistinctInFirstOccurrenceOrder(t *testing.T) {
+	w := NewSQL()
+	w.BindParam("b")
+	w.BindParam("a")
+	w.BindParam("b")
+
+	got := w.ParamNames()
+	want := []string{"b", "a"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+}
+
+func TestSQLWriter_ResolveArgs_MixesLiteralsAndNamedParams(t *testing.T) {
+	w := NewSQL()
+	w.Bind("literal")
+	w.BindParam("name")
+	w.Bind(7)
+	w.BindParam("other")
+
+	args, err := w.ResolveArgs(map[string]any{"name": "Alice", "other": 42})
+	if err != nil {
+		t.Fatalf("ResolveArgs: %v", err)
+	}
+	want := []any{"literal", "Alice", 7, 42}
+	if len(args) != len(want) {
+		t.Fatalf("got %#v, want %#v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("arg %d: got %#v, want %#v", i, args[i], want[i])
+		}
+	}
+}
+
+func TestSQLWriter_ResolveArgs_MissingParamErrors(t *testing.T) {
+	w := NewSQL()
+	w.BindParam("required")
+
+	if _, err := w.ResolveArgs(map[string]any{}); err == nil {
+		t.Fatalf("expected an error for a missing param value")
+	}
+}

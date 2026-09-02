@@ -33,7 +33,18 @@ import (
 // (or worse, get silently reused by mistake).
 type SQLWriter struct {
 	*Writer
-	args []any
+	slots []sqlBindSlot
+}
+
+// sqlBindSlot is one $N placeholder : either a literal value already known
+// at compile time (Bind, the common case — name == "") or a well-known
+// query's named parameter reserved via BindParam, whose value only exists
+// per-request. Both share the same $N sequence (Postgres's placeholders are
+// one flat positional list regardless of why each one was written), so they
+// live in one ordered slice rather than two independently-numbered ones.
+type sqlBindSlot struct {
+	name  string
+	value any
 }
 
 // NewSQL returns a fresh SQLWriter, ready to write one SQL statement.
@@ -45,25 +56,89 @@ func NewSQL() *SQLWriter {
 // writes the placeholder, never the value itself — standard parameterized
 // SQL, so pgx sends values out-of-band instead of interpolating them into
 // the query text. Params are expected to be encountered and bound in
-// tree-walk order; there's no name-based dedup here. A "well-known"
-// precompiled query with reusable named placeholders is a distinct concern
-// with its own mechanism, not yet designed — this is deliberately just
-// positional.
+// tree-walk order; there's no name-based dedup here.
 //
 // One SQLWriter per statement : Postgres's extended protocol binds params
 // per-statement, so a multi-statement write (per-node INSERT/UPDATE/DELETE)
 // needs a fresh SQLWriter — and thus a fresh $1.. sequence — per statement,
 // not a shared running counter across all of them.
 func (w *SQLWriter) Bind(value any) *SQLWriter {
-	w.args = append(w.args, value)
-	w.Write(fmt.Sprintf("$%d", len(w.args)))
+	w.slots = append(w.slots, sqlBindSlot{value: value})
+	w.Write(fmt.Sprintf("$%d", len(w.slots)))
+	return w
+}
+
+// BindParam reserves the next $N placeholder for a well-known query's named
+// parameter (specs/well-known-queries.md ## Definition's `["$param", ...]`)
+// instead of binding a value immediately : a well-known query's SQL text is
+// compiled once, at load time, while a param's actual value only exists per
+// request. Shares the same $N sequence as Bind, so a statement mixing
+// literal binds (e.g. from the query's own where clause) and named params
+// still gets one coherent, gap-free placeholder list. Resolve the final
+// per-request args with ResolveArgs, not Args — Args rejects a statement
+// that has any unresolved named slot.
+func (w *SQLWriter) BindParam(name string) *SQLWriter {
+	w.slots = append(w.slots, sqlBindSlot{name: name})
+	w.Write(fmt.Sprintf("$%d", len(w.slots)))
 	return w
 }
 
 // Args returns the bind values collected via Bind, in $N order — pass
-// alongside String() as the arguments to a prepared statement exec.
+// alongside String() as the arguments to a prepared statement exec. Panics
+// if any placeholder on this statement was reserved via BindParam instead :
+// those have no value here to return, only a name to resolve later against
+// a specific request's own params (see ResolveArgs) — a caller reaching for
+// plain Args() on such a statement is a genuine programming error, not a
+// runtime condition to recover from.
 func (w *SQLWriter) Args() []any {
-	return w.args
+	out := make([]any, len(w.slots))
+	for i, s := range w.slots {
+		if s.name != "" {
+			panic(fmt.Sprintf("writer: Args() called on a statement with an unresolved $param %q — use ResolveArgs", s.name))
+		}
+		out[i] = s.value
+	}
+	return out
+}
+
+// ParamNames returns every distinct name reserved via BindParam on this
+// statement, in first-occurrence order — the well-known loader's own
+// unused/unknown-param validation pass (specs/well-known-queries.md ##
+// Definition) walks this per compiled statement rather than re-walking the
+// expression tree itself.
+func (w *SQLWriter) ParamNames() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range w.slots {
+		if s.name == "" || seen[s.name] {
+			continue
+		}
+		seen[s.name] = true
+		out = append(out, s.name)
+	}
+	return out
+}
+
+// ResolveArgs builds one request's final positional args slice : literal
+// slots (from Bind) pass through unchanged, named slots (from BindParam)
+// are substituted from paramValues — already validated and defaulted by the
+// caller (a missing key here is checked defensively, but should be
+// unreachable once request-time validation has run ; see
+// WELL_KNOWN_PARAM_REQUIRED).
+func (w *SQLWriter) ResolveArgs(paramValues map[string]any) ([]any, error) {
+	out := make([]any, len(w.slots))
+	for i, s := range w.slots {
+		if s.name == "" {
+			out[i] = s.value
+			continue
+		}
+		v, ok := paramValues[s.name]
+		if !ok {
+			return nil, fmt.Errorf("writer: no value supplied for $param %q", s.name)
+		}
+		out[i] = v
+	}
+	return out, nil
 }
 
 var validUnquotedSQLId = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)

@@ -173,7 +173,26 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 		return nil
 
 	case ParamExpr:
-		return fmt.Errorf("sql: $param (well-known query parameters) are not yet supported by codegen")
+		// Reserves a named $N placeholder (writer.SQLWriter.BindParam) rather
+		// than binding a value : a well-known query compiles once, at load
+		// time, while a param's value only exists per-request — the
+		// well-known loader resolves the actual value against ResolveArgs
+		// later, per invocation. The SQL-side cast defaults to jsonb when
+		// unset — specs/well-known-queries.md ## Definition : "unless if it
+		// is JSON since it will be JSON by default" — a bare untyped
+		// placeholder would otherwise leave Postgres to infer `text`, wrong
+		// for anything but a string param. v.Cast, when present, is either
+		// an explicit per-usage override or (the common case, once the
+		// well-known loader's own pre-pass lands) filled in from the
+		// param's own declared `type`.
+		c.w.BindParam(v.Name)
+		cast := v.Cast
+		if cast == "" {
+			cast = "jsonb"
+		}
+		c.w.Write("::")
+		c.w.Write(cast)
+		return nil
 
 	default:
 		return fmt.Errorf("sql: no codegen case for %T", e)
