@@ -7,6 +7,7 @@ require (
 	github.com/brianvoe/gofakeit/v7 v7.15.0
 	github.com/bytedance/sonic v1.15.2
 	github.com/ceymard/dmut/v2 v2.0.3
+	github.com/goccy/go-yaml v1.19.2
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/samber/oops v1.23.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
@@ -18,7 +19,6 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.0 // indirect
 	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
 	github.com/alecthomas/participle/v2 v2.1.4 // indirect
-	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
