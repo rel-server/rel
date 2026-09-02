@@ -32,7 +32,7 @@ func TestRelHandler_UniqueViolation_AlwaysClassified(t *testing.T) {
 		t.Run(map[bool]string{false: "dev=false", true: "dev=true"}[dev], func(t *testing.T) {
 			cfg := *testCfg
 			cfg.Dev = dev
-			handler := NewRelHandler(testDb, &cfg)
+			handler := NewRelHandler(testDb, &cfg, nil)
 
 			rec := postRelTo(t, handler, insert)
 			if rec.Code != http.StatusConflict {
@@ -89,7 +89,7 @@ func TestRelHandler_UnclassifiedInternalError_DevGated(t *testing.T) {
 		t.Run(map[bool]string{false: "dev=false", true: "dev=true"}[dev], func(t *testing.T) {
 			cfg := config.Test() // Pg.Query.AnonymousRole intentionally unset
 			cfg.Dev = dev
-			handler := NewRelHandler(testDb, cfg)
+			handler := NewRelHandler(testDb, cfg, nil)
 
 			rec := postRelWithCookie(t, handler, `{
 				"relation": "secret_notes", "schema": "public", "select": ["own"]

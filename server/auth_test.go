@@ -58,7 +58,7 @@ func TestRelHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	cfg.Http.Functions.CheckSession = "public.check_session"
-	handler := NewRelHandler(testDb, cfg)
+	handler := NewRelHandler(testDb, cfg, nil)
 
 	toggleSessionControl(t, true)
 	defer toggleSessionControl(t, false)
@@ -94,7 +94,7 @@ func TestRelHandler_CheckSessionRejection_DoesNotAlsoRenew(t *testing.T) {
 	cfg.Http.Functions.CheckSession = "public.check_session"
 	cfg.Jwt.MaxAge = 5
 	cfg.Jwt.RenewAfter = 0.1
-	handler := NewRelHandler(testDb, cfg)
+	handler := NewRelHandler(testDb, cfg, nil)
 
 	toggleSessionControl(t, true)
 	defer toggleSessionControl(t, false)
@@ -143,7 +143,7 @@ func TestRelHandler_CheckSessionAllows_AuthenticatedReadSucceeds(t *testing.T) {
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	cfg.Http.Functions.CheckSession = "public.check_session"
-	handler := NewRelHandler(testDb, cfg)
+	handler := NewRelHandler(testDb, cfg, nil)
 
 	toggleSessionControl(t, false)
 
@@ -162,7 +162,7 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	cfg.Jwt.MaxAge = 5
 	cfg.Jwt.RenewAfter = 0.1 // renew almost immediately
-	handler := NewRelHandler(testDb, cfg)
+	handler := NewRelHandler(testDb, cfg, nil)
 
 	cookie := mintCookie(t, cfg, "authenticated_user")
 	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold ; see rpc/handler_test.go's identical note on second-granularity claims
@@ -199,7 +199,7 @@ func TestRelHandler_CheckSessionSeesPreRenewalClaims(t *testing.T) {
 	cfg.Http.Functions.CheckSession = "public.check_session"
 	cfg.Jwt.MaxAge = 5
 	cfg.Jwt.RenewAfter = 0.1
-	handler := NewRelHandler(testDb, cfg)
+	handler := NewRelHandler(testDb, cfg, nil)
 
 	toggleSessionControl(t, false)
 	defer toggleSessionControl(t, false)
@@ -267,7 +267,7 @@ func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
 	if db.AnonymousRoleExists {
 		t.Fatalf("expected AnonymousRoleExists=false for a role nothing created")
 	}
-	handler := NewRelHandler(db, &cfg)
+	handler := NewRelHandler(db, &cfg, nil)
 
 	rec := postRelTo(t, handler, `{"relation": "director", "schema": "public", "select": ["own"]}`)
 	if rec.Code != http.StatusUnauthorized {
@@ -285,7 +285,7 @@ func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
 
 func TestRelHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
 	cfg := config.Test() // Pg.Anonymous intentionally left unset
-	handler := NewRelHandler(testDb, cfg)
+	handler := NewRelHandler(testDb, cfg, nil)
 
 	rec := postRelWithCookie(t, handler, `{
 		"relation": "secret_notes", "schema": "public", "select": ["own"]

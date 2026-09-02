@@ -82,7 +82,7 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/rel", server.NewRelHandler(db, cfg))
+	mux.Handle("/rel", server.NewRelHandler(db, cfg, nil))
 	mux.Handle("/rpc/", rpc.NewHandler(db, cfg, reg, nil))
 
 	wrapper := NewReloadableHandler(mux)

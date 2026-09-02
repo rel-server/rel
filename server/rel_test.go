@@ -51,7 +51,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	testHandler = NewRelHandler(testDb, testCfg)
+	testHandler = NewRelHandler(testDb, testCfg, nil)
 
 	m.Run()
 }
@@ -310,7 +310,7 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	if err != nil {
 		t.Fatalf("NewInfosAdminQuery: %v", err)
 	}
-	handler := NewRelHandler(db, cfg)
+	handler := NewRelHandler(db, cfg, nil)
 
 	ctx := context.Background()
 	conn, err := db.Pool.Acquire(ctx)
@@ -484,22 +484,35 @@ func TestRelHandler_UnresolvableRelation_BadRequest(t *testing.T) {
 	}
 }
 
-func TestRelHandler_WellKnown_NotYetSupported(t *testing.T) {
+// TestRelHandler_WellKnown_UnregisteredName_BarePosition exercises
+// testHandler's own nil *wellknown.Registry (no well-known files configured
+// for this package's shared test handler) — a bare well-known query
+// against it is exactly "unregistered name", not a special "unsupported"
+// case any more (see rel_wellknown_test.go for the full positive-path
+// coverage against a real registry).
+func TestRelHandler_WellKnown_UnregisteredName_BarePosition(t *testing.T) {
 	rec := postRel(t, `{"wellknown": "some_query"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
 	}
+	if got := rec.Header().Get("X-Rel-Errorcode"); got != "WELL_KNOWN_UNKNOWN_QUERY" {
+		t.Fatalf("expected WELL_KNOWN_UNKNOWN_QUERY, got %q", got)
+	}
 }
 
-// TestRelHandler_WellKnownWrite_NotYetSupported is
-// TestRelHandler_WellKnown_NotYetSupported's counterpart for a well-known
-// query wrapped in WriteQuery.query (query.ts's `query: Relation |
-// WellKnownQuery`) — the other position a well-known query can appear in,
-// and the one that would nil-dereference item.Write.Query if the /rel
-// handler ever fell through to its ResolveQuery(item.Write.Query) call.
-func TestRelHandler_WellKnownWrite_NotYetSupported(t *testing.T) {
+// TestRelHandler_WellKnown_UnregisteredName_WrappedWritePosition is the
+// bare case's counterpart for a well-known query wrapped in
+// WriteQuery.query (query.ts's `query: Relation | WellKnownQuery`) — the
+// other position a well-known query can appear in, and the one that would
+// nil-dereference item.Write.Query if handleRel's own WellKnown-position
+// checks (before the ResolveQuery(item.Write.Query) fallback) were ever
+// removed or reordered.
+func TestRelHandler_WellKnown_UnregisteredName_WrappedWritePosition(t *testing.T) {
 	rec := postRel(t, `{"query": {"wellknown": "some_query"}, "data": [{"a": 1}]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("X-Rel-Errorcode"); got != "WELL_KNOWN_UNKNOWN_QUERY" {
+		t.Fatalf("expected WELL_KNOWN_UNKNOWN_QUERY, got %q", got)
 	}
 }

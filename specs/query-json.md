@@ -6,9 +6,10 @@ for `GET /rel` (read-only, single-relation queries, easy to construct and bookma
 and, structurally only (see `## /rpc's query field` below), for `/rpc`'s `RelHttpRequest.query`.
 
 No new JSON shape is introduced. Every query string this document describes decodes to
-exactly the `Relation` (or, for well-known queries, `WellKnownQuery`) JSON that `query.ts`
-already defines, then runs through the existing pass-1..4 pipeline unchanged. This is a
-frontend to that shape, not a second query language.
+exactly the `Relation` JSON that `query.ts` already defines, then runs through the existing
+pass-1..4 pipeline unchanged. This is a frontend to that shape, not a second query language.
+A well-known query's own, much simpler `GET` encoding shares this document (`## Well-known
+queries on GET /rel` below) but not this grammar — see that section for why.
 
 ## Why not an existing "qs"-style library
 
@@ -38,10 +39,11 @@ Per `query-engine.md ## Configuration` ("all of them MUST be POST"), only reads 
 Concretely, a `GET /rel` query string decodes to exactly one `Relation` (nested `join`s are
 still just one `Relation` tree) :
 
-- No `WriteQuery` (no `data`), no `Query[]` sequence, no `WellKnownQuery` — WellKnownQuery
-  in particular already accepts arbitrary `params`/`data` and is reachable by name alone ;
-  its own `GET`-friendly encoding is `well-known-queries-get.md`, a separate document with
-  its own (much simpler) grammar, not part of this one.
+- No `WriteQuery` (no `data`), no `Query[]` sequence — this grammar decodes to exactly one
+  `Relation` tree, full stop.
+- A well-known query IS reachable on `GET /rel`, but not through this grammar : it has no
+  query tree in the request, only a name and a flat param bag, so it gets its own much
+  simpler encoding — `## Well-known queries on GET /rel` below.
 - `write_mode`, `on_conflict`, `insert_columns`, `update_columns` are therefore never valid
   on a `GET /rel` query string — decoding one that sets any of them is a `400`, not silently
   ignored. This check runs on the fully decoded `Relation` tree (recursively, into every
@@ -353,6 +355,87 @@ full, authoritative mapping.
   another call's arguments, since `query.ts` itself only ever uses them as `select`'s own
   top-level value too.
 
+## Well-known queries on GET /rel
+
+`well-known-queries.md ## Querying` defines a well-known query's request shape,
+`{wellknown, params?}` (or, wrapped in `WriteQuery.query` for a write, `data` alongside it —
+though `GET` is read-only, see below). This section is that shape's `GET`-specific textual
+encoding. It shares this document with the `Relation` grammar above because both are now
+`GET /rel`'s own concern, but it doesn't share that grammar : a well-known query has no query
+tree in the request at all, only a name and a flat bag of param values, so it needs none of
+`## Filter expression grammar`'s machinery — just `## Structural layer`'s dot-path decoding,
+reused as-is.
+
+### Shape
+
+```
+wellknown=<well-known query name>
+params.<param name>=<value>
+```
+
+`wellknown` is required and, if present, is what routes a `GET /rel` query string to this
+grammar instead of the `Relation` one above (`decodeGETQuery`, `server/rel.go`) — an
+unregistered or deactivated name is the same `WELL_KNOWN_UNKNOWN_QUERY` a `POST` gets. Each
+declared param is a separate `params.<name>=` key ; there is no comma-list or nested-object
+form the way `Relation`'s own `select`/`join` keys have, since a well-known query's `params`
+are always a flat `{name: value}` map, never a tree.
+
+```
+GET /rel?wellknown=directors_by_name&params.name=Denis+Villeneuve
+```
+
+decodes to the same request a bare `POST /rel` body
+`{"wellknown": "directors_by_name", "params": {"name": "Denis Villeneuve"}}` would send.
+
+### `params` value coercion
+
+Every `params.<name>=<value>` value is decoded through the structural layer as a plain
+string first, then **opportunistically re-parsed as JSON** :
+
+- If the raw string parses as JSON, the parsed value is used : `params.limit=5` → the
+  number `5`, `params.active=true` → the boolean `true`, `params.tag=null` → `null`.
+- If it doesn't parse as JSON (an ordinary bare word), the literal string is used instead :
+  `params.name=bob` → the string `"bob"`.
+
+This means a **text-typed param whose value happens to look like a number or boolean needs
+an explicit, URL-encoded JSON string** to stay a string — otherwise it silently coerces to
+the wrong kind and fails `well-known-queries.md ## Execution Errors`' own
+`WELL_KNOWN_PARAM_TYPE_MISMATCH` check :
+
+```
+params.code=12345          -> the number 12345 (fails a text-typed "code" param)
+params.code=%2212345%22    -> the string "12345" (the URL-encoded, quoted form)
+```
+
+`%22` is a URL-encoded `"` ; the raw query-string value is the four characters `"12345"`
+(quotes included), which parses as JSON to the plain string `12345`. The same escape hatch
+works for a literal value that would otherwise look like `true`/`false`/`null` :
+`params.status=%22true%22` stays the string `"true"`, not the boolean.
+
+An object/array-shaped param value works the same way, since a JSON object/array is just
+another thing the whole-value re-parse recognizes : a URL-encoded `params.tags=[1,2,3]`
+(literally the characters `[1,2,3]`, percent-encoded as needed for the transport) parses to
+the array `[1, 2, 3]`. There's no dot-path nesting INTO a `params.` value the way `Relation`'s
+own `join.actors.on...` keys nest — `params.tags.0=1&params.tags.1=2` would decode
+structurally to `{"tags": {"0": "1", "1": "2"}}` (an object with string keys, not an array),
+which is very unlikely to be the intended shape. A structured param value is always written
+as one single, whole-value JSON literal in its own `params.<name>=` key, not built up across
+several keys.
+
+An unrecognized key outside `wellknown`/`params.*` is silently ignored rather than rejected
+the way the `Relation` grammar's own `## Errors` rejects an unrecognized key — a well-known
+query's request tree is fixed (just a name and a flat param bag), so there's no equivalently
+useful "did you mean" check to run against it ; this is a deliberate, narrower decision, not
+an oversight.
+
+### Read-only
+
+`GET /rel?wellknown=...` never accepts `data` — matching `## Scope`'s own read-only
+restriction on `GET /rel` in general. A request supplying `data.*` keys (or, in principle, a
+bare `data` key — the structural layer would decode either into the tree's `"data"` entry
+the same way) is rejected outright, `400`, before the named query is even looked up ; there
+is no partial/silent-write behavior on `GET`.
+
 ## /rpc's query field
 
 `RelHttpRequest` gains a `query` field : the request's query string decoded through the
@@ -369,4 +452,6 @@ same as every other `RelHttpRequest` field.
 A query string that fails to decode (structural layer) or parse (filter expression grammar)
 is a `400`, same status `query-engine.md ## Configuration` already assigns to "an unknown
 relation" and any other malformed-request case on `/rel` — a query-string-specific decode
-failure is not a new error class, just a new source for the same one.
+failure is not a new error class, just a new source for the same one. Same for
+`## Well-known queries on GET /rel` : a query string that fails to decode, or a `GET`
+well-known request that supplies `data`, is a `400` through this same class.

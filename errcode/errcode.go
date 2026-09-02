@@ -60,7 +60,6 @@ const (
 	JoinMissingIndex           Code = "JOIN_MISSING_INDEX"
 	WriteForbidden             Code = "WRITE_FORBIDDEN"
 	WriteForbiddenFunctionRoot Code = "WRITE_FORBIDDEN_FUNCTION_ROOT"
-	WellKnownQueryUnsupported  Code = "WELL_KNOWN_QUERY_UNSUPPORTED"
 )
 
 // Well-known query compile errors (specs/well-known-queries.md ##

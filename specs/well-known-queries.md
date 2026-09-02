@@ -31,11 +31,15 @@ If a query has an error, a warning is logged and the query is deactivated — it
 
 `name` is declared inside the file's own content (`## Definition` below) and is the *only* thing that identifies a well-known query — directory layout under `wellknown_path` is purely an authoring convenience with no bearing on the exposed name. A developer is free to lay out files however they like, including declaring several `WellKnownQuery` entries (via the `WellKnownQuery[]` form) in one file ; two files in unrelated subdirectories can still collide on the same declared `name`, and that's an ordinary collision, not a special case.
 
-Well-known queries are not meant to be mixed-and-matched with other queries ; they're evaluated once and their statements are prepared, ready to be queried for maximum performance.
+A well-known query is invoked exactly like a `Relation` would be — bare (a read) or wrapped
+in `WriteQuery.query` (a write) — and can be freely mixed with plain `Relation` items in a
+`Query[]` sequence, sharing that sequence's transaction like anything else in it. See
+`## Querying` below for the wire shape. They're evaluated once and their statements are
+prepared, ready to be queried for maximum performance.
 
 "Prepared" doesn't mean issuing a literal Postgres `PREPARE` — pgx already caches statement plans per connection on its own (`QueryExecModeCacheStatement`), and reimplementing that under a connection pool (a prepared statement doesn't survive across pooled connections) would be pure overhead for no benefit. It means rel compiles the query to SQL text exactly once, at load time, and reuses that same text for every subsequent invocation instead of recompiling per request.
 
-That compile-once story extends to the write side too, not just reads. `runInsert`/`runUpsert`/`runUpdate`/`runDelete` build their SQL text purely from the resolved `QueryNode` tree's static shape (columns, `write_mode`, `on_conflict`) and each node's own precomputed `__node_id` (`dc.ids[node]`, baked in as a literal constant — e.g. `where tmp.__node_id = 3`) — never from the request's actual payload values. Denormalizing the request's JSON into `_data` is the only genuinely per-request step. (Node-ID assignment staying stable across invocations depends on always starting from a fresh `WriteState{}`, offset 0 — true as long as a well-known query never shares `_data` with another item in a larger sequence, which is exactly what "not meant to be mixed-and-matched" already rules out.)
+That compile-once story extends to the write side too, not just reads. `runInsert`/`runUpsert`/`runUpdate`/`runDelete` build their SQL text purely from the resolved `QueryNode` tree's static shape (columns, `write_mode`, `on_conflict`) and each node's own precomputed `__node_id` (`dc.ids[node]`, baked in as a literal constant — e.g. `where tmp.__node_id = 3`) — never from the request's actual payload values. Denormalizing the request's JSON into `_data` is the only genuinely per-request step. Node-ID assignment staying stable across invocations depends on always starting from a fresh `WriteState{}`, offset 0 — which no longer holds unconditionally now that a well-known write can sit anywhere in a larger `Query[]` sequence and get offset node IDs assigned at request time. Node IDs are resolved fresh per request today (`resolveWellKnownItem`'s `paramValues`/`writer.SQLWriter.ResolveArgs` threading, `server/rel.go`), so this is functionally fine as-is ; it's the write-side compile-once split below (baking `__node_id` in as a load-time literal) that will need to account for a non-zero starting offset once it's built — see `TODO.md`.
 
 The statement list itself is *not* uniformly "the same on every invocation" any more, though the SQL text each statement compiles to still is. `dmlCompiler.phase1`/`phase2` (`write_dml.go`) skip a node's statement when the payload didn't populate it, computed once per request from `denormalize`'s own output right after it runs — cheap, and it doesn't touch compiled SQL text at all, so it composes cleanly with the compile-once story rather than working against it :
 
@@ -79,23 +83,36 @@ Nothing currently copies a param's declared `type` into a usage site's `cast` au
 
 ## Querying
 
-Wellknown query are available on the endpoint `/wellknown`, who expects
+There is no separate `/wellknown` endpoint. A well-known query is invoked through `/rel`,
+in exactly the same two positions `query.ts`'s `Query` union already gives a `Relation` :
 
 ```typescript
-type WellknownQuery {
-  name: string
+interface WellKnownQuery {
+  wellknown: string
   params?: {
     [name: string]: unknown
   }
-  data?: unknown
 }
 ```
 
-`data` should only be supplied for write queries. `POST` and `GET` are available for wellknown just like for `/rel` for easy querying capabilities.
+- **Bare, as the whole request body (or one `Query[]` item)** — a read :
+  `{"wellknown": "directors_by_name", "params": {"name": "Denis Villeneuve"}}`.
+- **Wrapped in `WriteQuery.query`** — a write, with `data` supplied the same way it would be
+  for a plain `Relation` write : `{"query": {"wellknown": "insert_director"}, "data": {...}}`.
 
-`/wellknown` is, in effect, `/rel` with precompiled queries — it reuses the exact same infrastructure : the same auth pipeline (`jwt.Middleware`'s Verify, then `check_session`/Renew/`SET LOCAL ROLE` in the same order `/rel`/`/rpc` already share), mounted through `boot.BuildMux` alongside `/rel`/`/rpc`/`/static` so `websec.Middleware`'s CORS/CSP and `logging.RequestMiddleware`'s request-id logging apply automatically ; the same response shape (`/rel`'s manual streaming JSON array + `RelErrorResponse` error envelope).
+Because it occupies the same slot a `Relation` does, a well-known query composes freely with
+plain relations inside a `Query[]` sequence — read a well-known query and a hand-written one
+in the same transaction, for instance — something a dedicated `/wellknown` endpoint could
+never do. `POST` and `GET` are both available, exactly as they are for the rest of `/rel` ;
+`GET`'s query-string encoding of this shape is `query-json.md ## Well-known queries on
+GET /rel`.
 
-`GET`'s own query-string encoding of this shape — `well-known-queries-get.md` — is a separate document, the same way `query-json.md` is `GET /rel`'s own encoding of `query.ts`'s `Relation` shape ; the two don't share a grammar (`/wellknown` has no query tree in the request, only a name and a flat param bag), so there's nothing to fold into one file.
+There's no separate infrastructure to reuse, since there's no separate endpoint : the same
+auth pipeline, the same `boot.BuildMux` mount, the same response shape (`/rel`'s manual
+streaming JSON array + `RelErrorResponse` error envelope) already apply, because it's the
+same handler. A well-known item's statement, when it's a read, is the one already compiled
+at load time (`## Behaviour` above) rather than recompiled per request ; only its args are
+resolved fresh, per request, against the caller's `params`.
 
 ## Compilation Errors
 

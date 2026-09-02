@@ -28,29 +28,31 @@ import (
 	"github.com/ceymard/rel/wellknown"
 )
 
-// BuildMux assembles the full inner http.Handler — /rel, /rpc/, /wellknown,
-// and (when at least one http.static.path directory exists) /static/ —
-// wrapped uniformly in logging.RequestMiddleware (specs/logging.md
-// ## Request-scoped logging, so every log line any handler emits via
+// BuildMux assembles the full inner http.Handler — /rel, /rpc/, and (when
+// at least one http.static.path directory exists) /static/ — wrapped
+// uniformly in logging.RequestMiddleware (specs/logging.md ## Request-
+// scoped logging, so every log line any handler emits via
 // logging.FromContext(ctx) carries the same request_id) and
 // websec.Middleware (specs/http-content.md's own explicit "CORS and CSP
-// apply to /rel, /rpc, AND /static uniformly" rule — extended here to
-// /wellknown, which specs/well-known-queries.md ## Querying describes as
-// "/rel with precompiled queries" sharing this exact infrastructure). Both
-// cmd/rel/main.go (startup) and boot/reload.go's Reload (every SIGUSR1)
-// call this with a freshly built *rpc.Registry and *wellknown.Registry, so
-// the two call sites cannot drift on what the mux actually contains —
-// registry-building itself stays each call site's own responsibility (its
-// failure is handled differently : fatal at startup, log-and-keep-old-
-// schema on reload), everything about assembling the handler from an
-// already-built registry belongs here.
+// apply to /rel, /rpc, AND /static uniformly" rule). A well-known query is
+// invoked THROUGH /rel, not a separate route — specs/well-known-queries.md
+// ## Querying's own history : it stopped being a self-contained invocation
+// once WellKnownQuery became just another thing query.ts's Query union
+// accepts, same as a Relation, so wkReg is handed to server.NewRelHandler
+// directly rather than mounted at its own path. Both cmd/rel/main.go
+// (startup) and boot/reload.go's Reload (every SIGUSR1) call this with a
+// freshly built *rpc.Registry and *wellknown.Registry, so the two call
+// sites cannot drift on what the mux actually contains — registry-building
+// itself stays each call site's own responsibility (its failure is handled
+// differently : fatal at startup, log-and-keep-old-schema on reload),
+// everything about assembling the handler from an already-built registry
+// belongs here.
 func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *rpc.Registry, wkReg *wellknown.Registry, logger *slog.Logger) (http.Handler, error) {
 	staticSrv := static.New(cfg.Http)
 
 	mux := http.NewServeMux()
-	mux.Handle("/rel", server.NewRelHandler(db, cfg))
+	mux.Handle("/rel", server.NewRelHandler(db, cfg, wkReg))
 	mux.Handle("/rpc/", rpc.NewHandler(db, cfg, reg, staticSrv))
-	mux.Handle("/wellknown", server.NewWellKnownHandler(db, cfg, wkReg))
 	if staticSrv != nil {
 		mux.Handle("/static/", http.StripPrefix("/static/", staticSrv.Handler(db, cfg)))
 	} else if logger != nil {

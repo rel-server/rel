@@ -25,7 +25,12 @@ Resolved items are not tracked here — this is a todo list, not a changelog ; c
   as a plain `/rel` write already is, rather than reusing SQL text compiled once at load
   time. Functionally complete either way (including `$param` support) — this is purely the
   performance property `## Behaviour`'s own "prepared... ready to be queried for maximum
-  performance" framing promises for reads but doesn't yet deliver for writes.
+  performance" framing promises for reads but doesn't yet deliver for writes. Whatever design
+  lands here has to account for a well-known write's `__node_id`s no longer necessarily
+  starting at offset 0 — a well-known query can now sit anywhere inside a larger `Query[]`
+  sequence (`well-known-queries.md ## Behaviour`), so baking `__node_id` in as a load-time
+  literal constant, the way the compile-once story assumes, needs a per-request offset
+  applied on top, not a fixed one.
 - **`$param`'s declared `type` doesn't drive its usage sites' SQL cast** (`well-known-queries.md
   ## Definition`) : `type` governs the Go-side request validation, `cast` (per usage site,
   defaulting to `::jsonb`) governs the actual SQL — currently independent, no auto-fill from

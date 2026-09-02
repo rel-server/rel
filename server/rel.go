@@ -1,16 +1,19 @@
-// POST /rel : the first vertical slice wiring passes 1-4 into an actual
-// HTTP request. Scope deliberately limited — see the approved plan
-// (~/.claude/plans/modular-splashing-rivest.md at the time this was
-// written) : ParsedQuery.Sequence (several queries sharing one transaction)
-// IS handled, but ParsedQuery.WellKnown is rejected outright ; there is no
-// skip-reread option ; there is no process/config bootstrap (this package
-// exports a http.Handler, not a main package). Auth/role switching now
-// exists — see applyRole below and jwt/middleware.go's own doc comment for
-// how the JWT Lifecycle splits across the two packages.
+// POST/GET /rel : the first vertical slice wiring passes 1-4 into an actual
+// HTTP request. ParsedQuery.Sequence (several queries sharing one
+// transaction) is handled ; so is a well-known query, in either of the two
+// positions query.ts's Query union allows one to appear (bare, a read ;
+// wrapped in WriteQuery.query, a write) — same as a Relation, and
+// composable alongside one in a Sequence, since specs/well-known-queries.md
+// dropped its own dedicated /wellknown endpoint once WellKnownQuery stopped
+// being a self-contained invocation shape (see that spec's own ## Querying
+// for the history). Auth/role switching — see applyRole below and
+// jwt/middleware.go's own doc comment for how the JWT Lifecycle splits
+// across the two packages.
 package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +28,7 @@ import (
 	"github.com/ceymard/rel/pgerr"
 	"github.com/ceymard/rel/query"
 	"github.com/ceymard/rel/querystring"
+	"github.com/ceymard/rel/wellknown"
 	"github.com/ceymard/rel/writer"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/samber/oops"
@@ -38,36 +42,62 @@ type resolvedItem struct {
 	root    *query.QueryNode
 	isWrite bool
 	data    []byte
+
+	// paramValues is non-nil only for a well-known item — resolved once,
+	// up front, from wellknown.Compiled.ResolveParams ; nil for an
+	// ordinary Relation/WriteQuery item, which never contains a $param to
+	// begin with. Threaded into both ExecuteWriteStateParams (write) and
+	// SQLWriter.ResolveArgs (every item's own response statement) —
+	// ResolveArgs degrades to exactly .Args()'s old behavior when nil,
+	// so this doesn't need a separate code path for the common case.
+	paramValues map[string]any
+
+	// precompiledRead is wellknown.Compiled.Read for a well-known READ
+	// item (compiled once, at load time — specs/well-known-queries.md
+	// ## Behaviour's "prepared" story) ; nil for everything else, meaning
+	// "compile query.CompileSelect(root) fresh, at response time" as
+	// before. A well-known WRITE item's own response statement is still
+	// compiled fresh per request either way (CompileSelectForDataNode
+	// depends on this request's own __node_id assignment, not something
+	// reusable across requests).
+	precompiledRead *writer.SQLWriter
 }
 
-// NewRelHandler serves POST /rel per specs/query-engine.md's ## Configuration
-// ("all of them MUST be POST") and ## Response Shape. db.Pool is acquired
-// from once per request ; cfg drives scope/blacklist resolution exactly as
-// query.ResolveContext already does in every pass-1/2 test. Wrapped in
-// jwt.Middleware (Lifecycle step 2/Verify only) — applyRole (called from
-// handleRel once it has a connection) does step 3/Check, step 4/Renew, and
-// step 5/Apply role, in that order, reading the claims jwt.FromContext
-// left behind.
-func NewRelHandler(db *pg.DbInfos, cfg *config.Config) http.Handler {
+// NewRelHandler serves POST/GET /rel per specs/query-engine.md's
+// ## Configuration ("all of them MUST be POST") and ## Response Shape.
+// db.Pool is acquired from once per request ; cfg drives scope/blacklist
+// resolution exactly as query.ResolveContext already does in every pass-1/2
+// test. wkReg resolves a well-known item by name — rebuilt alongside db/cfg
+// on every SIGUSR1 reload (boot/reload.go), exactly like rpc.Registry.
+// Wrapped in jwt.Middleware (Lifecycle step 2/Verify only) — applyRole
+// (called from handleRel once it has a connection) does step 3/Check, step
+// 4/Renew, and step 5/Apply role, in that order, reading the claims
+// jwt.FromContext left behind.
+func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET, POST")
 			writeError(w, methodNotAllowed(fmt.Errorf("/rel only accepts GET or POST")), cfg.Dev)
 			return
 		}
-		handleRel(w, r, db, cfg)
+		handleRel(w, r, db, cfg, wkReg)
 	})
 	return jwtpkg.Middleware(cfg.Jwt)(inner)
 }
 
 // relQueryBytes returns the query.ts Query JSON this request describes :
 // the POST body verbatim, or — for GET, per specs/query-json.md — the
-// query string decoded through querystring.DecodeRelation, which already
-// enforces the read-only/single-relation restriction (## Scope) before
-// this function ever sees the result.
+// query string decoded into either a bare Relation (querystring.
+// DecodeRelation, unchanged) or a bare WellKnownQuery (decodeWellKnownGET,
+// below) — the same two read-only positions a POST body's top-level query
+// can take, minus WriteQuery/Sequence (## Scope's read-only restriction
+// applies to both the same way). Dispatched on which discriminator key
+// ("wellknown" vs "relation"/"function") the query string's own structural
+// layer decodes, checked before committing to either decoder's own full
+// grammar.
 func relQueryBytes(r *http.Request) ([]byte, error) {
 	if r.Method == http.MethodGet {
-		return querystring.DecodeRelation(r.URL.RawQuery)
+		return decodeGETQuery(r.URL.RawQuery)
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -76,7 +106,113 @@ func relQueryBytes(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config) {
+// decodeGETQuery decides which of the two read-only GET shapes raw is —
+// peeking via querystring.DecodeQueryField's generic structural layer
+// alone (dot-path keys -> nested JSON) is enough to tell a "wellknown" key
+// apart from "relation"/"function", without committing to either
+// decoder's own full grammar (DecodeRelation's own structural decode plus
+// its filter-expression grammar) until the discriminator is known.
+func decodeGETQuery(raw string) ([]byte, error) {
+	tree, err := querystring.DecodeQueryField(raw)
+	if err != nil {
+		return nil, err
+	}
+	if m, ok := tree.(map[string]any); ok {
+		if _, hasWellKnown := m["wellknown"]; hasWellKnown {
+			return decodeWellKnownGET(m)
+		}
+	}
+	return querystring.DecodeRelation(raw)
+}
+
+// decodeWellKnownGET builds {"wellknown": ..., "params"?: ...} JSON off m,
+// an already-decoded ?wellknown=<name>&params.<key>=<value>&... query
+// string (querystring.DecodeQueryField's own dot-path structural layer,
+// the same generic decoder /rpc's own free-form `query` field already
+// uses). Each params leaf value is opportunistically re-parsed as JSON, so
+// "?params.limit=5" produces the number 5 rather than the string "5" —
+// falling back to the literal string when it isn't valid JSON (an ordinary
+// bare word like "bob"). A URL-encoded, explicitly quoted value
+// (params.code=%2212345%22) is the escape hatch for a text-typed param
+// whose value would otherwise coerce to a number/boolean. GET is
+// read-only : a request supplying "data" here is rejected outright,
+// matching query-json.md ## Scope's existing rule that a GET query string
+// setting a write-only field is a 400, never silently dropped.
+func decodeWellKnownGET(m map[string]any) ([]byte, error) {
+	name, ok := m["wellknown"].(string)
+	if !ok {
+		return nil, fmt.Errorf(`"wellknown" must be a plain value, not nested`)
+	}
+	if _, hasData := m["data"]; hasData {
+		return nil, fmt.Errorf(`/rel GET is read-only ; well-known writes need POST`)
+	}
+	out := map[string]any{"wellknown": name}
+	if p, ok := m["params"]; ok {
+		out["params"] = coerceQueryStringLeaves(p)
+	}
+	return json.Marshal(out)
+}
+
+// coerceQueryStringLeaves re-parses every string leaf of v (a
+// querystring.DecodeQueryField tree) as JSON, keeping the parsed value
+// whenever it IS valid JSON — a bare word like "bob" isn't, and stays the
+// string "bob" ; "5" parses to the number 5 ; a literal, quoted "\"bob\""
+// (URL-encoded %22bob%22) parses BACK to the plain string "bob", the
+// escape hatch for a text-typed param whose value would otherwise coerce
+// to a number or boolean (params.code=12345 -> number 12345,
+// params.code=%2212345%22 -> the string "12345").
+func coerceQueryStringLeaves(v any) any {
+	switch t := v.(type) {
+	case string:
+		var parsed any
+		if json.Unmarshal([]byte(t), &parsed) == nil {
+			return parsed
+		}
+		return t
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, vv := range t {
+			out[k] = coerceQueryStringLeaves(vv)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, vv := range t {
+			out[i] = coerceQueryStringLeaves(vv)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+// resolveWellKnownItem looks up name in wkReg and validates/defaults
+// params against its declared shape — WELL_KNOWN_UNKNOWN_QUERY for an
+// unregistered or deactivated name (specs/well-known-queries.md
+// ## Behaviour : rejected identically to a genuinely unknown name),
+// otherwise whatever wellknown.Compiled.ResolveParams itself returns
+// (WELL_KNOWN_PARAM_REQUIRED/WELL_KNOWN_PARAM_TYPE_MISMATCH). data is nil
+// for a bare (read) invocation, or the write's own raw "data" bytes for one
+// wrapped in WriteQuery.query — mirrors resolvedItem.isWrite's existing
+// "item.Write != nil" convention, since a real write's Data is never
+// empty once WriteQuery's own "data" key is required to exist at parse
+// time (node_parse.go).
+func resolveWellKnownItem(wkReg *wellknown.Registry, name string, paramsRaw []byte, data []byte) (resolvedItem, error) {
+	wk, ok := wkReg.Lookup(name)
+	if !ok {
+		return resolvedItem{}, oops.Code(errcode.WellKnownUnknownQuery).Errorf("well-known query %q is not registered", name)
+	}
+	paramValues, err := wk.ResolveParams(paramsRaw)
+	if err != nil {
+		return resolvedItem{}, err
+	}
+	if data != nil {
+		return resolvedItem{root: wk.Root, isWrite: true, data: data, paramValues: paramValues}, nil
+	}
+	return resolvedItem{root: wk.Root, isWrite: false, paramValues: paramValues, precompiledRead: wk.Read}, nil
+}
+
+func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
 	ctx := r.Context()
 
 	// specs/authentication.md "# Roles ## Anonymous role existence" :
@@ -103,14 +239,14 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	// GET /rel decodes to exactly one Relation (specs/query-json.md ##
-	// Scope) — querystring.DecodeRelation only ever produces a bare
-	// Relation object, never a sequence, but this is still worth asserting
-	// explicitly : a silent Sequence branch here would defeat the whole
-	// point of the read-only/single-relation restriction if the decoder
-	// ever grew a way to produce one.
+	// GET /rel decodes to exactly one Relation or one well-known query
+	// (specs/query-json.md ## Scope / ## Well-known queries on GET /rel) —
+	// decodeGETQuery only ever produces a bare object, never a sequence,
+	// but this is still worth asserting explicitly : a silent Sequence
+	// branch here would defeat the whole point of the read-only/single-item
+	// restriction if the decoder ever grew a way to produce one.
 	if r.Method == http.MethodGet && pq.Sequence != nil {
-		writeError(w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation, not a sequence")), cfg.Dev)
+		writeError(w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
 		return
 	}
 
@@ -126,16 +262,30 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	rctx := &query.ResolveContext{Db: db, Config: cfg}
 	for i, item := range items {
 		// A well-known query can appear bare (item.WellKnown, a read) or
-		// wrapped in WriteQuery.query (item.Write.WellKnown, a write) — the
-		// exact same two positions a Relation can appear in, per query.ts's
-		// own union. Neither is supported through /rel yet ; both reject
-		// the same way. Checking item.Write.WellKnown here, before the
-		// switch below, also guards against item.Write.Query being nil in
-		// that case (WriteQuery.query is Relation | WellKnownQuery, only
-		// one of rawWriteQuery's Query/WellKnown fields is ever set).
-		if item.WellKnown != nil || (item.Write != nil && item.Write.WellKnown != nil) {
-			writeError(w, badRequest(errcode.WellKnownQueryUnsupported, fmt.Errorf("item %d: well-known queries are not invoked through /rel — use /wellknown instead", i)), cfg.Dev)
-			return
+		// wrapped in WriteQuery.query (item.Write.WellKnown, a write) —
+		// the exact same two positions a Relation can appear in, per
+		// query.ts's own union. Its tree is already resolved (at load
+		// time, wellknown.BuildRegistry) : no ResolveQuery/
+		// ResolveExpressions/DeriveShapes here, just a name lookup and
+		// request-time param validation/defaulting.
+		if wk := item.WellKnown; wk != nil {
+			ri, wkErr := resolveWellKnownItem(wkReg, wk.WellKnown, wk.Params, nil)
+			if wkErr != nil {
+				writeError(w, badRequest(codeOrUnclassified(wkErr), fmt.Errorf("item %d: %w", i, wkErr)), cfg.Dev)
+				return
+			}
+			resolved = append(resolved, ri)
+			continue
+		}
+		if item.Write != nil && item.Write.WellKnown != nil {
+			wk := item.Write.WellKnown
+			ri, wkErr := resolveWellKnownItem(wkReg, wk.WellKnown, wk.Params, item.Write.Data)
+			if wkErr != nil {
+				writeError(w, badRequest(codeOrUnclassified(wkErr), fmt.Errorf("item %d: %w", i, wkErr)), cfg.Dev)
+				return
+			}
+			resolved = append(resolved, ri)
+			continue
 		}
 
 		var root *query.QueryNode
@@ -243,7 +393,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		if !item.isWrite {
 			continue
 		}
-		result, err := query.ExecuteWriteState(ctx, conn, item.root, item.data, state)
+		result, err := query.ExecuteWriteStateParams(ctx, conn, item.root, item.data, state, item.paramValues)
 		if err != nil {
 			_, _ = conn.Exec(ctx, "rollback")
 			writeError(w, classifyWriteError(err, i), cfg.Dev)
@@ -263,12 +413,19 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// clean error envelope (the client has already received a "["), so
 	// every recoverable failure must be caught first.
 	statements := make([]*writer.SQLWriter, len(resolved))
+	args := make([][]any, len(resolved))
 	for i, item := range resolved {
 		var sw *writer.SQLWriter
 		var cerr error
-		if item.isWrite {
+		switch {
+		case item.isWrite:
 			sw, cerr = query.CompileSelectForDataNode(item.root, nodeIDs[i])
-		} else {
+		case item.precompiledRead != nil:
+			// Already compiled once, at load time — reused verbatim, not
+			// recompiled per request (specs/well-known-queries.md
+			// ## Behaviour's "prepared" story).
+			sw = item.precompiledRead
+		default:
 			sw, cerr = query.CompileSelect(item.root)
 		}
 		if cerr != nil {
@@ -276,6 +433,16 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			return
 		}
 		statements[i] = sw
+		// ResolveArgs, not Args() : item.paramValues is nil for an ordinary
+		// item, in which case this is exactly Args()'s old behavior — but
+		// a well-known item's own statement may carry named $param slots
+		// Args() would panic on.
+		a, aerr := sw.ResolveArgs(item.paramValues)
+		if aerr != nil {
+			writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: resolving params: %w", i, aerr)), cfg.Dev)
+			return
+		}
+		args[i] = a
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -297,7 +464,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		// clean envelope to fall back to (see response.go's writeError doc
 		// comment for that inherent limitation).
 		cleanErrorPossible := !multi && i == 0
-		if err := streamItem(ctx, w, conn, item.root, statements[i], statements[i].Args(), cleanErrorPossible); err != nil {
+		if err := streamItem(ctx, w, conn, item.root, statements[i], args[i], cleanErrorPossible); err != nil {
 			// A read failing now rolls back the whole transaction, write
 			// phase included — specs/query-engine.md ## Transactions : a
 			// read calling into a function that "goes awry" must not leave

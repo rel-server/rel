@@ -67,7 +67,10 @@ Candidate taxonomy — a first pass, grouped by what a client can actually act o
 | `JOIN_MISSING_INDEX` | 400 | `query-engine.md ## Join eligibility`'s compile-time rejection — actionable ("add an index"), worth distinguishing from a typo |
 | `WRITE_FORBIDDEN` | 400 | non-writable identity, `write_mode` violations in general |
 | `WRITE_FORBIDDEN_FUNCTION_ROOT` | 400 | the function-rooted-node case specifically (`query-engine.md ## Reading Algorithm ### Function-rooted nodes`) — split from the generic one since it's a distinct, documented rule a client might want to explain differently |
-| `WELL_KNOWN_QUERY_UNSUPPORTED` | 400 | placeholder, until that feature lands |
+
+Well-known query codes (`WELL_KNOWN_*`) are their own family, listed in full in
+`well-known-queries.md ## Compilation Errors` / `## Execution Errors` rather than duplicated
+here.
 
 **Runtime / infra** — mostly 500 ; a client can't act differently on "commit failed" vs "connection acquire failed," so collapsing these to one `INTERNAL` may be more honest than manufacturing false precision. Listed separately here so each can be vetoed/merged individually rather than deciding unilaterally :
 
