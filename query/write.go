@@ -215,7 +215,12 @@ func ExecuteWriteState(ctx context.Context, conn Querier, root *QueryNode, paylo
 		}
 	}
 
-	dc := &dmlCompiler{conn: conn, ids: ids}
+	populated := make(map[int]bool, len(ids))
+	for _, r := range rows {
+		populated[r.NodeID] = true
+	}
+
+	dc := &dmlCompiler{conn: conn, ids: ids, populated: populated}
 	if err := dc.phase1(ctx, root); err != nil {
 		return nil, err
 	}

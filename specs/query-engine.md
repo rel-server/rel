@@ -412,6 +412,17 @@ Nodes included through `join` in the query are _either_ incoming OR outgoing.
 
   > Why this is safe: phase 1 has already resolved cross-parent reassignment by this point ; the worst case from an unordered pair is an FK violation that errors and rolls back the whole transaction, not silent data loss.
 
+### Skipping no-op statements
+
+A node the payload never actually supplied a value for still gets a `__node_id` (step 1 assigns those unconditionally, before any payload exists), but ends up with zero rows in `_data` for it — an omitted key, an explicit `null` on an outgoing relation, or (for an incoming/root array) simply nothing to walk. Running that node's statement in this state isn't wrong, just wasted : every phase-1 statement (`### Insertion / Updates` below) correlates its `resolved` CTE against `_data where __node_id = <this node>`, so with zero matching rows it affects zero rows regardless. `dmlCompiler.phase1`/`phase2` (`query/write_dml.go`) skip these, computed once per request from a `map[nodeID]bool` built off `denormalize`'s own returned rows, right before phase 1 starts — no compiled SQL text is touched, only which calls get made.
+
+The two phases are gated in mirror-image ways, not the same way, because insertion/update/upsert and delete have opposite "what does an empty `_data` set mean" semantics :
+
+* **Phase 1** gates on the node's *own* population : zero rows for this node skips its statement *and* its entire subtree without recursing in. This is sound because of how `denormalize` walks the payload — a descendant's data can only ever exist nested inside this node's own JSON value, so a node with zero rows guarantees every descendant has zero rows too (see step 2's walk).
+* **Phase 2** gates on the *parent's* population, never the node's own. A delete-bearing node (`merge`, `merge-new`, `merge-update`, `deleteonly`) with zero rows of its own is not "nothing to delete" — per `### Definitions`, its whole job is deleting rows the payload didn't mention, and an empty/absent subtree under a populated parent is exactly that signal in its most extreme form ("the payload mentioned none of them — delete them all"). Skipping the delete there would silently turn "delete everything under this parent" into "delete nothing". The root itself (no parent) is never skipped this way either, for the same reason : an empty top-level payload already means "delete every row matching `where`" today, independent of this optimization. Recursing into a node's own children in phase 2, on the other hand, CAN be skipped once the node itself has zero rows — same monotonic-population argument as phase 1, since none of its descendants can hold data either.
+
+`query/write_test.go`'s `TestExecuteWrite_NullOutgoingSkipsChildStatements` (skip fires, proven by round-trip count) and `TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren` (the phase-2 asymmetry : an entirely-omitted incoming key still deletes every existing child) pin both halves of this.
+
 ### Insertion / Updates
 
 The default expressions and table column shapes are KNOWN prior to running the algorithm ; the database is introspected at start and on migration reload (or manually by the user.) The pg_ tables must _not_ be used in those queries at request time.

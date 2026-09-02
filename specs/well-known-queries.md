@@ -10,7 +10,7 @@ They're basically what views achieve in SQL, but in rel, with the write operatio
 
 ## Configuration
 
-* `pg.query.wellknown_path` (default `'/wellknown'`) : a colon `:` separated list of directories containing well-known queries in json, yaml or ruml format.
+* `pg.query.wellknown_path` (default `'/wellknown'`) : a colon `:` separated list of directories containing well-known queries in json or yaml format.
 
 >: What other configuration options would be relevant ?
 
@@ -23,20 +23,9 @@ recursion depth or file count while walking the directories ; a pathological dir
 the deploying developer's own responsibility, same posture the rest of this codebase's
 directory-scanning configs take.
 
-> Question: `ruml` stays as a supported format (confirmed — not dropped), but it still has no
-> grammar or parser anywhere in this codebase or its dependencies (`go.mod`/`go.sum`), and
-> doesn't appear in `specs/configuration.md` either as a format rel's own config file can use
-> today. Is there an existing `ruml` spec/library already in mind — the way `github.com/ceymard/dmut/v2`
-> is an external tool this repo already depends on and shells out to — or does the grammar
-> still need to be designed from scratch before support can be built ? If external, naming the
-> package/repo is what unblocks this ; if it's meant to become rel's *general* config format
-> too (not just well-known queries), that's a separate, larger scope change to
-> `specs/configuration.md` this spec alone doesn't cover.
->:
-
 ## Behaviour
 
-Rel reads the directories of `pg.query.wellknown_path` recursively and considers every `.json`, `.yml`, `.yaml`, `.ruml` file whose name doesn't start with `_`. Every format is converted to a plain JSON value tree before parsing — `sonic/ast`'s existing JSON-specific parser (`query.ParseExpression`/`ParseQuery`) is reused unchanged for all three ; YAML/`ruml` exist purely for author readability, not because rel treats them as semantically different from JSON.
+Rel reads the directories of `pg.query.wellknown_path` recursively and considers every `.json`, `.yml`, `.yaml` file whose name doesn't start with `_`. Every format is converted to a plain JSON value tree before parsing — `sonic/ast`'s existing JSON-specific parser (`query.ParseExpression`/`ParseQuery`) is reused unchanged for both ; YAML exists purely for author readability, not because rel treats it as semantically different from JSON.
 
 If a query has an error, a warning is logged and the query is deactivated — it was never validly defined, so it's never queryable, the same way a well-known query wouldn't exist at all if it were never written. If a query introduces a name that collides with an already-loaded one, rel logs a warning and deactivates *every* well-known query registered under that name (not just the newest one) ; a request naming a deactivated (or never-validly-defined) query is rejected the same way a genuinely unknown name would be.
 
@@ -46,11 +35,14 @@ Well-known queries are not meant to be mixed-and-matched with other queries ; th
 
 "Prepared" doesn't mean issuing a literal Postgres `PREPARE` — pgx already caches statement plans per connection on its own (`QueryExecModeCacheStatement`), and reimplementing that under a connection pool (a prepared statement doesn't survive across pooled connections) would be pure overhead for no benefit. It means rel compiles the query to SQL text exactly once, at load time, and reuses that same text for every subsequent invocation instead of recompiling per request.
 
-That compile-once story extends to the write side too, not just reads. Verified directly against `write_dml.go` : `runInsert`/`runUpsert`/`runUpdate`/`runDelete` build their SQL text purely from the resolved `QueryNode` tree's static shape (columns, `write_mode`, `on_conflict`) and each node's own precomputed `__node_id` (`dc.ids[node]`, baked in as a literal constant — e.g. `where tmp.__node_id = 3`) — never from the request's actual payload values. Denormalizing the request's JSON into `_data` is the only genuinely per-request step ; the same statement list runs on every invocation regardless of which parts of the payload happen to be populated, and a subtree the payload omits simply produces zero affected rows rather than needing different SQL. (Node-ID assignment staying stable across invocations depends on always starting from a fresh `WriteState{}`, offset 0 — true as long as a well-known query never shares `_data` with another item in a larger sequence, which is exactly what "not meant to be mixed-and-matched" already rules out.)
+That compile-once story extends to the write side too, not just reads. `runInsert`/`runUpsert`/`runUpdate`/`runDelete` build their SQL text purely from the resolved `QueryNode` tree's static shape (columns, `write_mode`, `on_conflict`) and each node's own precomputed `__node_id` (`dc.ids[node]`, baked in as a literal constant — e.g. `where tmp.__node_id = 3`) — never from the request's actual payload values. Denormalizing the request's JSON into `_data` is the only genuinely per-request step. (Node-ID assignment staying stable across invocations depends on always starting from a fresh `WriteState{}`, offset 0 — true as long as a well-known query never shares `_data` with another item in a larger sequence, which is exactly what "not meant to be mixed-and-matched" already rules out.)
 
-The catch : `write_dml.go`'s `run*` functions currently compile *and* execute their SQL in the same call — there's no split today between "compile this tree's DML once" (cacheable, the well-known-query part) and "run the already-compiled statements against this request's own `_data` rows" (per-request). Reusing a well-known write query's compiled statements across requests needs that split built first. Flagging this as implementation work this feature depends on, not a remaining design question — but say so here if this reading is wrong before it gets built on.
+The statement list itself is *not* uniformly "the same on every invocation" any more, though the SQL text each statement compiles to still is. `dmlCompiler.phase1`/`phase2` (`write_dml.go`) skip a node's statement when the payload didn't populate it, computed once per request from `denormalize`'s own output right after it runs — cheap, and it doesn't touch compiled SQL text at all, so it composes cleanly with the compile-once story rather than working against it :
 
->:
+- **phase1 (insert/update/upsert)** skips a node — and its whole subtree — once the node itself has zero `_data` rows. Payload nesting guarantees this is safe : a descendant's data can only ever exist nested inside this node's own JSON value, so an unpopulated node's descendants are unpopulated too.
+- **phase2 (delete)** is gated the other way round : on the *parent's* population, never the node's own. A delete-bearing node with zero `_data` rows of its own is exactly the "nothing survived in the payload under this parent, delete everything that used to be here" signal — not a skip condition. The root (no parent) is never skipped this way, matching how an empty top-level payload already means "delete everything matching `where`" today.
+
+The catch this still leaves open : `write_dml.go`'s `run*` functions currently compile *and* execute their SQL in the same call — there's no split today between "compile this tree's DML once" (cacheable, the well-known-query part) and "run the already-compiled statements against this request's own `_data` rows, skipping the ones the populated-check rules out" (per-request). Reusing a well-known write query's compiled statements across requests needs that split built first. Flagging this as implementation work this feature depends on, not a remaining design question.
 
 The shape of their output is known and exported in typescript.
 

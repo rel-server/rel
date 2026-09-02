@@ -7,6 +7,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -356,6 +358,122 @@ func TestExecuteWrite_MergeDeletesAbsentRows(t *testing.T) {
 	}
 	if len(titles) != 2 || titles[0] != "Keep Me Renamed" || titles[1] != "New One" {
 		t.Fatalf("expected [Keep Me Renamed, New One], got %v", titles)
+	}
+}
+
+// TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren pins the
+// asymmetry the noop-skip optimization in phase1/phase2 depends on : a
+// merge-mode incoming child entirely OMITTED from the payload (not even an
+// empty array) is not "nothing to do" — director itself (the parent) is
+// populated, so per query.ts's own write_mode doc ("delete rows not in the
+// payload"), every existing movie must still be deleted. This is exactly
+// the case phase2's skip must NOT trigger on : it gates on the PARENT's
+// population, not the (here, unpopulated) child node's own.
+func TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var directorID int
+	if err := conn.QueryRow(ctx, `insert into director (name) values ('Absent Movies Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Should Be Deleted')`, directorID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "movies": "movies"},
+		"write_mode": "update",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
+	}`)
+	// "movies" key entirely absent — not even "[]".
+	payload := fmt.Appendf(nil, `[{"id": %d}]`, directorID)
+
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from movie where director_id = $1`, directorID).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected every movie deleted (payload supplied no movies at all), got %d left", count)
+	}
+}
+
+// countingQuerier wraps a Querier, counting Exec/Query calls — used to prove
+// the noop-skip optimization actually skips statements, not just that it
+// doesn't break behavior. CopyFrom is passed straight through unwrapped :
+// it's the one per-request step the algorithm always needs regardless of
+// which nodes end up populated.
+type countingQuerier struct {
+	Querier
+	execs   int
+	queries int
+}
+
+func (c *countingQuerier) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	c.execs++
+	return c.Querier.Exec(ctx, sql, args...)
+}
+
+func (c *countingQuerier) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	c.queries++
+	return c.Querier.Query(ctx, sql, args...)
+}
+
+// TestExecuteWrite_NullOutgoingSkipsChildStatements proves the skip itself
+// fires, not just that it's behavior-preserving : director -> studio is a
+// nullable outgoing relation (pg/testdata/schema.sql's own comment : "added
+// purely so a write-path benchmark has a genuine 3-level outgoing chain...
+// nullable so every existing director-inserting test is unaffected").
+// Supplying null for "studio" must skip studio's own phase1 statement(s)
+// entirely — round-trip count is the only thing that can tell "ran and
+// affected 0 rows" apart from "never ran".
+func TestExecuteWrite_NullOutgoingSkipsChildStatements(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "name": "name", "studio": "studio"},
+		"write_mode": "insert",
+		"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}, "select": ["own"]}}
+	}`)
+	studioNode := node.OutgoingNodes[0]
+
+	counting := &countingQuerier{Querier: conn}
+	payload := []byte(`[{"name": "No Studio Director", "studio": null}]`)
+	result, err := ExecuteWrite(ctx, counting, node, payload)
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	directorKeys := dataKeysFor(t, conn, result.NodeIDs[node])
+	if len(directorKeys) != 1 {
+		t.Fatalf("expected 1 director keys row, got %d", len(directorKeys))
+	}
+	studioKeys := dataKeysFor(t, conn, result.NodeIDs[studioNode])
+	if len(studioKeys) != 0 {
+		t.Fatalf("expected 0 studio keys rows (studio was null), got %d : %#v", len(studioKeys), studioKeys)
+	}
+
+	var studioID *int
+	if err := conn.QueryRow(ctx, `select studio_id from director where name = 'No Studio Director'`).Scan(&studioID); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if studioID != nil {
+		t.Fatalf("expected studio_id null, got %v", *studioID)
+	}
+
+	// The actual assertion this test exists for : baseline is director's own
+	// insert (1 exec via runInsert) — if studio's own phase1 statement also
+	// ran, this would be at least 2. Guards against the skip silently
+	// regressing back to "always run" without any test noticing.
+	if counting.execs != 1 {
+		t.Fatalf("expected exactly 1 Exec (director's own insert, studio's skipped), got %d", counting.execs)
 	}
 }
 

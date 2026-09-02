@@ -15,14 +15,37 @@ import (
 type dmlCompiler struct {
 	conn Querier
 	ids  map[*QueryNode]int
+
+	// populated is the set of node IDs (dc.ids' values) that received at
+	// least one "_data" row from denormalize — built once in
+	// ExecuteWriteState right after denormalize returns. A node absent
+	// here got no payload value at all (omitted or explicit null on an
+	// outgoing relation, an absent or empty array on an incoming one), and
+	// by construction (walkNode only ever recurses into a child using a
+	// value nested inside its own parent's JSON) every descendant of such
+	// a node is unpopulated too — there's no way payload data for a child
+	// could exist without also supplying the parent value it'd have to be
+	// nested inside. See specs/query-engine.md ## Writing Algorithm's noop
+	// -skipping note for the phase1/phase2 asymmetry this enables.
+	populated map[int]bool
 }
 
 // ---- traversal --------------------------------------------------------------------
 
 // phase1 : outgoing children first (this node's own dependencies), then this
-// node's own DML, then incoming children — spec step 3.
+// node's own DML, then incoming children — spec step 3. A node with no
+// "_data" rows of its own is skipped entirely, subtree included : every
+// run* statement in phase 1 (insert/update/upsert) correlates strictly
+// against its own __node_id, so an empty node produces zero affected rows
+// regardless — running it is a guaranteed no-op, and skipping the subtree
+// is sound because an unpopulated node's descendants are unpopulated too
+// (see dmlCompiler.populated).
 func (dc *dmlCompiler) phase1(ctx context.Context, node *QueryNode) error {
-	if _, ok := dc.ids[node]; !ok {
+	nodeID, ok := dc.ids[node]
+	if !ok {
+		return nil
+	}
+	if !dc.populated[nodeID] {
 		return nil
 	}
 	for _, c := range node.OutgoingNodes {
@@ -44,23 +67,43 @@ func (dc *dmlCompiler) phase1(ctx context.Context, node *QueryNode) error {
 // phase2 : incoming children deepest-first, then outgoing children walked
 // through (never emitting their own delete), then this node's own delete if
 // it has a delete component — spec step 4. parent is nil at the root.
+//
+// Delete's own skip condition is deliberately the mirror image of phase1's :
+// gated on the PARENT's population, never this node's own. runDelete
+// correlates its target rows against the parent's "_data" (via node's
+// JoinColumns, scoped to __node_id = ids[parent]) — an empty/absent
+// subtree is exactly the "nothing survived in the payload, delete
+// everything that used to be here" signal a delete-bearing write_mode
+// needs to see, not something to short-circuit. The root itself
+// (parent == nil) is never skipped this way : an empty or entirely-absent
+// payload is that same "delete everything matching where" signal at the
+// top of the tree, and root always has a "_data" entry in dc.ids.
+//
+// Recursing into this node's own children, on the other hand, CAN be
+// skipped once this node itself is unpopulated — same reasoning as
+// phase1, since none of them can hold data either.
 func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *QueryNode) error {
-	if _, ok := dc.ids[node]; !ok {
+	nodeID, ok := dc.ids[node]
+	if !ok {
 		return nil
 	}
-	for _, c := range node.IncomingNodes {
-		if err := dc.phase2(ctx, c, node); err != nil {
-			return err
+	if dc.populated[nodeID] {
+		for _, c := range node.IncomingNodes {
+			if err := dc.phase2(ctx, c, node); err != nil {
+				return err
+			}
 		}
-	}
-	for _, c := range node.OutgoingNodes {
-		if err := dc.phase2(ctx, c, node); err != nil {
-			return err
+		for _, c := range node.OutgoingNodes {
+			if err := dc.phase2(ctx, c, node); err != nil {
+				return err
+			}
 		}
 	}
 	if hasDeleteComponent(node.WriteMode) {
-		if err := dc.runDelete(ctx, node, parent); err != nil {
-			return fmt.Errorf("write: node %q: delete: %w", node.InnerName, err)
+		if parent == nil || dc.populated[dc.ids[parent]] {
+			if err := dc.runDelete(ctx, node, parent); err != nil {
+				return fmt.Errorf("write: node %q: delete: %w", node.InnerName, err)
+			}
 		}
 	}
 	return nil
