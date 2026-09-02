@@ -180,6 +180,15 @@ func ExecuteWrite(ctx context.Context, conn Querier, root *QueryNode, payload []
 // mutated in place so the caller's next call picks up where this one left
 // off.
 func ExecuteWriteState(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState) (*WriteResult, error) {
+	return ExecuteWriteStateParams(ctx, conn, root, payload, state, nil)
+}
+
+// ExecuteWriteStateParams is ExecuteWriteState, additionally resolving any
+// $param reference (ParamExpr) the tree's own where/on_conflict/etc.
+// expressions compile to against paramValues — a well-known write query's
+// own per-request params (specs/well-known-queries.md ## Definition). nil
+// for a plain /rel write, which never contains a ParamExpr to begin with.
+func ExecuteWriteStateParams(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState, paramValues map[string]any) (*WriteResult, error) {
 	ids, nextNodeID := assignNodeIDs(root, state.nextNodeID)
 	if _, ok := ids[root]; !ok {
 		return nil, oops.Code(errcode.WriteForbidden).Errorf("write: root node is readonly, nothing to write")
@@ -220,7 +229,7 @@ func ExecuteWriteState(ctx context.Context, conn Querier, root *QueryNode, paylo
 		populated[r.NodeID] = true
 	}
 
-	dc := &dmlCompiler{conn: conn, ids: ids, populated: populated}
+	dc := &dmlCompiler{conn: conn, ids: ids, populated: populated, paramValues: paramValues}
 	if err := dc.phase1(ctx, root); err != nil {
 		return nil, err
 	}

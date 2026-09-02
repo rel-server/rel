@@ -16,6 +16,18 @@ type dmlCompiler struct {
 	conn Querier
 	ids  map[*QueryNode]int
 
+	// paramValues resolves a well-known write query's $param references
+	// (ParamExpr, compiled via writer.SQLWriter.BindParam — see sql_expr.go)
+	// against this specific request's own params : nil for a plain /rel
+	// write, which never contains a ParamExpr in the first place, so args()
+	// below degrades to exactly w.Args()'s old behavior. Threading this
+	// through is what lets a well-known write use $param without needing
+	// the compile/execute split specs/well-known-queries.md ## Behaviour
+	// flags as still-open : write_dml.go already recompiles its SQL text
+	// per request regardless of well-known-ness, so a param value is simply
+	// another per-request input alongside the payload itself.
+	paramValues map[string]any
+
 	// populated is the set of node IDs (dc.ids' values) that received at
 	// least one "_data" row from denormalize — built once in
 	// ExecuteWriteState right after denormalize returns. A node absent
@@ -107,6 +119,15 @@ func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *Quer
 		}
 	}
 	return nil
+}
+
+// args resolves w's bind slots against dc.paramValues — the single place
+// every run* function turns a compiled statement into the (sql, args) pair
+// it actually executes, so none of them need their own paramValues-aware
+// branch. See the dmlCompiler.paramValues field doc for why plain
+// w.Args() isn't used directly.
+func (dc *dmlCompiler) args(w *writer.SQLWriter) ([]any, error) {
+	return w.ResolveArgs(dc.paramValues)
 }
 
 // ---- shared column-set helpers -----------------------------------------------------
@@ -575,7 +596,11 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 		w.Write("where _data.__row_id = r.__row_id")
 	}
 
-	if _, err := dc.conn.Exec(ctx, w.String(), w.Args()...); err != nil {
+	args, err := dc.args(w)
+	if err != nil {
+		return err
+	}
+	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
 		return fmt.Errorf("insert: %w\nsql: %s", err, w.String())
 	}
 
@@ -626,7 +651,11 @@ func (dc *dmlCompiler) recoverKeys(ctx context.Context, node *QueryNode) error {
 	}
 	w.Write(")")
 
-	if _, err := dc.conn.Exec(ctx, w.String(), w.Args()...); err != nil {
+	args, err := dc.args(w)
+	if err != nil {
+		return err
+	}
+	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
 		return fmt.Errorf("recovering merge-new keys: %w\nsql: %s", err, w.String())
 	}
 	return nil
@@ -691,7 +720,11 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	writeKeysObject(w, node, "t")
 	w.Write(" as keys")
 
-	rows, err := dc.conn.Query(ctx, w.String(), w.Args()...)
+	args, err := dc.args(w)
+	if err != nil {
+		return err
+	}
+	rows, err := dc.conn.Query(ctx, w.String(), args...)
 	if err != nil {
 		return fmt.Errorf("update: %w\nsql: %s", err, w.String())
 	}
@@ -839,7 +872,11 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	w.Write("\n")
 	w.Write("where _data.__row_id = resolved.__row_id")
 
-	if _, err := dc.conn.Exec(ctx, w.String(), w.Args()...); err != nil {
+	args, err := dc.args(w)
+	if err != nil {
+		return err
+	}
+	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
 		return fmt.Errorf("upsert: %w\nsql: %s", err, w.String())
 	}
 	return nil
@@ -985,7 +1022,11 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 		w.Write(")")
 	}
 
-	if _, err := dc.conn.Exec(ctx, w.String(), w.Args()...); err != nil {
+	args, err := dc.args(w)
+	if err != nil {
+		return err
+	}
+	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
 		return fmt.Errorf("delete: %w\nsql: %s", err, w.String())
 	}
 	return nil

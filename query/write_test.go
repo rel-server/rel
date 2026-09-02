@@ -745,6 +745,51 @@ func TestExecuteWrite_DeleteOnlyScopedByWhere(t *testing.T) {
 	}
 }
 
+// TestExecuteWrite_ParamScopesDeleteOnlyWhere pins $param support on the
+// write side (query/sql_expr.go's ParamExpr case + dmlCompiler.paramValues,
+// threaded through ExecuteWriteStateParams) : specs/well-known-queries.md's
+// deferred compile/execute split only affects whether a well-known write's
+// SQL text is cached across requests, not whether $param resolves at all —
+// write_dml.go already recompiles per request regardless, so a param value
+// is just another per-request input alongside the payload.
+func TestExecuteWrite_ParamScopesDeleteOnlyWhere(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var directorID int
+	if err := conn.QueryRow(ctx, `insert into director (name) values ('Param DeleteOnly Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Only This'), ($1, 'Not This')`, directorID); err != nil {
+		t.Fatalf("insert movies: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "movie", "schema": "public",
+		"select": ["own"], "write_mode": "deleteonly",
+		"where": ["=", "title", ["$param", "title", "text"]]
+	}`)
+	params := map[string]any{"title": "Only This"}
+	if _, err := ExecuteWriteStateParams(ctx, conn, node, []byte(`[]`), &WriteState{}, params); err != nil {
+		t.Fatalf("ExecuteWriteStateParams: %v", err)
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from movie where director_id = $1`, directorID).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 movie left (the param-excluded one), got %d", count)
+	}
+	var remaining string
+	if err := conn.QueryRow(ctx, `select title from movie where director_id = $1`, directorID).Scan(&remaining); err != nil {
+		t.Fatalf("select remaining: %v", err)
+	}
+	if remaining != "Not This" {
+		t.Fatalf("expected the param-excluded row (Not This) to survive, got %q", remaining)
+	}
+}
+
 func TestKeysColumns_IncludesChildTargetedColumnBeyondOnConflict(t *testing.T) {
 	// profile's on_conflict target (user_email) isn't its primary key (id).
 	// A child correlating back to the parent via the PK, rather than via
