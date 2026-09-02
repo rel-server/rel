@@ -24,10 +24,10 @@ import (
 
 // TestNewInfos_NonSuperuserConnectingRole regression-tests
 // FillConstraintInformations' pg_catalog-visibility fix directly, next to
-// the code it protects — rpc/deployment_test.go exercises the same bug but
-// only reaches it through three layers (rpc.NewHandler -> BuildRegistry ->
+// the code it protects — route/deployment_test.go exercises the same bug but
+// only reaches it through three layers (route.NewHandler -> BuildRegistry ->
 // NewInfos), so a revert of info_constraint.go's continue-not-return fix
-// would surface there as an opaque rpc failure, not as "constraint
+// would surface there as an opaque route failure, not as "constraint
 // resolution rejects invisible relations."
 //
 // INFO_QUERY_CONSTRAINTS reads pg_constraint directly (world-readable,

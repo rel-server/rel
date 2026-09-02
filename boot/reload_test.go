@@ -24,17 +24,17 @@ import (
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/rpc"
+	"github.com/ceymard/rel/route"
 	"github.com/ceymard/rel/server"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 // TestReloader_Reload_EndToEnd builds a real ReloadableHandler wrapping
-// server.NewRelHandler+rpc.NewHandler against a testcontainers postgres,
+// server.NewRelHandler+route.NewHandler against a testcontainers postgres,
 // applies a fixture migration via a Reload call, and confirms a request
 // against the schema the migration just created succeeds where it would
 // have 404'd beforehand — the integration test most likely to catch a
-// wiring mistake between dmut/pg.ReIntrospect/rpc.BuildRegistry/boot.
+// wiring mistake between dmut/pg.ReIntrospect/route.BuildRegistry/boot.
 func TestReloader_Reload_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
@@ -76,19 +76,19 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 		t.Fatalf("pg.NewInfosAdminQuery: %v", err)
 	}
 
-	reg, err := rpc.BuildRegistry(db, cfg)
+	reg, err := route.BuildRegistry(db, cfg)
 	if err != nil {
-		t.Fatalf("rpc.BuildRegistry: %v", err)
+		t.Fatalf("route.BuildRegistry: %v", err)
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/rel", server.NewRelHandler(db, cfg, nil))
-	mux.Handle("/rpc/", rpc.NewHandler(db, cfg, reg, nil))
+	mux.Handle("/route/", route.NewHandler(db, cfg, reg, nil))
 
 	wrapper := NewReloadableHandler(mux)
 
 	// Before the reload : the migration's route function doesn't exist yet.
-	reqBefore := httptest.NewRequest("GET", "/rpc/public/fn_created_by_migration", nil)
+	reqBefore := httptest.NewRequest("GET", "/route/public/fn_created_by_migration", nil)
 	recBefore := httptest.NewRecorder()
 	wrapper.ServeHTTP(recBefore, reqBefore)
 	if recBefore.Code != http.StatusNotFound {
@@ -102,7 +102,7 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 	// After the reload : the migration ran, reintrospection/registry
 	// rebuild picked up the new function, and the wrapper is serving the
 	// new mux.
-	reqAfter := httptest.NewRequest("GET", "/rpc/public/fn_created_by_migration", nil)
+	reqAfter := httptest.NewRequest("GET", "/route/public/fn_created_by_migration", nil)
 	recAfter := httptest.NewRecorder()
 	wrapper.ServeHTTP(recAfter, reqAfter)
 	if recAfter.Code != http.StatusOK {

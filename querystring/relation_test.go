@@ -141,7 +141,7 @@ func TestDecodeRelation_UnrecognizedKeyIsError(t *testing.T) {
 }
 
 func TestDecodeQueryField_StructuralOnly(t *testing.T) {
-	// /rpc's query field decode must NOT run the filter expression grammar
+	// /route's query field decode must NOT run the filter expression grammar
 	// — a value like "gte(year,1999)" stays a plain string, not a compiled
 	// Expression array.
 	got, err := DecodeQueryField("filter=gte(year,1999)&page.size=20")

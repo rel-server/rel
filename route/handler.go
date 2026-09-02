@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/ceymard/rel/static"
 )
 
-// NewHandler is /rpc/{schema}/{function} : one dynamic dispatch pattern per
+// NewHandler is /route/{schema}/{function} : one dynamic dispatch pattern per
 // ## HTTP's own wording ("dispatched dynamically... rather than registered
 // as their own routes"), not one ServeMux registration per discovered
 // function. staticSrv is ### Upload destinations' own write target
@@ -26,13 +26,13 @@ import (
 func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server) http.Handler {
 	templates := templatesForConfig(cfg)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/{schema}/{function}", func(w http.ResponseWriter, r *http.Request) {
-		handleRpc(w, r, db, cfg, reg, templates, staticSrv)
+	mux.HandleFunc("/route/{schema}/{function}", func(w http.ResponseWriter, r *http.Request) {
+		handleRoute(w, r, db, cfg, reg, templates, staticSrv)
 	})
 	return mux
 }
 
-func handleRpc(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, templates *TemplateSet, staticSrv *static.Server) {
+func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, templates *TemplateSet, staticSrv *static.Server) {
 	ctx := r.Context()
 	schema := r.PathValue("schema")
 	function := r.PathValue("function")

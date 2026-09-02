@@ -1,9 +1,9 @@
-# Query strings : GET /rel and /rpc's `query` field
+# Query strings : GET /rel and /route's `query` field
 
 `query.ts` specifies the JSON `Query` shape `POST /rel` accepts. This document specifies a
 second, textual encoding of a *subset* of that same shape, carried in a URL query string —
 for `GET /rel` (read-only, single-relation queries, easy to construct and bookmark by hand)
-and, structurally only (see `## /rpc's query field` below), for `/rpc`'s `RelHttpRequest.query`.
+and, structurally only (see `## /route's query field` below), for `/route`'s `RelHttpRequest.query`.
 
 No new JSON shape is introduced. Every query string this document describes decodes to
 exactly the `Relation` JSON that `query.ts` already defines, then runs through the existing
@@ -436,14 +436,14 @@ bare `data` key — the structural layer would decode either into the tree's `"d
 the same way) is rejected outright, `400`, before the named query is even looked up ; there
 is no partial/silent-write behavior on `GET`.
 
-## /rpc's query field
+## /route's query field
 
 `RelHttpRequest` gains a `query` field : the request's query string decoded through the
 **structural layer only** (`## Structural layer` above, generalized — not scoped to
-`Relation`'s own fixed keys, since an `/rpc` query string can be any shape a given route
+`Relation`'s own fixed keys, since an `/route` query string can be any shape a given route
 function's own author wants) into a plain JSON value, handed to the Postgres function
 verbatim. The filter expression grammar (`## Filter expression grammar`) is specific to
-`Relation`'s `where`/`select`/`order_by` fields and has no bearing here — `/rpc` route
+`Relation`'s `where`/`select`/`order_by` fields and has no bearing here — `/route` route
 functions receive `query`'s decoded JSON as-is and interpret it however they choose,
 same as every other `RelHttpRequest` field.
 

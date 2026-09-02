@@ -4,7 +4,7 @@ Use https://github.com/samber/oops everywhere and provide context for all errors
 
 Logs log errors' full attached context (`logging.md ## Error integration with samber/oops`), regardless of what a client response is allowed to contain — the client-facing redaction this document specifies is about the HTTP response only, never about what gets logged server-side.
 
-> Status: implemented. `errcode` (rel-internal codes), `pgerr.Classify` (RSxxx + PG_* classification, the `Detail` field allow-list), `config.Dev`, and both `/rel` (`server/response.go`) and `/rpc` (`rpc/response.go`) envelopes/gating are wired through. The `## Rel-internal codes` query-compile-error family (`UNKNOWN_IDENTIFIER`, `JOIN_MISSING_INDEX`, `WRITE_FORBIDDEN`, `WRITE_FORBIDDEN_FUNCTION_ROOT`, `QUERY_INVALID_EXPRESSION`) is now attached at each `query`/`pg` package raise site via `oc.Code(errcode.X)`, and read back by `server/rel.go`'s `codeOrUnclassified` — `errcode.Unclassified` is only the fallback for whatever residual case isn't covered by the taxonomy yet.
+> Status: implemented. `errcode` (rel-internal codes), `pgerr.Classify` (RSxxx + PG_* classification, the `Detail` field allow-list), `config.Dev`, and both `/rel` (`server/response.go`) and `/route` (`route/response.go`) envelopes/gating are wired through. The `## Rel-internal codes` query-compile-error family (`UNKNOWN_IDENTIFIER`, `JOIN_MISSING_INDEX`, `WRITE_FORBIDDEN`, `WRITE_FORBIDDEN_FUNCTION_ROOT`, `QUERY_INVALID_EXPRESSION`) is now attached at each `query`/`pg` package raise site via `oc.Code(errcode.X)`, and read back by `server/rel.go`'s `codeOrUnclassified` — `errcode.Unclassified` is only the fallback for whatever residual case isn't covered by the taxonomy yet.
 
 ## Configuration
 
@@ -21,14 +21,14 @@ Two separate, non-overlapping code spaces feed one `code` field :
 
 ### Delivery
 
-- **`X-Rel-Errorcode` response header**, set to the `code` value, on every error response from both `/rel` and `/rpc` — the one channel that works regardless of body framing (`/rel`'s JSON envelope, `/rpc`'s plain text, an in-flight route function's own arbitrary mimetype/template output once it's already started writing).
-- **`code` field inside `RelErrorResponse`** (`/rel` only — its body is always JSON, so the header is redundant there but harmless ; a JSON API consumer would rather parse the body than inspect headers). `/rpc`'s built-in error paths (route lookup, request-body decoding, transaction handling — everything before or around an actual route function running) stay plain-text, unchanged from today ; the header is that path's only channel, deliberately, per `rpc.md ## Postgres Exceptions`'s existing "no separate JSON property" stance — extending that to full content-negotiated JSON error bodies would need a concrete driving case, which doesn't exist yet.
+- **`X-Rel-Errorcode` response header**, set to the `code` value, on every error response from both `/rel` and `/route` — the one channel that works regardless of body framing (`/rel`'s JSON envelope, `/route`'s plain text, an in-flight route function's own arbitrary mimetype/template output once it's already started writing).
+- **`code` field inside `RelErrorResponse`** (`/rel` only — its body is always JSON, so the header is redundant there but harmless ; a JSON API consumer would rather parse the body than inspect headers). `/route`'s built-in error paths (route lookup, request-body decoding, transaction handling — everything before or around an actual route function running) stay plain-text, unchanged from today ; the header is that path's only channel, deliberately, per `route.md ## Postgres Exceptions`'s existing "no separate JSON property" stance — extending that to full content-negotiated JSON error bodies would need a concrete driving case, which doesn't exist yet.
 
 ### Postgres-raised codes
 
-Unchanged from the existing convention (`rpc.md ## Postgres Exceptions`, `pgerr` package) : `RSxxx` gives the response status `xxx`, the raised message becomes the body, and — new — `code` is set to the errcode itself (`"RS404"`), echoed in the header/JSON field like any other code.
+Unchanged from the existing convention (`route.md ## Postgres Exceptions`, `pgerr` package) : `RSxxx` gives the response status `xxx`, the raised message becomes the body, and — new — `code` is set to the errcode itself (`"RS404"`), echoed in the header/JSON field like any other code.
 
-`rpc.md` also already claims *"any other error code results in the error page with status 500, unless it's a known Postgres code with unambiguous HTTP semantics (e.g. permission denied → 401)"* — this is presently **aspirational, not implemented** : `pgerr.RSStatus` only recognizes the `RSxxx` pattern today: anything else, including `permission_denied`/`unique_violation`/etc., already falls through to a generic 500. No longer an optional follow-up : `## Postgres error detail` below makes this mapping load-bearing, not just cosmetic — it's what decides whether a constraint violation is safe to show a client in full, so it belongs in the same implementation pass as the rest of this taxonomy.
+`route.md` also already claims *"any other error code results in the error page with status 500, unless it's a known Postgres code with unambiguous HTTP semantics (e.g. permission denied → 401)"* — this is presently **aspirational, not implemented** : `pgerr.RSStatus` only recognizes the `RSxxx` pattern today: anything else, including `permission_denied`/`unique_violation`/etc., already falls through to a generic 500. No longer an optional follow-up : `## Postgres error detail` below makes this mapping load-bearing, not just cosmetic — it's what decides whether a constraint violation is safe to show a client in full, so it belongs in the same implementation pass as the rest of this taxonomy.
 
 If implemented, the natural shape : a small fixed table of well-known SQLSTATEs → `(status, code)`, `code` namespaced `PG_` so it's visibly distinct from both `RSxxx` and rel-internal codes at a glance (`PG_PERMISSION_DENIED` → 403, `PG_UNIQUE_VIOLATION` → 409, `PG_FOREIGN_KEY_VIOLATION` → 409, `PG_NOT_NULL_VIOLATION`/`PG_CHECK_VIOLATION` → 400). Everything else stays `INTERNAL`/500. How much of the underlying Postgres text each of these is allowed to show — full detail always vs. dev-gated — isn't uniform across this list ; see `## Postgres error detail` below, which splits it by what the message could actually reveal, not by SQLSTATE membership alone.
 
@@ -41,7 +41,7 @@ Candidate taxonomy — a first pass, grouped by what a client can actually act o
 | code | status | where |
 |---|---|---|
 | `METHOD_NOT_ALLOWED` | 405 | `/rel` GET/POST check — currently wrongly returns 400, see below |
-| `ROUTE_NOT_FOUND` | 404 | `/rpc` lookup miss |
+| `ROUTE_NOT_FOUND` | 404 | `/route` lookup miss |
 | `MALFORMED_BODY` | 400 | JSON/form parse failure |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | wrong content-type (e.g. upload routes) |
 | `BODY_TOO_LARGE` | 413 | over `http.max_body_size` |
@@ -78,7 +78,7 @@ here.
 |---|---|---|
 | `DB_UNAVAILABLE` | 500 | acquiring a connection failed |
 | `TRANSACTION_ERROR` | 500 | begin/commit/rollback failures |
-| `TEMPLATE_ERROR` | 500 | `/rpc` template rendering |
+| `TEMPLATE_ERROR` | 500 | `/route` template rendering |
 | `UPLOAD_IO_ERROR` | 500 | mkdir/create/rename/swap failures |
 
 **Upload-specific** — already has real HTTP-status granularity in code today, just needs codes attached :
@@ -115,7 +115,7 @@ Grounded in what actually flows through this codebase's real error paths, not a 
 
 - **Object/schema existence an unprivileged caller couldn't otherwise confirm** — `PG_PERMISSION_DENIED`'s `Message` is typically `"permission denied for table foo"`, confirming `foo` exists to a caller who may have no other way to know that. This is `specs/TODO.md`'s already-flagged schema-enumeration-via-error-fingerprinting risk, and it's why tier 2 keeps `Message` generic rather than just narrowing which fields are shown.
 - **Rel's own generated SQL, if codegen ever produces a bad query.** A Postgres syntax error embeds a fragment of the actual query text at fault — if that query is rel's own (not the client's), the fragment can expose internal alias schemes, the `_data` staging table name, join-strategy artifacts. `pg/helpers.go`'s `oops.With("query", query)` attaches the raw SQL as *structured context*, not as part of `.Error()`'s string (confirmed : `oops.OopsError.Error()` returns only `"message: wrapped_error"`, never the `.With()` context) — so this isn't leaking today, but it's a live trap : **any future call site that renders `%+v` or serializes `.ToMap()`/`.Context()` into a client-facing response defeats this entire design.** Client-facing serialization MUST only ever use `.Error()` or `oops.GetPublic(...)` — never `%+v`, never `.Context()`/`.ToMap()`. Worth a lint/review rule, not just documentation, once this lands in code.
-- **Server filesystem layout.** `rpc/upload_handler.go`'s `os.MkdirAll`/`os.OpenFile`/`os.Rename` failures wrap `*os.PathError`, whose `.Error()` is literally `"open /var/lib/rel/uploads/.upload-<token>: permission denied"` — full server path, directory layout, sometimes the OS user rel runs as. Nothing stops this unwrapping through a `%w` chain into a response today ; it needs the same generic-in-prod treatment as tier 3.
+- **Server filesystem layout.** `route/upload_handler.go`'s `os.MkdirAll`/`os.OpenFile`/`os.Rename` failures wrap `*os.PathError`, whose `.Error()` is literally `"open /var/lib/rel/uploads/.upload-<token>: permission denied"` — full server path, directory layout, sometimes the OS user rel runs as. Nothing stops this unwrapping through a `%w` chain into a response today ; it needs the same generic-in-prod treatment as tier 3.
 - **DB connectivity detail.** Connection-acquire failures can embed host:port from pgx's own error text (never a password — pgx doesn't include that) — real infra topology nonetheless.
 - **Secrets accidentally interpolated into error text.** Not hypothetical — `config/reader.go`'s `logErr` already states this exact rule for config values (`$FILE$` can put a resolved secret at any path, so an error message must never embed the resolved value, only the path/key). The same rule applies wherever any wrapped error might echo back a sensitive value rather than just its identifying key — this document generalizes what `config` already enforces locally, not inventing a new principle.
 - **Stack traces / dependency fingerprinting** — package import paths and dependency versions visible in a frame are real recon value (look up known CVEs for the exact version shown). Already covered by `## Stack traces`' existing dev-gate ; restated here as the same category of risk as the above, not a separate one.
@@ -128,7 +128,7 @@ Grounded in what actually flows through this codebase's real error paths, not a 
 
 **Sent only when `dev: true`, same gate as `pg_error`, same reasoning** : a stack trace leaks source file paths and package layout — real information disclosure, not cosmetic — so it stays off by default.
 
-**Delivery** : `RelErrorResponse` gains a `stacktrace?: string[]` field (one frame per entry, from `OopsError.StackFrames()`), present exactly when both gates (5xx, `dev: true`) hold. For `/rpc`'s plain-text error bodies, the trace is appended after the message, separated by a blank line, under the same two gates — there's no JSON body to add a field to there, and plain text is already the existing convention for that path, so this doesn't introduce a new response shape for it.
+**Delivery** : `RelErrorResponse` gains a `stacktrace?: string[]` field (one frame per entry, from `OopsError.StackFrames()`), present exactly when both gates (5xx, `dev: true`) hold. For `/route`'s plain-text error bodies, the trace is appended after the message, separated by a blank line, under the same two gates — there's no JSON body to add a field to there, and plain text is already the existing convention for that path, so this doesn't introduce a new response shape for it.
 
 This supersedes this document's earlier "a special page... displaying the stack trace" idea (never built, `specs/TODO.md` had it flagged as an implementation gap) — a dedicated dev-mode HTML page would duplicate what a `dev: true` JSON/text field already gives a developer, for one extra rendering path to maintain. Dropping the HTML-page idea in favor of the field-based approach above ; flagging the change explicitly since it was written down before, not silently dropping it.
 

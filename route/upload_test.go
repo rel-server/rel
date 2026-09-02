@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"bytes"
@@ -102,7 +102,7 @@ func TestUpload_HappyPath_Multipart(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
 	content := []byte("hello upload destination")
-	req := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?path=uploads/hello.txt&mkdir=true", "file", "hello.txt", "text/plain", content)
+	req := multipartUploadRequest(t, "/route/public/fn_dest_upload?path=uploads/hello.txt&mkdir=true", "file", "hello.txt", "text/plain", content)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -150,7 +150,7 @@ func TestUpload_HappyPath_Multipart(t *testing.T) {
 func TestUpload_NoUpload_PrepareStillRuns(t *testing.T) {
 	handler, _ := newUploadTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_dest_upload", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_dest_upload", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -175,7 +175,7 @@ func TestUpload_NoUpload_PrepareStillRuns(t *testing.T) {
 func TestUpload_PrepareRejects_BeforeBytesRead(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
-	req := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?reject=true", "file", "x.txt", "text/plain", []byte("data"))
+	req := multipartUploadRequest(t, "/route/public/fn_dest_upload?reject=true", "file", "x.txt", "text/plain", []byte("data"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -201,7 +201,7 @@ func TestUpload_SecondMultipartPart_Is415(t *testing.T) {
 	_, _ = fw2.Write([]byte("second"))
 	_ = w.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_dest_upload?path=twoparts.txt", &buf)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_dest_upload?path=twoparts.txt", &buf)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -227,7 +227,7 @@ func TestUpload_SecondMultipartPart_Is415(t *testing.T) {
 func TestUpload_MandatoryRejects_TempFileDeleted(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
-	req := multipartUploadRequest(t, "/rpc/public/fn_dest_fail?path=never.txt", "file", "never.txt", "text/plain", []byte("data"))
+	req := multipartUploadRequest(t, "/route/public/fn_dest_fail?path=never.txt", "file", "never.txt", "text/plain", []byte("data"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -253,7 +253,7 @@ func TestUpload_OverwriteDisallow_ExistingFile_Is409(t *testing.T) {
 		t.Fatalf("seeding existing file: %v", err)
 	}
 
-	req := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?path=taken.txt", "file", "taken.txt", "text/plain", []byte("new data"))
+	req := multipartUploadRequest(t, "/route/public/fn_dest_upload?path=taken.txt", "file", "taken.txt", "text/plain", []byte("new data"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -271,7 +271,7 @@ func TestUpload_OverwriteDisallow_ExistingFile_Is409(t *testing.T) {
 func TestUpload_JsonBody_Is415(t *testing.T) {
 	handler, _ := newUploadTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_dest_upload", bytes.NewReader([]byte(`{"a":1}`)))
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_dest_upload", bytes.NewReader([]byte(`{"a":1}`)))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -293,7 +293,7 @@ func TestUpload_NoContentTypeHeader_StillStreams(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
 	content := []byte("no content-type header at all")
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_dest_upload?path=noct.txt", bytes.NewReader(content))
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_dest_upload?path=noct.txt", bytes.NewReader(content))
 	req.Header.Del("Content-Type") // httptest.NewRequest never sets one for a plain io.Reader body, but be explicit
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -353,7 +353,7 @@ func TestUpload_Mkdir_CreatesMissingParentDirectory(t *testing.T) {
 		t.Fatalf("expected %s not to exist before the request, stat err=%v", subdir, err)
 	}
 
-	req := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?path=brand/new/nested/file.txt&mkdir=true", "file", "file.txt", "text/plain", []byte("data"))
+	req := multipartUploadRequest(t, "/route/public/fn_dest_upload?path=brand/new/nested/file.txt&mkdir=true", "file", "file.txt", "text/plain", []byte("data"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -374,7 +374,7 @@ func TestUpload_OverwriteAllow_RoundTrip(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 	final := filepath.Join(dir, "roundtrip.txt")
 
-	first := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?path=roundtrip.txt&overwrite=allow", "file", "roundtrip.txt", "text/plain", []byte("first write"))
+	first := multipartUploadRequest(t, "/route/public/fn_dest_upload?path=roundtrip.txt&overwrite=allow", "file", "roundtrip.txt", "text/plain", []byte("first write"))
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, first)
 	if rec1.Code != http.StatusOK {
@@ -385,7 +385,7 @@ func TestUpload_OverwriteAllow_RoundTrip(t *testing.T) {
 		t.Fatalf("expected 'first write' on disk after the first write, got %q err=%v", got1, err)
 	}
 
-	second := multipartUploadRequest(t, "/rpc/public/fn_dest_upload?path=roundtrip.txt&overwrite=allow", "file", "roundtrip.txt", "text/plain", []byte("second write, different length"))
+	second := multipartUploadRequest(t, "/route/public/fn_dest_upload?path=roundtrip.txt&overwrite=allow", "file", "roundtrip.txt", "text/plain", []byte("second write, different length"))
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, second)
 	if rec2.Code != http.StatusOK {
@@ -411,7 +411,7 @@ func TestUpload_AnonymousAuthorization_RequiresBothHalves(t *testing.T) {
 	for _, base := range []string{"fn_dest_anon_prepare_only", "fn_dest_anon_mandatory_only"} {
 		t.Run(base, func(t *testing.T) {
 			handler, _ := newUploadTestHandler(t)
-			req := multipartUploadRequest(t, "/rpc/public/"+base, "file", "x.txt", "text/plain", []byte("data"))
+			req := multipartUploadRequest(t, "/route/public/"+base, "file", "x.txt", "text/plain", []byte("data"))
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 			if rec.Code != http.StatusUnauthorized {
@@ -424,14 +424,14 @@ func TestUpload_AnonymousAuthorization_RequiresBothHalves(t *testing.T) {
 // TestUpload_OrphanFunctions_HTTPLevel404 covers the same orphan-pair
 // discovery rule as TestUpload_OrphanFunctions_NotRoutable (registry-level),
 // but hitting the real handler over HTTP — a registry-level Lookup miss and
-// an HTTP 404 are two different code paths (handleRpc's own reg.Lookup call
+// an HTTP 404 are two different code paths (handleRoute's own reg.Lookup call
 // vs a test calling Registry.Lookup directly), and only the HTTP path is
 // what an actual caller ever observes.
 func TestUpload_OrphanFunctions_HTTPLevel404(t *testing.T) {
 	handler, _ := newUploadTestHandler(t)
 	for _, base := range []string{"fn_orphan_prepare", "fn_orphan_mandatory"} {
 		t.Run(base, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/rpc/public/"+base, nil)
+			req := httptest.NewRequest(http.MethodGet, "/route/public/"+base, nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 			if rec.Code != http.StatusNotFound {
@@ -446,7 +446,7 @@ func TestUpload_OrphanFunctions_HTTPLevel404(t *testing.T) {
 func TestUpload_DiscardPath(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
-	req := multipartUploadRequest(t, "/rpc/public/fn_dest_upload", "file", "discard.txt", "text/plain", []byte("throwaway"))
+	req := multipartUploadRequest(t, "/route/public/fn_dest_upload", "file", "discard.txt", "text/plain", []byte("throwaway"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

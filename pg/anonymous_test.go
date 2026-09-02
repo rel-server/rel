@@ -57,7 +57,7 @@ func TestNewInfosAdminQuery_AnonymousRoleExistence(t *testing.T) {
 
 // TestAnonymousAndPublicPrivilegeQuery_NonSuperuser runs the actual
 // has_schema_privilege/has_function_privilege two-conjunct query
-// rpc.BuildRegistry uses (specs/rpc.md "# HTTP ## Anonymous
+// route.BuildRegistry uses (specs/route.md "# HTTP ## Anonymous
 // route authorization") against testdata/anon_priv.sql's fixture, under a
 // non-superuser connecting role (plain_login_role) — both privilege
 // functions ask about ANOTHER role (probe_role, PUBLIC), never the

@@ -13,7 +13,7 @@ transitional state where one is meant to replace the other.
 
 A plain SQL init script (`postgres.WithInitScripts`), applied directly by testcontainers with
 no migration engine involved. This is where most packages' fast, single-behavior regression
-tests live — `query/`, `pg/`, `rpc/`, `static/`, `server/`, `boot/` all build their own
+tests live — `query/`, `pg/`, `route/`, `static/`, `server/`, `boot/` all build their own
 `TestMain` against it (or a package-local variant of it). Its own `director`/`movie`
 relations, plus a purpose-built fixture table/function added per test as new behavior needs
 covering, are individually small and easy to reason about — this is precisely why it stays

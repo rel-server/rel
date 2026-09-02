@@ -64,7 +64,7 @@ func RequestMiddleware(next http.Handler) http.Handler {
 // newRequestID is a short random hex token — collision-safety only needs
 // to hold within one process's log retention window, not globally/
 // cryptographically, so 8 bytes (16 hex chars) is plenty ; same
-// crypto/rand + hex.EncodeToString shape as rpc/upload_handler.go's own
+// crypto/rand + hex.EncodeToString shape as route/upload_handler.go's own
 // randomToken, reused here rather than pulling in a UUID dependency for
 // this alone.
 func newRequestID() string {

@@ -4,7 +4,7 @@
 // everything else derived from config/schema (## Templates' own
 // "Reload" — falls out of boot.BuildMux being called fresh on every
 // reload, same as the rest of this package's dependencies).
-package rpc
+package route
 
 import (
 	"bytes"
@@ -63,16 +63,16 @@ func NewTemplateSet(path string) *TemplateSet {
 // response body. A load or runtime execution failure is a 500, logged,
 // never a silent fallback to resp.content.
 func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *TemplateSet, resp relHttpResponsePayload, status int) {
-	rlog := logging.FromContext(r.Context()).With("module", "rpc")
+	rlog := logging.FromContext(r.Context()).With("module", "route")
 	if templates == nil || templates.set == nil {
-		rlog.Error("rpc: RelHttpResponse.template set but no http.templates.path configured/found", "template", resp.Template)
+		rlog.Error("route: RelHttpResponse.template set but no http.templates.path configured/found", "template", resp.Template)
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "template rendering unavailable (no http.templates.path configured)")
 		return
 	}
 
 	tmpl, err := templates.set.GetTemplate(resp.Template)
 	if err != nil {
-		rlog.Error("rpc: loading template", "template", resp.Template, "error", err.Error())
+		rlog.Error("route: loading template", "template", resp.Template, "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "loading template")
 		return
 	}
@@ -90,7 +90,7 @@ func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *Te
 	// pages, not multi-GB media) output is what makes that guarantee true.
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, vars, nil); err != nil {
-		rlog.Error("rpc: executing template", "template", resp.Template, "error", err.Error())
+		rlog.Error("route: executing template", "template", resp.Template, "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "executing template")
 		return
 	}
@@ -119,7 +119,7 @@ func templateDataValue(raw json.RawMessage) any {
 // route function itself received into a plain Go map/slice tree, per
 // ## Templates step 2's "Req — the exact same RelHttpRequest JSON value
 // the route function itself received." r.relHttpRequestJSON is stashed by
-// handleRpc right after buildRelHttpRequest, specifically so this doesn't
+// handleRoute right after buildRelHttpRequest, specifically so this doesn't
 // need to independently re-derive it (which would risk drifting from what
 // was actually sent, e.g. a renewed JWT changing req.jwt after the fact).
 func decodeRequestForTemplate(r *http.Request) any {

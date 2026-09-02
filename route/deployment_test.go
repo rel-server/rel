@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/ceymard/rel/pg"
 )
 
-// TestDeploymentShapedRoleSwitch exercises the full /rpc JWT lifecycle —
+// TestDeploymentShapedRoleSwitch exercises the full /route JWT lifecycle —
 // login with a real (pgcrypto) credential check, cookie mint, an
 // authenticated role-gated call — against a connecting role that is a
 // genuine, non-superuser LOGIN role granted membership in every role it
@@ -52,7 +52,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 
 	// NewInfosAdminQuery, threading through the real anonymous role name —
 	// "anonymous call still works" below needs DbInfos.AnonymousRoleExists
-	// true, same reasoning as rpc_test.go's TestMain.
+	// true, same reasoning as route_test.go's TestMain.
 	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		t.Fatalf("NewInfosAdminQuery: %v", err)
@@ -65,7 +65,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 	handler := NewHandler(db, cfg, reg, nil)
 
 	t.Run("bad credentials rejected", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login_with_credentials", strings.NewReader(`{"username":"alice","password":"wrong"}`))
+		req := httptest.NewRequest(http.MethodPost, "/route/public/fn_login_with_credentials", strings.NewReader(`{"username":"alice","password":"wrong"}`))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -75,7 +75,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 	})
 
 	t.Run("anonymous call still works", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+		req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -84,7 +84,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 	})
 
 	t.Run("full round trip under the non-superuser connecting role", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login_with_credentials", strings.NewReader(`{"username":"alice","password":"correct horse battery staple"}`))
+		req := httptest.NewRequest(http.MethodPost, "/route/public/fn_login_with_credentials", strings.NewReader(`{"username":"alice","password":"correct horse battery staple"}`))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -103,7 +103,7 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 
 		// The operation that 500s with "permission denied to set role" if
 		// query_user_deploy weren't granted membership in app_user.
-		req2 := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_secret", nil)
+		req2 := httptest.NewRequest(http.MethodGet, "/route/public/fn_secret", nil)
 		req2.AddCookie(cookie)
 		rec2 := httptest.NewRecorder()
 		handler.ServeHTTP(rec2, req2)

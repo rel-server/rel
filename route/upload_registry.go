@@ -4,7 +4,7 @@
 // discovery since this family is matched and paired by a genuinely
 // different rule (two functions, not one ; the suffix is reserved, not a
 // __VERB).
-package rpc
+package route
 
 import (
 	"regexp"
@@ -110,7 +110,7 @@ func discoverUploadRoutes(db *pg.DbInfos, reg *Registry, reqType, uploadType, re
 			switch {
 			case prep != nil && mand != nil:
 				if prep.IsVolatile {
-					log.Warn("rpc: upload __prepare function is declared volatile, but rel runs it inside a real BEGIN READ ONLY transaction regardless",
+					log.Warn("route: upload __prepare function is declared volatile, but rel runs it inside a real BEGIN READ ONLY transaction regardless",
 						"schema", schema, "function", prep.Identifier.String())
 				}
 				if reg.routes[schema] == nil {
@@ -120,7 +120,7 @@ func discoverUploadRoutes(db *pg.DbInfos, reg *Registry, reqType, uploadType, re
 					reg.routes[schema][base] = map[string]Route{}
 				}
 				if existing, dup := reg.routes[schema][base][""]; dup {
-					log.Error("rpc: ambiguous route, skipping upload pair", "schema", schema, "function", base,
+					log.Error("route: ambiguous route, skipping upload pair", "schema", schema, "function", base,
 						"first", existing.Function.Identifier.String(), "second", mand.Identifier.String())
 					continue
 				}
@@ -130,10 +130,10 @@ func discoverUploadRoutes(db *pg.DbInfos, reg *Registry, reqType, uploadType, re
 					IsUpload:        true,
 				}
 			case prep != nil && mand == nil:
-				log.Warn("rpc: upload __prepare function has no matching mandatory sibling function, not a route",
+				log.Warn("route: upload __prepare function has no matching mandatory sibling function, not a route",
 					"schema", schema, "function", prep.Identifier.String())
 			case prep == nil && mand != nil:
-				log.Warn("rpc: upload mandatory function has no matching __prepare sibling function, not a route",
+				log.Warn("route: upload mandatory function has no matching __prepare sibling function, not a route",
 					"schema", schema, "function", mand.Identifier.String())
 			}
 		}

@@ -1,5 +1,5 @@
 // Middleware composes ## CORS and ## CSP into one func(http.Handler)
-// http.Handler, applied uniformly to /rel, /rpc, AND /static — same
+// http.Handler, applied uniformly to /rel, /route, AND /static — same
 // func(http.Handler) http.Handler style jwt/middleware.go already uses.
 package websec
 
@@ -15,7 +15,7 @@ import (
 // calling next (so a plain-text error response emitted by next still
 // carries it, and so a route function's own writeRelHttpResponse can
 // overwrite Content-Security-Policy on top when resp.csp is set — see
-// rpc/encode.go), and answers a CORS preflight directly, never reaching
+// route/encode.go), and answers a CORS preflight directly, never reaching
 // next at all.
 func Middleware(cfg *config.Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

@@ -35,7 +35,7 @@ type DbInfos struct {
 	// Anonymous role existence" check : whether the configured
 	// pg.query.anonymous_role name was found in pg_roles at introspection
 	// time. false means anonymous access is disabled outright — every
-	// unauthenticated request to /rel and /rpc alike must be rejected with
+	// unauthenticated request to /rel and /route alike must be rejected with
 	// 401, before route lookup, before any request body is read, before a
 	// pool connection is ever acquired.
 	AnonymousRoleExists bool

@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"bytes"
@@ -58,7 +58,7 @@ func TestHandler_Upload_MultipleFiles(t *testing.T) {
 		{FieldName: "b", FileName: "b.bin", ContentType: "application/octet-stream", Content: []byte{0x00, 0x01, 0x02}},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_upload", body)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -95,7 +95,7 @@ func TestHandler_UploadWithHeaders_PartsMetadata(t *testing.T) {
 		{FieldName: "doc", FileName: "report.txt", ContentType: "text/plain", Content: []byte("report contents")},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_upload_with_headers", body)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload_with_headers", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -144,7 +144,7 @@ func TestHandler_UploadWithHeaders_PartsMetadata(t *testing.T) {
 // files is a one-element array holding the whole body, with a synthesized
 // pseudo-part when parts_headers is declared.
 func TestHandler_Upload_SingleBinaryPOST_SynthesizesOneElementFilesArray(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_upload_with_headers", bytes.NewReader([]byte("raw binary payload")))
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload_with_headers", bytes.NewReader([]byte("raw binary payload")))
 	req.Header.Set("Content-Type", "application/octet-stream")
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -185,7 +185,7 @@ func TestHandler_Upload_SingleBinaryPOST_SynthesizesOneElementFilesArray(t *test
 // explicit non-415 edge case : a files-declaring route called with no body
 // at all gets empty files/parts_headers, not a 415.
 func TestHandler_FilesRoute_NoBodyAtAll_NotA415(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_upload", nil)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -207,7 +207,7 @@ func TestHandler_FilesRoute_NoBodyAtAll_NotA415(t *testing.T) {
 // envelope with zero parts.
 func TestHandler_FilesRoute_ZeroPartMultipart_NotA415(t *testing.T) {
 	body, contentType := buildMultipart(t, nil)
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_upload", body)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -220,7 +220,7 @@ func TestHandler_FilesRoute_ZeroPartMultipart_NotA415(t *testing.T) {
 // carve-out applies on a plain (req)-only route too.
 func TestHandler_NonFilesRoute_ZeroPartMultipart_NotA415(t *testing.T) {
 	body, contentType := buildMultipart(t, nil)
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", body)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -233,7 +233,7 @@ func TestHandler_NonFilesRoute_ZeroPartMultipart_NotA415(t *testing.T) {
 // bullet : a files route receiving a request whose content_type falls into
 // the JSON/text/form-urlencoded branches is a 415.
 func TestHandler_FilesRoute_JSONBody_Is415(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_upload", strings.NewReader(`{"a":1}`))
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", strings.NewReader(`{"a":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -249,7 +249,7 @@ func TestHandler_NonFilesRoute_RealMultipart_Is415(t *testing.T) {
 	body, contentType := buildMultipart(t, []multipartField{
 		{FieldName: "a", FileName: "a.txt", ContentType: "text/plain", Content: []byte("hello")},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", body)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -267,7 +267,7 @@ func TestHandler_MaxBodySize_RejectsOversizedRequest(t *testing.T) {
 	small.Http.MaxBodySize = 8
 	handler := NewHandler(testDb, &small, testReg, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", strings.NewReader(strings.Repeat("x", 100)))
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", strings.NewReader(strings.Repeat("x", 100)))
 	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -287,7 +287,7 @@ func TestHandler_MaxBodySize_RejectsStreamedOverflow_NoDeclaredLength(t *testing
 	small.Http.MaxBodySize = 8
 	handler := NewHandler(testDb, &small, testReg, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", strings.NewReader(strings.Repeat("x", 100)))
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", strings.NewReader(strings.Repeat("x", 100)))
 	req.Header.Set("Content-Type", "text/plain")
 	req.ContentLength = -1 // unknown length, e.g. a chunked request
 	rec := httptest.NewRecorder()
@@ -311,7 +311,7 @@ func TestHandler_MaxBodySize_RejectsStreamedOverflow_MidMultipartPart(t *testing
 	body, contentType := buildMultipart(t, []multipartField{
 		{FieldName: "a", FileName: "a.txt", ContentType: "text/plain", Content: []byte(strings.Repeat("x", 1000))},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_upload", body)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", body)
 	req.Header.Set("Content-Type", contentType)
 	req.ContentLength = -1
 	rec := httptest.NewRecorder()
@@ -333,7 +333,7 @@ func TestHandler_MaxPartCount_RejectsTooManyParts(t *testing.T) {
 		fields = append(fields, multipartField{FieldName: "f", FileName: "f.txt", ContentType: "text/plain", Content: []byte("x")})
 	}
 	body, contentType := buildMultipart(t, fields)
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_upload", body)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -346,7 +346,7 @@ func TestHandler_MaxPartCount_RejectsTooManyParts(t *testing.T) {
 // application/x-www-form-urlencoded body decoding through a real route
 // function, via fn_echo1's whole-request echo.
 func TestHandler_FormUrlencodedBody_EndToEnd(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", strings.NewReader("name=John&user.role=admin"))
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", strings.NewReader("name=John&user.role=admin"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -374,10 +374,10 @@ func TestHandler_FormUrlencodedBody_EndToEnd(t *testing.T) {
 // heavier form payload than TestHandler_FormUrlencodedBody_EndToEnd's single
 // nesting level : two-deep dotted nesting alongside a repeated key (array),
 // combined in one body, proving querystring.DecodeStructural's dot-path and
-// repeated-key handling both survive a real POST /rpc round trip together,
+// repeated-key handling both survive a real POST /route round trip together,
 // not just individually.
 func TestHandler_FormUrlencodedBody_HeavierNestedPayload_EndToEnd(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", strings.NewReader("a.b.c=1&tags=x&tags=y&user.prefs.theme=dark"))
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", strings.NewReader("a.b.c=1&tags=x&tags=y&user.prefs.theme=dark"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -420,7 +420,7 @@ func TestHandler_FormUrlencodedBody_HeavierNestedPayload_EndToEnd(t *testing.T) 
 // TestHandler_TextMimeTypeDomainResponse proves a text-underlying mimetype
 // domain route responds with the string directly, no base64.
 func TestHandler_TextMimeTypeDomainResponse(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_text_domain", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_text_domain", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

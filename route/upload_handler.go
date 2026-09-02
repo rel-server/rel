@@ -1,10 +1,10 @@
 // This file implements specs/http-content.md ### Upload destinations'
 // numbered "Ordering" subsection : a genuinely different request flow from
-// handleRpc's own single-transaction one — the body is resolved (streamed
+// handleRoute's own single-transaction one — the body is resolved (streamed
 // straight to a temp file on disk) AFTER __prepare's placement decision,
 // and the file only changes on disk after the mandatory function's own
 // transaction has actually committed.
-package rpc
+package route
 
 import (
 	"crypto/rand"
@@ -51,7 +51,7 @@ type relUploadPayload struct {
 // built directly here.
 func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, route Route, staticSrv *static.Server, templates *TemplateSet, verified bool, claims jwtpkg.Claims) {
 	ctx := r.Context()
-	rlog := logging.FromContext(ctx).With("module", "rpc")
+	rlog := logging.FromContext(ctx).With("module", "route")
 
 	reqJSON, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims)
 	if err != nil {
@@ -184,7 +184,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	var upload relUploadPayload
 	if err := sonic.Unmarshal(uploadRaw, &upload); err != nil {
-		rlog.Error("rpc: decoding __prepare's RelUpload response", "function", route.PrepareFunction.Identifier.String(), "error", err.Error())
+		rlog.Error("route: decoding __prepare's RelUpload response", "function", route.PrepareFunction.Identifier.String(), "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
@@ -215,13 +215,13 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if hasUpload {
 		if upload.Path != nil && *upload.Path != "" {
 			if writeDir == "" {
-				rlog.Error("rpc: upload route resolved a path but no http.static.path directory is configured/exists", "path", *upload.Path)
+				rlog.Error("route: upload route resolved a path but no http.static.path directory is configured/exists", "path", *upload.Path)
 				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 				return
 			}
 			cleaned, ok := resolveUnderDir(writeDir, *upload.Path)
 			if !ok {
-				rlog.Error("rpc: upload __prepare returned a path escaping http.static.path", "path", *upload.Path)
+				rlog.Error("route: upload __prepare returned a path escaping http.static.path", "path", *upload.Path)
 				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 				return
 			}
@@ -239,7 +239,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			}
 			if upload.Mkdir {
 				if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
-					rlog.Error("rpc: upload mkdir", "path", finalPath, "error", err.Error())
+					rlog.Error("route: upload mkdir", "path", finalPath, "error", err.Error())
 					writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
 					return
 				}
@@ -251,7 +251,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			// accurate size.
 			tempPath = filepath.Join(writeDir, ".upload-"+randomToken())
 		} else {
-			rlog.Error("rpc: upload route has no http.static.path directory configured/exists to stage the discarded upload into")
+			rlog.Error("route: upload route has no http.static.path directory configured/exists to stage the discarded upload into")
 			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 			return
 		}
@@ -263,7 +263,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if hasUpload {
 		f, ferr := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if ferr != nil {
-			rlog.Error("rpc: creating temp upload file", "path", tempPath, "error", ferr.Error())
+			rlog.Error("route: creating temp upload file", "path", tempPath, "error", ferr.Error())
 			writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
 			return
 		}
@@ -342,7 +342,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// the temp file instead — not an error.
 	if hasUpload && finalPath != "" {
 		if err := swapUploadIntoPlace(rlog, tempPath, finalPath, overwrite); err != nil {
-			rlog.Error("rpc: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
+			rlog.Error("route: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
 			writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
 			return
 		}
@@ -408,7 +408,7 @@ func swapUploadIntoPlace(rlog *slog.Logger, tempPath, finalPath, overwrite strin
 		// check passing means exactly such a race happened — worth a warning
 		// even though it isn't an error.
 		if overwrite == "disallow" {
-			rlog.Warn("rpc: upload overwrote an existing file at commit time despite overwrite:'disallow' — a concurrent request won the race after the early existence check", "path", finalPath)
+			rlog.Warn("route: upload overwrote an existing file at commit time despite overwrite:'disallow' — a concurrent request won the race after the early existence check", "path", finalPath)
 		}
 		if err := os.Rename(finalPath, backupPath); err != nil {
 			_ = os.Remove(tempPath)

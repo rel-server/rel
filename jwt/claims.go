@@ -5,7 +5,7 @@
 // func(http.Handler) http.Handler middleware. Check (the check_session
 // function) and Apply role both need the request's own DB connection,
 // which doesn't exist yet when this middleware runs — those two steps are
-// each calling package's own responsibility (rpc/handler.go, server/rel.go
+// each calling package's own responsibility (route/handler.go, server/rel.go
 // applyRole), using dbauth for the parts they still share.
 package jwt
 

@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 func TestHandler_AnonymousCall(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 
@@ -26,7 +26,7 @@ func TestHandler_AnonymousCall(t *testing.T) {
 }
 
 func TestHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
-	// config.Test() leaves Pg.Anonymous unset by design — handleRpc must
+	// config.Test() leaves Pg.Anonymous unset by design — handleRoute must
 	// reject an anonymous request with a clear 500, not hand an empty role
 	// name to `SET LOCAL ROLE` (a Postgres syntax error) or silently skip
 	// the role switch (a privilege escalation for anonymous callers).
@@ -34,7 +34,7 @@ func TestHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
 	cfgCopy.Pg.Query.AnonymousRole = ""
 	handler := NewHandler(testDb, &cfgCopy, testReg, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -43,14 +43,14 @@ func TestHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
 	}
 }
 
-// TestHandler_RouteAnonymousCannotReach_Is401 proves rpc.Route.
+// TestHandler_RouteAnonymousCannotReach_Is401 proves route.Route.
 // AnonymousAuthorized actually gates the request BEFORE the route function
 // ever runs (schema.sql's fn_app_only has EXECUTE revoked from PUBLIC,
 // never re-granted to "~anonymous", only to app_user) — distinct from
 // fn_secret's denial, which happens INSIDE the function at the
 // table-select level.
 func TestHandler_RouteAnonymousCannotReach_Is401(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_app_only", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_app_only", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
@@ -63,7 +63,7 @@ func TestHandler_RouteAnonymousCannotReach_Is401(t *testing.T) {
 // broken route : an authenticated app_user call to the same function
 // succeeds.
 func TestHandler_RouteAnonymousCannotReach_AuthenticatedStillWorks(t *testing.T) {
-	loginReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login", nil)
+	loginReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_login", nil)
 	loginRec := httptest.NewRecorder()
 	testHandler.ServeHTTP(loginRec, loginReq)
 	var jwtCookie *http.Cookie
@@ -76,7 +76,7 @@ func TestHandler_RouteAnonymousCannotReach_AuthenticatedStillWorks(t *testing.T)
 		t.Fatalf("login didn't set a cookie")
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_app_only", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_app_only", nil)
 	req.AddCookie(jwtCookie)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -113,7 +113,7 @@ func TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies(t *testing.T) {
 	}
 	handler := NewHandler(db, &cfg, reg, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
@@ -132,7 +132,7 @@ func TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies(t *testing.T) {
 	}
 	cookie := jwtpkg.CookieValue(cfg.Jwt, token, claims, "")
 
-	authedReq := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_secret", nil)
+	authedReq := httptest.NewRequest(http.MethodGet, "/route/public/fn_secret", nil)
 	authedReq.AddCookie(cookie)
 	authedRec := httptest.NewRecorder()
 	handler.ServeHTTP(authedRec, authedReq)
@@ -142,7 +142,7 @@ func TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies(t *testing.T) {
 }
 
 func TestHandler_UnknownRouteIs404(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/does_not_exist", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/does_not_exist", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -151,7 +151,7 @@ func TestHandler_UnknownRouteIs404(t *testing.T) {
 }
 
 func TestHandler_SecretRoute_AnonymousDenied(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_secret", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_secret", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	// No SELECT grant to "~anonymous" — must fail, not silently succeed.
@@ -164,7 +164,7 @@ func TestHandler_SecretRoute_AnonymousDenied(t *testing.T) {
 // a subsequent authenticated call using that cookie can read role-gated
 // data that the anonymous call above cannot.
 func TestHandler_FullLoginRoundTrip(t *testing.T) {
-	loginReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login", nil)
+	loginReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_login", nil)
 	loginRec := httptest.NewRecorder()
 	testHandler.ServeHTTP(loginRec, loginReq)
 	if loginRec.Code != http.StatusOK {
@@ -182,7 +182,7 @@ func TestHandler_FullLoginRoundTrip(t *testing.T) {
 		t.Fatalf("expected fn_login to set the %s cookie, got %v", testCfg.Jwt.CookieName, cookies)
 	}
 
-	secretReq := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_secret", nil)
+	secretReq := httptest.NewRequest(http.MethodGet, "/route/public/fn_secret", nil)
 	secretReq.AddCookie(jwtCookie)
 	secretRec := httptest.NewRecorder()
 	testHandler.ServeHTTP(secretRec, secretReq)
@@ -195,7 +195,7 @@ func TestHandler_FullLoginRoundTrip(t *testing.T) {
 }
 
 func TestHandler_Logout_ClearsCookie(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_logout", nil)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_logout", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -217,7 +217,7 @@ func TestHandler_Logout_ClearsCookie(t *testing.T) {
 }
 
 func TestHandler_WrongCookieFallsBackToAnonymous_NotAnError(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	req.AddCookie(&http.Cookie{Name: testCfg.Jwt.CookieName, Value: "not-a-real-jwt"})
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -227,7 +227,7 @@ func TestHandler_WrongCookieFallsBackToAnonymous_NotAnError(t *testing.T) {
 }
 
 func TestHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
-	loginReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login", nil)
+	loginReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_login", nil)
 	loginRec := httptest.NewRecorder()
 	testHandler.ServeHTTP(loginRec, loginReq)
 	var jwtCookie *http.Cookie
@@ -242,7 +242,7 @@ func TestHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
 
 	setSessionReject(t, true)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_secret", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_secret", nil)
 	req.AddCookie(jwtCookie)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -263,7 +263,7 @@ func TestHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
 }
 
 func TestHandler_RSCode_MapsToExactStatus(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_forbidden", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_forbidden", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -275,7 +275,7 @@ func TestHandler_RSCode_MapsToExactStatus(t *testing.T) {
 }
 
 func TestHandler_NonRSError_Is500PlainText(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_boom", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_boom", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
@@ -288,14 +288,14 @@ func TestHandler_NonRSError_Is500PlainText(t *testing.T) {
 }
 
 func TestHandler_VerbDispatch(t *testing.T) {
-	getReq := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_verbtest", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/route/public/fn_verbtest", nil)
 	getRec := httptest.NewRecorder()
 	testHandler.ServeHTTP(getRec, getReq)
 	if getRec.Body.String() != "GET" {
 		t.Errorf("expected GET dispatch, got %q", getRec.Body.String())
 	}
 
-	postReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_verbtest", nil)
+	postReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_verbtest", nil)
 	postRec := httptest.NewRecorder()
 	testHandler.ServeHTTP(postRec, postReq)
 	if postRec.Body.String() != "POST" {
@@ -304,7 +304,7 @@ func TestHandler_VerbDispatch(t *testing.T) {
 }
 
 func TestHandler_MimeTypeDomainResponse(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_image", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_image", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -334,7 +334,7 @@ func TestHandler_AuthNotHonoredOutsideAllowedFunctions(t *testing.T) {
 	// suppression specifically, deferred as lower-value than the
 	// mint-is-gated-at-all coverage this already gives via fn_login itself
 	// requiring no restriction to work (see TestHandler_FullLoginRoundTrip).
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", nil)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -351,7 +351,7 @@ func TestHandler_AuthNotHonoredOutsideAllowedFunctions(t *testing.T) {
 // encoding end-to-end (not just unit-level) : fn_echo1 returns the whole
 // RelHttpRequest it received as its own content.
 func TestHandler_RequestEchoShape(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1?x=1", nil)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1?x=1", nil)
 	req.AddCookie(&http.Cookie{Name: "session_hint", Value: "abc"})
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
@@ -366,7 +366,7 @@ func TestHandler_RequestEchoShape(t *testing.T) {
 	if echoed["method"] != "POST" {
 		t.Errorf("expected method=POST, got %v", echoed["method"])
 	}
-	if echoed["uri"] != "/rpc/public/fn_echo1?x=1" {
+	if echoed["uri"] != "/route/public/fn_echo1?x=1" {
 		t.Errorf("expected uri to include the query string, got %v", echoed["uri"])
 	}
 	cookies, _ := echoed["cookies"].(map[string]any)
@@ -380,7 +380,7 @@ func TestHandler_RequestEchoShape(t *testing.T) {
 
 // TestHandler_RenewalFiresPastThreshold proves the renewal wiring end-to-
 // end (jwt package's own ShouldRenew/Renew logic is already unit-tested in
-// jwt_test.go — this is specifically about handleRpc actually calling it
+// jwt_test.go — this is specifically about handleRoute actually calling it
 // and writing the resulting Set-Cookie).
 func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 	fastRenew := *testCfg
@@ -388,7 +388,7 @@ func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 	fastRenew.Jwt.RenewAfter = 0.1
 	handler := NewHandler(testDb, &fastRenew, testReg, nil)
 
-	loginReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login", nil)
+	loginReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_login", nil)
 	loginRec := httptest.NewRecorder()
 	handler.ServeHTTP(loginRec, loginReq)
 	var original *http.Cookie
@@ -410,7 +410,7 @@ func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 	// staying well under the 5s maxage so the token hasn't expired.
 	time.Sleep(1500 * time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	req.AddCookie(original)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -438,7 +438,7 @@ func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 // nested JSON, repeated keys -> arrays — no filter expression grammar
 // involvement), shows up as the "query" key a route function receives.
 func TestHandler_QueryFieldStructuralDecode(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1?page.size=20&tags=a&tags=b&filter=gte(year,1999)", nil)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1?page.size=20&tags=a&tags=b&filter=gte(year,1999)", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -478,7 +478,7 @@ func TestHandler_QueryFieldStructuralDecode(t *testing.T) {
 // a real, non-trivial query string... not just a bare GET with no query
 // string."
 func TestHandler_QueryFieldStructuralDecode_RealGETRequest(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo1?filters.status=open&filters.priority=high&ids=1&ids=2&ids=3", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo1?filters.status=open&filters.priority=high&ids=1&ids=2&ids=3", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -507,7 +507,7 @@ func TestHandler_QueryFieldStructuralDecode_RealGETRequest(t *testing.T) {
 }
 
 func TestHandler_QueryFieldNullWhenNoQueryString(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_echo1", nil)
+	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", nil)
 	rec := httptest.NewRecorder()
 	testHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

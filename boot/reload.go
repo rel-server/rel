@@ -24,7 +24,7 @@ import (
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dmut"
 	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/rpc"
+	"github.com/ceymard/rel/route"
 	"github.com/ceymard/rel/wellknown"
 )
 
@@ -105,15 +105,15 @@ func (rl *Reloader) Reload(ctx context.Context) {
 		rl.Logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", rl.Cfg.Pg.Query.AnonymousRole))
 	}
 
-	// Step 5 : the /rpc and well-known registries are rebuilt from the new
-	// schema. A well-known reload failure is treated the same as an /rpc
+	// Step 5 : the /route and well-known registries are rebuilt from the new
+	// schema. A well-known reload failure is treated the same as an /route
 	// one — log, resume under the old schema — rather than fatal : both
 	// are just as recoverable, and specs/well-known-queries.md's own
 	// intro folds "reload well-known queries" into this exact 7-step
 	// sequence rather than a separate SIGUSR2 trigger.
-	reg, err := rpc.BuildRegistry(newDb, rl.Cfg)
+	reg, err := route.BuildRegistry(newDb, rl.Cfg)
 	if err != nil {
-		rl.Logger.Error("reload: building /rpc route registry failed, resuming under the old schema", "error", err.Error())
+		rl.Logger.Error("reload: building /route registry failed, resuming under the old schema", "error", err.Error())
 		rl.Wrapper.EndMaintenance()
 		return
 	}

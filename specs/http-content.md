@@ -13,12 +13,12 @@ the security-header sections below stop being purely theoretical and start actua
 * **Templates** (`## Templates`) — `RelHttpResponse.template`, rendering dynamic HTML server-side
   via [Jet](github.com/CloudyKit/jet) instead of a function hand-building an HTML string.
 * **CORS** (`## CORS`, `Access-Control-*`) — which origins may make cross-origin requests to
-  `/rel`/`/rpc`/`/static` at all.
+  `/rel`/`/route`/`/static` at all.
 * **CSP** (`## CSP`, `Content-Security-Policy`) — what a page rel returns is allowed to load/
   execute, including a per-request nonce for trusted inline `<script>`/`<style>` — the mechanism
   that makes a Jet-rendered `<script>` block usable without loosening CSP for anything else.
 
-CORS and CSP apply to `/rel`, `/rpc`, AND `/static` uniformly — there is no per-endpoint-family
+CORS and CSP apply to `/rel`, `/route`, AND `/static` uniformly — there is no per-endpoint-family
 distinction. (Static files can legitimately include an `.html` document served as a top-level
 navigation, not just subresources like `.js`/`.css` — CSP is meaningful there the same as for a
 Jet-rendered response ; CORS matters less for `/static`, ordinary `<script src>`/`<link>`
@@ -31,7 +31,7 @@ so the same policy applies for consistency rather than carving out an exception.
 config only, nothing served it yet). This document gives it a concrete meaning, fixing one
 ambiguity in its own prior doc comment along the way : it names a FILESYSTEM directory rel serves
 files FROM, not a URL prefix — the URL mount point is a fixed `/static/` (unconfigurable, same as
-`/rel`/`/rpc` are also fixed, never dotted-config-driven paths). The prior "Path prefix for static
+`/rel`/`/route` are also fixed, never dotted-config-driven paths). The prior "Path prefix for static
 file serving" wording read as if `.path` meant the URL side ; it was always meant to mean the same
 kind of thing `dmut.path`/`http.templates.path` (below) mean — a directory on disk — and is
 corrected here rather than left to drift, per this session's own propagate-the-fix convention.
@@ -126,7 +126,7 @@ configured anonymous role doesn't exist in the database), an unauthenticated req
 prefix gets the same uniform `401` every other unauthenticated request gets under that condition —
 BEFORE the existence check below, not after : matching the existing "before route lookup, before
 any request body is read, before a pool connection is acquired" ordering that rule already uses
-for `/rel`/`/rpc`, and for the same reason the existence-first ordering below carries its own
+for `/rel`/`/route`, and for the same reason the existence-first ordering below carries its own
 caveat about — stat-then-401 would leak whether a gated file exists to a caller who was never going
 to be let past the gate either way, in precisely the locked-down configuration where that leak
 matters most. An UNGATED prefix is unaffected either way — it was never gated by role/session state
@@ -148,7 +148,7 @@ further here — named as a real caveat of the existence-first design, not an ov
 
 ### Upload destinations
 
-The upload mechanism `specs/rpc.md ## Request bodies` already has (`files
+The upload mechanism `specs/route.md ## Request bodies` already has (`files
 bytea[]`) always routes the actual bytes THROUGH Postgres, as a `bytea[]` argument. That's the
 right shape when a function wants to inspect/store the bytes itself (`pg_largeobject`, a `bytea`
 column, ...). It's the wrong shape when a function only wants to decide WHERE an upload should
@@ -167,7 +167,7 @@ mechanism exists to avoid). Splitting the decision into two calls resolves this 
 one side of the tradeoff — and once split, the destination-deciding half can't be optional : nothing
 else in this mechanism ever runs before bytes are received, so if it's skipped there is structurally
 nothing to stream toward. Both functions share one JSON domain, `RelUpload` (`jsonb`-underlying,
-`http.upload_domain_name`, default `RelUpload`, resolved via `specs/rpc.md
+`http.upload_domain_name`, default `RelUpload`, resolved via `specs/route.md
 ## Configuration`'s domain-name resolution rule, same as `RelHttpRequest`/`RelHttpResponse`) :
 
 ```ts
@@ -210,7 +210,7 @@ generic route discovery — and that's already achieved by `RelUpload` simply no
   streamed to a temp location chosen from `__prepare`'s own decision ; its role is purely the
   database write, not a second placement opinion.
 
-This whole family doesn't compose with `__VERB` (`specs/rpc.md`'s verb-suffix rule)
+This whole family doesn't compose with `__VERB` (`specs/route.md`'s verb-suffix rule)
 in this pass — neither `<name>__prepare` nor the mandatory `<name>` is ever verb-suffixed ; a
 function named `upload__POST` is simply not discovered as a member of this family (it isn't
 excluded from OTHER discovery either — if it happens to also match a different shape, e.g. a plain
@@ -295,7 +295,7 @@ a genuine last-moment race, called out explicitly there). Collision avoidance in
 for the deliberate-replace case, not a substitute for generating non-colliding paths up front.
 
 **Anonymous-route-authorization.** This is one route with two functions, not two independently
-reachable routes — `specs/rpc.md ## Anonymous route authorization`'s
+reachable routes — `specs/route.md ## Anonymous route authorization`'s
 existence/EXECUTE check must pass for BOTH `<name>__prepare` and the mandatory `<name>` (both are
 now always present — see above) for the pair to be reachable anonymously at all ; fail-closed on
 either, don't cache reachability off the base name alone.
@@ -307,7 +307,7 @@ BEFORE the one function that actually writes anything to the database ever runs 
 opposite ordering from `__prepare` (which runs before any bytes at all) — and the file only ever
 changes on disk AFTER that function's transaction has actually committed, never before :
 
-1. Route lookup, Verify, anonymous-route-authorization checks — unchanged from `/rpc`'s existing
+1. Route lookup, Verify, anonymous-route-authorization checks — unchanged from `/route`'s existing
    ordering (`specs/authentication.md ## Lifecycle`'s request-handling-order paragraph).
 2. Read ONLY the incoming upload's headers (the one multipart part's header, or — for a raw single
    POST — the request's own `Content-Type`/headers directly) : enough to build `part`, without
@@ -316,7 +316,7 @@ changes on disk AFTER that function's transaction has actually committed, never 
    "called once per request" rule, the ONLY — transaction of the request this runs on, as a plain
    statement BEFORE `BEGIN READ ONLY` opens, specifically so a `check_session` implementation that
    itself writes — nothing today forbids one — is never constrained by `__prepare`'s own read-only
-   transaction ; the two are deliberately not sharing one transaction, unlike `/rpc`'s existing
+   transaction ; the two are deliberately not sharing one transaction, unlike `/route`'s existing
    single-transaction request handling) ; renew if due ; `BEGIN READ ONLY` ; `SET LOCAL ROLE` to the
    session's role (or `pg.query.anonymous_role` if anonymous) — `SET LOCAL` is scoped to the CURRENT
    transaction only, so this happens again in step 6 regardless, and a role switch is legal inside a
@@ -374,7 +374,7 @@ changes on disk AFTER that function's transaction has actually committed, never 
    request), not the routine path. The mandatory function's own database-side effects remain
    committed regardless of what happens in this step — file writes are not part of Postgres's own
    transaction and cannot be made atomic together with it, the same honestly-documented-limitation
-   treatment `specs/rpc.md`'s own "Known limitation : no true streaming to Postgres"
+   treatment `specs/route.md`'s own "Known limitation : no true streaming to Postgres"
    note already sets precedent for. `overwrite: 'disallow'` is not re-checked here — if a file
    appeared at `path` between step 3's early check and this step (the race step 3 flagged), the swap
    still proceeds, last-write-wins, logged as a warning ; the DB write already committed by this
@@ -391,7 +391,7 @@ changes on disk AFTER that function's transaction has actually committed, never 
 
 ## Templates
 
-`RelHttpResponse.template` already exists in `specs/rpc.md ## Responses`'
+`RelHttpResponse.template` already exists in `specs/route.md ## Responses`'
 TypeScript shape (`template?: string`) but is parsed and never acted on (`specs/TODO.md`). This
 document gives it real behavior.
 
@@ -504,13 +504,13 @@ construction, not a rel-specific restriction.
   (`scheme://host[:port]`, no wildcards/patterns within an entry) allowed to make cross-origin
   requests, or the literal `*` (see below). Empty (the default) means CORS is fully closed : rel
   sends no `Access-Control-*` headers at all, and browsers enforce same-origin only — no
-  cross-origin frontend can call `/rel`/`/rpc`, authenticated or not. This is the security-inclined
+  cross-origin frontend can call `/rel`/`/route`, authenticated or not. This is the security-inclined
   default : opt-in only, same posture as `pg.query.anonymous_role`'s own existence check
   (`specs/authentication.md ## Anonymous role existence`) — nothing is reachable from outside
   the deployment's own origin until explicitly configured otherwise.
 * `http.cors.allowed_methods` (default `GET, POST, PUT, PATCH, DELETE, OPTIONS`) : methods a
   preflight may approve — matches the full set of verb suffixes a route function can declare
-  (`specs/rpc.md`'s `__VERB` suffix rule), not just the two `/rel` itself accepts.
+  (`specs/route.md`'s `__VERB` suffix rule), not just the two `/rel` itself accepts.
 * `http.cors.allowed_headers` (default `Content-Type`) : request headers a preflight may approve,
   beyond the small set every browser always allows regardless (`Accept`, `Accept-Language`,
   `Content-Language`, and simple `Content-Type` values).
@@ -545,7 +545,7 @@ method outside `GET`/`HEAD`/`POST`+simple-content-type), the browser sends an `O
 BEFORE the real request — answered entirely by rel itself, never by invoking a route function
 (there is no request body / route logic to run for a preflight, and no result to read an
 override from — this is *why* CORS has no per-response override the way CSP does, see below).
-rel answers a CORS preflight for any `/rel`, `/rpc/{schema}/{function}`, or `/static/*` path
+rel answers a CORS preflight for any `/rel`, `/route/{schema}/{function}`, or `/static/*` path
 whether or not a
 route actually exists there yet (so a preflight for a not-yet-deployed route function doesn't
 depend on introspection state) : if the request's `Origin` is allowed (per the rules above), rel
@@ -557,7 +557,7 @@ the preflight outright).
 rel distinguishes a preflight from an ordinary `OPTIONS` request the standard way — a real browser
 preflight always carries BOTH an `Origin` header and an `Access-Control-Request-Method` header ;
 an `OPTIONS` request missing either one proceeds to normal route dispatch instead. This matters
-because `__VERB` suffixes are case-insensitive and unrestricted (`specs/rpc.md`),
+because `__VERB` suffixes are case-insensitive and unrestricted (`specs/route.md`),
 so a route function named `fn__options` is a perfectly legal, real route today — the preflight
 responder must not silently shadow it.
 
@@ -593,7 +593,7 @@ reflected value to a different origin.
   found, leaving every other segment untouched.
 
 CSP is ON by default (`default-src 'self'`) — a real `Content-Security-Policy` header is sent on
-every `/rel`/`/rpc`/`/static` response even with zero configuration, EXCEPT a CORS preflight
+every `/rel`/`/route`/`/static` response even with zero configuration, EXCEPT a CORS preflight
 response (`## CORS ### Preflight handling`) : a preflight is a bodyless `204`, answered before any
 route function runs, with no `RelHttpResponse` to read a per-response `csp` override from either
 way, so there is nothing for a CSP header to usefully govern there. This is the one place this document
@@ -602,7 +602,7 @@ stricter-by-omission : a deployment already relying on inline scripts or externa
 a route function returns will see them start being blocked. `default-src 'self'` is nonetheless
 the standard, widely-adopted baseline (helmet.js, Django's CSP middleware, Rails' default all
 ship the same starting point) and does nothing at all to a pure JSON API — `default-src` only
-constrains what a returned PAGE may itself load, so a `/rpc` route returning `RelHttpResponse`
+constrains what a returned PAGE may itself load, so a `/route` route returning `RelHttpResponse`
 JSON is unaffected either way ; the header is sent uniformly (defense in depth against any future
 route that starts returning HTML), but only has teeth once one actually does.
 
@@ -611,7 +611,7 @@ route that starts returning HTML), but only has teeth once one actually does.
 rel generates a fresh, cryptographically random nonce for EVERY request (cheap — one `crypto/
 rand` read — so this happens unconditionally, not only for routes that end up using it), before
 invoking the route function : `RelHttpRequest.csp_nonce` (a base64 string — `RelHttpRequest`'s
-authoritative TypeScript shape lives in `specs/rpc.md ## Request`, which gains this
+authoritative TypeScript shape lives in `specs/route.md ## Request`, which gains this
 field as a companion edit alongside this document ; `query.ts` is the unrelated query-language
 grammar and does not describe HTTP request/response shapes at all). A route function returning
 hand-built HTML embeds it directly — illustrated here as plpgsql string-building, not Jet syntax
@@ -656,12 +656,12 @@ already present (empty or not) still always gets the nonce appended regardless o
 only the synthesize-a-new-directive case is gated on `default-src` existing.
 
 The nonce is generated and available on `RelHttpRequest` regardless of whether the route's own
-response actually uses it — an ordinary JSON-returning `/rpc` route simply never reads
+response actually uses it — an ordinary JSON-returning `/route` route simply never reads
 `req.csp_nonce`, at no cost.
 
 ### Per-response override
 
-`RelHttpResponse`'s own authoritative TypeScript shape (`specs/rpc.md
+`RelHttpResponse`'s own authoritative TypeScript shape (`specs/route.md
 ## Responses`) gains an optional `csp` field as a companion edit alongside this document
 (`string | undefined`, TypeScript-optional, not `| null` — there is no "explicitly disable CSP
 for this response" case, only "use the default" vs "use this instead") : when a route function

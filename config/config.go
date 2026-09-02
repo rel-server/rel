@@ -94,8 +94,8 @@ type Logging struct {
 
 // Http is the HTTP listen address (Host/Port — invented for cmd/rel, since
 // no spec under specs/ defines the bind host/port) plus
-// rpc.md ## HTTP ## Configuration's own http.* keys, which
-// govern /rpc route-function discovery and dispatch.
+// route.md ## HTTP ## Configuration's own http.* keys, which
+// govern /route function discovery and dispatch.
 type Http struct {
 	Host string
 	Port int
@@ -120,14 +120,14 @@ type Http struct {
 	// doesn't specify one. Does not apply to the JWT cookie (see Jwt.MaxAge).
 	CookiesMaxAge int
 	// MaxBodySize is http.max_body_size, default 10485760 (10 MiB) : hard
-	// cap, in bytes, on a /rpc request's ENTIRE body — for multipart, the
+	// cap, in bytes, on a /route request's ENTIRE body — for multipart, the
 	// whole envelope (boundaries and part headers included, not just the
 	// sum of part payload bytes). Enforced before any of it is buffered in
-	// memory — see rpc.md ## Configuration. Scoped to /rpc
+	// memory — see route.md ## Configuration. Scoped to /route
 	// only, never /rel.
 	MaxBodySize int
 	// MaxPartCount is http.max_part_count, default 100 : max number of
-	// multipart/form-data parts a single /rpc request may contain,
+	// multipart/form-data parts a single /route request may contain,
 	// independent of their total byte size — see ## Request bodies
 	// ### Limits.
 	MaxPartCount int
@@ -199,7 +199,7 @@ type StaticAccessRule struct {
 	Function string
 }
 
-// HttpFunctions is rpc.md's http.functions.* namespace.
+// HttpFunctions is route.md's http.functions.* namespace.
 type HttpFunctions struct {
 	// AllowedAuth is http.functions.allowed_auth, default "" (unrestricted)
 	// : regexp restricting which functions' responses rel will honor a
@@ -210,7 +210,7 @@ type HttpFunctions struct {
 	AllowedAuth string
 	// AllowedRoutes is http.functions.allowed_routes, default ""
 	// (unrestricted) : regexp a function's fully qualified, unquoted name
-	// must additionally match to become a public /rpc route.
+	// must additionally match to become a public /route function.
 	AllowedRoutes string
 	// CheckSession is http.functions.check_session, default "" (disabled)
 	// : unquoted, fully qualified name of a Postgres function that lets the
@@ -239,7 +239,7 @@ type HttpStatic struct {
 // specs/logging.md's own stated defaults (Handler/Level) and this
 // package's own invented default (Port — see Http's doc comment).
 // DefaultHttpRequestDomainName/DefaultHttpResponseDomainName/
-// DefaultHttpCookiesMaxAge are rpc.md's own stated defaults.
+// DefaultHttpCookiesMaxAge are route.md's own stated defaults.
 // DefaultHttpStaticPath is this package's own invented default, matching
 // HttpStatic's doc comment.
 const (
@@ -255,7 +255,7 @@ const (
 	// http.max_part_count (100).
 	DefaultHttpMaxBodySize  = 10485760
 	DefaultHttpMaxPartCount = 100
-	// DefaultHttpUploadDomainName is rpc.md's stated default
+	// DefaultHttpUploadDomainName is route.md's stated default
 	// for http.upload_domain_name.
 	DefaultHttpUploadDomainName = "RelUpload"
 	// DefaultHttpTemplatesPath is specs/http-content.md ## Templates'
@@ -323,7 +323,7 @@ type PgQuery struct {
 	// AnonymousRole is pg.query.anonymous_role (default "~anonymous") :
 	// the role rel switches to, from Login, for requests with no
 	// credentials of their own — used both for /rel (query-engine.md) and JWT
-	// verification failures on /rpc (authentication.md ## Roles, which
+	// verification failures on /route (authentication.md ## Roles, which
 	// used to name this same setting jwt.anonrole ; reconciled onto
 	// query.anonymous_role, the name query-engine.md already used, itself
 	// later moved under pg.query.* for this same consistency pass).

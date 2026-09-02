@@ -1,6 +1,6 @@
 // Package errcode is the shared `code` token space specs/error-handling.md
 // ## Error codes describes : a leaf package (no dependencies within this
-// module) so both server and rpc — and pgerr, for its PG_* family — can
+// module) so both server and route — and pgerr, for its PG_* family — can
 // depend on it without risking an import cycle.
 //
 // Two of the three code families documented in error-handling.md live
@@ -48,7 +48,7 @@ const (
 
 // AnonymousDisabledMessage is specs/authentication.md "# Roles ## Anonymous
 // role existence"'s own wording — the message text at every one of this
-// code's call sites (server/rel.go, rpc/handler.go, static/static.go),
+// code's call sites (server/rel.go, route/handler.go, static/static.go),
 // shared here so the three can't independently drift on it.
 const AnonymousDisabledMessage = "anonymous access is disabled"
 

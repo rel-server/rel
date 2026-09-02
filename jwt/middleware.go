@@ -18,18 +18,18 @@ type contextKey struct{}
 
 // requestSession is what Middleware stashes in the request context : the
 // verified claims and whether a session was actually verified —
-// rpc.md ## HTTP's "dispatched dynamically... implemented as
+// route.md ## HTTP's "dispatched dynamically... implemented as
 // ordinary func(http.Handler) http.Handler middleware" applies only to
 // Verify (step 2) here : Check (step 3, the check_session function), Renew
 // (step 4), and Apply role (step 5) all need the request's own DB
 // connection/transaction, which doesn't exist yet at the point generic
 // middleware runs — those three steps stay the calling handler's own
 // responsibility, immediately after acquiring a connection, in that exact
-// order (rpc/handler.go's handleRpc, rpc/upload_handler.go's
+// order (route/handler.go's handleRoute, route/upload_handler.go's
 // handleUploadRoute, and server/rel.go's applyRole all now do Check then
 // Renew then Apply role uniformly — this used to diverge, /rel renewing
 // here in Middleware BEFORE Check ever ran, so check_session saw
-// post-renewal claims on /rel but pre-renewal claims on /rpc ; fixed by
+// post-renewal claims on /rel but pre-renewal claims on /route ; fixed by
 // moving Renew out of Middleware and into applyRole, see git log for the
 // commit that changed it).
 type requestSession struct {
@@ -66,8 +66,8 @@ func verifyRequest(cfg config.Jwt, r *http.Request) (Claims, bool) {
 
 // VerifyRequest is Lifecycle step 2 (Verify), exported so any handler that
 // needs "is this request anonymous" without going through the full
-// Middleware chain can reuse the exact same logic — rpc/handler.go's own
-// handleRpc and the static package's access-control gate both call this
+// Middleware chain can reuse the exact same logic — route/handler.go's own
+// handleRoute and the static package's access-control gate both call this
 // directly rather than duplicating a third copy. Any failure (missing
 // cookie, bad signature, expired, session-ceiling exceeded) is "no
 // session", never an error in its own right, per step 2.

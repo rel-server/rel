@@ -13,11 +13,11 @@
 // limitations under the License.
 
 // Package boot houses the maintenance/reload mechanics that sit above
-// server+rpc, per specs/migrations.md ## Reloading : a permanent, reload-aware
+// server+route, per specs/migrations.md ## Reloading : a permanent, reload-aware
 // http.Handler wrapper (ReloadableHandler) that becomes http.Server.Handler
 // exactly once, at startup, and the orchestration (RunReload) tying
-// together dmut.Run/pg.ReIntrospect/rpc.BuildRegistry/server.NewRelHandler/
-// rpc.NewHandler for both the startup path and every subsequent SIGUSR1.
+// together dmut.Run/pg.ReIntrospect/route.BuildRegistry/server.NewRelHandler/
+// route.NewHandler for both the startup path and every subsequent SIGUSR1.
 package boot
 
 import (

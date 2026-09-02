@@ -20,7 +20,7 @@ instead. Each entry covers roughly what the previous ones assume.
    separate endpoint) — `query-json.md`'s own `## Well-known queries on GET /rel` covers
    their `GET` query-string encoding.
 10. [[authentication.md]] — JWT/session lifecycle, roles, SAML/OIDC/username-password auth.
-11. [[rpc.md]] — `/rpc` route dispatch, request/response shapes, cookies, Postgres exceptions.
+11. [[route.md]] — `/route` route dispatch, request/response shapes, cookies, Postgres exceptions.
 12. [[http-content.md]] — static file serving, Jet templates, CORS, CSP.
 13. [[realtime.md]] — WebSockets + Postgres `LISTEN`/`NOTIFY` (reserved, not yet specified).
 14. [[typescript.md]] — the generated TS/JS client export.

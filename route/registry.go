@@ -1,9 +1,9 @@
-// Package rpc implements specs/rpc.md's "# HTTP" route
+// Package route implements specs/route.md's "# HTTP" route
 // functions : Postgres functions directly callable at
-// /rpc/{schema}/{function}, gated by the full JWT lifecycle (Verify/
+// /route/{schema}/{function}, gated by the full JWT lifecycle (Verify/
 // Check/Renew/Apply-role from the jwt package, mint/logout from a route
 // function's own RelHttpResponse.jwt).
-package rpc
+package route
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 // log is this package's own module-tagged logger — specs/logging.md
 // ## Domain scoping's convention, one per package, used by every file in
 // this package (registry.go, handler.go, templates.go, upload_*.go).
-var log = logging.For("rpc")
+var log = logging.For("route")
 
 // Route is one discovered route function : Function is the underlying
 // Postgres function ; MimeType is non-empty only when this route's return
@@ -37,7 +37,7 @@ type Route struct {
 	AcceptsFiles        bool
 	AcceptsPartsHeaders bool
 
-	// AnonymousAuthorized is specs/rpc.md "# HTTP ##
+	// AnonymousAuthorized is specs/route.md "# HTTP ##
 	// Anonymous route authorization" : true iff, at the time the registry
 	// was built, the anonymous role could actually reach this route —
 	// has_schema_privilege(anon, schema, 'USAGE') AND
@@ -107,7 +107,7 @@ func (r *Registry) Lookup(schema, function, method string) (Route, bool) {
 // default to.
 //
 // Once every route function is discovered, BuildRegistry also runs
-// specs/rpc.md "# HTTP ## Anonymous route authorization" :
+// specs/route.md "# HTTP ## Anonymous route authorization" :
 // one combined query against db.Pool computing, per route function, both
 // whether cfg.Pg.Query.AnonymousRole can reach it (schema USAGE + function
 // EXECUTE, both required — see Route.AnonymousAuthorized) and whether
@@ -122,28 +122,28 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 		return nil, err
 	}
 	if reqType == nil {
-		log.Warn("rpc: request domain not found, no argument-taking route functions will be discovered", "name", cfg.Http.RequestDomainName)
+		log.Warn("route: request domain not found, no argument-taking route functions will be discovered", "name", cfg.Http.RequestDomainName)
 	}
 	respType, err := resolveDomainByName(db, cfg.Http.ResponseDomainName)
 	if err != nil {
 		return nil, err
 	}
 	if respType == nil {
-		log.Warn("rpc: response domain not found, no RelHttpResponse route functions will be discovered", "name", cfg.Http.ResponseDomainName)
+		log.Warn("route: response domain not found, no RelHttpResponse route functions will be discovered", "name", cfg.Http.ResponseDomainName)
 	}
 	uploadType, err := resolveDomainByName(db, cfg.Http.UploadDomainName)
 	if err != nil {
 		return nil, err
 	}
 	if uploadType == nil {
-		log.Warn("rpc: upload domain not found, no upload-destination route functions will be discovered", "name", cfg.Http.UploadDomainName)
+		log.Warn("route: upload domain not found, no upload-destination route functions will be discovered", "name", cfg.Http.UploadDomainName)
 	}
 
 	var allowedRoutes *regexp.Regexp
 	if cfg.Http.Functions.AllowedRoutes != "" {
 		allowedRoutes, err = regexp.Compile(cfg.Http.Functions.AllowedRoutes)
 		if err != nil {
-			return nil, fmt.Errorf("rpc: http.functions.allowed_routes: invalid regexp: %w", err)
+			return nil, fmt.Errorf("route: http.functions.allowed_routes: invalid regexp: %w", err)
 		}
 	}
 
@@ -192,12 +192,12 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 			// Already-conflicted key from an earlier duplicate — stays
 			// excluded ; a third+ function sharing it must not silently
 			// become the sole owner just because the map entry was cleared.
-			log.Error("rpc: ambiguous route, skipping", "schema", schema, "function", base, "verb", verb,
+			log.Error("route: ambiguous route, skipping", "schema", schema, "function", base, "verb", verb,
 				"target", fn.Identifier.String())
 			continue
 		}
 		if existing, dup := reg.routes[schema][base][verb]; dup {
-			log.Error("rpc: ambiguous route, skipping both", "schema", schema, "function", base, "verb", verb,
+			log.Error("route: ambiguous route, skipping both", "schema", schema, "function", base, "verb", verb,
 				"first", existing.Function.Identifier.String(), "second", fn.Identifier.String())
 			// The log line promises "skipping both" — a bare `continue` here
 			// only skips registering the SECOND function ; the first one,
@@ -229,7 +229,7 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 }
 
 // anonPublicPriv is one route function's cached anon/PUBLIC reachability,
-// per specs/rpc.md "# HTTP ## Anonymous route
+// per specs/route.md "# HTTP ## Anonymous route
 // authorization" — both fields are the same two-conjunct check
 // (has_schema_privilege(role, schema, 'USAGE') AND
 // has_function_privilege(role, function, 'EXECUTE')), against the
@@ -295,19 +295,19 @@ func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, reg *Regist
 		rows, err = db.Pool.Query(context.Background(), query, oids)
 	}
 	if err != nil {
-		return fmt.Errorf("rpc: querying anonymous/PUBLIC route authorization: %w", err)
+		return fmt.Errorf("route: querying anonymous/PUBLIC route authorization: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var oid int
 		var priv anonPublicPriv
 		if err := rows.Scan(&oid, &priv.anonOK, &priv.publicOK); err != nil {
-			return fmt.Errorf("rpc: scanning anonymous/PUBLIC route authorization: %w", err)
+			return fmt.Errorf("route: scanning anonymous/PUBLIC route authorization: %w", err)
 		}
 		privByOid[oid] = priv
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("rpc: reading anonymous/PUBLIC route authorization: %w", err)
+		return fmt.Errorf("route: reading anonymous/PUBLIC route authorization: %w", err)
 	}
 
 	for schema, byFunc := range reg.routes {
@@ -327,7 +327,7 @@ func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, reg *Regist
 				route.AnonymousAuthorized = db.AnonymousRoleExists && anonOK
 				byVerb[verb] = route
 				if publicOK {
-					log.Warn("rpc: route is executable by PUBLIC", "schema", schema, "function", base, "verb", verb,
+					log.Warn("route: route is executable by PUBLIC", "schema", schema, "function", base, "verb", verb,
 						"target", route.Function.Identifier.String())
 				}
 			}
@@ -477,6 +477,6 @@ func resolveDomainByName(db *pg.DbInfos, name string) (*pg.Type, error) {
 		for i, t := range matches {
 			schemas[i] = t.PgIdentifier.Schema
 		}
-		return nil, fmt.Errorf("rpc: domain name %q is ambiguous across schemas %v — configure it schema-qualified", name, schemas)
+		return nil, fmt.Errorf("route: domain name %q is ambiguous across schemas %v — configure it schema-qualified", name, schemas)
 	}
 }

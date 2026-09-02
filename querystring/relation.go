@@ -102,9 +102,9 @@ func DecodeRelation(raw string) ([]byte, error) {
 	return out, nil
 }
 
-// DecodeQueryField implements /rpc's `query` field : the structural layer
+// DecodeQueryField implements /route's `query` field : the structural layer
 // only (no filter expression grammar involvement — specs/query-json.md's
-// own ## /rpc's query field section), generalized to any shape, not scoped
+// own ## /route's query field section), generalized to any shape, not scoped
 // to Relation's fixed keys. Returns nil (encodes as JSON null) for an empty
 // raw query string, matching "no query string at all" rather than "an empty
 // object" — a route function distinguishing the two is a reasonable thing

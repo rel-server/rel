@@ -92,7 +92,7 @@ failure happens, so a client can in principle observe what reads as a successful
 a write that was then rolled back. Avoiding this outright would mean buffering the whole
 response before writing anything, which is exactly the memory tradeoff `## Response Shape`
 already rejected — so this is named here as a known, accepted limitation, the same treatment
-`rpc.md`'s own "no true streaming to Postgres" note already sets precedent for, not a promise
+`route.md`'s own "no true streaming to Postgres" note already sets precedent for, not a promise
 this document is pretending to keep.
 
 ## Scoping
@@ -554,9 +554,9 @@ Rel does not use the native Postgres `MERGE` statement ; it stays on plain `INSE
 
 ## Errors
 
-HTTP status >= 400. The numeric status lives only in the HTTP response line itself, never repeated in the body. `400` is used for a problem with the query/data itself (unknown relation, malformed query string, a compile-time rejection, ...) ; `500` for everything else. `401` is used when anonymous access is disabled outright and the request carries no usable credentials. An `RSxxx` status (`rpc.md`'s convention) is the one other status this envelope carries, raised by `http.functions.check_session`.
+HTTP status >= 400. The numeric status lives only in the HTTP response line itself, never repeated in the body. `400` is used for a problem with the query/data itself (unknown relation, malformed query string, a compile-time rejection, ...) ; `500` for everything else. `401` is used when anonymous access is disabled outright and the request carries no usable credentials. An `RSxxx` status (`route.md`'s convention) is the one other status this envelope carries, raised by `http.functions.check_session`.
 
-The response body's exact shape (`RelErrorResponse`), the `code` taxonomy, and what's included under `dev` mode (`pg_error`, `stacktrace`) are specified in full in `error-handling.md` — kept there rather than duplicated here now that it covers both `/rel` and `/rpc` uniformly, not just this document's own concern.
+The response body's exact shape (`RelErrorResponse`), the `code` taxonomy, and what's included under `dev` mode (`pg_error`, `stacktrace`) are specified in full in `error-handling.md` — kept there rather than duplicated here now that it covers both `/rel` and `/route` uniformly, not just this document's own concern.
 
 ## Query Shape
 

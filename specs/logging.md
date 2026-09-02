@@ -18,13 +18,13 @@ A `logging` package builds exactly one `*slog.Logger` at startup from the assemb
 
 ## Domain scoping
 
-On top of logging level, every log line must show what module it came from (query / rpc / pg
+On top of logging level, every log line must show what module it came from (query / route / pg
 / ...) to help with context — a `"module"` attribute, attached once per package rather than
 repeated at every call site.
 
 `logging.For(module string) *slog.Logger` returns a logger with `"module"` already attached.
 Convention : one package-level `var log = logging.For("<name>")` per package, `<name>`
-matching the package/directory name (`query`, `rpc`, `pg`, `dmut`, `boot`, `websec`, `static`,
+matching the package/directory name (`query`, `route`, `pg`, `dmut`, `boot`, `websec`, `static`,
 `config`, `jwt`, `dbauth`, ...) — every log call in that package goes through `log`, not
 `slog.Default()`/the bare `slog` package functions directly.
 
@@ -38,7 +38,7 @@ never picking up the real one.
 
 Once `## Request-scoped logging`'s `logging.FromContext(ctx)` exists, request-scoped code
 layers its own package's module tag on top of the request-scoped logger rather than using the
-package-level `log` directly : `logging.FromContext(ctx).With("module", "rpc")` — `module` and
+package-level `log` directly : `logging.FromContext(ctx).With("module", "route")` — `module` and
 `request_id` compose freely, since both are just attributes on the same logger.
 
 ## Request-scoped logging

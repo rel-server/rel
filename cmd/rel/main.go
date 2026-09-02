@@ -2,7 +2,7 @@
 // (specs/configuration.md), builds the process-wide logger
 // (specs/logging.md ## Configuration/## Logger construction), connects
 // to Postgres, and serves POST /rel (server.NewRelHandler) and
-// /rpc/{schema}/{function} (rpc.NewHandler) until an interrupt/terminate
+// /route/{schema}/{function} (route.NewHandler) until an interrupt/terminate
 // signal requests a graceful shutdown.
 package main
 
@@ -21,7 +21,7 @@ import (
 	"github.com/ceymard/rel/dmut"
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/rpc"
+	"github.com/ceymard/rel/route"
 	"github.com/ceymard/rel/wellknown"
 )
 
@@ -79,9 +79,9 @@ func main() {
 		logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", cfg.Pg.Query.AnonymousRole))
 	}
 
-	rpcRegistry, err := rpc.BuildRegistry(db, cfg)
+	routeRegistry, err := route.BuildRegistry(db, cfg)
 	if err != nil {
-		logger.Error("building /rpc route registry", "error", err.Error())
+		logger.Error("building /route registry", "error", err.Error())
 		os.Exit(1)
 	}
 	wellKnownRegistry, err := wellknown.BuildRegistry(db, cfg)
@@ -91,11 +91,11 @@ func main() {
 	}
 
 	// boot.BuildMux is the one shared assembler of the full inner handler
-	// (/rel, /rpc/, /wellknown, /static/, uniformly wrapped in CORS/CSP
+	// (/rel, /route/, /wellknown, /static/, uniformly wrapped in CORS/CSP
 	// middleware) — boot/reload.go's Reload calls the exact same function
 	// on every SIGUSR1, so the two call sites can't drift on what the mux
 	// contains.
-	mux, err := boot.BuildMux(db, cfg, rpcRegistry, wellKnownRegistry, logger.With("module", "boot"))
+	mux, err := boot.BuildMux(db, cfg, routeRegistry, wellKnownRegistry, logger.With("module", "boot"))
 	if err != nil {
 		logger.Error("building mux", "error", err.Error())
 		os.Exit(1)
@@ -139,7 +139,7 @@ func main() {
 	// the reload goroutine to actually exit — meaning any Reload() already
 	// in progress has returned — before the caller closes the pool below.
 	// Without this, a reload racing shutdown could still be mid-Reload
-	// (rpc.BuildRegistry querying reloader.CurrentDbInfos().Pool directly)
+	// (route.BuildRegistry querying reloader.CurrentDbInfos().Pool directly)
 	// at the exact moment Pool.Close() runs, on the SAME pool : spurious
 	// reload-failure logging at best, Pool.Close() blocking on a checked-
 	// out connection past this function's own control at worst.

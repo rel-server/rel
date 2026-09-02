@@ -16,7 +16,7 @@ import (
 
 // mintCookie signs role/extra claims under cfg.Jwt and returns the cookie a
 // real client would present — /rel never mints its own tokens (that's a
-// route function's job via /rpc), so tests stand in for that step directly.
+// route function's job via /route), so tests stand in for that step directly.
 func mintCookie(t *testing.T, cfg *config.Config, role string) *http.Cookie {
 	t.Helper()
 	claims := jwtpkg.Mint(cfg.Jwt, role, time.Now(), cfg.Jwt.MaxAge, nil)
@@ -165,7 +165,7 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	handler := NewRelHandler(testDb, cfg, nil)
 
 	cookie := mintCookie(t, cfg, "authenticated_user")
-	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold ; see rpc/handler_test.go's identical note on second-granularity claims
+	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold ; see route/handler_test.go's identical note on second-granularity claims
 
 	rec := postRelWithCookie(t, handler, `{
 		"relation": "secret_notes", "schema": "public", "select": ["own"]
@@ -187,7 +187,7 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 
 // TestRelHandler_CheckSessionSeesPreRenewalClaims proves applyRole's
 // Check-then-Renew ordering (specs/TODO.md's resolved "SET LOCAL ROLE /
-// auth timing" entry) actually took effect on /rel, matching /rpc : a
+// auth timing" entry) actually took effect on /rel, matching /route : a
 // token past renewafter still gets check_session called with its
 // ORIGINAL (pre-renewal) "iat", never the renewed one, since Renew (step
 // 4) now runs strictly after Check (step 3) here too — /rel used to renew

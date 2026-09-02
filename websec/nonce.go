@@ -1,11 +1,11 @@
 // Package websec implements specs/http-content.md's CORS and CSP
-// sections : both apply uniformly to /rel, /rpc, AND /static (the spec's
+// sections : both apply uniformly to /rel, /route, AND /static (the spec's
 // own explicit statement), so this lives as its own leaf package rather
-// than inside rpc or server specifically — both need it, and rpc/encode.go
+// than inside route or server specifically — both need it, and route/encode.go
 // (RelHttpRequest.csp_nonce, RelHttpResponse.csp) needs the nonce/CSP
-// machinery directly, which rules out putting it in boot (rpc doesn't
-// import boot, but boot imports rpc — a boot-side package would be
-// unreachable from rpc).
+// machinery directly, which rules out putting it in boot (route doesn't
+// import boot, but boot imports route — a boot-side package would be
+// unreachable from route).
 package websec
 
 import (

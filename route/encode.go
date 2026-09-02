@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// relHttpRequestPayload is specs/rpc.md ## Request's
+// relHttpRequestPayload is specs/route.md ## Request's
 // RelHttpRequest — with ONE deliberate deviation, matching the spec file's
 // own ## Request note : Cookies is {[name]: string} (value only), not the
 // full Cookie shape (value/httponly/secure/samesite/maxage) the spec's
@@ -42,7 +42,7 @@ type relHttpRequestPayload struct {
 	Body    json.RawMessage   `json:"body"`
 	Cookies map[string]string `json:"cookies"`
 	Jwt     jwtpkg.Claims     `json:"jwt"`
-	// Query is specs/query-json.md's ## /rpc's query field : r.URL.RawQuery
+	// Query is specs/query-json.md's ## /route's query field : r.URL.RawQuery
 	// decoded through the STRUCTURAL layer only (querystring.DecodeQueryField
 	// — no filter expression grammar involvement, that's specific to
 	// Relation's where/select/order_by), handed to the Postgres function
@@ -111,9 +111,9 @@ func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage
 }
 
 // badQueryError marks a request whose query string failed to decode
-// (specs/query-json.md's own structural layer, used here for /rpc's
+// (specs/query-json.md's own structural layer, used here for /route's
 // `query` field) — a 400, same as every other malformed-request case, not
-// a 500 ; handleRpc type-switches on this to pick the right status.
+// a 500 ; handleRoute type-switches on this to pick the right status.
 type badQueryError struct{ err error }
 
 func (e *badQueryError) Error() string { return e.err.Error() }
@@ -263,7 +263,7 @@ func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) 
 		Path:     "/",
 		Secure:   true,
 		HttpOnly: true,
-		SameSite: rpcSameSite("Lax"),
+		SameSite: routeSameSite("Lax"),
 		MaxAge:   cfg.Http.CookiesMaxAge,
 	}
 
@@ -285,7 +285,7 @@ func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) 
 		c.HttpOnly = *obj.HttpOnly
 	}
 	if obj.SameSite != nil {
-		c.SameSite = rpcSameSite(*obj.SameSite)
+		c.SameSite = routeSameSite(*obj.SameSite)
 	}
 	if obj.MaxAge != nil {
 		c.MaxAge = *obj.MaxAge
@@ -293,10 +293,10 @@ func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) 
 	return c
 }
 
-// rpcSameSite mirrors jwt package's own unexported sameSite mapping — kept
+// routeSameSite mirrors jwt package's own unexported sameSite mapping — kept
 // as its own small copy rather than exporting an internal helper from jwt
 // for this one call site.
-func rpcSameSite(s string) http.SameSite {
+func routeSameSite(s string) http.SameSite {
 	switch s {
 	case "Strict":
 		return http.SameSiteStrictMode

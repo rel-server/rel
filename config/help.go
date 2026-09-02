@@ -57,17 +57,17 @@ var Options = []Option{
 	{"pg.query.max_depth", fmt.Sprint(DefaultMaxDepth), "Maximum nesting depth a query may specify."},
 	{"pg.query.wellknown_path", DefaultPgQueryWellKnownPath, "Colon-separated directories searched for well-known queries."},
 
-	// ---- http.* : HTTP server + /rpc route-function discovery ----
+	// ---- http.* : HTTP server + /route function discovery ----
 	{"http.host", "(all interfaces)", "HTTP listen address."},
 	{"http.port", fmt.Sprint(DefaultHttpPort), "HTTP listen port."},
 	{"http.request_domain_name", DefaultHttpRequestDomainName, "Name of the JSON domain identifying a route function's request argument type."},
 	{"http.response_domain_name", DefaultHttpResponseDomainName, "Name of the JSON domain identifying a route function's response type."},
 	{"http.upload_domain_name", DefaultHttpUploadDomainName, "Name of the JSON domain used by the two-function upload-destinations mechanism (see specs/http-content.md)."},
 	{"http.cookies_max_age", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route response, when unspecified. Doesn't apply to the JWT cookie — see jwt.max_age."},
-	{"http.max_body_size", fmt.Sprint(DefaultHttpMaxBodySize) + " (bytes)", "Hard cap on a /rpc request's entire body (for multipart, the whole envelope — boundaries and part headers included, not just part payload bytes). Rejected with 413 before any of it is buffered in memory."},
-	{"http.max_part_count", fmt.Sprint(DefaultHttpMaxPartCount), "Max number of multipart/form-data parts a single /rpc request may contain, independent of their total byte size."},
+	{"http.max_body_size", fmt.Sprint(DefaultHttpMaxBodySize) + " (bytes)", "Hard cap on a /route request's entire body (for multipart, the whole envelope — boundaries and part headers included, not just part payload bytes). Rejected with 413 before any of it is buffered in memory."},
+	{"http.max_part_count", fmt.Sprint(DefaultHttpMaxPartCount), "Max number of multipart/form-data parts a single /route request may contain, independent of their total byte size."},
 	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route functions may mint or clear a session."},
-	{"http.functions.allowed_routes", "(unrestricted)", "Regexp restricting which route functions are exposed as /rpc routes."},
+	{"http.functions.allowed_routes", "(unrestricted)", "Regexp restricting which route functions are exposed on /route."},
 	{"http.functions.check_session", "(disabled)", "Function called on every authenticated request, letting the database reject a session early."},
 	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served at the fixed /static/ URL prefix, first match wins."},
 	{"http.templates.path", DefaultHttpTemplatesPath, "Filesystem directory Jet templates (RelHttpResponse.template) are loaded from."},
@@ -114,7 +114,7 @@ var sections = []struct {
 	Prefix  string
 }{
 	{"Postgres connection", "pg."},
-	{"HTTP server / /rpc route functions", "http."},
+	{"HTTP server / /route functions", "http."},
 	{"JWT sessions", "jwt."},
 	{"Logging", "logging."},
 	{"dmut migrations/mutations", "dmut."},
@@ -142,7 +142,7 @@ Usage:
   rel [flags]
 
 rel has no subcommands. It loads configuration (below), connects to
-Postgres, and serves POST /rel and /rpc/{schema}/{function} until an
+Postgres, and serves POST /rel and /route/{schema}/{function} until an
 interrupt/terminate signal requests a graceful shutdown.
 
 Flags:

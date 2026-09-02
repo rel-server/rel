@@ -1,6 +1,6 @@
-package rpc
+package route
 
-// This file implements specs/rpc.md's "## Request bodies" :
+// This file implements specs/route.md's "## Request bodies" :
 // the multipart/form-data and single-raw-binary-POST support for a route
 // function declaring the extra "files bytea[]" (and optionally
 // "parts_headers jsonb") parameter beyond "req RelHttpRequest". It also
@@ -85,7 +85,7 @@ func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64) error {
 // tooLargeIfContentLengthExceeds above and so can return the same
 // *requestBodyError) can produce : a *requestBodyError carries its own
 // status/code/message ; a *badBodyError is always a 400 malformed body ;
-// anything else is a generic 500. The three-way dispatch handleRpc used to
+// anything else is a generic 500. The three-way dispatch handleRoute used to
 // restate inline at its own resolveRequestBody call site.
 func writeRequestBodyError(w http.ResponseWriter, err error) {
 	if rbe, ok := errors.AsType[*requestBodyError](err); ok {
@@ -99,7 +99,7 @@ func writeRequestBodyError(w http.ResponseWriter, err error) {
 	writePlainError(w, http.StatusInternalServerError, errcode.Internal, "reading request body")
 }
 
-// resolvedRequestBody is everything handleRpc needs, both to build
+// resolvedRequestBody is everything handleRoute needs, both to build
 // RelHttpRequest.body and to invoke a files/parts_headers-aware route :
 // Files and PartsHeadersRaw are always non-nil (an empty array, never a SQL
 // NULL/JSON null, when there's nothing to report — ## Request bodies is

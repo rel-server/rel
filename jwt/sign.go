@@ -46,7 +46,7 @@ func Sign(cfg config.Jwt, claims Claims) (string, error) {
 // checked separately here.
 //
 // A verification failure of ANY kind returns a plain error — the caller
-// (rpc package) treats that as "no session", per Lifecycle step 2 : "Failing
+// (route package) treats that as "no session", per Lifecycle step 2 : "Failing
 // any of these is equivalent to no session at all", never a request-level
 // error in its own right.
 func Verify(cfg config.Jwt, token string) (Claims, error) {

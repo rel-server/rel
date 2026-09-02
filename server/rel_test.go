@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 
 	// NewInfosAdminQuery, threading through the real anonymous role name —
 	// this package's anonymous-access scenarios need
-	// DbInfos.AnonymousRoleExists true, same reasoning as rpc/rpc_test.go's
+	// DbInfos.AnonymousRoleExists true, same reasoning as route/route_test.go's
 	// TestMain.
 	testDb, err = pg.NewInfosAdminQuery(uri, uri, 0, testCfg.Pg.Query.AnonymousRole)
 	if err != nil {

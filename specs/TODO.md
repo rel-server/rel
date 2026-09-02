@@ -11,7 +11,7 @@ Resolved items are not tracked here — this is a todo list, not a changelog ; c
   `go-oidc`) and how a session gets minted once authenticated, but the actual `/auth/*`
   routes are unspecified : the SAML ACS endpoint and the OIDC callback specifically, since
   those protocols mandate fixed, redirect-driven callback URLs that can't be modeled as an
-  ordinary `/rpc/{schema}/{function}` call. Username/password login is NOT part of this gap
+  ordinary `/route/{schema}/{function}` call. Username/password login is NOT part of this gap
   — it needs no special route, just an ordinary route function using the already-specified
   `RelHttpResponse.jwt` mint mechanism.
 

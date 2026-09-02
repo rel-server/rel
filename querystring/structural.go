@@ -13,13 +13,13 @@
 // limitations under the License.
 
 // Package querystring implements specs/query-json.md : GET /rel's and
-// /rpc's `query` field's textual encoding of a subset of query.ts's JSON
+// /route's `query` field's textual encoding of a subset of query.ts's JSON
 // shapes, carried in a URL query string. Two cooperating layers, per that
 // spec :
 //
 //   - structural.go : the structural decoder (this file) — dot-path query
 //     keys -> nested JSON, repeated keys -> arrays. Generic, reusable for
-//     both Relation's own shape and /rpc's free-form `query` field.
+//     both Relation's own shape and /route's free-form `query` field.
 //   - expr.go : the filter expression grammar — a small S-expression-style
 //     parser for `where` and each comma-list entry.
 //   - relation.go : glues both together into one GET /rel query string ->
@@ -88,7 +88,7 @@ func parseRawPairs(raw string) ([][2]string, error) {
 // repeating the exact same key builds an array. Values are plain strings —
 // callers needing something else (number/bool coercion, the filter
 // expression grammar) apply that on top, per key, since only they know
-// which keys need it (see relation.go). This is exactly what /rpc's `query`
+// which keys need it (see relation.go). This is exactly what /route's `query`
 // field spec section calls "the structural layer only, generalized — not
 // scoped to Relation's own fixed keys" : usable standalone for that, or as
 // the first step of relation.go's Relation-aware compile.

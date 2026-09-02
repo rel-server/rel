@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"testing"
@@ -36,7 +36,7 @@ func TestBuildRegistry_ExcludesLeadingUnderscore(t *testing.T) {
 
 // TestBuildRegistry_ExcludesWrongShape covers fn_check_session specifically
 // : it takes one jsonb argument, NOT one RelHttpRequest argument, so it
-// must never become a discoverable /rpc route even though
+// must never become a discoverable /route function even though
 // http.functions.check_session names it — check_session is invoked
 // directly by the JWT lifecycle, never dispatched as a route.
 func TestBuildRegistry_ExcludesWrongShape(t *testing.T) {

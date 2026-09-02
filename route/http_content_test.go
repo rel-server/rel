@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"encoding/json"
@@ -23,7 +23,7 @@ func wrapWithWebsec(t *testing.T, mutate func(cfg *config.Config)) http.Handler 
 		mutate(&cfg)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/rpc/", NewHandler(testDb, &cfg, testReg, nil))
+	mux.Handle("/route/", NewHandler(testDb, &cfg, testReg, nil))
 	return websec.Middleware(&cfg)(mux)
 }
 
@@ -36,7 +36,7 @@ func TestCors_PreflightAnsweredDirectly_NeverReachesRoute(t *testing.T) {
 		cfg.Http.Cors.AllowedOrigins = "https://example.com"
 	})
 
-	req := httptest.NewRequest(http.MethodOptions, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/route/public/fn_echo0", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "GET")
 	rec := httptest.NewRecorder()
@@ -62,7 +62,7 @@ func TestCors_PreflightAnsweredDirectly_NeverReachesRoute(t *testing.T) {
 func TestCors_PlainOptionsWithoutBothHeaders_FallsThroughToRealRoute(t *testing.T) {
 	handler := wrapWithWebsec(t, nil)
 
-	req := httptest.NewRequest(http.MethodOptions, "/rpc/public/fn_optroute", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/route/public/fn_optroute", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -79,7 +79,7 @@ func TestCors_DisallowedOrigin_NoHeadersSent(t *testing.T) {
 		cfg.Http.Cors.AllowedOrigins = "https://allowed.example.com"
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	req.Header.Set("Origin", "https://evil.example.com")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -103,7 +103,7 @@ func TestCors_Wildcard_NeverSendsCredentials_ReflectsLiteralStar(t *testing.T) {
 		cfg.Http.Cors.AllowedOrigins = "*"
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	req.Header.Set("Origin", "https://anything.example.com")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -119,7 +119,7 @@ func TestCors_Wildcard_NeverSendsCredentials_ReflectsLiteralStar(t *testing.T) {
 	// response specifically — the traditional leak point, since a preflight
 	// is what a browser consults to decide whether to actually send
 	// credentials on the real request that follows.
-	preflight := httptest.NewRequest(http.MethodOptions, "/rpc/public/fn_echo0", nil)
+	preflight := httptest.NewRequest(http.MethodOptions, "/route/public/fn_echo0", nil)
 	preflight.Header.Set("Origin", "https://anything.example.com")
 	preflight.Header.Set("Access-Control-Request-Method", "GET")
 	preflightRec := httptest.NewRecorder()
@@ -142,7 +142,7 @@ func TestCors_MultipleConfiguredOrigins_EachReflectedIndividually(t *testing.T) 
 	})
 
 	for _, origin := range []string{"https://a.example.com", "https://b.example.com"} {
-		req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+		req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 		req.Header.Set("Origin", origin)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -156,7 +156,7 @@ func TestCors_MultipleConfiguredOrigins_EachReflectedIndividually(t *testing.T) 
 	}
 
 	// A third, unconfigured origin gets no CORS headers at all.
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	req.Header.Set("Origin", "https://c.example.com")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -175,7 +175,7 @@ func TestCors_Preflight_MethodsAndHeadersReflectConfiguredValues(t *testing.T) {
 		cfg.Http.Cors.AllowedHeaders = "Content-Type, X-Custom-Header"
 	})
 
-	req := httptest.NewRequest(http.MethodOptions, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/route/public/fn_echo0", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	rec := httptest.NewRecorder()
@@ -197,7 +197,7 @@ func TestCsp_RawPolicyConfigEndToEnd(t *testing.T) {
 		cfg.Http.Csp.Policy = "default-src 'none'; connect-src 'self'"
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -221,7 +221,7 @@ func TestCsp_RawPolicyConfigEndToEnd(t *testing.T) {
 func TestCsp_DefaultHeaderPresentWithSynthesizedNonceDirectives(t *testing.T) {
 	handler := wrapWithWebsec(t, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -245,7 +245,7 @@ func TestCsp_DefaultHeaderPresentWithSynthesizedNonceDirectives(t *testing.T) {
 func TestCsp_PerResponseOverride(t *testing.T) {
 	handler := wrapWithWebsec(t, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_csp_override", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_csp_override", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -263,7 +263,7 @@ func TestCsp_PerResponseOverride(t *testing.T) {
 func TestRequest_CspNonce(t *testing.T) {
 	handler := wrapWithWebsec(t, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_echo1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo1", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

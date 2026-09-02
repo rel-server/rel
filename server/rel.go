@@ -68,7 +68,7 @@ type resolvedItem struct {
 // db.Pool is acquired from once per request ; cfg drives scope/blacklist
 // resolution exactly as query.ResolveContext already does in every pass-1/2
 // test. wkReg resolves a well-known item by name — rebuilt alongside db/cfg
-// on every SIGUSR1 reload (boot/reload.go), exactly like rpc.Registry.
+// on every SIGUSR1 reload (boot/reload.go), exactly like route.Registry.
 // Wrapped in jwt.Middleware (Lifecycle step 2/Verify only) — applyRole
 // (called from handleRel once it has a connection) does step 3/Check, step
 // 4/Renew, and step 5/Apply role, in that order, reading the claims
@@ -128,7 +128,7 @@ func decodeGETQuery(raw string) ([]byte, error) {
 // decodeWellKnownGET builds {"wellknown": ..., "params"?: ...} JSON off m,
 // an already-decoded ?wellknown=<name>&params.<key>=<value>&... query
 // string (querystring.DecodeQueryField's own dot-path structural layer,
-// the same generic decoder /rpc's own free-form `query` field already
+// the same generic decoder /route's own free-form `query` field already
 // uses). Each params leaf value is opportunistically re-parsed as JSON, so
 // "?params.limit=5" produces the number 5 rather than the string "5" —
 // falling back to the literal string when it isn't valid JSON (an ordinary
@@ -566,7 +566,7 @@ func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, 
 
 // applyRole runs Lifecycle steps 3 (Check), 4 (Renew), and 5 (Apply role)
 // on conn, using the claims jwt.Middleware already verified — in that exact
-// order, matching rpc/handler.go's handleRpc and rpc/upload_handler.go's
+// order, matching route/handler.go's handleRoute and route/upload_handler.go's
 // handleUploadRoute (see jwt/middleware.go's own doc comment for why Renew
 // belongs here rather than in Middleware : /rel used to renew before
 // check, the other two after — the spec's own order — so check_session
@@ -626,7 +626,7 @@ func codeOrUnclassified(err error) errcode.Code {
 // http.functions.check_session — RSxxx first (## Postgres Exceptions), then
 // pgerr's PG_* table, same pgerr.Classify every Postgres-execution error in
 // this file now goes through. The JSON envelope (not plain text) still
-// applies here : /rel and /rpc keep their own separate error framings per
+// applies here : /rel and /route keep their own separate error framings per
 // their respective spec sections, this is only the classification shared.
 // classifyOrFallback routes wrapped through pgerr.Classify, returning the
 // classified *requestError (built from the classified Detail, never from

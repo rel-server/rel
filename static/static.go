@@ -3,7 +3,7 @@
 // directory search list at the fixed /static/ URL prefix, with no
 // directory listing, no dotfiles, and an opt-in, named, prefix-scoped
 // database access-control mechanism. (### Upload destinations, the same
-// section's second half, lives in rpc — it's a route-function discovery
+// section's second half, lives in route — it's a route-function discovery
 // mechanism wired through the registry, not something /static/ itself
 // serves.)
 package static
@@ -160,14 +160,14 @@ func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 		claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
 
 		// ### Access control : anonymous-disabled 401s BEFORE the existence
-		// check for a GATED prefix specifically — matching /rel and /rpc's
+		// check for a GATED prefix specifically — matching /rel and /route's
 		// own "before route lookup, before any body read, before a
 		// connection is acquired" ordering, and for the same
 		// information-leak reason (stat-then-401 would otherwise leak
 		// existence to a caller who was never getting past the gate).
 		if !verified && !db.AnonymousRoleExists {
 			// No X-Rel-Errorcode header here — this package's writePlainError
-			// never carried one, unlike /rel and /rpc's own 401s for the same
+			// never carried one, unlike /rel and /route's own 401s for the same
 			// condition (out of scope for this factoring pass, flagged
 			// separately rather than silently changed).
 			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabledMessage)

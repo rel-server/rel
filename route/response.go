@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"net/http"
@@ -10,7 +10,7 @@ import (
 // writePlainError writes a plain-text (NOT JSON) error body — ## Postgres
 // Exceptions' own framing : "gives the response status xxx, with whatever
 // text was raised as the body." This is deliberately different from
-// server/response.go's JSON envelope : /rel and /rpc have separate error
+// server/response.go's JSON envelope : /rel and /route have separate error
 // conventions per their respective spec sections. code is always set on the
 // X-Rel-Errorcode header regardless of body framing — specs/error-handling.md
 // ## Delivery.

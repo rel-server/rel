@@ -2,7 +2,7 @@
 // PG_* family and ## Postgres error detail's tiered field allow-list —
 // additive to rscode.go's RSxxx handling, not a replacement : RSStatus
 // keeps its existing signature and its three existing call sites
-// (rpc/response.go, static/static.go, server's check_session path)
+// (route/response.go, static/static.go, server's check_session path)
 // untouched. Classify is the new, broader entry point for a write/read
 // execution error that may or may not be RSxxx.
 package pgerr
@@ -72,7 +72,7 @@ var pgClassTable = map[string]classified{
 }
 
 // IsRSCode reports whether code is RSxxx-shaped — used by a caller that
-// needs to tell an author-chosen, always-safe RSxxx message (rpc.md ##
+// needs to tell an author-chosen, always-safe RSxxx message (route.md ##
 // Postgres Exceptions) apart from every other code sharing
 // TierUnclassified, since Classify itself has no separate tier value for
 // that distinction (see its RSxxx branch's own doc comment).
@@ -95,7 +95,7 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 
 	if rsStatus, message, isRS := RSStatus(err); isRS {
 		// Tier is not meaningful for RSxxx : the raised message IS the
-		// response body per rpc.md ## Postgres Exceptions' existing
+		// response body per route.md ## Postgres Exceptions' existing
 		// convention, unconditionally — a caller uses Detail.Message
 		// directly here rather than consulting tier at all.
 		return rsStatus, errcode.Code(pgErr.Code), TierUnclassified, &Detail{Message: message}, true
@@ -129,7 +129,7 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 // The single source of truth for this decision, shared between /rel's
 // structured envelope (server/response.go, which additionally gets to
 // show Detail as its own separate pg_error field when this is true) and
-// /rpc's plain-text body (rpc/response.go, which folds Detail straight
+// /route's plain-text body (route/response.go, which folds Detail straight
 // into its one channel instead) — the two render an "allowed" case
 // differently, but must never independently drift on WHICH tier allows
 // what or under which condition, which is exactly what happened before

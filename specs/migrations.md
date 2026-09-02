@@ -30,7 +30,7 @@ never a config flag that skips calling it.
 before — running introspection first would build `pg.DbInfos` from a schema dmut is about to
 change out from under it. Concretely, `cmd/rel/main.go`'s boot sequence becomes : resolve
 connection URIs → run dmut against the primary/admin URI → `pg.NewInfosAdminQuery` (introspection
-+ build the request-serving pool) → build the `/rpc` registry → start serving. This is a real
++ build the request-serving pool) → build the `/route` registry → start serving. This is a real
 reordering of the existing boot sequence, not an addition alongside it.
 
 * **`dmut.path` doesn't exist on disk** : dmut is skipped entirely, silently (an `info`-level log
@@ -66,7 +66,7 @@ signal handler for `SIGUSR1` for as long as the process runs, not a single-use o
 On receiving it :
 
 `http.Server.Handler` is, permanently (not just during a reload), a small reload-aware wrapper
-holding an `atomic.Pointer` to the current "real" mux (`server.NewRelHandler`/`rpc.NewHandler`
+holding an `atomic.Pointer` to the current "real" mux (`server.NewRelHandler`/`route.NewHandler`
 composed together, same as today) — this is what makes both "serve a 503 page during reload" and
 "swap to the new schema" safe : the `http.Server.Handler` field itself is written exactly once, at
 startup, and never touched again ; only the pointer inside the wrapper is ever swapped, which is
@@ -75,7 +75,7 @@ server is accepting connections would be a data race independent of whether requ
 in flight at that moment — the wrapper exists specifically so nothing ever needs to do that.
 
 1. **New requests stop being served immediately.** The wrapper flips into maintenance mode :
-   every subsequent `/rel` and `/rpc` request, for as long as the reload is in progress, gets
+   every subsequent `/rel` and `/route` request, for as long as the reload is in progress, gets
    `503 Service Unavailable` and a small, fixed convenience page (plain text/minimal HTML, no
    templating) saying migrations are running — never queued behind the reload, never served
    against a schema that might be mid-change.
@@ -104,13 +104,13 @@ in flight at that moment — the wrapper exists specifically so nothing ever nee
    churn every pooled connection just because the schema changed — in-flight requests are already
    drained/cancelled by this point, so there's no concurrent-access hazard in reusing the pool
    either way, only unnecessary connection cost to avoid).
-5. **The `/rpc` registry is rebuilt** from the new `pg.DbInfos` (`rpc.BuildRegistry`), same as at
+5. **The `/route` registry is rebuilt** from the new `pg.DbInfos` (`route.BuildRegistry`), same as at
    startup — new/changed route functions, anonymous-authorization caching (`specs/
-   rpc.md ## Anonymous route authorization`), and the `PUBLIC`-executable warning
+   route.md ## Anonymous route authorization`), and the `PUBLIC`-executable warning
    all re-run against the post-reload schema.
 6. **A fresh inner mux is built** via `boot.BuildMux` — the same function the initial startup mux
    is built with, so the two call sites cannot drift on what the mux actually contains — composing
-   `/rel` (`server.NewRelHandler`), `/rpc/` (`rpc.NewHandler`), and, when at least one
+   `/rel` (`server.NewRelHandler`), `/route/` (`route.NewHandler`), and, when at least one
    `http.static.path` directory exists, `/static/`, against the new `pg.DbInfos`/registry, all
    wrapped uniformly in `websec.Middleware` (CORS/CSP). The result is stored into the wrapper's
    `atomic.Pointer` — a single pointer store, not a write to `http.Server.Handler` itself.

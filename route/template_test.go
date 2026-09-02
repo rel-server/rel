@@ -1,4 +1,4 @@
-package rpc
+package route
 
 import (
 	"net/http"
@@ -26,7 +26,7 @@ func newTemplateTestHandler(t *testing.T, templateBody string) (http.Handler, st
 	cfg := *testCfg
 	cfg.Http.Templates.Path = dir
 	mux := http.NewServeMux()
-	mux.Handle("/rpc/", NewHandler(testDb, &cfg, testReg, nil))
+	mux.Handle("/route/", NewHandler(testDb, &cfg, testReg, nil))
 	return websec.Middleware(&cfg)(mux), dir
 }
 
@@ -35,7 +35,7 @@ func newTemplateTestHandler(t *testing.T, templateBody string) (http.Handler, st
 func TestTemplate_RendersDataReqNonce(t *testing.T) {
 	handler, _ := newTemplateTestHandler(t, `Hello {{ Data.name }}! method={{ Req.method }} nonce-len={{ len(Nonce) }}`)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_template", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -62,7 +62,7 @@ func TestTemplate_RendersDataReqNonce(t *testing.T) {
 func TestTemplate_LoadFailure_Is500(t *testing.T) {
 	handler, _ := newTemplateTestHandler(t, `irrelevant`)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template_missing", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_template_missing", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -84,7 +84,7 @@ func TestTemplate_LoadFailure_Is500(t *testing.T) {
 func TestTemplate_RuntimeError_Is500(t *testing.T) {
 	handler, _ := newTemplateTestHandler(t, `some leading output before the failure {{ Data.name.nonexistent.deeper }}`)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_template", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -110,7 +110,7 @@ func TestTemplate_ReqReflectsNestedJwtClaims(t *testing.T) {
 	// Jet's isset(nil) is false for a Go nil interface, same as an absent
 	// map key, so this specifically proves buildRelHttpRequest's own "jwt
 	// key always present, null when anonymous" contract survives into Req.
-	anonReq := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template", nil)
+	anonReq := httptest.NewRequest(http.MethodGet, "/route/public/fn_template", nil)
 	anonRec := httptest.NewRecorder()
 	handler.ServeHTTP(anonRec, anonReq)
 	if anonRec.Code != http.StatusOK {
@@ -122,7 +122,7 @@ func TestTemplate_ReqReflectsNestedJwtClaims(t *testing.T) {
 
 	// Authenticated call : log in through the same handler first to get a
 	// real, valid cookie, then reuse it on the template request.
-	loginReq := httptest.NewRequest(http.MethodPost, "/rpc/public/fn_login", nil)
+	loginReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_login", nil)
 	loginRec := httptest.NewRecorder()
 	handler.ServeHTTP(loginRec, loginReq)
 	var jwtCookie *http.Cookie
@@ -135,7 +135,7 @@ func TestTemplate_ReqReflectsNestedJwtClaims(t *testing.T) {
 		t.Fatalf("login didn't set a cookie")
 	}
 
-	authedReq := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template", nil)
+	authedReq := httptest.NewRequest(http.MethodGet, "/route/public/fn_template", nil)
 	authedReq.AddCookie(jwtCookie)
 	authedRec := httptest.NewRecorder()
 	handler.ServeHTTP(authedRec, authedReq)
@@ -154,10 +154,10 @@ func TestTemplate_NoTemplatesConfigured_Is500(t *testing.T) {
 	cfg := *testCfg
 	cfg.Http.Templates.Path = "" // NewTemplateSet returns nil for ""
 	mux := http.NewServeMux()
-	mux.Handle("/rpc/", NewHandler(testDb, &cfg, testReg, nil))
+	mux.Handle("/route/", NewHandler(testDb, &cfg, testReg, nil))
 	handler := websec.Middleware(&cfg)(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/public/fn_template", nil)
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_template", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

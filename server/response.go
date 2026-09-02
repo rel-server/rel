@@ -155,7 +155,7 @@ func pgResponseText(code errcode.Code, tier pgerr.Tier, detail *pgerr.Detail, de
 	}
 	if tier == pgerr.TierConstraintViolation {
 		// A short, safe headline — the raw detail.Message isn't needed
-		// here the way rpc/response.go's pgPlainText needs it, since this
+		// here the way route/response.go's pgPlainText needs it, since this
 		// package has pgError (the full Detail) as its own separate field
 		// to carry the specifics in.
 		return "a database constraint was violated", detail

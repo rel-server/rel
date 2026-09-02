@@ -78,15 +78,15 @@ func TestFor_WithAttrsAccumulates(t *testing.T) {
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 
-	log := For("rpc").With("request_id", "abc123")
+	log := For("route").With("request_id", "abc123")
 	log.Info("handled")
 
 	var decoded map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
 		t.Fatalf("unmarshal %q: %v", buf.String(), err)
 	}
-	if decoded["module"] != "rpc" || decoded["request_id"] != "abc123" {
-		t.Errorf("expected both module=rpc and request_id=abc123, got %v", decoded)
+	if decoded["module"] != "route" || decoded["request_id"] != "abc123" {
+		t.Errorf("expected both module=route and request_id=abc123, got %v", decoded)
 	}
 }
 
