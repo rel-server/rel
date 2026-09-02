@@ -2,11 +2,11 @@
 
 They're basically what views achieve in SQL, but in rel, with the write operations planned for.
 
-- rel reads them on startup, but also when receiving `SIGUSR2`
-- rel reevaluates them whenever the database is introspected
-
-> Question: these two bullets need to name two distinct triggers precisely, since "read" and "reevaluate" aren't the same operation. Reintrospection already happens on startup AND on `SIGUSR1` (`boot/reload.go`'s existing 7-step reload : re-run migrations, `pg.ReIntrospect`, rebuild the rpc registry, rebuild the mux, atomic-swap). Proposed division : `SIGUSR2` re-reads the well-known query *files* from disk (picks up added/edited/removed files) ; any reintrospection event (startup, or `SIGUSR1`) re-resolves/recompiles the *currently loaded* well-known query set against the fresh schema, without re-reading files from disk. Confirm this split, and confirm `SIGUSR2` reuses `boot/reload.go`'s existing maintenance-window/drain/atomic-swap discipline rather than a separate mechanism (nothing in-flight should ever see a half-reloaded well-known query set, same reasoning `SIGUSR1` already applies to the schema/mux) ?
->:
+- rel reads and compiles them from disk on startup, and again on every `SIGUSR1` reload — the
+  same reload that reintrospects the schema and rebuilds the mux (`boot/reload.go`'s existing
+  7-step sequence). No separate `SIGUSR2` trigger : a well-known reload is always a full,
+  clean re-read from disk and recompile, never an incremental diff, folded into the reload
+  rel already has rather than a second mechanism next to it.
 
 ## Configuration
 
@@ -14,39 +14,42 @@ They're basically what views achieve in SQL, but in rel, with the write operatio
 
 >: What other configuration options would be relevant ?
 
-> Question: the config field for this already exists (`config.Pg.Query.WellKnownDirs`, `config/config.go:340`) but is stored unsplit, exactly the state `http.static.path` was in before static serving landed — its own colon-split happens at the *consumption* site (`static/static.go:56`, `strings.Split(cfg.Static.Path, ":")`), not in the config loader. Proposal : mirror that exactly, split at whatever function first walks `wellknown_path` for loading. Confirm ?
->:
->
-> Question: `http.static.path`'s own doc (`config/help.go`) states a missing/nonexistent directory in the list is silently skipped, not an error. Does `wellknown_path` follow the same rule ?
->:
->
-> Question: any cap on recursion depth or file count while walking the directories ? Nothing else in this codebase defends against a pathological directory tree, so "none" is a reasonable answer, just confirming it's deliberate rather than unconsidered.
+Consumed the same way `http.static.path` already is : the config field itself
+(`config.Pg.Query.WellKnownDirs`) stays the raw, unsplit string ; splitting on `:` happens at
+the point of use, not in the config loader (mirroring `static/static.go`'s
+`strings.Split(cfg.Static.Path, ":")`). A directory in the list that doesn't exist is silently
+skipped, same rule `http.static.path` documents — consistent, not a special case. No cap on
+recursion depth or file count while walking the directories ; a pathological directory tree is
+the deploying developer's own responsibility, same posture the rest of this codebase's
+directory-scanning configs take.
+
+> Question: `ruml` stays as a supported format (confirmed — not dropped), but it still has no
+> grammar or parser anywhere in this codebase or its dependencies (`go.mod`/`go.sum`), and
+> doesn't appear in `specs/configuration.md` either as a format rel's own config file can use
+> today. Is there an existing `ruml` spec/library already in mind — the way `github.com/ceymard/dmut/v2`
+> is an external tool this repo already depends on and shells out to — or does the grammar
+> still need to be designed from scratch before support can be built ? If external, naming the
+> package/repo is what unblocks this ; if it's meant to become rel's *general* config format
+> too (not just well-known queries), that's a separate, larger scope change to
+> `specs/configuration.md` this spec alone doesn't cover.
 >:
 
 ## Behaviour
 
-Rel reads the directories of `pg.query.wellknown_path` recursively and consider every .json, .yml, .yaml, .ruml files whose name doesn't start with '_'.
+Rel reads the directories of `pg.query.wellknown_path` recursively and considers every `.json`, `.yml`, `.yaml`, `.ruml` file whose name doesn't start with `_`. Every format is converted to a plain JSON value tree before parsing — `sonic/ast`'s existing JSON-specific parser (`query.ParseExpression`/`ParseQuery`) is reused unchanged for all three ; YAML/`ruml` exist purely for author readability, not because rel treats them as semantically different from JSON.
 
-> Question: `ruml` doesn't exist anywhere in this codebase or its dependencies (`go.mod`/`go.sum`) — it's mentioned only in this spec file, nowhere else. Either it needs its own grammar defined before it can be implemented, or it should be dropped as a supported format for now (JSON + YAML only) and reconsidered later if there's a concrete need. Which ?
->:
->
-> Question: JSON parsing throughout this codebase runs on `sonic/ast` (`query.ParseExpression`/`ParseQuery`), a JSON-specific parser — there's no generic-value-tree parse path today. A `.yml` file needs either (a) a YAML→JSON-bytes conversion pass before handing it to the existing JSON parser, or (b) a second, format-agnostic entry point into the same resolve/parse logic. (a) is far less code and reuses everything that exists ; (b) would matter only if YAML's own type system (e.g. distinguishing an explicit `null` from an absent key, or richer scalar types) needs to survive into the query tree in a way JSON round-tripping would lose. Proposal : (a), unless there's a concrete reason YAML's extra expressiveness is actually needed here. Confirm ?
->:
+If a query has an error, a warning is logged and the query is deactivated — it was never validly defined, so it's never queryable, the same way a well-known query wouldn't exist at all if it were never written. If a query introduces a name that collides with an already-loaded one, rel logs a warning and deactivates *every* well-known query registered under that name (not just the newest one) ; a request naming a deactivated (or never-validly-defined) query is rejected the same way a genuinely unknown name would be.
 
-If a query has an error, a warning is displayed, and the query is deactivated. If a query introduces a name already existing, rel prints a warning a deactivates all queries on that name, replying instead an error when it is queries.
-
-> Question: this sentence's ending is ambiguous enough to change the actual behavior, not just a wording nit — "replying instead an error when it is queries" could mean (a) a request naming a collided query gets some distinct error code/status forever (until the collision is fixed and rel reloads), or (b) something else entirely. Proposed concrete rewrite : *"If a query introduces a name that collides with an already-loaded one, rel logs a warning and deactivates every well-known query registered under that name (not just the newest one) — a request naming a deactivated query gets `RW001`/whatever it's renamed to (see below), the same way a genuinely unknown name would, rather than silently picking one of the colliding definitions."* Confirm this is the intent, or correct it directly here ?
->:
->
-> Question: is `name` purely the value declared inside the file (as `## Definition` shows), with the directory layout under `wellknown_path` contributing nothing to it — so two files in unrelated subdirectories can collide on the same declared `name` with no path-based disambiguation ? That's what the spec as written implies ; confirming it's deliberate.
->:
+`name` is declared inside the file's own content (`## Definition` below) and is the *only* thing that identifies a well-known query — directory layout under `wellknown_path` is purely an authoring convenience with no bearing on the exposed name. A developer is free to lay out files however they like, including declaring several `WellKnownQuery` entries (via the `WellKnownQuery[]` form) in one file ; two files in unrelated subdirectories can still collide on the same declared `name`, and that's an ordinary collision, not a special case.
 
 Well-known queries are not meant to be mixed-and-matched with other queries ; they're evaluated once and their statements are prepared, ready to be queried for maximum performance.
 
-> Question: "prepared" needs to mean one specific thing before this can be built, since the two readings lead to different implementations : (a) genuine Postgres `PREPARE`, which is connection-scoped and awkward under a connection pool (a statement prepared on one pooled connection doesn't exist on another, so this would need a prepare-on-acquire hook, or pinning well-known execution to specific connections) ; or (b) "the SQL text is compiled once, at load time, into a string handed to whichever pooled connection serves a given request" — in which case pgx's own default per-connection statement cache (`QueryExecModeCacheStatement`) already gives the performance property for free, and rel doesn't need to do anything beyond not recompiling the SQL text itself on every request. Proposal : (b), since it needs no new execution-layer machinery beyond caching the compiled `*writer.SQLWriter`/SQL string in memory. Confirm ?
->:
->
-> Question: does the read/write split for one stored `WellKnownQuery` follow the same wire-level rule `/rel` already uses — a request supplying `data` always runs the full phased Writing Algorithm (`ExecuteWriteState`) off the query's already-resolved tree, one omitting `data` always runs a plain compiled `SELECT` off the same tree — so ONE definition can serve both a read and a write invocation depending on what a given request supplies, never fixed at definition time ? This matters because "evaluated once... statements are prepared" (previous question) is a much simpler story for the read half (one cached SQL string) than the write half (`ExecuteWriteState` always denormalizes the request's own payload fresh, so "prepared" can only ever mean "the tree is pre-resolved," not "the DML is precompiled text"). Confirm this reading, or state whether a well-known query is meant to commit to read-only or write-capable at definition time instead ?
+"Prepared" doesn't mean issuing a literal Postgres `PREPARE` — pgx already caches statement plans per connection on its own (`QueryExecModeCacheStatement`), and reimplementing that under a connection pool (a prepared statement doesn't survive across pooled connections) would be pure overhead for no benefit. It means rel compiles the query to SQL text exactly once, at load time, and reuses that same text for every subsequent invocation instead of recompiling per request.
+
+That compile-once story extends to the write side too, not just reads. Verified directly against `write_dml.go` : `runInsert`/`runUpsert`/`runUpdate`/`runDelete` build their SQL text purely from the resolved `QueryNode` tree's static shape (columns, `write_mode`, `on_conflict`) and each node's own precomputed `__node_id` (`dc.ids[node]`, baked in as a literal constant — e.g. `where tmp.__node_id = 3`) — never from the request's actual payload values. Denormalizing the request's JSON into `_data` is the only genuinely per-request step ; the same statement list runs on every invocation regardless of which parts of the payload happen to be populated, and a subtree the payload omits simply produces zero affected rows rather than needing different SQL. (Node-ID assignment staying stable across invocations depends on always starting from a fresh `WriteState{}`, offset 0 — true as long as a well-known query never shares `_data` with another item in a larger sequence, which is exactly what "not meant to be mixed-and-matched" already rules out.)
+
+The catch : `write_dml.go`'s `run*` functions currently compile *and* execute their SQL in the same call — there's no split today between "compile this tree's DML once" (cacheable, the well-known-query part) and "run the already-compiled statements against this request's own `_data` rows" (per-request). Reusing a well-known write query's compiled statements across requests needs that split built first. Flagging this as implementation work this feature depends on, not a remaining design question — but say so here if this reading is wrong before it gets built on.
+
 >:
 
 The shape of their output is known and exported in typescript.
@@ -71,17 +74,13 @@ interface WellKnownParam {
 }
 ```
 
-> Question: `WellKnownParam.type` (declared once, for the whole query) and `["$param", name, cast?]`'s own `cast` (declared per usage site) both name a Postgres type for the same param — the spec doesn't say what happens when a `$param` usage's `cast` disagrees with its declaration's `type`, or why a per-usage override would ever be needed if the param already has a declared type. Proposal : drop `$param`'s own `cast` entirely and rely solely on `WellKnownParam.type` — a param has exactly one type, declared once, matching how an ordinary column's type is never re-specified per reference either. If there's a real use case for a per-usage override (e.g. the same param used as both `text` and `int` in different branches of one query), say so instead and the two-type-sites design stays, with an explicit precedence rule. Which ?
->:
->
-> Question: `default?: unknown` conflates three states behind one nullable field — required (no `default` key at all, matching `RW011`'s "did not have a default"), optional-defaulting-to-SQL-NULL (`default: null`), and optional-defaulting-to-a-value (`default: <value>`). Distinguishing "key absent" from "key present with value `null`" needs presence-aware JSON decoding on the Go side (a plain `map[string]any` lookup can't tell them apart once decoded) — worth stating explicitly so the loader is built with that distinction from the start rather than discovered as a bug later. Confirm these are the intended three states ?
->:
+`type` is checked against the caller-supplied JSON value up front, in Go, before the query ever reaches Postgres — a wrong-typed param fails at the request boundary (`WELL_KNOWN_PARAM_TYPE_MISMATCH`), not as a Postgres cast error surfacing from inside the compiled SQL. `$param`'s own `cast` is a separate, per-usage-site convenience (equivalent to writing `::sometype` at that one spot rather than relying on `type` alone) — likely redundant now that `type` already governs both validation and the SQL-side cast, but not yet removed from the grammar ; revisit once real usage shows whether a per-usage override is ever actually needed.
 
-> Question: `["$param", ...]` parses fine (`ParamExpr{Name, Cast}`, `expression_parse.go:412-427`) and resolves as a no-op passthrough (`expression_resolve.go`'s `default:` case, no validation against a declared param set), but codegen hard-errors on it today — `sql_expr.go:175-176`, `"sql: $param (well-known query parameters) are not yet supported by codegen"`. The real gap isn't the switch case itself, it's that `SQLWriter.Bind` (`writer/pg.go`) binds a *value* into `args` immediately at compile time, and a well-known query's whole premise is compiling once while the param's actual value only exists per-request. So `$param` needs either : (a) compile to a numbered placeholder reserved by name, with a separate step at *request* time that assembles `args` in `$N` order from the request's own `params` object (looking up each reserved name) ; or (b) something else entirely. (a) seems like the natural fit given the existing `Bind`/`Args()` mechanism, but needs a new method alongside `Bind` (e.g. `BindParam(name string)` that reserves a slot without a value) rather than reusing `Bind` as-is. Confirm (a), or describe an alternative ?
->:
->
-> Question: `RW002`/`RW003` (unused param / non-existing param reference) are load-time checks that need something to walk the *fully parsed* expression tree collecting every `ParamExpr.Name` actually referenced, then diff that set against the declared `params` map's keys — nothing today walks a tree purely to collect `ParamExpr` occurrences (resolution passes over it without recording anything). Confirm this collection happens once, at file-load time, before the tree is cached/reused for every subsequent request — not re-walked per request ?
->:
+`default` has three distinct, confirmed states, which needs presence-aware JSON decoding on the Go side (a plain `map[string]any` lookup can't distinguish "key absent" from "key present with value `null`") : no `default` key at all → required (`WELL_KNOWN_PARAM_REQUIRED` if omitted by the caller) ; `default: null` → optional, defaults to SQL `NULL` ; `default: <value>` → optional, defaults to that value.
+
+`["$param", ...]` parses today (`ParamExpr{Name, Cast}`, `expression_parse.go:412-427`) and resolves as a no-op passthrough, but codegen hard-errors on it (`sql_expr.go:175-176`). The actual gap : `SQLWriter.Bind` (`writer/pg.go`) binds a *value* into `args` immediately at compile time, but a well-known query compiles once while a param's value only exists per-request — so `$param` needs a way to reserve a numbered placeholder by name at compile time (e.g. a `BindParam(name string)` method alongside `Bind`), with a separate step at request time that assembles `args` in `$N` order by looking up each reserved name against the request's own `params` object.
+
+`WELL_KNOWN_UNUSED_PARAM`/`WELL_KNOWN_UNKNOWN_PARAM` (unused param / non-existing param reference) need a tree walk collecting every `ParamExpr.Name` actually referenced, diffed against the declared `params` map's keys — done once, at file-load time, against the cached tree ; never re-walked per request.
 
 ## Querying
 
@@ -99,38 +98,26 @@ type WellknownQuery {
 
 `data` should only be supplied for write queries. `POST` and `GET` are available for wellknown just like for `/rel` for easy querying capabilities.
 
-> Question: nothing here says whether `/wellknown` goes through the same auth pipeline `/rel` and `/rpc` share — `jwt.Middleware`'s Verify, then `check_session`/Renew/`SET LOCAL ROLE` (`server/rel.go`'s `applyRole`, `rpc/handler.go`'s equivalent, deliberately unified to run in the same order on both — see the recent session that fixed their ordering divergence). A third endpoint with no stated auth behavior risks silently reinventing or skipping this. Confirm `/wellknown` reuses the exact same steps (and, mechanically, gets mounted through `boot.BuildMux` alongside `/rel`/`/rpc`/`/static` so `websec.Middleware`'s CORS/CSP and `logging.RequestMiddleware`'s request-id logging apply to it automatically, the same way they already apply uniformly to the other three) ?
->:
->
-> Question: response shape isn't stated — same manual `["`,`","`,`"]"` streaming + `RelErrorResponse` JSON error envelope `/rel` uses (`specs/error-handling.md`, `server/response.go`), or something specific to `/wellknown` ? Given the stated goal is "querying convenience... just like `/rel`," reusing `/rel`'s envelope verbatim seems like the default assumption — confirm, or specify what differs.
->:
->
-> Question: `/rel`'s GET path decodes a bare `Relation` from the query string (`querystring.DecodeRelation`) — nothing decodes a `{name, params, data}` shape today, and this one can't just copy `/rel`'s pattern since the shape itself is different (a name plus a nested params object, not a single flat relation). Two candidate URL shapes : (a) `/wellknown/{name}?paramA=1&paramB=2` (name as a path segment, params flat in the query string) ; (b) `/wellknown?name={name}&params.paramA=1` (everything in the query string, `/wellknown` itself stays a single flat endpoint like `/rel` does). (a) reads more naturally as "invoking a named thing," (b) keeps `/wellknown` structurally parallel to `/rel`'s own single-endpoint-plus-query-string design. Which, and what happens to `data` on GET — forbidden outright (matching "data should only be supplied for write queries," and GET requests conventionally carrying no body-shaped intent), or is there a real case for a GET-with-data ?
->:
+`/wellknown` is, in effect, `/rel` with precompiled queries — it reuses the exact same infrastructure : the same auth pipeline (`jwt.Middleware`'s Verify, then `check_session`/Renew/`SET LOCAL ROLE` in the same order `/rel`/`/rpc` already share), mounted through `boot.BuildMux` alongside `/rel`/`/rpc`/`/static` so `websec.Middleware`'s CORS/CSP and `logging.RequestMiddleware`'s request-id logging apply automatically ; the same response shape (`/rel`'s manual streaming JSON array + `RelErrorResponse` error envelope) ; and the same GET query-string convention `/rel` uses. (The exact GET shape for `{name, params, data}` — path segment vs. flat query-string keys — still needs to be worked out mechanically when this is built, but follows `/rel`'s own pattern rather than inventing a new one.)
 
 ## Compilation Errors
 
-> Question: `RWxxx` doesn't fit either of the two error-code families `specs/error-handling.md` actually establishes — `RSxxx` is reserved specifically for a PL/pgSQL author's own `raise ... using errcode`, and every rel-internal code (auth gates, malformed requests, query-compile rejections) is `SCREAMING_SNAKE_CASE` via `errcode.Code`, delivered through the same `X-Rel-Errorcode` header/`code` field every other error uses (`errcode/errcode.go`'s own doc comment is explicit that this is the *whole* rel-internal family — no numbered sub-scheme). A fourth, `RWxxx`-numbered family would be new, unprecedented, and inconsistent with how a client reads every other error this API produces. Proposed replacement names, following the existing `QUERY_*`/`WRITE_*` naming already in `errcode.go` :
->
-> | old | proposed |
-> |---|---|
-> | `RW001` | `WELL_KNOWN_DUPLICATE_NAME` |
-> | `RW002` | `WELL_KNOWN_UNUSED_PARAM` |
-> | `RW003` | `WELL_KNOWN_UNKNOWN_PARAM` |
-> | `RW010` | `WELL_KNOWN_PARAM_TYPE_MISMATCH` |
-> | `RW011` | `WELL_KNOWN_PARAM_REQUIRED` |
->
-> Confirm the rename (exact names negotiable), or say why a separate numbered family is actually wanted here despite the inconsistency ?
->:
-
-- `RW001` : duplicate well-known name
+- `WELL_KNOWN_DUPLICATE_NAME` : duplicate well-known name
   Two well-known queries intended to register the same name
-- `RW002` : unused param
+- `WELL_KNOWN_UNUSED_PARAM` : unused param
   The query declares a parameter it doesn't use
-- `RW003` : non-existing param
+- `WELL_KNOWN_UNKNOWN_PARAM` : non-existing param
   A `[$param]` statement calls a non-existing param
+
+Renamed from the original `RW001`/`RW002`/`RW003` draft numbering to match every other
+rel-internal error code's `SCREAMING_SNAKE_CASE` convention (`errcode.Code`, delivered through
+the same `X-Rel-Errorcode` header/`code` field as everything else) — `RWxxx` didn't fit either
+of `specs/error-handling.md`'s two established families (`RSxxx` for a PL/pgSQL author's own
+`raise ... using errcode`, `SCREAMING_SNAKE_CASE` for rel-internal), so it would have been a
+third, unprecedented scheme.
 
 ## Execution Errors
 
-- `RW010` : a supplied param was of the wrong type
-- `RW011` : the user did not specify a param that did not have a default
+- `WELL_KNOWN_PARAM_TYPE_MISMATCH` : a supplied param was of the wrong type (checked against
+  its declared `type` before the query reaches Postgres — see `## Definition`)
+- `WELL_KNOWN_PARAM_REQUIRED` : the user did not specify a param that did not have a default
