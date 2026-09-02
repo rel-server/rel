@@ -25,6 +25,7 @@ import (
 	"github.com/ceymard/rel/dmut"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/rpc"
+	"github.com/ceymard/rel/wellknown"
 )
 
 // Reloader owns the mutable state a SIGUSR1 reload (specs/migrations.md ##
@@ -104,10 +105,21 @@ func (rl *Reloader) Reload(ctx context.Context) {
 		rl.Logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", rl.Cfg.Pg.Query.AnonymousRole))
 	}
 
-	// Step 5 : the /rpc registry is rebuilt from the new schema.
+	// Step 5 : the /rpc and well-known registries are rebuilt from the new
+	// schema. A well-known reload failure is treated the same as an /rpc
+	// one — log, resume under the old schema — rather than fatal : both
+	// are just as recoverable, and specs/well-known-queries.md's own
+	// intro folds "reload well-known queries" into this exact 7-step
+	// sequence rather than a separate SIGUSR2 trigger.
 	reg, err := rpc.BuildRegistry(newDb, rl.Cfg)
 	if err != nil {
 		rl.Logger.Error("reload: building /rpc route registry failed, resuming under the old schema", "error", err.Error())
+		rl.Wrapper.EndMaintenance()
+		return
+	}
+	wkReg, err := wellknown.BuildRegistry(newDb, rl.Cfg)
+	if err != nil {
+		rl.Logger.Error("reload: building well-known query registry failed, resuming under the old schema", "error", err.Error())
 		rl.Wrapper.EndMaintenance()
 		return
 	}
@@ -116,7 +128,7 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	// path and cmd/rel/main.go's startup path share) and stored into the
 	// wrapper's atomic.Pointer — a single pointer store, never a write to
 	// http.Server.Handler itself.
-	mux, err := BuildMux(newDb, rl.Cfg, reg, rl.Logger)
+	mux, err := BuildMux(newDb, rl.Cfg, reg, wkReg, rl.Logger)
 	if err != nil {
 		rl.Logger.Error("reload: building mux failed, resuming under the old schema", "error", err.Error())
 		rl.Wrapper.EndMaintenance()

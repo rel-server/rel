@@ -66,7 +66,9 @@ interface WellKnownParam {
 }
 ```
 
-`type` is checked against the caller-supplied JSON value up front, in Go, before the query ever reaches Postgres — a wrong-typed param fails at the request boundary (`WELL_KNOWN_PARAM_TYPE_MISMATCH`), not as a Postgres cast error surfacing from inside the compiled SQL. `$param`'s own `cast` is a separate, per-usage-site convenience (equivalent to writing `::sometype` at that one spot rather than relying on `type` alone) — likely redundant now that `type` already governs both validation and the SQL-side cast, but not yet removed from the grammar ; revisit once real usage shows whether a per-usage override is ever actually needed.
+`type` is checked against the caller-supplied JSON value up front, in Go, before the query ever reaches Postgres — a wrong-typed param fails at the request boundary (`WELL_KNOWN_PARAM_TYPE_MISMATCH`), not as a Postgres cast error surfacing from inside the compiled SQL. This check (`wellknown.checkParamType`) is deliberately shallow : a handful of common type-name spellings bucketed into "must be a JSON number/string/boolean", everything else (an unset `type`, `jsonb`/`json`, an exotic type name) passed through uncast-checked — not a Postgres type system, just enough to catch the routine mistake.
+
+`type` currently governs validation ONLY, not the SQL-side cast : `["$param", name, cast?]`'s own `cast` (sql_expr.go's `ParamExpr` codegen) is what the placeholder is actually cast to, defaulting to `::jsonb` when omitted — `type` is never consulted for this. Injecting `type` as the cast automatically when a usage site doesn't specify its own is deferred, not yet built ; until then, a param declared with a `type` but used as bare `["$param", name]` gets `::jsonb`, which still round-trips correctly for most types but means the two ARE currently independent, not one governing the other as an earlier draft of this section assumed.
 
 `default` has three distinct, confirmed states, which needs presence-aware JSON decoding on the Go side (a plain `map[string]any` lookup can't distinguish "key absent" from "key present with value `null`") : no `default` key at all → required (`WELL_KNOWN_PARAM_REQUIRED` if omitted by the caller) ; `default: null` → optional, defaults to SQL `NULL` ; `default: <value>` → optional, defaults to that value.
 
@@ -90,7 +92,9 @@ type WellknownQuery {
 
 `data` should only be supplied for write queries. `POST` and `GET` are available for wellknown just like for `/rel` for easy querying capabilities.
 
-`/wellknown` is, in effect, `/rel` with precompiled queries — it reuses the exact same infrastructure : the same auth pipeline (`jwt.Middleware`'s Verify, then `check_session`/Renew/`SET LOCAL ROLE` in the same order `/rel`/`/rpc` already share), mounted through `boot.BuildMux` alongside `/rel`/`/rpc`/`/static` so `websec.Middleware`'s CORS/CSP and `logging.RequestMiddleware`'s request-id logging apply automatically ; the same response shape (`/rel`'s manual streaming JSON array + `RelErrorResponse` error envelope) ; and the same GET query-string convention `/rel` uses. (The exact GET shape for `{name, params, data}` — path segment vs. flat query-string keys — still needs to be worked out mechanically when this is built, but follows `/rel`'s own pattern rather than inventing a new one.)
+`/wellknown` is, in effect, `/rel` with precompiled queries — it reuses the exact same infrastructure : the same auth pipeline (`jwt.Middleware`'s Verify, then `check_session`/Renew/`SET LOCAL ROLE` in the same order `/rel`/`/rpc` already share), mounted through `boot.BuildMux` alongside `/rel`/`/rpc`/`/static` so `websec.Middleware`'s CORS/CSP and `logging.RequestMiddleware`'s request-id logging apply automatically ; the same response shape (`/rel`'s manual streaming JSON array + `RelErrorResponse` error envelope).
+
+GET's own shape is flat query-string keys, no path segment : `?name=<name>&params.<key>=<value>&...`, dot-path nested exactly like `/rpc`'s own free-form `query` field (`querystring.DecodeQueryField`). A `params` leaf value is re-parsed as JSON when possible — `params.limit=5` yields the number `5`, `params.active=true` yields the boolean `true` — falling back to the literal string when it isn't valid JSON (`params.name=bob` stays the string `"bob"`). This means a text-typed param whose value happens to look like a number or boolean needs an explicit, URL-encoded JSON string to force string interpretation : `params.code=%2212345%22` (`"12345"`, quotes included) rather than `params.code=12345` (which coerces to the number `12345` and fails a text-typed param's type check). GET is read-only, matching `/rel` GET's own restriction : a GET request supplying `data` is rejected outright, never silently treated as a write.
 
 ## Compilation Errors
 
@@ -110,6 +114,10 @@ third, unprecedented scheme.
 
 ## Execution Errors
 
+- `WELL_KNOWN_UNKNOWN_QUERY` : a request named a query that isn't registered — either it was
+  never defined, or it was deactivated (an invalid definition, or a name collision — see
+  `## Behaviour`). Rejected identically either way ; there is no separate "deactivated" state
+  visible to a caller.
 - `WELL_KNOWN_PARAM_TYPE_MISMATCH` : a supplied param was of the wrong type (checked against
   its declared `type` before the query reaches Postgres — see `## Definition`)
 - `WELL_KNOWN_PARAM_REQUIRED` : the user did not specify a param that did not have a default

@@ -22,6 +22,7 @@ import (
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/rpc"
+	"github.com/ceymard/rel/wellknown"
 )
 
 func main() {
@@ -83,12 +84,18 @@ func main() {
 		logger.Error("building /rpc route registry", "error", err.Error())
 		os.Exit(1)
 	}
+	wellKnownRegistry, err := wellknown.BuildRegistry(db, cfg)
+	if err != nil {
+		logger.Error("building well-known query registry", "error", err.Error())
+		os.Exit(1)
+	}
 
 	// boot.BuildMux is the one shared assembler of the full inner handler
-	// (/rel, /rpc/, /static/, uniformly wrapped in CORS/CSP middleware) —
-	// boot/reload.go's Reload calls the exact same function on every
-	// SIGUSR1, so the two call sites can't drift on what the mux contains.
-	mux, err := boot.BuildMux(db, cfg, rpcRegistry, logger.With("module", "boot"))
+	// (/rel, /rpc/, /wellknown, /static/, uniformly wrapped in CORS/CSP
+	// middleware) — boot/reload.go's Reload calls the exact same function
+	// on every SIGUSR1, so the two call sites can't drift on what the mux
+	// contains.
+	mux, err := boot.BuildMux(db, cfg, rpcRegistry, wellKnownRegistry, logger.With("module", "boot"))
 	if err != nil {
 		logger.Error("building mux", "error", err.Error())
 		os.Exit(1)

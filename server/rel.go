@@ -126,7 +126,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	rctx := &query.ResolveContext{Db: db, Config: cfg}
 	for i, item := range items {
 		if item.WellKnown != nil {
-			writeError(w, badRequest(errcode.WellKnownQueryUnsupported, fmt.Errorf("item %d: well-known queries are not yet supported", i)), cfg.Dev)
+			writeError(w, badRequest(errcode.WellKnownQueryUnsupported, fmt.Errorf("item %d: well-known queries are not invoked through /rel — use /wellknown instead", i)), cfg.Dev)
 			return
 		}
 
@@ -289,7 +289,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		// clean envelope to fall back to (see response.go's writeError doc
 		// comment for that inherent limitation).
 		cleanErrorPossible := !multi && i == 0
-		if err := streamItem(ctx, w, conn, item.root, statements[i], cleanErrorPossible); err != nil {
+		if err := streamItem(ctx, w, conn, item.root, statements[i], statements[i].Args(), cleanErrorPossible); err != nil {
 			// A read failing now rolls back the whole transaction, write
 			// phase included — specs/query-engine.md ## Transactions : a
 			// read calling into a function that "goes awry" must not leave
@@ -339,12 +339,15 @@ type cleanStreamError struct{ err error }
 func (e *cleanStreamError) Error() string { return e.err.Error() }
 func (e *cleanStreamError) Unwrap() error { return e.err }
 
-// streamItem runs one item's already-compiled statement and streams its
-// result : a bare scalar for a scalar (non-setof) function root (##
-// Response Shape : "the scalar of the result of a scalar function"), a
-// manually-streamed JSON array otherwise. cleanErrorPossible is true only
-// for a single-item request's first (only) item, before anything has been
-// written yet.
+// streamItem runs one item's already-compiled statement (sw, executed with
+// args — the caller's own responsibility to resolve : plain sw.Args() for
+// an ordinary /rel item, sw.ResolveArgs(paramValues) for a well-known
+// query's statement, which may carry named $param slots sw.Args() would
+// panic on) and streams its result : a bare scalar for a scalar (non-setof)
+// function root (## Response Shape : "the scalar of the result of a scalar
+// function"), a manually-streamed JSON array otherwise. cleanErrorPossible
+// is true only for a single-item request's first (only) item, before
+// anything has been written yet.
 //
 // pgx's Query itself rarely errors : execution failures (a permission
 // error, say) are deferred to the first rows.Next()/rows.Err() call
@@ -353,8 +356,8 @@ func (e *cleanStreamError) Unwrap() error { return e.err }
 // checking Query's own return error. Any failure surfacing after that peek
 // (a later row, a write) can't safely produce a clean envelope any more —
 // the response may already be partway through streaming.
-func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, root *query.QueryNode, sw *writer.SQLWriter, cleanErrorPossible bool) error {
-	rows, err := conn.Query(ctx, sw.String(), sw.Args()...)
+func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, root *query.QueryNode, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
+	rows, err := conn.Query(ctx, sw.String(), args...)
 	if err != nil {
 		if cleanErrorPossible {
 			return &cleanStreamError{err}
