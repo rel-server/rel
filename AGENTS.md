@@ -12,11 +12,12 @@
 
 - Maintain `./docs` <-> code relevance
 
-# When writing specs or code
+# When authoring
 
-In specs and docs, create links between files.
+In specs and docs, create links between files with [[wiki]] syntax.
 
 The redactor(s) write specs with you as a mirror, to help shape them as best as possible for a prompt implementation by a low/medium thinking agent.
+
 
 Spec language MUST be specification-only : no musing, rationale, or back-and-forth outside a blockquote. Everything outside a blockquote is a binding rule. A blockquote is optional context — skip it when implementing, and consult it only when a rule seems ambiguous or you want to check a judgment call. No remnant of our conversation may remain outside a blockquote ; code blocks are the one exception, where explanatory inline comments stay regardless.
 
