@@ -889,6 +889,80 @@ func TestCompileSelect_TableValuedFunctionRoot(t *testing.T) {
 	}
 }
 
+// TestCompileSelect_SingleRowCompositeFunctionRoot pins the fix for a bug
+// where CompileSelect's bare-scalar shortcut (gated on Function.ReturnsSet
+// alone) also caught a single-row COMPOSITE-returning function — fn_
+// one_director returns ONE director row, not a set, but it's still a real,
+// indexed relation type (Relation != nil, exactly like fn_directors
+// above), unlike a genuinely scalar function (fn_plain_add, Relation ==
+// nil). Before the fix, this compiled to a bare "select
+// fn_one_director($1)" with no row_to_json wrapping at all — Postgres's
+// raw composite-literal text, not valid JSON, breaking response streaming
+// even with no select/join declared.
+func TestCompileSelect_SingleRowCompositeFunctionRoot(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Single Row Fn Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `select id from director where name = 'Single Row Fn Director'`).Scan(&directorID); err != nil {
+		t.Fatalf("select id: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{"function": "fn_one_director", "schema": "public", "arguments": [%d]}`, directorID))
+	sql, args := mustCompileSelect(t, node)
+	if strings.Contains(sql, "row_to_json") == false {
+		t.Fatalf("expected row_to_json wrapping (this is a composite return, not a bare scalar), got: %s", sql)
+	}
+	rows := runSelect(t, sql, args)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	if rows[0]["name"] != "Single Row Fn Director" {
+		t.Errorf("expected name=Single Row Fn Director, got %#v", rows[0])
+	}
+}
+
+// TestCompileSelect_SingleRowCompositeFunctionRoot_Join pins the join half
+// of the same bug : a single-row composite function root's own `join`
+// entries were silently dropped by the same bare-scalar shortcut, never
+// reaching compileNode at all — this asserts the embedded child's rows
+// actually come back, not just that the query happens to still succeed.
+func TestCompileSelect_SingleRowCompositeFunctionRoot_Join(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Single Row Fn Join Director')`); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	var directorID int
+	if err := testDb.Pool.QueryRow(ctx, `select id from director where name = 'Single Row Fn Join Director'`).Scan(&directorID); err != nil {
+		t.Fatalf("select id: %v", err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into movie (title, director_id) values ('Single Row Fn Join Movie', $1)`, directorID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"function": "fn_one_director", "schema": "public", "arguments": [%d],
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
+	}`, directorID))
+	sql, args := mustCompileSelect(t, node)
+	if !strings.Contains(sql, `"public"."movie"`) {
+		t.Fatalf("expected compiled SQL to reference the joined movie table, got: %s", sql)
+	}
+	rows := runSelect(t, sql, args)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	movies, ok := rows[0]["movies"].([]any)
+	if !ok || len(movies) != 1 {
+		t.Fatalf("expected 1 embedded movie, got %#v", rows[0]["movies"])
+	}
+	movieObj, ok := movies[0].(map[string]any)
+	if !ok || movieObj["title"] != "Single Row Fn Join Movie" {
+		t.Errorf("expected embedded movie titled 'Single Row Fn Join Movie', got %#v", movies[0])
+	}
+}
+
 // TestCompileSelect_RecordRelationFunctionRoot exercises pg.Function.
 // RecordRelation : movie_counts_by_director() is RETURNS TABLE(...), an
 // anonymous record with no backing composite type (unlike fn_directors'

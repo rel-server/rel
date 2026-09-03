@@ -119,6 +119,17 @@ create function fn_ambig(a text) returns text language sql as $$ select a $$;
 -- GetRelationByType and be joinable into, exactly like the table itself
 create function fn_directors() returns setof director language sql as $$ select * from director $$;
 
+-- single-row (non-SETOF) composite-return function : returns ONE director
+-- row, not a set, but a real, indexed relation type just like fn_directors
+-- above — Relation resolves via GetRelationByType exactly the same way,
+-- ReturnsSet is just false instead of true. Exercises the distinction
+-- between "genuinely scalar, no Relation at all" (fn_plain_add) and "a
+-- real composite row, just not a set" : both have ReturnsSet == false, but
+-- only the former should skip compileNode's ordinary select/join/where
+-- handling — this one should be joinable and select-able exactly like
+-- fn_directors, just naturally producing one row instead of many.
+create function fn_one_director(p_id int) returns director language sql as $$ select * from director where id = p_id $$;
+
 -- row-type-taking computed column (specs/query-engine.md's own "## Scoping"
 -- example : "a function taking the relation's row type as its argument,
 -- callable via alias.func_name or func_name(alias)") — exercises a bare

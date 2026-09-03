@@ -66,10 +66,24 @@ func (c *sqlCompiler) qualify(alias, name string) {
 // one row per root row, each with a single "json" column produced by
 // row_to_json — exactly parallel to how a to-one embed is wrapped (see
 // compileEmbedField), so the root needs no special-casing there. A
-// scalar (non-set-returning) function root is the one real exception,
-// per Reading Algorithm step 6 : its result contributes directly, with no
-// row_to_json wrapping at all (specs/query-engine.md ## Response Shape : "the
-// scalar of the result of a scalar function").
+// genuinely scalar (no Relation at all — a bare, non-composite return
+// type) function root is the one real exception, per Reading Algorithm
+// step 6 : its result contributes directly, with no row_to_json wrapping
+// at all (specs/query-engine.md ## Response Shape : "the scalar of the
+// result of a scalar function"). A function root that returns a single
+// composite ROW (not SETOF, but still a real, indexed relation type —
+// Relation != nil) is NOT this case : it goes through the ordinary
+// compileNode path below like any other node, since compileFrom already
+// handles a function call as a FROM-clause source generically (Postgres
+// allows a function call anywhere a table can go, regardless of whether
+// it's set-returning) — the exact same machinery a SETOF function root
+// already uses, just naturally producing one row instead of many. Gating
+// on Function.ReturnsSet alone (without also checking Relation == nil)
+// used to route both cases through the bare-scalar shortcut, silently
+// dropping any join/select/where a single-row composite function root
+// declared, and skipping row_to_json entirely — which produced Postgres's
+// raw composite-literal text ("(1,name,...)"), not valid JSON, breaking
+// the manual response streaming even with no join at all.
 //
 // The caller owns executing the statement and manually streaming the
 // response's "["/","/"]" per ## Response Shape — this function's contract
@@ -77,7 +91,7 @@ func (c *sqlCompiler) qualify(alias, name string) {
 func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 	c := newSQLCompiler()
 
-	if root.IsFunction() && !root.Function.ReturnsSet {
+	if root.IsFunction() && !root.Function.ReturnsSet && root.Relation == nil {
 		c.w.Write("select ")
 		if err := c.compileFunctionCall(root.Function, root.FunctionArguments, root.FunctionArgumentMap, root.Parent); err != nil {
 			return nil, err
@@ -545,9 +559,15 @@ func (c *sqlCompiler) compileEmbedField(child *QueryNode, parent *QueryNode, par
 		return nil
 	}
 
-	if child.IsFunction() && !child.Function.ReturnsSet {
-		// A scalar function embed contributes its result directly (Reading
-		// Algorithm step 6), no row_to_json/json_agg wrapping.
+	if child.IsFunction() && !child.Function.ReturnsSet && child.Relation == nil {
+		// A genuinely scalar function embed (no Relation — a bare,
+		// non-composite return type) contributes its result directly
+		// (Reading Algorithm step 6), no row_to_json/json_agg wrapping. A
+		// single-row composite function embed (Relation != nil) is NOT
+		// this case — see CompileSelect's own doc comment for the full
+		// reasoning ; it falls through below to the ordinary to-one/
+		// to-many wrapping path instead, same as it would if declared as
+		// a plain relation join.
 		var err error
 		c.w.Paren(func() {
 			c.w.Write("select ")
