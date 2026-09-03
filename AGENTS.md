@@ -5,7 +5,7 @@
 - DRY : keep the code simple, avoid repetitions and factorize code whenever possible.
 - Implementations MUST always be the most efficient CPU/RAM wise. If a compromise is to be made, prompt the user
 - Always prompt the user whenever you deem an important architectural decision is to be made (adding/removing a library, implementation details/philosophy, performance concerns)
-- Explain the code through comments when implementing
+- Explain the code by adding comments, following [[AGENTS#Comment style]]'s directions
 - If there is a TODO.md file somewhere, keep it updated with what's been done
 - When replying or writing specs / docs / comments, use plain english over lingo and buzzwords ; stay clear and legible by non-senior developers.
 - When alerting me on problems or inconsistencies, use examples if the explanation is complex
@@ -13,6 +13,7 @@
 - Maintain `./docs` <-> code relevance
 
 # When authoring
+
 
 In specs and docs, create links between files with [[wiki]] syntax.
 
@@ -34,6 +35,45 @@ The redactor may also leave a question inline, outside any blockquote (e.g. a pa
 # When writing code
 
 Similarly to spec work ; leave questions/dialogue with a marker, like //> Question: so that I can find items to go back to more easily by grepping.
+
+## Comment style
+
+Two separate rules. Which applies depends on whether the reader can see
+the implementation.
+
+### Doc comments on golang exported identifiers (and the package doc)
+
+The reader is in godoc or an editor hover, not the source. The comment is
+the whole contract. No length cap — as long as the contract needs.
+
+- Start with the identifier's name; first sentence is a complete summary
+  that stands alone (it's what package listings and search show).
+- State what callers must know and can't infer from the signature:
+  preconditions, which error conditions are distinguishable, concurrency
+  safety, who owns/closes returned resources, whether an argument is
+  retained or aliased, nil handling, whether the zero value is usable,
+  whether it blocks or does I/O.
+- State the contract directly. Do NOT substitute a spec citation for it —
+  an external consumer can't follow a repo-relative link. Cite the spec in
+  addition, never instead.
+- Keep implementation rationale OUT. Why this approach beat another, what
+  the internals do — inline, not here.
+- Methods satisfying an interface may defer: "// Read implements io.Reader."
+
+### Inline comments, and unexported identifiers
+
+The reader can see the code. Comment only non-obvious decisions,
+invariants, and ordering constraints. Two lines each. State the
+constraint and its reason; stop.
+
+- Don't explain standard library or language semantics.
+- Don't restate what a referenced spec section, doc comment, or nearby
+  log message already says — cite it instead.
+- Don't enumerate the consequences of violating the constraint.
+- Don't argue against alternatives unless one was tried and broke.
+- No parentheticals inside parentheticals.
+- Unexported identifiers get a doc comment only where the name doesn't
+  carry it. If a fact belongs in specs/, put it in specs/ and cite it.
 
 # Golang code
 
