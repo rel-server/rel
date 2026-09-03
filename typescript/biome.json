@@ -1,0 +1,36 @@
+{
+  "files": {
+    "includes": ["**"]
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  },
+  "json": {
+    "formatter": {
+      "indentStyle": "space",
+      "lineWidth": 120
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "indentStyle": "space",
+      "lineWidth": 100,
+      "semicolons": "asNeeded"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "correctness": {
+        "noVoidElementsWithChildren": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "error"
+      }
+    }
+  }
+}
