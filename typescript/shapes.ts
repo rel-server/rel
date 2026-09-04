@@ -92,6 +92,11 @@ type ResolveFunctionModel<F extends keyof Functions> = Functions[F] extends {
     : DefaultRow
 
 // A join entry's own nested `join`, so joins-of-joins keep resolving recursively like the root query does.
+// `keyof {} = never` is exactly what the "no join" case needs, since JoinShapes maps over this via `keyof` —
+// Record<keyof any, never>/{[name: string]: unknown} (biome's own suggested replacements) both have `keyof` =
+// string|number(|symbol) instead, which would map to a bogus index signature on FullShape for every query that
+// joins nothing at all.
+// biome-ignore lint/complexity/noBannedTypes: see above — `{}` is deliberate here, not a placeholder
 type ExtractJoinMap<Q> = Q extends { join: infer J extends { [name: string]: unknown } } ? J : {}
 
 // Cardinality comes from the Relationships variant matching `shortcut`'s own literal value (found by scanning

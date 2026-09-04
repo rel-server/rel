@@ -113,7 +113,7 @@ export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
   const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
->(key: K, shortcut: S, request: Q): Q & { shortcut: S } {
+>(_key: K, shortcut: S, request: Q): Q & { shortcut: S } {
   const { schema, relation, on } = parseShortcut(shortcut)
   return { ...request, schema, relation, on, shortcut } as Q & { shortcut: S }
 }
@@ -182,8 +182,10 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void> {
     return obj
   }
 
-  private doQuery(params: Params) {
-    return null
+  // Substitutes every `$param` node in `this.query` with its value from `params`, via doParams above ; a query
+  // with no `$param` usage at all (Params = void) has nothing to substitute, so `params` is optional there.
+  private doQuery(params: Params): Query {
+    return this.doParams(this.query, (params ?? {}) as { [name: string]: unknown }) as Query
   }
 
   // Explicit Promise<Shape> return type : _send() only returns Promise<any> (res.json() can't know what it
