@@ -150,8 +150,11 @@ Postgres, and serves POST /rel and /route/{schema}/{function} until an
 interrupt/terminate signal requests a graceful shutdown.
 
 Flags:
-  -c, --config <path>   Load exactly this config file (same as REL_CONFIG).
-  -h, --help            Show this help and exit.
+  -c, --config <path>          Load exactly this config file (same as REL_CONFIG).
+  -h, --help                   Show this help and exit.
+  --typescript-out <path>      Introspect, write database.ts to <path> (or "-" for stdout), and exit —
+                                no dmut, no /route or well-known registries, no HTTP listener. Honors
+                                pg.*/http.typescript.schemas/blacklist.* from the loaded configuration.
 
 Any config key documented below can ALSO be set as a command-line flag :
   --<key>=<value>   or   --<key> <value>

@@ -16,12 +16,15 @@ import (
 	"syscall"
 	"time"
 
+	"strings"
+
 	"github.com/ceymard/rel/boot"
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dmut"
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/route"
+	"github.com/ceymard/rel/tsgen"
 	"github.com/ceymard/rel/wellknown"
 )
 
@@ -43,6 +46,19 @@ func main() {
 		// same as config.Load's own error paths above.
 		slog.Default().Error("building logger", "error", err.Error())
 		os.Exit(1)
+	}
+
+	// --typescript-out is a one-shot action, not the server : introspects
+	// and writes database.ts, then exits — no dmut, no route/well-known
+	// registries, no mux, no listener. See runTypeScriptExport's own doc
+	// comment for why dmut is skipped here even though the server always
+	// runs it before introspecting.
+	if out, ok := typescriptOutFlag(os.Args[1:]); ok {
+		if err := runTypeScriptExport(cfg, out); err != nil {
+			logger.Error("typescript export failed", "error", err.Error())
+			os.Exit(1)
+		}
+		return
 	}
 
 	// Introspection/dmut use cfg.Pg's own primary login ; the serving pool
@@ -156,6 +172,59 @@ func main() {
 	// may have reintrospected into a fresh *pg.DbInfos.
 	reloader.CurrentDbInfos().Pool.Close()
 	logger.Info("stopped")
+}
+
+// typescriptOutFlag scans for --typescript-out=<path>/--typescript-out
+// <path>, same "=value or separate arg" shape config.parseFlags' own dotted
+// flags accept — but handled here, directly, rather than as a dotted config
+// key : it names a one-shot CLI action (where to write database.ts and
+// exit), not a piece of the server's own runtime configuration, so it has
+// no business living in config.Config or --help's Options table alongside
+// pg.*/http.*/etc. path == "-" means stdout.
+func typescriptOutFlag(args []string) (path string, ok bool) {
+	for i, a := range args {
+		if strings.HasPrefix(a, "--typescript-out=") {
+			return a[len("--typescript-out="):], true
+		}
+		if a == "--typescript-out" {
+			if i+1 < len(args) {
+				return args[i+1], true
+			}
+			return "", true
+		}
+	}
+	return "", false
+}
+
+// runTypeScriptExport is --typescript-out's entire body : introspect,
+// generate, write, done — none of the server's own machinery (dmut, /route
+// or well-known registries, mux, HTTP listener) is ever built. dmut is
+// deliberately skipped here, unlike the server's own startup sequence
+// (specs/migrations.md ## Execution) : running migrations as a side effect
+// of "print me the current types" would be a surprising thing for a
+// read-only inspection command to do.
+func runTypeScriptExport(cfg *config.Config, out string) error {
+	primaryURI, _, err := resolveConnectionURIs(cfg.Pg)
+	if err != nil {
+		return fmt.Errorf("resolving postgres connection: %w", err)
+	}
+
+	db, err := pg.NewInfos(primaryURI)
+	if err != nil {
+		return fmt.Errorf("connecting to postgres: %w", err)
+	}
+	defer db.Pool.Close()
+
+	generated := tsgen.GenerateDatabaseTS(db, tsgen.Options{
+		Schemas:   tsgen.ParseSchemaList(cfg.Http.TypeScript.Schemas),
+		Blacklist: cfg.Blacklist,
+	})
+
+	if out == "-" {
+		_, err := os.Stdout.WriteString(generated)
+		return err
+	}
+	return os.WriteFile(out, []byte(generated), 0o644)
 }
 
 // wantsHelp scans for a bare "--help"/"-h" token, checked before
