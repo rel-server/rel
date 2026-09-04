@@ -56,12 +56,23 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 		`"hotel.properties": Table__Hotel__Properties`,
 		"export interface Relationships {",
 		"export interface Functions {",
-		`"hotel.property_average_rating": {`,
+		`"hotel.property_average_rating":`,
 		`"hotel.rooms_available": {`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("generated schema missing %q ; full output:\n%s", want, out)
 		}
+	}
+
+	// hotel.property_average_rating is overloaded (testdata/schema.sql) :
+	// its Functions entry must be a union of both signatures, not a
+	// duplicate object key (TS2300).
+	overloadIdx := strings.Index(out, `"hotel.property_average_rating":`)
+	if overloadIdx < 0 {
+		t.Fatalf("hotel.property_average_rating entry not found")
+	}
+	if !strings.Contains(out[overloadIdx:overloadIdx+400], "| {") {
+		t.Errorf("expected hotel.property_average_rating's Functions entry to be a union of its two overloads ; got:\n%s", out[overloadIdx:overloadIdx+400])
 	}
 
 	// hotel.staff -> hotel.properties is deliberately left unindexed

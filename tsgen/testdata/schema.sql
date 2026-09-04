@@ -44,6 +44,11 @@ create view hotel.clean_rooms as
 create function hotel.property_average_rating(property hotel.properties) returns numeric
 	language sql as $$ select 4.5 $$;
 
+-- overload : same name, different signature (regression for Functions'
+-- own key uniqueness in the generated TypeScript).
+create function hotel.property_average_rating(property_id int) returns numeric
+	language sql as $$ select 4.5 $$;
+
 create function hotel.rooms_available(property_id int, on_date date default null)
 	returns setof hotel.properties
 	language sql as $$ select * from hotel.properties where id = property_id $$;

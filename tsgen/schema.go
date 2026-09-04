@@ -252,16 +252,47 @@ func renderFunctions(db *pg.DbInfos, opts Options, tc *typeCollector) string {
 		return fns[i].Identifier.Name < fns[j].Identifier.Name
 	})
 
-	var b strings.Builder
-	b.WriteString("export interface Functions {\n")
+	// Postgres allows several functions to share one name, distinguished
+	// only by argument list (overloading) — grouped by key here so each
+	// gets its own union variant instead of colliding on one object-literal
+	// key (TS2300 "Duplicate identifier").
+	byKey := map[string][]*pg.Function{}
+	var order []string
 	for _, f := range fns {
 		key := relationKey(f.Identifier.Schema, f.Identifier.Name)
-		fmt.Fprintf(&b, "  %s: {\n", strconv.Quote(key))
-		renderFunctionArgs(&b, f, tc)
-		renderFunctionReturns(&b, f, allowed, tc)
-		b.WriteString("  }\n")
+		if _, seen := byKey[key]; !seen {
+			order = append(order, key)
+		}
+		byKey[key] = append(byKey[key], f)
+	}
+
+	var b strings.Builder
+	b.WriteString("export interface Functions {\n")
+	for _, key := range order {
+		overloads := byKey[key]
+		fmt.Fprintf(&b, "  %s:", strconv.Quote(key))
+		if len(overloads) == 1 {
+			b.WriteString(" " + functionShapeLiteral(overloads[0], allowed, tc) + "\n")
+			continue
+		}
+		b.WriteString("\n")
+		for _, f := range overloads {
+			fmt.Fprintf(&b, "    | %s\n", functionShapeLiteral(f, allowed, tc))
+		}
 	}
 	b.WriteString("}\n\n")
+	return b.String()
+}
+
+// functionShapeLiteral renders one function's { positional_args; args;
+// relation?; returns } object literal — shared by the single-overload and
+// unioned-overloads cases in renderFunctions above.
+func functionShapeLiteral(f *pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) string {
+	var b strings.Builder
+	b.WriteString("{\n")
+	renderFunctionArgs(&b, f, tc)
+	renderFunctionReturns(&b, f, allowed, tc)
+	b.WriteString("  }")
 	return b.String()
 }
 

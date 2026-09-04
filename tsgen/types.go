@@ -18,13 +18,21 @@ import (
 // explicit calls made when this generator was implemented, not spec-derived
 // defaults (see the redactor's own answers in the implementation session).
 var baseScalarTypes = map[string]string{
-	"text":        "string",
-	"varchar":     "string",
-	"bpchar":      "string",
-	"char":        "string",
-	"name":        "string",
-	"citext":      "string",
-	"uuid":        "string",
+	"text":    "string",
+	"varchar": "string",
+	"bpchar":  "string",
+	"char":    "string",
+	"name":    "string",
+	"citext":  "string",
+	"uuid":    "string",
+	// bytea's row_to_json wire format is NOT raw bytes or base64 : Postgres
+	// renders it via its own bytea_output setting (default "hex"), giving a
+	// JSON string shaped like "\\x0123abcd" (backslash-x, then hex digits) —
+	// a real `string` on the wire, but one the caller must still decode
+	// (strip the "\x" prefix, Buffer.from(hex, "hex")/equivalent) before
+	// it's usable as binary content. No separate Type__ marks this ; nothing
+	// in the introspected schema JSON distinguishes "true text" from
+	// "bytea-shaped string" once it's collapsed to `string` here.
 	"bytea":       "string",
 	"bool":        "boolean",
 	"int2":        "number",
