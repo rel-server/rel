@@ -231,55 +231,168 @@ func resolveFileIndirection(k *koanf.Koanf) error {
 
 // resolveFileValue implements the three $FILE$ forms (plain/$DEFAULT$/$GEN$) ;
 // the marker is found via its LAST occurrence, since a path can itself contain it as a substring.
+// The path portion of any of the three forms may itself be
+// SplitPathList's colon-separated search list — see resolveGenValue's own
+// doc comment for why $GEN$ needs a stricter per-candidate rule than the
+// two read-only forms below.
 func resolveFileValue(raw string) (string, error) {
 	rest := strings.TrimPrefix(raw, "$FILE$")
 
 	if idx := strings.LastIndex(rest, "$DEFAULT$"); idx >= 0 {
-		filePath, fallback := rest[:idx], rest[idx+len("$DEFAULT$"):]
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return fallback, nil
+		pathList, fallback := rest[:idx], rest[idx+len("$DEFAULT$"):]
+		if data, _, err := readFirstExisting(SplitPathList(pathList)); err == nil {
+			return trimOneNewline(data), nil
 		}
-		return trimOneNewline(data), nil
+		return fallback, nil
 	}
 
 	// A split that doesn't parse as a valid length falls through to the
 	// plain-path case instead of erroring — handles a literal "$GEN$" in a path segment.
 	if idx := strings.LastIndex(rest, "$GEN$"); idx >= 0 {
-		filePath, lenStr := rest[:idx], rest[idx+len("$GEN$"):]
+		pathList, lenStr := rest[:idx], rest[idx+len("$GEN$"):]
 		if n, cerr := parseGenLength(lenStr); cerr == nil {
-			return resolveGenValue(filePath, n)
+			return resolveGenValue(pathList, n)
 		}
 	}
 
-	data, err := os.ReadFile(rest)
+	paths := SplitPathList(rest)
+	data, _, err := readFirstExisting(paths)
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", rest, err)
 	}
 	return trimOneNewline(data), nil
 }
 
+// readFirstExisting returns the first candidate (in order) that reads
+// successfully — any read error, including "doesn't exist", just moves on
+// to the next candidate, matching http.static.path/pg.query.wellknown_path's
+// own "first match wins, a missing entry is silently skipped" convention.
+// Used by the plain and $DEFAULT$ forms only ; $GEN$ needs the stricter,
+// error-distinguishing walk in resolveGenValue instead, since a write is
+// involved.
+func readFirstExisting(paths []string) (data []byte, path string, err error) {
+	var errs []error
+	for _, p := range paths {
+		d, e := os.ReadFile(p)
+		if e == nil {
+			return d, p, nil
+		}
+		errs = append(errs, e)
+	}
+	return nil, "", errors.Join(errs...)
+}
+
 // resolveGenValue is $GEN$'s own branch, split out so resolveFileValue's
 // "isn't shaped like $GEN$" fallthrough stays a plain early return.
-func resolveGenValue(filePath string, n int) (string, error) {
-	data, err := os.ReadFile(filePath)
-	if err == nil {
+// pathList is SplitPathList's colon-separated search list — e.g. jwt.secret's
+// own default, "/secrets/jwt/jwt-secret:./jwt-secret", tries the deployment's
+// intended mount point first and falls back to a plain cwd-relative file for
+// an unconfigured dev run, per specs/configuration.md ## $GEN$ multi-path
+// resolution.
+//
+// Three passes, each over the FULL candidate list before falling through to
+// the next pass — never per-candidate interleaved, so an earlier candidate
+// always wins over a later one regardless of which pass satisfies it :
+//
+//  1. Any candidate that already holds a value (i.e. its file exists and
+//     reads successfully) wins immediately — the first such candidate, in
+//     list order. A length mismatch against an existing candidate's value is
+//     immediately fatal (never skipped to the next candidate) : it almost
+//     certainly means two keys share this $GEN$ reference with different
+//     declared lengths, the exact mistake the single-path version of this
+//     check has always caught.
+//  2. Nothing has a value yet ; try to CREATE one, at the first candidate
+//     whose parent directory exists. A candidate whose parent directory is
+//     simply missing is skipped, not fatal (it means that path's deployment
+//     mechanism — a volume mount, typically — was never wired up). A
+//     candidate whose parent directory DOES exist but still refuses the
+//     write (permissions, read-only filesystem, ...) is immediately fatal,
+//     not skipped : the operator went to the trouble of creating that
+//     directory, so a write failure there is a real misconfiguration to
+//     surface loudly, not a signal to go looking for value in some other,
+//     unintended location.
+//  3. Every candidate's parent directory is missing : nothing was ever
+//     configured to receive this secret. Rather than fail to boot outright,
+//     generate an EPHEMERAL, unpersisted value for this run only — purely a
+//     convenience for a developer spinning up rel with no volumes wired at
+//     all — and print it, loudly flagged, since it is otherwise invisible
+//     and regenerates (invalidating every session/token issued against it)
+//     on every single restart. specs/configuration.md ## Error handling and
+//     secrets' "never log the resolved value" rule deliberately does not
+//     cover this : that rule is scoped to logged ERRORS, and this isn't one.
+func resolveGenValue(pathList string, n int) (string, error) {
+	paths := SplitPathList(pathList)
+	if len(paths) == 0 {
+		return "", fmt.Errorf("$GEN$: no path given")
+	}
+
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("$GEN$: reading %s: %w", p, err)
+		}
 		existing := trimOneNewline(data)
-		// Two keys sharing a $GEN$ path but declaring different lengths is
-		// almost certainly a config mistake, not intentional reuse.
 		if len(existing) != n {
-			return "", fmt.Errorf("$GEN$: %s already holds a %d-character value, but this key requested %d", filePath, len(existing), n)
+			return "", fmt.Errorf("$GEN$: %s already holds a %d-character value, but this key requested %d", p, len(existing), n)
 		}
 		return existing, nil
 	}
+
 	generated, gerr := generateRandom(n)
 	if gerr != nil {
 		return "", gerr
 	}
-	if werr := os.WriteFile(filePath, []byte(generated), 0o600); werr != nil {
-		return "", fmt.Errorf("writing generated value to %s: %w", filePath, werr)
+
+	for _, p := range paths {
+		dir := filepath.Dir(p)
+		if _, err := os.Stat(dir); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("$GEN$: checking %s: %w", dir, err)
+		}
+		if werr := os.WriteFile(p, []byte(generated), 0o600); werr != nil {
+			return "", fmt.Errorf("$GEN$: writing generated value to %s: %w", p, werr)
+		}
+		return generated, nil
 	}
+
+	logEphemeralGenValue(pathList, generated)
 	return generated, nil
+}
+
+// logEphemeralGenValue is resolveGenValue's pass 3 : deliberately printed at
+// Warn, in full, stark enough not to scroll past unnoticed — see
+// resolveGenValue's own doc comment for why this doesn't fall under ##
+// Error handling and secrets' never-log-the-value rule.
+func logEphemeralGenValue(pathList, generated string) {
+	l := slog.Default()
+	l.Warn("################################################################")
+	l.Warn("$GEN$: none of the configured directories exist — this is a NEW, EPHEMERAL, UNPERSISTED value for THIS RUN ONLY")
+	l.Warn("$GEN$: tried, in order: " + pathList)
+	l.Warn("$GEN$: it will NOT survive a restart, and every session/token issued against it is invalidated the moment it doesn't")
+	l.Warn("$GEN$: do not run this way in production — configure one of the paths above")
+	l.Warn("$GEN$: value: " + generated)
+	l.Warn("################################################################")
+}
+
+// SplitPathList splits a colon-separated search list the way
+// http.static.path/pg.query.wellknown_path/$FILE$'s own path portion all do
+// : trimmed, empty entries dropped, order preserved (first entry is always
+// tried/preferred first).
+func SplitPathList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ":") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // trimOneNewline trims exactly one trailing "\n" or "\r\n" — the spec's own

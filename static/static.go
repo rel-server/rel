@@ -53,11 +53,7 @@ type accessRule struct {
 // doesn't mount "/static/" at all in that case.
 func New(cfg config.Http) *Server {
 	var dirs []string
-	for _, d := range strings.Split(cfg.Static.Path, ":") {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			continue
-		}
+	for _, d := range config.SplitPathList(cfg.Static.Path) {
 		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
 			dirs = append(dirs, d)
 		}

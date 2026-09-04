@@ -17,9 +17,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 
 # Pre-created and owned by the numeric non-root UID scratch runs as below —
 # an anonymous or bind volume mounted here without this would otherwise
-# start out root-owned, and rel (running as 65532) couldn't write into it.
-RUN mkdir -p /vol/static /vol/template /vol/dmut /vol/wellknown /vol/data && \
-    chown -R 65532:65532 /vol
+# start out root-owned, and rel (running as 1000) couldn't write into it.
+# /secrets/jwt is jwt.secret's default $GEN$ candidate (config.DefaultJwtSecret)
+# — pre-creating it here means a container with no volume mounted there still
+# writes into its own writable layer instead of falling back to the
+# ephemeral, console-logged value (specs/configuration.md ## $GEN$
+# multi-path resolution).
+RUN mkdir -p /vol/static /vol/template /vol/dmut /vol/wellknown /vol/secrets/jwt && \
+    chown -R 1000:1000 /vol
 
 FROM scratch
 
@@ -30,11 +35,11 @@ LABEL org.opencontainers.image.title="rel" \
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/rel /rel
-COPY --chown=65532:65532 --from=build /vol/static /static
-COPY --chown=65532:65532 --from=build /vol/template /template
-COPY --chown=65532:65532 --from=build /vol/dmut /dmut
-COPY --chown=65532:65532 --from=build /vol/wellknown /wellknown
-COPY --chown=65532:65532 --from=build /vol/data /data
+COPY --chown=1000:1000 --from=build /vol/static /static
+COPY --chown=1000:1000 --from=build /vol/template /template
+COPY --chown=1000:1000 --from=build /vol/dmut /dmut
+COPY --chown=1000:1000 --from=build /vol/wellknown /wellknown
+COPY --chown=1000:1000 --from=build /vol/secrets /secrets
 
 # http.static.path (first entry is also the upload-destination write target)
 VOLUME ["/static"]
@@ -44,15 +49,13 @@ VOLUME ["/template"]
 VOLUME ["/dmut"]
 # pg.query.wellknown_path
 VOLUME ["/wellknown"]
-# generated/persisted jwt.secret (REL_JWT__SECRET below), and anywhere else
-# a deployment wants rel to write state
-VOLUME ["/data"]
-
-ENV REL_JWT__SECRET="\$FILE\$/data/jwt-secret\$GEN\$32"
+# jwt.secret's default $GEN$ path (config.DefaultJwtSecret), and the future
+# home for OpenID/SAML secrets alongside it — no REL_JWT__SECRET override
+# needed here, this already matches the compiled-in default.
+VOLUME ["/secrets"]
 
 EXPOSE 8080
 
-WORKDIR /data
-USER 65532:65532
+USER 1000:1000
 
 ENTRYPOINT ["/rel"]

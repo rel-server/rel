@@ -28,15 +28,34 @@ Any scalar configuration value, from any source, may be written as:
 - `$FILE$/path$DEFAULT$fallback value` — replaced with the file's contents if it exists, or `fallback value` if it doesn't.
 - `$FILE$/path$GEN$128` - replaced with the file contents if it exists, or base32 random characters (here, 128 characters) which are then written to the path
 
+The path portion of any of the three forms above may be a colon-separated list of candidate paths, tried in order — the same search-list convention `http.static.path`/`pg.query.wellknown_path` use.
+
 Rules:
 
 - Works identically across all three sources — a TOML value, an env var, and a CLI flag can each use `$FILE$`.
 - Resolved once, over the fully merged configuration tree, before any type coercion or validation.
 - Exactly one trailing `\n` or `\r\n` is trimmed from the file's contents; nothing else is altered, so multi-line values (private keys, certificates) survive intact.
-- The path is resolved relative to the process's current working directory.
-- An unreadable file, with no `$DEFAULT$` given, is a fatal, startup-terminating error.
+- Each candidate path is resolved relative to the process's current working directory.
 - An empty file is a valid value (an empty string) — never treated as "not found."
 - `$FILE$` always produces exactly one string value; it never parses the referenced file's structure. `$FILE$` is not limited to secrets — it may hold any scalar value that's more convenient to keep in its own file.
+
+### Plain and `$DEFAULT$` path lists
+
+- Each candidate is tried in order ; the first one that reads successfully is used.
+- If no candidate reads successfully, `$DEFAULT$` falls back to its given value.
+- If no candidate reads successfully and no `$DEFAULT$` is given, this is a fatal, startup-terminating error.
+
+### `$GEN$` multi-path resolution
+
+`$GEN$`'s candidate list is resolved in three passes, each considering every candidate in list order before moving to the next pass — an earlier candidate always wins over a later one, regardless of which pass resolves it.
+
+1. The first candidate whose file already exists and reads successfully is used as-is. If an existing candidate's value doesn't match the declared length, this is a fatal, startup-terminating error naming the mismatched candidate.
+2. If no candidate has an existing value, the first candidate whose PARENT DIRECTORY exists is generated into and used. A candidate whose parent directory doesn't exist is skipped, not an error. A candidate whose parent directory exists but still can't be written to (permissions, read-only filesystem, ...) is a fatal, startup-terminating error ; resolution does not continue to the next candidate.
+3. If no candidate's parent directory exists, an ephemeral, in-memory-only value is generated for this run alone (never written to disk) — a new one on every restart. This is logged at `WARN`, including the generated value itself, formatted to be hard to miss in the log output.
+
+> Why: pass 2's directory-exists-but-write-fails case is deliberately never a reason to fall through — it means an operator went to the trouble of creating that directory, so a write failure there is a real misconfiguration to surface loudly, not a signal to look elsewhere.
+
+> Why: pass 3's ephemeral fallback exists purely so a developer can run rel with no volumes/paths configured at all, without it refusing to boot. It is unsuitable for any deployment that needs sessions/tokens to survive a restart.
 
 ## No arrays
 
@@ -49,6 +68,8 @@ Configuration MUST NOT contain arrays, in any source, and the loader enforces th
 ## Error handling and secrets
 
 All configuration errors (missing required value, malformed value, unreadable `$FILE$` path, type mismatch, ambiguous config file, ...) MUST be logged. A logged error MUST identify the offending option path, but MUST NEVER include the resolved value — for every option, not only ones that are obviously secrets, since `$FILE$` is general-purpose and the loader has no reliable way to know which values are sensitive.
+
+This never-log-the-value rule applies to errors only. `$GEN$` multi-path resolution's pass 3 (`## $FILE$ value indirection ### $GEN$ multi-path resolution`) is a deliberate, sole exception : it is not an error, and the generated value is logged in full at `WARN` on purpose, since it's otherwise never visible anywhere and would silently regenerate — and invalidate every session/token issued against it — on every restart.
 
 ## Accessing configuration
 

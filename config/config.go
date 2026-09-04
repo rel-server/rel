@@ -57,8 +57,13 @@ const (
 // Jwt is authentication.md ## Configuration : jwt.secret/cookie_name/
 // algorithm/same_site/max_age/renew_after/max_session_age.
 type Jwt struct {
-	// Secret is jwt.secret, default "$FILE$jwt-secret$GEN$32" — the JWT
-	// signing secret.
+	// Secret is jwt.secret, default DefaultJwtSecret — the JWT signing
+	// secret. Its $GEN$ path is a colon-separated search list (##
+	// $GEN$ multi-path resolution) : /secrets/jwt/jwt-secret, a fixed
+	// location a deployment can mount a volume/secret at, falling back to
+	// ./jwt-secret (relative to the process's cwd) when that isn't wired
+	// up — the previous, single-path default, still exactly what a plain
+	// `go run`/`just run` dev loop gets.
 	Secret string
 	// CookieName is jwt.cookie_name, default "accesstoken" : the cookie
 	// scanned/set by rel to carry the JWT.
@@ -82,7 +87,10 @@ type Jwt struct {
 
 // DefaultJwt* are authentication.md ## Configuration's stated defaults.
 const (
-	DefaultJwtSecret        = "$FILE$jwt-secret$GEN$32"
+	// DefaultJwtSecret's $GEN$ path is a colon-separated search list, resolved
+	// per specs/configuration.md ## $GEN$ multi-path resolution : a fixed
+	// deployment mount point first, falling back to the process's own cwd.
+	DefaultJwtSecret        = "$FILE$/secrets/jwt/jwt-secret:./jwt-secret$GEN$32"
 	DefaultJwtCookieName    = "accesstoken"
 	DefaultJwtAlgorithm     = "HS256"
 	DefaultJwtSameSite      = "Lax"

@@ -369,7 +369,12 @@ policy = "default-src 'self'; script-src 'self' 'unsafe-inline'"
 }
 
 // Covers a caught bug : a Go-level fallback default applied after
-// resolveFileIndirection was never itself resolved. t.Chdir isolates the $GEN$ file write to a temp dir.
+// resolveFileIndirection was never itself resolved. t.Chdir isolates the
+// $GEN$ file write to a temp dir. The default's first candidate,
+// /secrets/jwt/jwt-secret, is assumed absent on the machine running this
+// test — same assumption TestResolveFileValue_PlainMissingIsFatal already
+// makes about /nonexistent/secret.txt — so resolution falls through to the
+// second candidate, ./jwt-secret, relative to the isolated cwd.
 func TestLoad_JwtSecretDefault_GenAndResolve(t *testing.T) {
 	t.Chdir(t.TempDir())
 	cfg, err := Load([]string{"--config=" + writeFile(t, t.TempDir(), "rel.toml", "")})
@@ -383,7 +388,7 @@ func TestLoad_JwtSecretDefault_GenAndResolve(t *testing.T) {
 		t.Errorf("expected a 32-character generated secret, got %d chars (%q)", len(cfg.Jwt.Secret), cfg.Jwt.Secret)
 	}
 	if _, err := os.Stat("jwt-secret"); err != nil {
-		t.Errorf("expected the generated secret persisted to ./jwt-secret, got: %v", err)
+		t.Errorf("expected the generated secret persisted to ./jwt-secret (the default's second candidate), got: %v", err)
 	}
 }
 
@@ -558,6 +563,143 @@ func TestResolveFileValue_GenLengthMismatchIsFatal(t *testing.T) {
 	}
 	if _, err := resolveFileValue("$FILE$" + p + "$GEN$64"); err == nil {
 		t.Fatalf("expected an error when a second key requests a different length for the same $GEN$ path")
+	}
+}
+
+func TestSplitPathList(t *testing.T) {
+	got := SplitPathList(" /a : /b ::/c/d ")
+	want := []string{"/a", "/b", "/c/d"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got %v, want %v", got, want)
+			break
+		}
+	}
+}
+
+// resolveGenValue ## pass 1 : the first candidate that already holds a
+// value wins, even though a later candidate would otherwise be the one
+// resolveFileValue lands on first if it were reading rather than generating.
+func TestResolveFileValue_GenMultiPath_FirstExistingWins(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a", "secret.txt")
+	second := filepath.Join(dir, "b", "secret.txt")
+	if err := os.MkdirAll(filepath.Dir(first), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(second), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(first, []byte("first-value"), 0o600); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+	if err := os.WriteFile(second, []byte("second-value"), 0o600); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+	got, err := resolveFileValue("$FILE$" + first + ":" + second + "$GEN$11")
+	if err != nil {
+		t.Fatalf("resolveFileValue: %v", err)
+	}
+	if got != "first-value" {
+		t.Errorf("expected the first candidate's existing value to win, got %q", got)
+	}
+}
+
+// resolveGenValue ## pass 2 : a candidate whose parent directory doesn't
+// exist is skipped (not fatal), falling through to the next candidate.
+func TestResolveFileValue_GenMultiPath_SkipsMissingDir(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist", "secret.txt")
+	present := filepath.Join(dir, "secret.txt")
+	got, err := resolveFileValue("$FILE$" + missing + ":" + present + "$GEN$16")
+	if err != nil {
+		t.Fatalf("resolveFileValue: %v", err)
+	}
+	if len(got) != 16 {
+		t.Fatalf("expected a 16-character generated value, got %d (%q)", len(got), got)
+	}
+	if _, err := os.Stat(present); err != nil {
+		t.Errorf("expected the value written to the second candidate (the first's dir is missing): %v", err)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Errorf("did not expect anything written at the candidate whose directory doesn't exist")
+	}
+}
+
+// resolveGenValue ## pass 2 : a candidate whose parent directory EXISTS but
+// refuses the write is immediately fatal — never skipped to the next
+// candidate, and never degraded to an ephemeral value.
+func TestResolveFileValue_GenMultiPath_ExistingDirWriteFailureIsFatal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions, this check needs a real non-root process")
+	}
+	dir := t.TempDir()
+	readonlyDir := filepath.Join(dir, "readonly")
+	if err := os.MkdirAll(readonlyDir, 0o555); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(readonlyDir, 0o755) }) // let TempDir's own cleanup remove it
+	blocked := filepath.Join(readonlyDir, "secret.txt")
+	fallback := filepath.Join(dir, "secret.txt")
+	_, err := resolveFileValue("$FILE$" + blocked + ":" + fallback + "$GEN$16")
+	if err == nil {
+		t.Fatalf("expected a fatal error, not a fallback to the next candidate or an ephemeral value")
+	}
+	if _, statErr := os.Stat(fallback); statErr == nil {
+		t.Errorf("did not expect the next candidate to be tried once an existing directory's write failed")
+	}
+}
+
+// resolveGenValue ## pass 3 : every candidate's parent directory is
+// missing — falls back to an ephemeral, unpersisted value rather than
+// failing to boot.
+func TestResolveFileValue_GenMultiPath_EphemeralWhenNoCandidateDirExists(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "no-such-dir-a", "secret.txt")
+	b := filepath.Join(dir, "no-such-dir-b", "secret.txt")
+	got, err := resolveFileValue("$FILE$" + a + ":" + b + "$GEN$16")
+	if err != nil {
+		t.Fatalf("expected the ephemeral fallback, not an error: %v", err)
+	}
+	if len(got) != 16 {
+		t.Fatalf("expected a 16-character generated value, got %d (%q)", len(got), got)
+	}
+	// A second call must generate a DIFFERENT value — nothing was persisted.
+	got2, err := resolveFileValue("$FILE$" + a + ":" + b + "$GEN$16")
+	if err != nil {
+		t.Fatalf("resolveFileValue (2nd): %v", err)
+	}
+	if got == got2 {
+		t.Errorf("expected two independent ephemeral values across calls, got the same %q twice", got)
+	}
+}
+
+func TestResolveFileValue_DefaultMultiPath_FirstExistingWins(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist.txt")
+	present := writeFile(t, dir, "present.txt", "real value")
+	got, err := resolveFileValue("$FILE$" + missing + ":" + present + "$DEFAULT$fallback")
+	if err != nil {
+		t.Fatalf("resolveFileValue: %v", err)
+	}
+	if got != "real value" {
+		t.Errorf("expected the second (existing) candidate's content, got %q", got)
+	}
+}
+
+func TestResolveFileValue_PlainMultiPath_FirstExistingWins(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist.txt")
+	present := writeFile(t, dir, "present.txt", "real value")
+	got, err := resolveFileValue("$FILE$" + missing + ":" + present)
+	if err != nil {
+		t.Fatalf("resolveFileValue: %v", err)
+	}
+	if got != "real value" {
+		t.Errorf("expected the second (existing) candidate's content, got %q", got)
 	}
 }
 

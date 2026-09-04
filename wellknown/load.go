@@ -38,11 +38,7 @@ type candidate struct {
 // mistake, not a reason to refuse to boot at all.
 func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	var dirs []string
-	for _, d := range strings.Split(cfg.Pg.Query.WellKnownDirs, ":") {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			continue
-		}
+	for _, d := range config.SplitPathList(cfg.Pg.Query.WellKnownDirs) {
 		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
 			dirs = append(dirs, d)
 		}
