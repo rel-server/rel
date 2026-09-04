@@ -68,14 +68,21 @@ create table hotel.staff (
 
 -- A second schema whose OWN property_average_rating shadows hotel's for the
 -- BARE name, once search_path prefers it (below) — regression for
--- bareNameWinners' schema-priority disambiguation (tsgen) : alt's version
--- takes `int`, not `hotel.properties`, as its first argument, so it is NOT
--- itself a computed property of hotel.properties — the bare name should
--- still resolve to it (FunctionsByName), and hotel.properties' own
--- ComputedProperties entry should NOT list it, since an unqualified call
--- would actually reach alt's version, not hotel's.
+-- bareNameWinners' schema-priority disambiguation (tsgen) : the bare name
+-- resolves to alt's version (FunctionsByName), even though
+-- hotel.properties' own ComputedProperties entry still lists
+-- property_average_rating regardless — the two are deliberately decoupled,
+-- see tsgen's renderComputedProperties doc comment.
 create schema alt;
 create function alt.property_average_rating(x int) returns text
 	language sql as $$ select 'n/a' $$;
+
+-- Structurally eligible (takes hotel.properties as its own first argument,
+-- arity 1) but in a DIFFERENT schema than hotel.properties itself —
+-- regression for ComputedProperties' own same-schema restriction : this
+-- must NOT appear as one of hotel.properties' computed properties, even
+-- though it otherwise qualifies.
+create function alt.property_score(p hotel.properties) returns int
+	language sql as $$ select 0 $$;
 
 alter role all set search_path to alt, hotel, public;

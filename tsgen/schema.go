@@ -383,14 +383,22 @@ func firstInputArg(f *pg.Function) *pg.FunctionArgument {
 // "schema.relation" name) — gating discoverability on a search_path race
 // made it silently vanish even though the QUALIFIED call form
 // (["call", {schema,name}, ...], resolved through Functions directly)
-// always works regardless of search_path. Eligibility here is purely
-// structural : first argument must be this relation's own composite row
-// type, AND the function must be callable with exactly that one argument
-// (pg.Function.AcceptsArity(1) — every argument after the first has a
-// default) ; a function needing further required arguments isn't callable
-// as a bare property. A same-named eligible function from a second schema
-// unions in under the same key (rare, but not disallowed the way it would
-// be for two arity-1 overloads of the identical qualified name).
+// always works regardless of search_path. Eligibility is structural :
+// first argument must be this relation's own composite row type, the
+// function must live in the SAME schema as the relation, AND be callable
+// with exactly that one argument (pg.Function.AcceptsArity(1) — every
+// argument after the first has a default) ; a function needing further
+// required arguments isn't callable as a bare property. The same-schema
+// restriction rules out any naming collision by construction — Postgres
+// itself refuses to register two functions in one schema sharing both a
+// name AND an identical first-argument type — rather than presenting a
+// misleading union of two functions that only coincidentally share a bare
+// name (a real risk once cross-schema functions were allowed in : the
+// union would suggest "one property, either shape," when an actual bare
+// call only ever reaches whichever schema wins FunctionsByName's own
+// search_path race, a third, possibly different answer). A cross-schema
+// computed function remains fully usable — just not advertised here — via
+// the explicit qualified `["call", {schema,name}, ...]` form.
 func renderComputedProperties(fns []*pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) string {
 	byRelation := map[*pg.Relation]map[string]string{}
 	for _, f := range fns {
@@ -399,7 +407,7 @@ func renderComputedProperties(fns []*pg.Function, allowed map[*pg.Relation]bool,
 			continue
 		}
 		rel := first.Type.CompositeRelation()
-		if rel == nil || !allowed[rel] {
+		if rel == nil || !allowed[rel] || rel.Identifier.Schema != f.Identifier.Schema {
 			continue
 		}
 		name := f.Identifier.Name
@@ -410,16 +418,11 @@ func renderComputedProperties(fns []*pg.Function, allowed map[*pg.Relation]bool,
 		if byRelation[rel] == nil {
 			byRelation[rel] = map[string]string{}
 		}
-		// A second matching eligible function under the same name unions
-		// in, rather than overwriting — Postgres itself would refuse to
-		// register two arity-1 overloads of the SAME qualified name with
-		// the same first-argument type, but two DIFFERENT schemas can each
-		// have their own eligible function sharing a bare name.
-		if existing, ok := byRelation[rel][name]; ok {
-			byRelation[rel][name] = existing + " | " + ts
-		} else {
-			byRelation[rel][name] = ts
-		}
+		// Never a collision : the same-schema restriction above already
+		// rules out two functions sharing both this name and this exact
+		// first-argument type (Postgres itself would refuse to register
+		// the second one).
+		byRelation[rel][name] = ts
 	}
 
 	if len(byRelation) == 0 {

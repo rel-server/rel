@@ -168,8 +168,17 @@ func TestGenerateSchema_BareNameShadowing(t *testing.T) {
 		t.Fatalf("expected hotel.properties to still advertise property_average_rating as a computed property, shadowed bare name notwithstanding ; got:\n%s", out)
 	}
 	blockEnd := strings.Index(out[computedIdx:], "}\n")
-	if !strings.Contains(out[computedIdx:computedIdx+blockEnd], "property_average_rating") {
-		t.Errorf("hotel.properties should still list property_average_rating : ComputedProperties doesn't depend on search_path ; got:\n%s", out[computedIdx:computedIdx+blockEnd])
+	computedBlock := out[computedIdx : computedIdx+blockEnd]
+	if !strings.Contains(computedBlock, "property_average_rating") {
+		t.Errorf("hotel.properties should still list property_average_rating : ComputedProperties doesn't depend on search_path ; got:\n%s", computedBlock)
+	}
+
+	// alt.property_score (testdata/schema.sql) is structurally eligible
+	// (first argument is hotel.properties, arity 1) but lives in a
+	// DIFFERENT schema than hotel.properties itself — ComputedProperties'
+	// own same-schema restriction must exclude it.
+	if strings.Contains(computedBlock, "property_score") {
+		t.Errorf("hotel.properties should NOT list alt.property_score : ComputedProperties is restricted to the relation's own schema ; got:\n%s", computedBlock)
 	}
 }
 
