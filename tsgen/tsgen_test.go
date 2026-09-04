@@ -142,12 +142,17 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 }
 
 // TestGenerateSchema_BareNameShadowing exercises bareNameWinners' own
-// disambiguation rule directly : "alt" schema's own property_average_rating
-// (testdata/schema.sql) shares hotel's bare name and comes first in
-// search_path, so it — not hotel's — is what an unqualified call actually
-// reaches. hotel.properties must NOT advertise property_average_rating as
-// one of its own computed properties once that's true, since calling it
-// unqualified wouldn't reach hotel's version at all.
+// disambiguation rule (FunctionsByName only) : "alt" schema's own
+// property_average_rating (testdata/schema.sql) shares hotel's bare name
+// and comes first in search_path, so it — not hotel's — is what an
+// unqualified call actually reaches.
+//
+// ComputedProperties is deliberately UNAFFECTED by this : it doesn't consult
+// search_path at all (renderComputedProperties' own doc comment covers why
+// — a real deployment's search_path frequently doesn't cover its own
+// schemas, which made this whole discoverability feature vanish for no
+// good reason before this fix), so hotel.properties still advertises
+// property_average_rating regardless of which schema wins the bare name.
 func TestGenerateSchema_BareNameShadowing(t *testing.T) {
 	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel", "alt"}, Blacklist: config.DefaultBlacklist()})
 
@@ -160,14 +165,11 @@ func TestGenerateSchema_BareNameShadowing(t *testing.T) {
 
 	computedIdx := strings.Index(out, "interface Computed__Hotel__Properties {")
 	if computedIdx < 0 {
-		// No entry at all is also an acceptable outcome (property_average_rating
-		// was hotel.properties' only would-be computed property) ; only a
-		// wrongly-INCLUDED property_average_rating is the actual regression.
-		return
+		t.Fatalf("expected hotel.properties to still advertise property_average_rating as a computed property, shadowed bare name notwithstanding ; got:\n%s", out)
 	}
 	blockEnd := strings.Index(out[computedIdx:], "}\n")
-	if strings.Contains(out[computedIdx:computedIdx+blockEnd], "property_average_rating") {
-		t.Errorf("hotel.properties should not list property_average_rating once alt's incompatible version shadows it ; got:\n%s", out[computedIdx:computedIdx+blockEnd])
+	if !strings.Contains(out[computedIdx:computedIdx+blockEnd], "property_average_rating") {
+		t.Errorf("hotel.properties should still list property_average_rating : ComputedProperties doesn't depend on search_path ; got:\n%s", out[computedIdx:computedIdx+blockEnd])
 	}
 }
 

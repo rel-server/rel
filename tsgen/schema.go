@@ -78,7 +78,7 @@ func GenerateSchema(db *pg.DbInfos, opts Options) string {
 	relInterfaces := renderRelationInterfaces(relations, tc)
 	relationsMap := renderRelationsMap(relations)
 	relationships := renderRelationships(relations, allowed, tc)
-	computedProperties := renderComputedProperties(fns, allowed, db.SearchPath, tc)
+	computedProperties := renderComputedProperties(fns, allowed, tc)
 	functions := renderFunctions(fns, allowed, tc)
 	functionsByName := renderFunctionsByName(fns, db.SearchPath)
 
@@ -370,54 +370,55 @@ func firstInputArg(f *pg.Function) *pg.FunctionArgument {
 // purely a "what's callable here, and what does it return" discovery aid
 // for authoring `select` — the ACTUAL type of a `["call", ...]` expression
 // still resolves through FunctionsByName/Functions (shapes.ts's
-// ShapeFromCallTag), independently, using the SAME bareNameWinners
-// resolution so the two never disagree about which function a bare name
-// means. Deliberately redundant with FunctionsByName rather than derived
-// from it at the type level : the two answer different questions ("what
-// can I call here" vs "what does this specific call produce") and
-// collapsing them would make ComputedProperties depend on the identifier
-// actually written at a call site, which it isn't meant to.
+// ShapeFromCallTag), independently. Deliberately redundant with
+// FunctionsByName rather than derived from it at the type level : the two
+// answer different questions ("what can I call here" vs "what does this
+// specific call produce").
 //
-// Eligibility : the winning function (bareNameWinners) for a given name
-// must accept its FIRST argument as this relation's own composite row type,
-// AND be callable with exactly that one argument (pg.Function.AcceptsArity(1)
-// — i.e. every argument after the first has a default) ; a function needing
-// further required arguments isn't callable as a bare property.
-func renderComputedProperties(fns []*pg.Function, allowed map[*pg.Relation]bool, searchPath []string, tc *typeCollector) string {
-	winners := bareNameWinners(fns, searchPath)
-	fnsByKey := map[string][]*pg.Function{}
-	for _, f := range fns {
-		key := relationKey(f.Identifier.Schema, f.Identifier.Name)
-		fnsByKey[key] = append(fnsByKey[key], f)
-	}
-
+// Deliberately NOT filtered through bareNameWinners/search_path, unlike
+// FunctionsByName : this session's own testing against a real deployment
+// found search_path frequently doesn't cover the schema a project's own
+// tables/functions live in (rel's own convention, everywhere else, is to
+// never rely on it — relation()/func() always take a fully-qualified
+// "schema.relation" name) — gating discoverability on a search_path race
+// made it silently vanish even though the QUALIFIED call form
+// (["call", {schema,name}, ...], resolved through Functions directly)
+// always works regardless of search_path. Eligibility here is purely
+// structural : first argument must be this relation's own composite row
+// type, AND the function must be callable with exactly that one argument
+// (pg.Function.AcceptsArity(1) — every argument after the first has a
+// default) ; a function needing further required arguments isn't callable
+// as a bare property. A same-named eligible function from a second schema
+// unions in under the same key (rare, but not disallowed the way it would
+// be for two arity-1 overloads of the identical qualified name).
+func renderComputedProperties(fns []*pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) string {
 	byRelation := map[*pg.Relation]map[string]string{}
-	for name, key := range winners {
-		for _, f := range fnsByKey[key] {
-			first := firstInputArg(f)
-			if first == nil || !f.AcceptsArity(1) {
-				continue
-			}
-			rel := first.Type.CompositeRelation()
-			if rel == nil || !allowed[rel] {
-				continue
-			}
-			ts := tsTypeExpr(f.ReturnType, tc)
-			if f.ReturnsSet {
-				ts += "[]"
-			}
-			if byRelation[rel] == nil {
-				byRelation[rel] = map[string]string{}
-			}
-			// A second matching overload under the same winning key unions
-			// in, rather than overwriting — Postgres itself would refuse to
-			// register two arity-1 overloads with the same first-argument
-			// type, so this is defensive, not an expected real-world case.
-			if existing, ok := byRelation[rel][name]; ok {
-				byRelation[rel][name] = existing + " | " + ts
-			} else {
-				byRelation[rel][name] = ts
-			}
+	for _, f := range fns {
+		first := firstInputArg(f)
+		if first == nil || !f.AcceptsArity(1) {
+			continue
+		}
+		rel := first.Type.CompositeRelation()
+		if rel == nil || !allowed[rel] {
+			continue
+		}
+		name := f.Identifier.Name
+		ts := tsTypeExpr(f.ReturnType, tc)
+		if f.ReturnsSet {
+			ts += "[]"
+		}
+		if byRelation[rel] == nil {
+			byRelation[rel] = map[string]string{}
+		}
+		// A second matching eligible function under the same name unions
+		// in, rather than overwriting — Postgres itself would refuse to
+		// register two arity-1 overloads of the SAME qualified name with
+		// the same first-argument type, but two DIFFERENT schemas can each
+		// have their own eligible function sharing a bare name.
+		if existing, ok := byRelation[rel][name]; ok {
+			byRelation[rel][name] = existing + " | " + ts
+		} else {
+			byRelation[rel][name] = ts
 		}
 	}
 
