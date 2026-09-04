@@ -20,7 +20,5 @@
     "lib": ["ESNext", "dom"],
     "types": []
   },
-  "include": [
-    "./**/*.ts"
-  ],
+  "include": ["./**/*.ts"]
 }

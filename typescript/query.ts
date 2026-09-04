@@ -54,6 +54,13 @@ export interface RelationQuery<
   */
   on?: { [local_column: string]: string }
 
+  /**
+   Client-side sugar for a joined relation : one of the schema's `Relationships` shortcut strings, naming this
+   join by relationship rather than by raw `on`/`relation`/`schema`. Expanded into those fields by querier.ts's
+   `join()` before the query is built, and stripped before sending — the server never sees it.
+  */
+  shortcut?: string
+
   /** Positional or named arguments to `function`. Only valid alongside `function` ; an error alongside `relation`. */
   arguments?: FunctionArguments
 
@@ -294,7 +301,6 @@ export type Expression<K extends string = string> =
   // Expressions that produce objects
   /* an inline object that will become an object expression */
   | { [name: string]: Expression<K> }
-
   | ["own"] // all columns of the current relation ; takes precedence over the [string] literal form above
   | ["full"] // "own" plus the joined rels ; select's default value ; also takes precedence over [string]
   /* Same as own/full, minus the `except` columns */

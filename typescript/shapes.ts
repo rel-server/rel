@@ -1,90 +1,14 @@
-import { type Query, type RelationQuery } from "./query"
-
-// biome-ignore lint/suspicious/noEmptyInterface: will be overriden
-export interface Reations {}
-
-// biome-ignore lint/suspicious/noEmptyInterface: will be overriden
-export interface Functions {}
-
-// biome-ignore lint/suspicious/noEmptyInterface: will be overriden
-export interface Wellknowns {
-  //
-}
-
-// Holds human-readable, LSP-completable relation-link identifiers for developer reuse ; not part of the query language itself.
-export interface Relationships {}
+/*!
+Section 3 of `specs/typescript.md ## File layout` : `RelationQuery`'s supporting type-level machinery — turning
+a query's own `select`/`join`/`relation`/`function`/`shortcut` fields into the JSON shape it produces, and
+extracting whatever `$param`s it declares. No runtime code lives here ; everything below is erased at compile time.
+*/
+import type { RelationQuery } from "./query"
+import type { Functions, Relations, Relationships, Wellknowns } from "./schema.example"
 
 export type RelationName = keyof Relations
 export type FunctionName = keyof Functions
 export type WellknownName = keyof Wellknowns
-
-// Examples of generation
-
-export type RoomStatus = "clean" | "dirty"
-
-interface Table__Hotel__Rooms {
-  /* same goes for columns */
-  property_id: number // not null references hotel.properties (id),
-  room_type_id: number // not null references hotel.room_types (id),
-  room_number: string
-  floor: number | null
-  status: RoomStatus // default 'clean', //: should we handle default creation client-side ?
-  features: string[] // default '{}'
-}
-
-interface Table__Hotel__Properties {
-  /** And comments for each column are added */
-  id: number
-  chain_id: number | null
-  name: string
-  location: Point //: this type does not really have a direct equivalent, probably that it will have to be created in some pg_types.ts file
-  star_rating: number | null
-  description: string | null
-  created_at: Date | null //: do we do Temporal directly or do we keep Date ? It could be interesting to have it as a requirement ? (or at least a polyfill)
-}
-
-export interface Relations {
-  "hotel.rooms": Table__Hotel__Rooms
-  "hotel.properties": Table__Hotel__Properties
-}
-
-export interface FunctionRelations {
-  "hotel.rooms_available": Table__Hotel__Properties
-}
-
-// `shortcut` is interpreted client-side by relation()/function() to fill in `on:` and is never sent to the server.
-// `on:` alone can't tell TypeScript whether the embed is an object or an array ; `unique` does.
-export interface Relationships {
-  "hotel.rooms": {
-    shortcut: "hotel.properties;id:property_id"
-    unique: true
-    relation: Table__Hotel__Properties
-  }
-  "hotel.properties": {
-    incoming: "hotel.rooms;id:property_id"
-    unique: false
-    relation: Table__Hotel__Rooms
-  }
-}
-
-// For each function that is exported, we get an export
-export interface Functions {
-  "hotel.property_average_rating": {
-    positional_args: [Table__Hotel__Properties]
-    args: { property: Table__Hotel__Properties }
-    returns: number
-  }
-  "hotel.rooms_available": {
-    positional_args: [property_id: number, on_date?: Date]
-    args: { property_id: number; on_date?: Date }
-    relation: Table__Hotel__Properties // this function has an underlying
-    returns: Table__Hotel__Properties[]
-  }
-}
-
-///////////////////////////////////////////////////////////////////////
-// Type helpers
-//
 
 // Types for $param that shall be enforced
 type TypeMap = {
@@ -126,29 +50,66 @@ export type Params<Q> = Flatten<UnionToIntersection<ParamUnion<Q>>>
 // extracted from Q, since a literal Q no longer carries it once narrowed ; only the call site (relation()'s
 // R -> ResolveRelationModel<R>, below) still knows it.
 
-// Resolves ONE join entry's row shape the same way relation()'s `rel: R` string does for the root, from its own
-// inline schema/relation fields. Falls back to the permissive default when schema is omitted (no search_path
-// available here) or the name is unrecognized.
-type ResolveJoinModel<J> = J extends {
-  schema: infer S extends string
-  relation: infer R extends string
+export type DefaultRow = { [name: string]: unknown }
+
+// Resolves ANY query node's row shape — root or nested join alike — from whichever of `shortcut` (join sugar),
+// `relation`, or `function` it carries. One resolver for every node means root and join resolution can't drift
+// apart the way two hand-maintained types could. Falls back to the permissive default when schema is omitted (no
+// search_path available here), the name is unrecognized, or neither `shortcut`/`relation`/`function` is given (a
+// real query would fail server-side either way).
+export type ResolveModel<Node> = Node extends { shortcut: infer S extends string }
+  ? Extract<Relationships[keyof Relationships], { shortcut: S }> extends {
+      relation: infer R extends object
+    }
+    ? R
+    : DefaultRow
+  : Node extends { schema: infer Sc extends string; relation: infer R extends string }
+    ? `${Sc}.${R}` extends keyof Relations
+      ? Relations[`${Sc}.${R}`]
+      : DefaultRow
+    : Node extends { relation: infer R extends string }
+      ? R extends keyof Relations
+        ? Relations[R]
+        : DefaultRow
+      : Node extends { schema: infer Sc extends string; function: infer F extends string }
+        ? `${Sc}.${F}` extends keyof Functions
+          ? ResolveFunctionModel<`${Sc}.${F}`>
+          : DefaultRow
+        : Node extends { function: infer F extends string }
+          ? F extends keyof Functions
+            ? ResolveFunctionModel<F>
+            : DefaultRow
+          : DefaultRow
+
+// A function's embeddable row shape : its own `relation` (set-returning, joinable/selectable like a table) when
+// given, else its scalar `returns` type — a scalar function produces one bare value per row, not a row at all.
+type ResolveFunctionModel<F extends keyof Functions> = Functions[F] extends {
+  relation: infer R extends object
 }
-  ? `${S}.${R}` extends keyof Relations
-    ? Relations[`${S}.${R}`]
-    : { [name: string]: unknown }
-  : J extends { relation: infer R extends string }
-    ? R extends keyof Relations
-      ? Relations[R]
-      : { [name: string]: unknown }
-    : { [name: string]: unknown } // function-rooted join, or neither given (a real query would fail server-side) — nothing to resolve statically
+  ? R
+  : Functions[F] extends { returns: infer Ret }
+    ? Ret
+    : DefaultRow
 
 // A join entry's own nested `join`, so joins-of-joins keep resolving recursively like the root query does.
 type ExtractJoinMap<Q> = Q extends { join: infer J extends { [name: string]: unknown } } ? J : {}
 
-// Known gap : every join below types as `T[]` regardless of real cardinality, since RelationQuery's JSON carries
-// no FK-direction info. `Relationships` (still a stub above) is the natural place to fix this once it exists.
+// Cardinality comes from the Relationships variant matching `shortcut`'s own literal value (found by scanning
+// every variant across every key, not just one — `shortcut` alone already uniquely identifies the FK) when a
+// join used the `shortcut` sugar ; a join written out by hand (no `shortcut`) has no cardinality source, so it
+// defaults to an array as before.
+type JoinCardinality<J> = J extends { shortcut: infer S extends string }
+  ? Extract<Relationships[keyof Relationships], { shortcut: S }> extends {
+      unique: infer U extends boolean
+    }
+    ? U
+    : false
+  : false
+
 type JoinShapes<Join extends { [name: string]: unknown }, Depth extends number> = {
-  [A in keyof Join]: ShapeFromRelationQuery<Join[A], ResolveJoinModel<Join[A]>, Digits[Depth]>[]
+  [A in keyof Join]: JoinCardinality<Join[A]> extends true
+    ? ShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>
+    : ShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>[]
 }
 
 type OwnShape<Rel extends object> = { [K in keyof Rel]: Rel[K] }
@@ -332,118 +293,3 @@ export type ShapeFromQuery<
   Q extends RelationQuery<Rel>,
   Rel extends object = { [name: string]: unknown },
 > = ShapeFromRelationQuery<Q, Rel>
-
-///////////////////////////////////////////////////////////////////////
-// Actual code
-//
-
-// Build a Querier for this wellknown
-// This function will be overloaded with as many declare as there are well-known queries
-export function wellknown(
-  wellknown: string,
-  params: { [name: string]: unknown },
-): Querier<unknown, Params<typeof params>> {
-  return new Querier({
-    wellknown,
-    params,
-  })
-}
-
-// A known relation name resolves to its real column shape ; anything else falls back to the permissive default.
-// Deliberately ONE generic signature, not two overloads : with two, a bad column on a known relation would
-// silently fall through to the looser unchecked overload instead of erroring (TS only flags "no overload
-// matches" when every candidate fails).
-type ResolveRelationModel<R extends string> = R extends keyof Relations
-  ? Relations[R]
-  : { [name: string]: unknown }
-
-// Builder for relations. `rel` must be a fully qualified "schema.relation" name.
-export function relation<R extends string, const Q extends RelationQuery<ResolveRelationModel<R>>>(
-  rel: R,
-  request: Q,
-): Querier<ShapeFromQuery<Q, ResolveRelationModel<R>>, Params<Q>> {
-  const [schema, relation] = rel.split(".")
-  const query = {
-    ...request,
-    schema,
-    relation,
-  }
-  return new Querier(query)
-}
-
-const res = relation("hotel.properties", {
-  select: {
-    col: "created_at",
-    test: ["$param", "toto", "string"],
-  },
-}).get({ toto: "sdfkj" })
-
-// Both wellknown() and relation() produce a Querier with its Shape/Params known through their own return types.
-export class Querier<Shape = unknown, Params = void> {
-  constructor(
-    public query: Query,
-    public has_params = false,
-  ) {}
-
-  private doParams(obj: unknown, params: { [name: string]: unknown }): unknown {
-    if (obj == null) {
-      return obj
-    }
-    let diff = false
-    if (Array.isArray(obj)) {
-      if (obj[0] === "$param") {
-        // FIXME maybe do some checking if a type was supplied in obj[2]
-        const key = obj[1]
-        if (typeof key !== "string") {
-          throw new Error("find a better error name") // do that claude
-        }
-        return params[key]
-      }
-      const res = new Array(obj.length)
-      for (let i = 0, l = obj.length; i < l; i++) {
-        res[i] = this.doParams(obj[i], params)
-        diff = diff || res[i] !== obj[i]
-      }
-      return diff ? res : obj
-    }
-    if (typeof obj === "object") {
-      const res: { [name: string]: unknown } = {}
-      const _obj = obj as { [name: string]: unknown }
-      for (const x of Object.getOwnPropertyNames(obj)) {
-        const orig = _obj[x]
-        const r = this.doParams(orig, params)
-        res[x] = r
-        diff = diff || r !== orig
-      }
-      return diff ? res : obj
-    }
-    return obj
-  }
-
-  private doQuery(params: Params) {
-    return null
-  }
-
-  // Explicit Promise<Shape> return type : _send() only returns Promise<any> (res.json() can't know what it
-  // parsed), so without this annotation Shape would be silently erased. write()'s overloads do the same.
-  get(_params: Params): Promise<Shape> {
-    return this._send(this.doQuery(_params))
-  }
-
-  // send a write request to rel
-  write(_params: Params, data: Shape): Promise<Shape>
-  write(data: Shape): Promise<Shape>
-  write(_params: Params | Shape, _data?: Shape): Promise<Shape> {
-    const params = _data != null ? (_params as Params) : (void 0 as Params)
-    const data = _data != null ? _data : (_params as Shape)
-    return this._send({ query: this.doQuery(params), data })
-  }
-
-  private _send(query: unknown) {
-    return fetch("/rel", {
-      credentials: "include",
-      method: "POST",
-      body: JSON.stringify(query),
-    }).then((res) => res.json())
-  }
-}
