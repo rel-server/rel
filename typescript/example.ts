@@ -4,7 +4,7 @@
 // well-formed query, or silently loosens some field's inferred type. Never calls .get()/.write() — those hit a
 // real `fetch()` — so this file is safe to simply import, not just type-check.
 
-import { func, join, relation } from "./querier"
+import { func, join, relation, wellknown } from "./querier"
 import type { Functions } from "./schema.example"
 import type { ResolveModel } from "./shapes"
 
@@ -135,4 +135,15 @@ export type _AssertCallOmittedFromWriteShape = Expect<
 // (it accepts anything non-null, keys included), which is exactly why EmptyObject exists instead.
 export type _AssertZeroArgFunctionArgsRejectsArbitraryKeys = Expect<
   { foo: "bar" } extends Functions["hotel.property_count"]["args"] ? false : true
+>
+
+// Wellknowns (specs/typescript.md ## Wellknowns) : wellknown()'s params are supplied upfront, and its Shape/
+// WriteShape come from the raw query literal via ShapeFromRelationQuery/ResolveModel (schema.example.ts) — no
+// `.get(params)` argument needed, unlike relation()/func()'s own `$param`-driven Params.
+const starRatedProperties = wellknown("properties_by_star_rating", { min_rating: 4 })
+
+export type StarRatedPropertiesShape = Awaited<ReturnType<typeof starRatedProperties.get>>
+
+export type _AssertWellknownShapeHasStarRating = Expect<
+  HasKey<StarRatedPropertiesShape, "star_rating">
 >

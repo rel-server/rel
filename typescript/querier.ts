@@ -5,7 +5,7 @@ the first thing seen when opening it, ahead of the developer's own schema (secti
 powers both (section 3, `query.ts`/`shapes.ts`).
 */
 import type { Query, RelationQuery } from "./query"
-import type { Relationships } from "./schema.example"
+import type { Relationships, Wellknowns } from "./schema.example"
 import type {
   DefaultRow,
   Params,
@@ -14,14 +14,16 @@ import type {
   WriteShapeFromQuery,
 } from "./shapes"
 
-// Build a Querier for this wellknown
-// This function will be overloaded with as many declare as there are well-known queries
-export function wellknown(
-  wellknown: string,
-  params: { [name: string]: unknown },
-): Querier<unknown, unknown, Params<typeof params>> {
+// Builder for well-known queries (specs/typescript.md ## Wellknowns). `name` must be one of Wellknowns' own keys ;
+// `params` is that entry's declared params object, supplied upfront here rather than deferred to .get()/.write() —
+// unlike relation()/func(), a well-known query's `$param` usages are never exposed to the caller as Querier's own
+// Params, hence `void` below.
+export function wellknown<W extends keyof Wellknowns>(
+  name: W,
+  params: Wellknowns[W]["params"],
+): Querier<Wellknowns[W]["shape"], Wellknowns[W]["write_shape"], void> {
   return new Querier({
-    wellknown,
+    wellknown: name,
     params,
   })
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/pg"
+	"github.com/ceymard/rel/wellknown"
 )
 
 // Options configures GenerateSchema/GenerateDatabaseTS.
@@ -65,7 +66,7 @@ func (o Options) targetFunction(f *pg.Function) bool {
 // layout's Section 2 : Relations/Relationships/ComputedProperties/Functions/
 // FunctionsByName/Wellknowns and the Table__/View__/Type__/Computed__
 // interfaces they reference, from db filtered by opts.
-func GenerateSchema(db *pg.DbInfos, opts Options) string {
+func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) string {
 	tc := newTypeCollector()
 
 	relations := targetRelations(db, opts)
@@ -103,12 +104,83 @@ func GenerateSchema(db *pg.DbInfos, opts Options) string {
 	b.WriteString(computedProperties)
 	b.WriteString(functions)
 	b.WriteString(functionsByName)
-	// specs/typescript.md ## Wellknowns : reserved, generated empty until
-	// well-known queries are introspectable server-side.
-	b.WriteString("// Well-known queries aren't introspectable yet.\n")
-	b.WriteString("// biome-ignore lint/suspicious/noEmptyInterface: reserved, see specs/typescript.md ## Wellknowns\n")
-	b.WriteString("export interface Wellknowns {}\n")
+	b.WriteString(renderWellknowns(wkReg))
 	return b.String()
+}
+
+// wellknownConstIdent derives a collision-safe TS identifier for a
+// well-known's own raw-query const from its (arbitrary, possibly
+// hyphenated/dotted) declared name — only this identifier needs sanitizing;
+// Wellknowns' own property key stays the literal, quoted name.
+func wellknownConstIdent(name string) string {
+	var b strings.Builder
+	b.WriteString("__wellknown_")
+	for i, r := range name {
+		isLetter := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
+		isDigit := r >= '0' && r <= '9'
+		if isLetter || (i > 0 && isDigit) {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	b.WriteString("_query")
+	return b.String()
+}
+
+// renderWellknowns is specs/typescript.md ## Wellknowns : rather than
+// re-deriving a well-known query's row shape in Go (duplicating shapes.ts'
+// own type-level inference), each compiled query's raw "query" JSON is
+// embedded verbatim as a `const ... as const` literal and ShapeFromRelationQuery/
+// WriteShapeFromRelationQuery (shapes.ts) infer its shape from that literal
+// directly — the unconstrained entry points, not ShapeFromQuery/
+// WriteShapeFromQuery, since `as const` makes every nested array/tuple
+// readonly, which the constrained Q extends RelationQuery<...> signature
+// rejects (RelationQuery's own where/select fields are typed as mutable
+// tuples). Always emits the interface, even empty — same reasoning as
+// Functions/FunctionsByName above.
+func renderWellknowns(wkReg *wellknown.Registry) string {
+	entries := wkReg.All()
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+
+	var consts strings.Builder
+	var iface strings.Builder
+	if len(entries) == 0 {
+		iface.WriteString("// biome-ignore lint/suspicious/noEmptyInterface: always emitted, see this function's own doc comment\n")
+	}
+	iface.WriteString("export interface Wellknowns {\n")
+	for _, c := range entries {
+		ident := wellknownConstIdent(c.Name)
+		fmt.Fprintf(&consts, "const %s = %s as const\n", ident, string(c.QueryRaw))
+
+		paramNames := make([]string, 0, len(c.Params))
+		for name := range c.Params {
+			paramNames = append(paramNames, name)
+		}
+		sort.Strings(paramNames)
+		paramFields := make([]string, len(paramNames))
+		for i, name := range paramNames {
+			p := c.Params[name]
+			opt := ""
+			if p.HasDefault {
+				opt = "?"
+			}
+			paramFields[i] = fmt.Sprintf("%s%s: %s", identifierField(name), opt, wellknown.TSTypeForParam(p.Type))
+		}
+		paramsType := "EmptyObject"
+		if len(paramFields) > 0 {
+			paramsType = "{ " + strings.Join(paramFields, "; ") + " }"
+		}
+
+		fmt.Fprintf(&iface, "  %s: {\n", strconv.Quote(c.Name))
+		fmt.Fprintf(&iface, "    params: %s\n", paramsType)
+		fmt.Fprintf(&iface, "    shape: ShapeFromRelationQuery<typeof %s, ResolveModel<typeof %s>>\n", ident, ident)
+		fmt.Fprintf(&iface, "    write_shape: WriteShapeFromRelationQuery<typeof %s, ResolveModel<typeof %s>>\n", ident, ident)
+		iface.WriteString("  }\n")
+	}
+	iface.WriteString("}\n\n")
+
+	return consts.String() + "\n" + iface.String()
 }
 
 func targetRelations(db *pg.DbInfos, opts Options) []*pg.Relation {

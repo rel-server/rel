@@ -8,7 +8,7 @@ import (
 )
 
 func TestTypeScriptHandler_GET_ReturnsGeneratedDatabaseTS(t *testing.T) {
-	handler := NewTypeScriptHandler(testDb, testCfg)
+	handler := NewTypeScriptHandler(testDb, testCfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/rel/database.ts", nil)
 	rec := httptest.NewRecorder()
@@ -26,7 +26,7 @@ func TestTypeScriptHandler_GET_ReturnsGeneratedDatabaseTS(t *testing.T) {
 }
 
 func TestTypeScriptHandler_PostNotAllowed(t *testing.T) {
-	handler := NewTypeScriptHandler(testDb, testCfg)
+	handler := NewTypeScriptHandler(testDb, testCfg, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/rel/database.ts", nil)
 	rec := httptest.NewRecorder()
@@ -40,7 +40,7 @@ func TestTypeScriptHandler_PostNotAllowed(t *testing.T) {
 func TestTypeScriptHandler_SchemasParamOutsideWhitelistIsRejected(t *testing.T) {
 	cfg := *testCfg
 	cfg.Http.TypeScript.Schemas = "public"
-	handler := NewTypeScriptHandler(testDb, &cfg)
+	handler := NewTypeScriptHandler(testDb, &cfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/rel/database.ts?schemas=nope", nil)
 	rec := httptest.NewRecorder()

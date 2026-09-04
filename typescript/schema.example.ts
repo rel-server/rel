@@ -2,6 +2,10 @@
 // gets this section generated dynamically from introspection and inserted between querier.ts and query.ts/
 // shapes.ts (never written to disk as its own file) ; this "hotel" fixture is kept in the repo so querier.ts/
 // shapes.ts have something real to type-check and exercise against (see example.ts).
+//
+// A type-only cycle with shapes.ts (which itself imports Functions/Relationships/Wellknowns etc. from here) : legal
+// in TS, since types are erased before this matters at runtime.
+import type { ResolveModel, ShapeFromRelationQuery, WriteShapeFromRelationQuery } from "./shapes"
 
 // A bare `{}` type accepts anything non-null (biome's noBannedTypes) ; tsgen generates this instead for an
 // actually-empty object shape (a zero-argument function's own `args`, a zero-column relation/composite type —
@@ -141,7 +145,28 @@ export interface FunctionsByName {
   rooms_available: Functions["hotel.rooms_available"]
 }
 
-// Well-known queries aren't introspectable yet — specs/migrations.md notes they aren't implemented server-side
-// as of that document — so this stays empty until they are.
-// biome-ignore lint/suspicious/noEmptyInterface: will be filled in once well-known queries are introspectable
-export interface Wellknowns {}
+// Well-known queries (specs/typescript.md ## Wellknowns) : each compiled query's own raw "query" JSON is embedded
+// verbatim as a `const ... as const` literal, and ShapeFromRelationQuery/WriteShapeFromRelationQuery (shapes.ts)
+// infer its shape from that literal directly, rather than re-deriving it in Go — the UNCONSTRAINED entry points,
+// not ShapeFromQuery/WriteShapeFromQuery : `as const` makes every nested array/tuple readonly, which the
+// constrained `Q extends RelationQuery<...>` signature rejects (its own where/select fields are typed as mutable
+// tuples).
+const __wellknown_properties_by_star_rating_query = {
+  schema: "hotel",
+  relation: "properties",
+  where: ["=", "star_rating", ["$param", "min_rating", "int"]],
+} as const
+
+export interface Wellknowns {
+  properties_by_star_rating: {
+    params: { min_rating: number }
+    shape: ShapeFromRelationQuery<
+      typeof __wellknown_properties_by_star_rating_query,
+      ResolveModel<typeof __wellknown_properties_by_star_rating_query>
+    >
+    write_shape: WriteShapeFromRelationQuery<
+      typeof __wellknown_properties_by_star_rating_query,
+      ResolveModel<typeof __wellknown_properties_by_star_rating_query>
+    >
+  }
+}

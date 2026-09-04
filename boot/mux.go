@@ -47,7 +47,7 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	// specs/typescript.md ## Endpoints : gated by http.typescript.enable,
 	// not mounted at all otherwise (no 404 handler needed for the disabled case).
 	if cfg.Http.TypeScript.Enable {
-		mux.Handle("/rel/database.ts", server.NewTypeScriptHandler(db, cfg))
+		mux.Handle("/rel/database.ts", server.NewTypeScriptHandler(db, cfg, wkReg))
 	}
 	if staticSrv != nil {
 		mux.Handle("/static/", http.StripPrefix("/static/", staticSrv.Handler(db, cfg)))

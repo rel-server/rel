@@ -85,10 +85,6 @@ func main() {
 		logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", cfg.Pg.Query.AnonymousRole))
 	}
 
-	// specs/typescript.md ## Reloading `helper_path` : also written once at
-	// startup, not only on every SIGUSR1 reload.
-	boot.WriteTypeScriptHelperFile(db, cfg, logger.With("module", "boot"))
-
 	routeRegistry, err := route.BuildRegistry(db, cfg)
 	if err != nil {
 		logger.Error("building /route registry", "error", err.Error())
@@ -99,6 +95,11 @@ func main() {
 		logger.Error("building well-known query registry", "error", err.Error())
 		os.Exit(1)
 	}
+
+	// specs/typescript.md ## Reloading `helper_path` : also written once at
+	// startup, not only on every SIGUSR1 reload — after both registries
+	// build, since Wellknowns generation needs wellKnownRegistry.
+	boot.WriteTypeScriptHelperFile(db, cfg, wellKnownRegistry, logger.With("module", "boot"))
 
 	// boot/reload.go's Reload calls this same function on every SIGUSR1,
 	// so the two call sites can't drift on what the mux contains.
@@ -196,13 +197,15 @@ func typescriptOutFlag(args []string) (path string, ok bool) {
 	return "", false
 }
 
-// runTypeScriptExport is --typescript-out's entire body : introspect,
-// generate, write, done — none of the server's own machinery (dmut, /route
-// or well-known registries, mux, HTTP listener) is ever built. dmut is
-// deliberately skipped here, unlike the server's own startup sequence
-// (specs/migrations.md ## Execution) : running migrations as a side effect
-// of "print me the current types" would be a surprising thing for a
-// read-only inspection command to do.
+// runTypeScriptExport is --typescript-out's entire body : introspect, build
+// the well-known registry (Wellknowns generation needs it), generate,
+// write, done — no dmut, no /route registry, no mux, no HTTP listener.
+// dmut is deliberately skipped here, unlike the server's own startup
+// sequence (specs/migrations.md ## Execution) : running migrations as a
+// side effect of "print me the current types" would be a surprising thing
+// for a read-only inspection command to do. The well-known registry, unlike
+// dmut/route, does its own read-only file I/O + validation against db — no
+// side effects, so building it here doesn't carry the same objection.
 func runTypeScriptExport(cfg *config.Config, out string) error {
 	primaryURI, _, err := resolveConnectionURIs(cfg.Pg)
 	if err != nil {
@@ -215,10 +218,15 @@ func runTypeScriptExport(cfg *config.Config, out string) error {
 	}
 	defer db.Pool.Close()
 
+	wkReg, err := wellknown.BuildRegistry(db, cfg)
+	if err != nil {
+		return fmt.Errorf("building well-known query registry: %w", err)
+	}
+
 	generated := tsgen.GenerateDatabaseTS(db, tsgen.Options{
 		Schemas:   tsgen.ParseSchemaList(cfg.Http.TypeScript.Schemas),
 		Blacklist: cfg.Blacklist,
-	})
+	}, wkReg)
 
 	if out == "-" {
 		_, err := os.Stdout.WriteString(generated)

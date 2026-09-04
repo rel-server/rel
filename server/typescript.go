@@ -12,12 +12,13 @@ import (
 	"github.com/ceymard/rel/errcode"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/tsgen"
+	"github.com/ceymard/rel/wellknown"
 )
 
 // NewTypeScriptHandler serves GET /rel/database.ts. Mounting is conditional
 // on http.typescript.enable (boot/mux.go) — this handler assumes it's
 // already gated, and doesn't re-check the flag itself.
-func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config) http.Handler {
+func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")
@@ -31,7 +32,7 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 			return
 		}
 
-		out := tsgen.GenerateDatabaseTS(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist})
+		out := tsgen.GenerateDatabaseTS(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist}, wkReg)
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(out))

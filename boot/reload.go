@@ -104,10 +104,6 @@ func (rl *Reloader) Reload(ctx context.Context) {
 		rl.Logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", rl.Cfg.Pg.Query.AnonymousRole))
 	}
 
-	// specs/typescript.md ## Reloading `helper_path` : right after step 4,
-	// using this same freshly reintrospected newDb.
-	WriteTypeScriptHelperFile(newDb, rl.Cfg, rl.Logger)
-
 	// Step 5 : /route and well-known registries rebuild from the new schema ;
 	// either failing logs and resumes under the old schema, same as step 3/4.
 	reg, err := route.BuildRegistry(newDb, rl.Cfg)
@@ -122,6 +118,11 @@ func (rl *Reloader) Reload(ctx context.Context) {
 		rl.Wrapper.EndMaintenance()
 		return
 	}
+
+	// specs/typescript.md ## Reloading `helper_path` : right after step 5,
+	// using this same freshly reintrospected newDb AND the freshly rebuilt
+	// wkReg — Wellknowns generation needs both.
+	WriteTypeScriptHelperFile(newDb, rl.Cfg, wkReg, rl.Logger)
 
 	// Step 6 : a fresh mux (via the same BuildMux startup uses) is stored
 	// into the wrapper's atomic.Pointer, never written to Handler directly.

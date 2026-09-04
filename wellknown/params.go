@@ -148,6 +148,24 @@ var textPgTypes = map[string]bool{
 
 var booleanPgTypes = map[string]bool{"boolean": true, "bool": true}
 
+// TSTypeForParam maps a declared param's "type" string to the TypeScript
+// type tsgen emits for it (specs/typescript.md ## Wellknowns), reusing
+// classifyPgType's own buckets rather than a second, divergent mapping —
+// so a param's generated TS type always matches what checkParamType (the
+// wire-level check for the SAME declared type) actually accepts.
+func TSTypeForParam(pgType string) string {
+	switch classifyPgType(pgType) {
+	case pgTypeNumeric:
+		return "number"
+	case pgTypeText:
+		return "string"
+	case pgTypeBoolean:
+		return "boolean"
+	default:
+		return "unknown"
+	}
+}
+
 func classifyPgType(pgType string) pgTypeClass {
 	t := strings.ToLower(strings.TrimSpace(pgType))
 	switch {

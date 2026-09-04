@@ -46,6 +46,12 @@ type Compiled struct {
 	// Read is query.CompileSelect(Root), compiled once at load time (##
 	// Behaviour's "prepared" story) ; only ResolveArgs' paramValues change.
 	Read *writer.SQLWriter
+
+	// QueryRaw is the definition's own "query" field, verbatim JSON —
+	// query.RawWellKnownDefinition.QueryRaw carried through unchanged.
+	// tsgen embeds this as a TS literal for Wellknowns (specs/typescript.md
+	// ## Wellknowns) rather than re-deriving its shape in Go.
+	QueryRaw []byte
 }
 
 // Registry is every well-known query successfully loaded from
@@ -65,4 +71,17 @@ func (r *Registry) Lookup(name string) (*Compiled, bool) {
 	}
 	c, ok := r.byName[name]
 	return c, ok
+}
+
+// All returns every registered *Compiled entry, unordered. Safe to call on
+// a nil *Registry (see Lookup). tsgen walks this to generate Wellknowns.
+func (r *Registry) All() []*Compiled {
+	if r == nil {
+		return nil
+	}
+	out := make([]*Compiled, 0, len(r.byName))
+	for _, c := range r.byName {
+		out = append(out, c)
+	}
+	return out
 }

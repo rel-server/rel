@@ -10,6 +10,7 @@ import (
 
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/pg"
+	"github.com/ceymard/rel/wellknown"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
@@ -48,7 +49,7 @@ func TestMain(m *testing.M) {
 // IsReallyNotNull actually checked, so every column generated as `T |
 // null` regardless of its real constraint.
 func TestGenerateSchema_NotNullSemantics(t *testing.T) {
-	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()})
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
 
 	tableIdx := strings.Index(out, "interface Table__Hotel__Properties {")
 	if tableIdx < 0 {
@@ -75,7 +76,7 @@ func TestGenerateSchema_NotNullSemantics(t *testing.T) {
 }
 
 func TestGenerateSchema_HotelExample(t *testing.T) {
-	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()})
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
 
 	for _, want := range []string{
 		"interface Table__Hotel__Properties {",
@@ -186,7 +187,7 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 // good reason before this fix), so hotel.properties still advertises
 // property_average_rating regardless of which schema wins the bare name.
 func TestGenerateSchema_BareNameShadowing(t *testing.T) {
-	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel", "alt"}, Blacklist: config.DefaultBlacklist()})
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel", "alt"}, Blacklist: config.DefaultBlacklist()}, nil)
 
 	if !strings.Contains(out, `property_average_rating: Functions["alt.property_average_rating"]`) {
 		t.Errorf("expected the bare name to resolve to alt's (search_path-earlier) version ; got:\n%s", out)
@@ -220,7 +221,7 @@ func TestGenerateSchema_BareNameShadowing(t *testing.T) {
 // MUST remain" rule, applied to generated output rather than the hand-
 // maintained typescript/ draft.
 func TestGenerateDatabaseTS_TypeChecks(t *testing.T) {
-	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()})
+	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
 	assertTypeChecks(t, out)
 }
 
@@ -228,7 +229,84 @@ func TestGenerateDatabaseTS_TypeChecks(t *testing.T) {
 // TestGenerateSchema_BareNameShadowing's own database.ts actually
 // type-checking, cross-schema FunctionsByName reference (Functions["alt....
 func TestGenerateDatabaseTS_TypeChecks_BareNameShadowing(t *testing.T) {
-	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel", "alt"}, Blacklist: config.DefaultBlacklist()})
+	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel", "alt"}, Blacklist: config.DefaultBlacklist()}, nil)
+	assertTypeChecks(t, out)
+}
+
+// TestGenerateSchema_Wellknowns is the Wellknowns feature's own regression :
+// specs/typescript.md ## Wellknowns embeds a compiled well-known query's raw
+// "query" JSON verbatim as a `const ... as const` literal and infers its
+// shape through ShapeFromRelationQuery/ResolveModel (shapes.ts), rather than
+// re-deriving that shape in Go — this proves the emitted literal/params type
+// both exist AND actually type-check end to end (TestGenerateDatabaseTS_
+// TypeChecks_Wellknowns, below).
+func TestGenerateSchema_Wellknowns(t *testing.T) {
+	dir := t.TempDir()
+	def := `{
+  "name": "properties_by_star_rating",
+  "params": { "min_rating": { "type": "int" } },
+  "query": {
+    "schema": "hotel",
+    "relation": "properties",
+    "where": ["=", "star_rating", ["$param", "min_rating", "int"]]
+  }
+}`
+	if err := os.WriteFile(filepath.Join(dir, "properties_by_star_rating.json"), []byte(def), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	cfg := &config.Config{}
+	cfg.Pg.Query.WellKnownDirs = dir
+	cfg.Pg.Query.MaxDepth = config.DefaultMaxDepth
+	wkReg, err := wellknown.BuildRegistry(testDb, cfg)
+	if err != nil {
+		t.Fatalf("BuildRegistry: %v", err)
+	}
+
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, wkReg)
+
+	for _, want := range []string{
+		"export interface Wellknowns {",
+		`"properties_by_star_rating": {`,
+		"params: { min_rating: number }",
+		"shape: ShapeFromRelationQuery<typeof __wellknown_properties_by_star_rating_query, ResolveModel<typeof __wellknown_properties_by_star_rating_query>>",
+		`const __wellknown_properties_by_star_rating_query = {"schema":"hotel","relation":"properties","where":["=","star_rating",`,
+		`"$param", "min_rating", "int"`,
+		"} as const",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated schema missing %q ; full output:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateDatabaseTS_TypeChecks_Wellknowns proves a real Wellknowns
+// entry, including the raw-query const and its ShapeFromRelationQuery-
+// derived shape, actually type-checks in the concatenated database.ts —
+// not just that the right substrings appear (TestGenerateSchema_Wellknowns
+// above).
+func TestGenerateDatabaseTS_TypeChecks_Wellknowns(t *testing.T) {
+	dir := t.TempDir()
+	def := `{
+  "name": "properties_by_star_rating",
+  "params": { "min_rating": { "type": "int" } },
+  "query": {
+    "schema": "hotel",
+    "relation": "properties",
+    "where": ["=", "star_rating", ["$param", "min_rating", "int"]]
+  }
+}`
+	if err := os.WriteFile(filepath.Join(dir, "properties_by_star_rating.json"), []byte(def), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	cfg := &config.Config{}
+	cfg.Pg.Query.WellKnownDirs = dir
+	cfg.Pg.Query.MaxDepth = config.DefaultMaxDepth
+	wkReg, err := wellknown.BuildRegistry(testDb, cfg)
+	if err != nil {
+		t.Fatalf("BuildRegistry: %v", err)
+	}
+
+	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, wkReg)
 	assertTypeChecks(t, out)
 }
 

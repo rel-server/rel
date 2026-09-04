@@ -36,6 +36,12 @@ type RawWellKnownDefinition struct {
 	Name   string
 	Params map[string]RawWellKnownParam
 	Query  *rawRelation
+
+	// QueryRaw is "query"'s own verbatim JSON text, captured alongside the
+	// parsed *rawRelation — specs/typescript.md ## Wellknowns embeds this
+	// directly as a TS literal and lets ShapeFromRelationQuery (shapes.ts)
+	// infer its type, rather than duplicating that inference in Go.
+	QueryRaw []byte
 }
 
 // ParseWellKnownFile decodes one well-known query file's top-level content
@@ -88,6 +94,10 @@ func parseWellKnownDefinition(n *ast.Node) (RawWellKnownDefinition, error) {
 	if err != nil {
 		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: "query": %w`, name, err)
 	}
+	queryRaw, err := queryNode.Raw()
+	if err != nil {
+		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: "query": %w`, name, err)
+	}
 
 	params := map[string]RawWellKnownParam{}
 	if p := n.Get("params"); p.Exists() && p.TypeSafe() != ast.V_NULL {
@@ -116,5 +126,5 @@ func parseWellKnownDefinition(n *ast.Node) (RawWellKnownDefinition, error) {
 		}
 	}
 
-	return RawWellKnownDefinition{Name: name, Params: params, Query: rel}, nil
+	return RawWellKnownDefinition{Name: name, Params: params, Query: rel, QueryRaw: []byte(queryRaw)}, nil
 }

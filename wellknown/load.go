@@ -165,5 +165,5 @@ func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled
 		}
 	}
 
-	return &Compiled{Name: def.Name, Params: params, Root: root, Read: sw}, nil
+	return &Compiled{Name: def.Name, Params: params, Root: root, Read: sw, QueryRaw: def.QueryRaw}, nil
 }
