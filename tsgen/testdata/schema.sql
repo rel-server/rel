@@ -49,6 +49,11 @@ create function hotel.property_average_rating(property hotel.properties) returns
 create function hotel.property_average_rating(property_id int) returns numeric
 	language sql as $$ select 4.5 $$;
 
+-- zero-argument function : regression for `args`' own EmptyObject fallback
+-- (tsgen), rather than emitting a literal, biome-flagged `{}`.
+create function hotel.property_count() returns bigint
+	language sql as $$ select count(*) from hotel.properties $$;
+
 create function hotel.rooms_available(property_id int, on_date date default null)
 	returns setof hotel.properties
 	language sql as $$ select * from hotel.properties where id = property_id $$;
@@ -60,3 +65,17 @@ create table hotel.staff (
 	id serial primary key,
 	property_id int not null references hotel.properties (id)
 );
+
+-- A second schema whose OWN property_average_rating shadows hotel's for the
+-- BARE name, once search_path prefers it (below) — regression for
+-- bareNameWinners' schema-priority disambiguation (tsgen) : alt's version
+-- takes `int`, not `hotel.properties`, as its first argument, so it is NOT
+-- itself a computed property of hotel.properties — the bare name should
+-- still resolve to it (FunctionsByName), and hotel.properties' own
+-- ComputedProperties entry should NOT list it, since an unqualified call
+-- would actually reach alt's version, not hotel's.
+create schema alt;
+create function alt.property_average_rating(x int) returns text
+	language sql as $$ select 'n/a' $$;
+
+alter role all set search_path to alt, hotel, public;

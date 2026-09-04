@@ -3,6 +3,14 @@
 // shapes.ts (never written to disk as its own file) ; this "hotel" fixture is kept in the repo so querier.ts/
 // shapes.ts have something real to type-check and exercise against (see example.ts).
 
+// A bare `{}` type accepts anything non-null (biome's noBannedTypes) ; tsgen generates this instead for an
+// actually-empty object shape (a zero-argument function's own `args`, a zero-column relation/composite type —
+// `CREATE TABLE t()` is legal Postgres). NOT used for Wellknowns/Functions/FunctionsByName/Relations/
+// Relationships/ComputedProperties themselves even when empty — see this session's own design discussion ;
+// those keep a literal, biome-ignored empty interface because their `keyof` is load-bearing (`F extends keyof
+// Functions`, ...), and `keyof Record<string, never>` is `string`, not `never`.
+type EmptyObject = Record<string, never>
+
 // Placeholder for Postgres' `point` type until a real pg_types module exists — specs/typescript.md doesn't cover
 // non-trivial pg type mappings yet.
 type Point = { x: number; y: number }
@@ -78,19 +86,59 @@ export interface Relationships {
   }
 }
 
+// Discoverability half of computed columns (specs/typescript.md ; query-engine.md ## Reading Algorithm's own
+// definition) : per relation, which BARE function names are callable against it as a zero-extra-argument
+// property (`t.func_name()`/`func_name(t)`), and what each returns. Deliberately redundant with FunctionsByName
+// below rather than derived from it — see this session's own design discussion (tsgen's renderComputedProperties
+// doc comment carries the full reasoning). property_average_rating's SECOND overload (below) takes `number`, not
+// `Table__Hotel__Properties`, as its first argument, so it's excluded here even though the bare name is shared.
+interface Computed__Hotel__Properties {
+  property_average_rating: number
+}
+
+export interface ComputedProperties {
+  "hotel.properties": Computed__Hotel__Properties
+}
+
 // For each function that is exported, we get an export
 export interface Functions {
-  "hotel.property_average_rating": {
-    positional_args: [Table__Hotel__Properties]
-    args: { property: Table__Hotel__Properties }
-    returns: number
-  }
+  // Overloaded (two entries sharing this key, unioned) : same name, different
+  // signature. The second variant is contrived purely to regression-test
+  // shapes.ts's ResolveFunctionModel against a MIXED scalar/relation overload
+  // set — see example.ts's own assertions on this key.
+  "hotel.property_average_rating":
+    | {
+        positional_args: [Table__Hotel__Properties]
+        args: { property: Table__Hotel__Properties }
+        returns: number
+      }
+    | {
+        positional_args: [property_id: number]
+        args: { property_id: number }
+        relation: Table__Hotel__Properties
+        returns: Table__Hotel__Properties[]
+      }
   "hotel.rooms_available": {
     positional_args: [property_id: number, on_date?: Date]
     args: { property_id: number; on_date?: Date }
     relation: Table__Hotel__Properties // this function has an underlying
     returns: Table__Hotel__Properties[]
   }
+  // Zero-argument function : `args` falls back to EmptyObject, never a literal `{}` — see EmptyObject's own doc
+  // comment, and example.ts's own assertion on this key.
+  "hotel.property_count": {
+    positional_args: []
+    args: EmptyObject
+    returns: number
+  }
+}
+
+// Bare (unqualified, search_path-resolved) name -> Functions entry ; shapes.ts's ShapeFromCallTag consults this
+// so `["call", "property_average_rating", ...]` — Postgres' own `t.func_name()` computed-column calling
+// convention — type-resolves without spelling out `{schema:"hotel", name:"property_average_rating"}` every time.
+export interface FunctionsByName {
+  property_average_rating: Functions["hotel.property_average_rating"]
+  rooms_available: Functions["hotel.rooms_available"]
 }
 
 // Well-known queries aren't introspectable yet — specs/migrations.md notes they aren't implemented server-side

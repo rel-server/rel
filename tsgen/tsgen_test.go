@@ -58,6 +58,8 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 		"export interface Functions {",
 		`"hotel.property_average_rating":`,
 		`"hotel.rooms_available": {`,
+		"type EmptyObject = Record<string, never>",
+		`"hotel.property_count": {`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("generated schema missing %q ; full output:\n%s", want, out)
@@ -73,6 +75,21 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 	}
 	if !strings.Contains(out[overloadIdx:overloadIdx+400], "| {") {
 		t.Errorf("expected hotel.property_average_rating's Functions entry to be a union of its two overloads ; got:\n%s", out[overloadIdx:overloadIdx+400])
+	}
+
+	// hotel.property_count takes zero arguments : `args` must fall back to
+	// EmptyObject, never a literal `{}` (biome's noBannedTypes).
+	countIdx := strings.Index(out, `"hotel.property_count": {`)
+	if countIdx < 0 {
+		t.Fatalf("hotel.property_count entry not found")
+	}
+	countBlockEnd := strings.Index(out[countIdx:], "  }\n")
+	countBlock := out[countIdx : countIdx+countBlockEnd]
+	if !strings.Contains(countBlock, "args: EmptyObject") {
+		t.Errorf("expected hotel.property_count's args to be EmptyObject ; got:\n%s", countBlock)
+	}
+	if strings.Contains(countBlock, "args: {") {
+		t.Errorf("hotel.property_count's args should never be a literal {} ; got:\n%s", countBlock)
 	}
 
 	// hotel.staff -> hotel.properties is deliberately left unindexed
@@ -93,6 +110,65 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 	if roomsKeyIdx < 0 || !strings.Contains(out[roomsKeyIdx:roomsKeyIdx+400], "| {") {
 		t.Errorf("expected hotel.rooms' Relationships entry to be a union of two variants ; got:\n%s", out)
 	}
+
+	// FunctionsByName : with only "hotel" whitelisted, both bare names
+	// resolve unambiguously to their own hotel.* qualified key.
+	for _, want := range []string{
+		"export interface FunctionsByName {",
+		`property_average_rating: Functions["hotel.property_average_rating"]`,
+		`rooms_available: Functions["hotel.rooms_available"]`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated schema missing %q ; full output:\n%s", want, out)
+		}
+	}
+
+	// ComputedProperties : property_average_rating's FIRST overload takes
+	// hotel.properties as its own first argument and accepts arity 1, so
+	// hotel.properties gets a Computed__ entry for it ; the second overload
+	// (property_id int) doesn't apply to any relation, and rooms_available
+	// isn't single-argument-callable at all (on_date is a SECOND parameter,
+	// not the row itself), so neither contributes further entries.
+	for _, want := range []string{
+		"export interface ComputedProperties {",
+		`"hotel.properties": Computed__Hotel__Properties`,
+		"interface Computed__Hotel__Properties {",
+		"property_average_rating: number",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated schema missing %q ; full output:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateSchema_BareNameShadowing exercises bareNameWinners' own
+// disambiguation rule directly : "alt" schema's own property_average_rating
+// (testdata/schema.sql) shares hotel's bare name and comes first in
+// search_path, so it — not hotel's — is what an unqualified call actually
+// reaches. hotel.properties must NOT advertise property_average_rating as
+// one of its own computed properties once that's true, since calling it
+// unqualified wouldn't reach hotel's version at all.
+func TestGenerateSchema_BareNameShadowing(t *testing.T) {
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel", "alt"}, Blacklist: config.DefaultBlacklist()})
+
+	if !strings.Contains(out, `property_average_rating: Functions["alt.property_average_rating"]`) {
+		t.Errorf("expected the bare name to resolve to alt's (search_path-earlier) version ; got:\n%s", out)
+	}
+	if strings.Contains(out, `property_average_rating: Functions["hotel.property_average_rating"]`) {
+		t.Errorf("bare name should NOT resolve to hotel's shadowed version ; got:\n%s", out)
+	}
+
+	computedIdx := strings.Index(out, "interface Computed__Hotel__Properties {")
+	if computedIdx < 0 {
+		// No entry at all is also an acceptable outcome (property_average_rating
+		// was hotel.properties' only would-be computed property) ; only a
+		// wrongly-INCLUDED property_average_rating is the actual regression.
+		return
+	}
+	blockEnd := strings.Index(out[computedIdx:], "}\n")
+	if strings.Contains(out[computedIdx:computedIdx+blockEnd], "property_average_rating") {
+		t.Errorf("hotel.properties should not list property_average_rating once alt's incompatible version shadows it ; got:\n%s", out[computedIdx:computedIdx+blockEnd])
+	}
 }
 
 // TestGenerateDatabaseTS_TypeChecks proves the concatenated, self-sufficient
@@ -101,11 +177,23 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 // MUST remain" rule, applied to generated output rather than the hand-
 // maintained typescript/ draft.
 func TestGenerateDatabaseTS_TypeChecks(t *testing.T) {
+	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()})
+	assertTypeChecks(t, out)
+}
+
+// TestGenerateDatabaseTS_TypeChecks_BareNameShadowing is
+// TestGenerateSchema_BareNameShadowing's own database.ts actually
+// type-checking, cross-schema FunctionsByName reference (Functions["alt....
+func TestGenerateDatabaseTS_TypeChecks_BareNameShadowing(t *testing.T) {
+	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel", "alt"}, Blacklist: config.DefaultBlacklist()})
+	assertTypeChecks(t, out)
+}
+
+func assertTypeChecks(t *testing.T, out string) {
+	t.Helper()
 	if _, err := exec.LookPath("tsc"); err != nil {
 		t.Skip("tsc not found in PATH ; skipping generated-output type-check")
 	}
-
-	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()})
 
 	dir := t.TempDir()
 	dbTsPath := filepath.Join(dir, "database.ts")

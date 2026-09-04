@@ -4,7 +4,13 @@ a query's own `select`/`join`/`relation`/`function`/`shortcut` fields into the J
 extracting whatever `$param`s it declares. No runtime code lives here ; everything below is erased at compile time.
 */
 import type { RelationQuery } from "./query"
-import type { Functions, Relations, Relationships, Wellknowns } from "./schema.example"
+import type {
+  Functions,
+  FunctionsByName,
+  Relations,
+  Relationships,
+  Wellknowns,
+} from "./schema.example"
 
 export type RelationName = keyof Relations
 export type FunctionName = keyof Functions
@@ -83,11 +89,20 @@ export type ResolveModel<Node> = Node extends { shortcut: infer S extends string
 
 // A function's embeddable row shape : its own `relation` (set-returning, joinable/selectable like a table) when
 // given, else its scalar `returns` type — a scalar function produces one bare value per row, not a row at all.
-type ResolveFunctionModel<F extends keyof Functions> = Functions[F] extends {
-  relation: infer R extends object
-}
+// Functions[F] can itself be a union : Postgres allows several functions to share one name, distinguished only
+// by argument list (overloading), and the generated schema files one Functions[key] entry per overload, unioned
+// (tsgen's own renderFunctions). DistributeOverload exists solely so its own M is a NAKED type parameter at the
+// point of the extends-check below — TS only distributes a conditional over a union when the checked type is a
+// bare type parameter of that same conditional, and `Functions[F]` (an indexed access) isn't one ; boxing it
+// through DistributeOverload<Functions[F]> restores that, so a mix of set-returning and scalar overloads
+// resolves each member on its own (a per-overload union of the "right" branch) instead of every member being
+// forced through whichever single branch the WHOLE union happens to satisfy (typically `returns`, unwrapped
+// arrays and all — the wrong shape for func()'s select/join machinery, which wants one row, not `Rel[]`).
+type ResolveFunctionModel<F extends keyof Functions> = DistributeOverload<Functions[F]>
+
+type DistributeOverload<M> = M extends { relation: infer R extends object }
   ? R
-  : Functions[F] extends { returns: infer Ret }
+  : M extends { returns: infer Ret }
     ? Ret
     : DefaultRow
 
@@ -239,6 +254,37 @@ type ShapeFromParamTag<Rest extends readonly unknown[]> = Rest extends readonly 
   ? TypeMap[V]
   : unknown
 
+// ["call", identifier, ...arguments] : a function call, most commonly a computed column (query-engine.md ##
+// Reading Algorithm : "a function taking the relation's row type as its argument, callable via alias.func_name
+// or func_name(alias)"). A bare (unqualified) identifier resolves through FunctionsByName — tsgen's own
+// search_path-disambiguated index, since that unqualified form is the entire point of Postgres' `t.func_name()`
+// computed-column sugar — an explicit `{schema,name}` resolves through Functions directly. Neither goes through
+// ResolveFunctionModel's `relation`-unwrapping (shapes.ts, above) : that exists for func()'s embed-as-a-table
+// path, not for a single value selected inline here — a set-returning function's own `returns` (its real,
+// array-shaped JSON value) is what a "call" tag actually produces, not its unwrapped per-row type. A dynamic
+// (non-literal) or unrecognized identifier falls back to `unknown`, the same limitation relation()/func()
+// already have for a non-literal "schema.relation" name.
+type ShapeFromCallTag<Rest extends readonly unknown[]> = Rest extends readonly [
+  infer Id,
+  ...unknown[],
+]
+  ? Id extends string
+    ? Id extends keyof FunctionsByName
+      ? ReturnsOf<FunctionsByName[Id]>
+      : unknown
+    : Id extends { schema: infer Sc extends string; name: infer N extends string }
+      ? `${Sc}.${N}` extends keyof Functions
+        ? ReturnsOf<Functions[`${Sc}.${N}`]>
+        : unknown
+      : unknown
+  : unknown
+
+// Every Functions[key] entry always has `returns` (unlike `relation`, present only conditionally) — a
+// uniformly-matching union already infers the union of each member's own `returns` without needing
+// DistributeOverload's boxing trick above (that trick only matters when SOME members fail to match a branch,
+// which can't happen here : `returns` is unconditional).
+type ReturnsOf<M> = M extends { returns: infer Ret } ? Ret : unknown
+
 // arr/array/lst/list preserve each item's position (a tuple, not a collapsed union) ; coalesce instead
 // produces one value — the union of what each argument could be.
 type ShapeFromContainerTag<
@@ -268,8 +314,10 @@ type ShapeFromExpressionMap<
 // matters : `["own"]`/`["full"]` and their variants must be checked before the fallback [string] literal case,
 // or a length-1 array like `["own"]` matches [string] first — see query.ts's own `Expression` doc comment.
 //
-// Raw operators, "call"/"agg", "index"/"slice", "format", ... fall back to `unknown` : narrowing them needs the
-// database.json export specs/typescript.md's "Goals" already calls out as separate, not-yet-built (v2) work.
+// "call" resolves through ShapeFromCallTag (above), a literal-identifier lookup against FunctionsByName/
+// Functions. Raw operators, "agg", "index"/"slice", "format", ... still fall back to `unknown` : narrowing them
+// needs the database.json export specs/typescript.md's "Goals" already calls out as separate, not-yet-built
+// (v2) work.
 type ShapeFromExpression<
   E,
   Rel extends object,
@@ -286,9 +334,11 @@ type ShapeFromExpression<
           ? ShapeFromParamTag<Rest>
           : Tag extends ContainerTag
             ? ShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth]>
-            : Rest extends readonly [] // the plain [string] literal form ; Tag wasn't a reserved keyword above
-              ? Tag
-              : unknown // any other operator/call/agg/index/slice/format tuple — see comment above
+            : Tag extends "call"
+              ? ShapeFromCallTag<Rest>
+              : Rest extends readonly [] // the plain [string] literal form ; Tag wasn't a reserved keyword above
+                ? Tag
+                : unknown // any other operator/agg/index/slice/format tuple — see comment above
     : E extends { [name: string]: unknown }
       ? ShapeFromExpressionMap<E, Rel, Join, Digits[Depth]>
       : ShapeFromLeaf<E, Rel, Join, Digits[Depth]>
@@ -443,9 +493,12 @@ type WriteShapeFromExpression<
           ? ShapeFromParamTag<Rest>
           : Tag extends ContainerTag
             ? WriteShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth]>
-            : Rest extends readonly []
-              ? Tag
-              : unknown
+            : Tag extends "call"
+              ? Omitted // never a real column (query-engine.md : "never a candidate for writability") ; dropped
+              : // from the write shape entirely, same as `get` above, rather than kept with a nonsensical type.
+                Rest extends readonly []
+                ? Tag
+                : unknown
     : E extends { [name: string]: unknown }
       ? WriteShapeFromExpressionMap<E, Rel, Join, Digits[Depth]>
       : ShapeFromLeaf<E, Rel, Join, Digits[Depth]>

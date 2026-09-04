@@ -62,23 +62,47 @@ func (o Options) targetFunction(f *pg.Function) bool {
 }
 
 // GenerateSchema renders specs/typescript.md ## database.ts ### File
-// layout's Section 2 : Relations/Relationships/Functions/Wellknowns and the
-// Table__/View__/Type__ interfaces they reference, from db filtered by opts.
+// layout's Section 2 : Relations/Relationships/ComputedProperties/Functions/
+// FunctionsByName/Wellknowns and the Table__/View__/Type__/Computed__
+// interfaces they reference, from db filtered by opts.
 func GenerateSchema(db *pg.DbInfos, opts Options) string {
 	tc := newTypeCollector()
 
 	relations := targetRelations(db, opts)
+	fns := targetFunctions(db, opts)
+	allowed := map[*pg.Relation]bool{}
+	for _, r := range relations {
+		allowed[r] = true
+	}
+
 	relInterfaces := renderRelationInterfaces(relations, tc)
 	relationsMap := renderRelationsMap(relations)
-	relationships := renderRelationships(relations, opts, tc)
-	functions := renderFunctions(db, opts, tc)
+	relationships := renderRelationships(relations, allowed, tc)
+	computedProperties := renderComputedProperties(fns, allowed, db.SearchPath, tc)
+	functions := renderFunctions(fns, allowed, tc)
+	functionsByName := renderFunctionsByName(fns, db.SearchPath)
 
 	var b strings.Builder
+	// A bare `{}` type accepts anything non-null (biome's own noBannedTypes
+	// rule flags it for exactly that reason) — EmptyObject is what an
+	// actually-empty object shape (a zero-argument function's own `args`, a
+	// zero-column relation/composite type — CREATE TABLE t() is legal
+	// Postgres) generates instead. NOT used for Wellknowns/Functions/
+	// FunctionsByName/Relations/Relationships/ComputedProperties themselves
+	// even when they have no entries : those stay a literal empty interface
+	// (biome-ignored) because their `keyof` is load-bearing (F extends keyof
+	// Functions, Id extends keyof FunctionsByName, ...) — `keyof
+	// Record<string, never>` is `string`, not `never`, which would make
+	// every unrecognized name type-check as valid instead of correctly
+	// falling back to DefaultRow/unknown.
+	b.WriteString("type EmptyObject = Record<string, never>\n\n")
 	b.WriteString(tc.declarations())
 	b.WriteString(relInterfaces)
 	b.WriteString(relationsMap)
 	b.WriteString(relationships)
+	b.WriteString(computedProperties)
 	b.WriteString(functions)
+	b.WriteString(functionsByName)
 	// specs/typescript.md ## Wellknowns : reserved, generated empty until
 	// well-known queries are introspectable server-side.
 	b.WriteString("// Well-known queries aren't introspectable yet.\n")
@@ -103,12 +127,37 @@ func targetRelations(db *pg.DbInfos, opts Options) []*pg.Relation {
 	return out
 }
 
+func targetFunctions(db *pg.DbInfos, opts Options) []*pg.Function {
+	var out []*pg.Function
+	for _, f := range db.Functions {
+		if opts.targetFunction(f) {
+			out = append(out, f)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Identifier.Schema != out[j].Identifier.Schema {
+			return out[i].Identifier.Schema < out[j].Identifier.Schema
+		}
+		return out[i].Identifier.Name < out[j].Identifier.Name
+	})
+	return out
+}
+
 func renderRelationInterfaces(relations []*pg.Relation, tc *typeCollector) string {
 	var b strings.Builder
 	for _, r := range relations {
 		name := relationInterfaceName(r.Identifier.Schema, r.Identifier.Name, r.IsView)
 		b.WriteString(docComment(r.Comment, ""))
-		fmt.Fprintf(&b, "interface %s {\n%s}\n\n", name, relationColumnsBlock(r, tc))
+		body := relationColumnsBlock(r, tc)
+		if body == "" {
+			// CREATE TABLE t() is legal Postgres — a zero-column relation
+			// has no columns to interface-body, so it's a type alias to
+			// EmptyObject instead of an empty `interface X {}` (this one
+			// isn't a lookup map ; nothing needs its `keyof`).
+			fmt.Fprintf(&b, "type %s = EmptyObject\n\n", name)
+			continue
+		}
+		fmt.Fprintf(&b, "interface %s {\n%s}\n\n", name, body)
 	}
 	return b.String()
 }
@@ -138,12 +187,7 @@ type relationshipVariant struct {
 // exactly once (a constraint belongs to exactly one relation's own list),
 // producing up to two variants per eligible FK — see the type's own doc
 // comment and specs/typescript.md ## Schema interfaces ## Relationships.
-func renderRelationships(relations []*pg.Relation, opts Options, tc *typeCollector) string {
-	allowed := map[*pg.Relation]bool{}
-	for _, r := range relations {
-		allowed[r] = true
-	}
-
+func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool, tc *typeCollector) string {
 	byKey := map[string][]relationshipVariant{}
 	var order []string
 	addVariant := func(v relationshipVariant) {
@@ -228,30 +272,204 @@ func columnNames(columns []*pg.Column) []string {
 	return names
 }
 
-// renderFunctions is specs/typescript.md ## Schema interfaces' "Functions"
-// paragraph.
-func renderFunctions(db *pg.DbInfos, opts Options, tc *typeCollector) string {
-	allowed := map[*pg.Relation]bool{}
-	for _, r := range targetRelations(db, opts) {
-		allowed[r] = true
+// bareNameWinners maps each bare (unqualified) function name shared by one
+// or more of fns to the ONE "schema.name" key an unqualified call to that
+// name would actually resolve to at runtime — the same search_path-based
+// winner Postgres itself picks for a bare `func_name(...)` call, including
+// Postgres' own dot-syntax for computed columns (`t.func_name()`). A name
+// whose only candidates all live outside searchPath resolves to nothing
+// (matches Postgres : nothing on the path, nothing found) and is omitted.
+//
+// This does NOT replicate Postgres' real overload resolution — matching
+// candidates across every search_path schema by argument-type compatibility
+// — only "which SCHEMA wins," by its own position in searchPath, ignoring
+// argument compatibility entirely. A same-named function in an
+// earlier-searched schema whose arguments don't actually fit a given call
+// site still "wins" here and shadows a later, better-fitting schema :
+// accepted as a best-effort heuristic, not a validator, the same stance
+// specs/typescript.md already takes for write-shape derivation.
+func bareNameWinners(fns []*pg.Function, searchPath []string) map[string]string {
+	pathIndex := make(map[string]int, len(searchPath))
+	for i, s := range searchPath {
+		pathIndex[s] = i
 	}
 
-	var fns []*pg.Function
-	for _, f := range db.Functions {
-		if opts.targetFunction(f) {
-			fns = append(fns, f)
+	type candidate struct {
+		schema string
+		rank   int
+	}
+	best := map[string]candidate{}
+	for _, f := range fns {
+		rank, onPath := pathIndex[f.Identifier.Schema]
+		if !onPath {
+			continue
+		}
+		name := f.Identifier.Name
+		if cur, ok := best[name]; !ok || rank < cur.rank {
+			best[name] = candidate{schema: f.Identifier.Schema, rank: rank}
 		}
 	}
-	if len(fns) == 0 {
+
+	winners := make(map[string]string, len(best))
+	for name, c := range best {
+		winners[name] = relationKey(c.schema, name)
+	}
+	return winners
+}
+
+// renderFunctionsByName is the bare-name half of specs/typescript.md's
+// computed-column story : shapes.ts's ShapeFromCallTag consults this
+// UNCONDITIONALLY (unlike ComputedProperties, purely a discoverability
+// aid), so `["call", "func_name", ...]` (the unqualified form — the whole
+// point of Postgres' `t.func_name()` computed-column sugar) type-resolves
+// the same way `["call", {schema,name}, ...]` already does through
+// Functions. Always emitted, even empty (Wellknowns' own pattern) : a
+// downstream reference to a type that doesn't exist in the file at all is a
+// hard compile error, not a graceful "no matches." Each entry is a plain
+// indexed reference into Functions, not a re-rendered copy, so an
+// overloaded name's union (renderFunctions' own grouping) carries through
+// automatically.
+func renderFunctionsByName(fns []*pg.Function, searchPath []string) string {
+	winners := bareNameWinners(fns, searchPath)
+	names := make([]string, 0, len(winners))
+	for name := range winners {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var b strings.Builder
+	if len(names) == 0 {
+		b.WriteString("// biome-ignore lint/suspicious/noEmptyInterface: always emitted, see this function's own doc comment\n")
+	}
+	b.WriteString("export interface FunctionsByName {\n")
+	for _, name := range names {
+		fmt.Fprintf(&b, "  %s: Functions[%s]\n", identifierField(name), strconv.Quote(winners[name]))
+	}
+	b.WriteString("}\n\n")
+	return b.String()
+}
+
+// firstInputArg returns f's first IN/INOUT/VARIADIC argument — the one a
+// Postgres computed-column call (`t.func()`) always binds the row to,
+// regardless of how many further arguments f declares.
+func firstInputArg(f *pg.Function) *pg.FunctionArgument {
+	for i := range f.Arguments {
+		a := &f.Arguments[i]
+		if a.IsIn() || a.IsInOut() || a.IsVariadic() {
+			return a
+		}
+	}
+	return nil
+}
+
+// renderComputedProperties is specs/typescript.md's discoverability half of
+// computed columns — query-engine.md ## Reading Algorithm's own definition :
+// "a function taking the relation's row type as its argument, callable via
+// alias.func_name or func_name(alias)". Kept alongside, never merged into,
+// Table__/View__ (own/full deliberately never include a computed column) ;
+// purely a "what's callable here, and what does it return" discovery aid
+// for authoring `select` — the ACTUAL type of a `["call", ...]` expression
+// still resolves through FunctionsByName/Functions (shapes.ts's
+// ShapeFromCallTag), independently, using the SAME bareNameWinners
+// resolution so the two never disagree about which function a bare name
+// means. Deliberately redundant with FunctionsByName rather than derived
+// from it at the type level : the two answer different questions ("what
+// can I call here" vs "what does this specific call produce") and
+// collapsing them would make ComputedProperties depend on the identifier
+// actually written at a call site, which it isn't meant to.
+//
+// Eligibility : the winning function (bareNameWinners) for a given name
+// must accept its FIRST argument as this relation's own composite row type,
+// AND be callable with exactly that one argument (pg.Function.AcceptsArity(1)
+// — i.e. every argument after the first has a default) ; a function needing
+// further required arguments isn't callable as a bare property.
+func renderComputedProperties(fns []*pg.Function, allowed map[*pg.Relation]bool, searchPath []string, tc *typeCollector) string {
+	winners := bareNameWinners(fns, searchPath)
+	fnsByKey := map[string][]*pg.Function{}
+	for _, f := range fns {
+		key := relationKey(f.Identifier.Schema, f.Identifier.Name)
+		fnsByKey[key] = append(fnsByKey[key], f)
+	}
+
+	byRelation := map[*pg.Relation]map[string]string{}
+	for name, key := range winners {
+		for _, f := range fnsByKey[key] {
+			first := firstInputArg(f)
+			if first == nil || !f.AcceptsArity(1) {
+				continue
+			}
+			rel := first.Type.CompositeRelation()
+			if rel == nil || !allowed[rel] {
+				continue
+			}
+			ts := tsTypeExpr(f.ReturnType, tc)
+			if f.ReturnsSet {
+				ts += "[]"
+			}
+			if byRelation[rel] == nil {
+				byRelation[rel] = map[string]string{}
+			}
+			// A second matching overload under the same winning key unions
+			// in, rather than overwriting — Postgres itself would refuse to
+			// register two arity-1 overloads with the same first-argument
+			// type, so this is defensive, not an expected real-world case.
+			if existing, ok := byRelation[rel][name]; ok {
+				byRelation[rel][name] = existing + " | " + ts
+			} else {
+				byRelation[rel][name] = ts
+			}
+		}
+	}
+
+	if len(byRelation) == 0 {
 		return ""
 	}
-	sort.Slice(fns, func(i, j int) bool {
-		if fns[i].Identifier.Schema != fns[j].Identifier.Schema {
-			return fns[i].Identifier.Schema < fns[j].Identifier.Schema
+
+	var relOrder []*pg.Relation
+	for r := range byRelation {
+		relOrder = append(relOrder, r)
+	}
+	sort.Slice(relOrder, func(i, j int) bool {
+		if relOrder[i].Identifier.Schema != relOrder[j].Identifier.Schema {
+			return relOrder[i].Identifier.Schema < relOrder[j].Identifier.Schema
 		}
-		return fns[i].Identifier.Name < fns[j].Identifier.Name
+		return relOrder[i].Identifier.Name < relOrder[j].Identifier.Name
 	})
 
+	var interfaces strings.Builder
+	var mapBody strings.Builder
+	mapBody.WriteString("export interface ComputedProperties {\n")
+	for _, r := range relOrder {
+		props := byRelation[r]
+		names := make([]string, 0, len(props))
+		for n := range props {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+
+		compName := "Computed__" + pascalCase(r.Identifier.Schema) + "__" + pascalCase(r.Identifier.Name)
+		fmt.Fprintf(&interfaces, "interface %s {\n", compName)
+		for _, n := range names {
+			fmt.Fprintf(&interfaces, "  %s: %s\n", identifierField(n), props[n])
+		}
+		interfaces.WriteString("}\n\n")
+
+		key := relationKey(r.Identifier.Schema, r.Identifier.Name)
+		fmt.Fprintf(&mapBody, "  %s: %s\n", strconv.Quote(key), compName)
+	}
+	mapBody.WriteString("}\n\n")
+
+	return interfaces.String() + mapBody.String()
+}
+
+// renderFunctions is specs/typescript.md ## Schema interfaces' "Functions"
+// paragraph. Always emits the interface, even empty (a real deployment
+// exporting zero functions) : shapes.ts references `Functions`
+// unconditionally (ResolveFunctionModel, FunctionsByName's own indexed
+// entries, ShapeFromCallTag), and a downstream reference to a type absent
+// from the file entirely is a hard compile error, not a graceful "no
+// matches" — the same reasoning Wellknowns/FunctionsByName already follow.
+func renderFunctions(fns []*pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) string {
 	// Postgres allows several functions to share one name, distinguished
 	// only by argument list (overloading) — grouped by key here so each
 	// gets its own union variant instead of colliding on one object-literal
@@ -267,6 +485,9 @@ func renderFunctions(db *pg.DbInfos, opts Options, tc *typeCollector) string {
 	}
 
 	var b strings.Builder
+	if len(order) == 0 {
+		b.WriteString("// biome-ignore lint/suspicious/noEmptyInterface: always emitted, see this function's own doc comment\n")
+	}
 	b.WriteString("export interface Functions {\n")
 	for _, key := range order {
 		overloads := byKey[key]
@@ -340,7 +561,11 @@ func renderFunctionArgs(b *strings.Builder, f *pg.Function, tc *typeCollector) {
 		obj[i] = fmt.Sprintf("%s%s: %s", identifierField(a.name), opt, a.tsType)
 	}
 	fmt.Fprintf(b, "    positional_args: [%s]\n", strings.Join(tuple, ", "))
-	fmt.Fprintf(b, "    args: { %s }\n", strings.Join(obj, "; "))
+	argsType := "EmptyObject" // a zero-argument function's own args object — see EmptyObject's own doc comment
+	if len(obj) > 0 {
+		argsType = "{ " + strings.Join(obj, "; ") + " }"
+	}
+	fmt.Fprintf(b, "    args: %s\n", argsType)
 }
 
 // renderFunctionReturns is specs/typescript.md ## Schema interfaces'
@@ -357,17 +582,31 @@ func renderFunctionReturns(b *strings.Builder, f *pg.Function, allowed map[*pg.R
 			return
 		}
 		if f.RecordRelation != nil {
-			fmt.Fprintf(b, "    returns: {\n%s    }[]\n", indentBlock(relationColumnsBlock(f.RecordRelation, tc), "    "))
+			fmt.Fprintf(b, "    returns: %s[]\n", recordRelationTypeExpr(f.RecordRelation, tc))
 			return
 		}
 		fmt.Fprintf(b, "    returns: %s[]\n", tsTypeExpr(f.ReturnType, tc))
 		return
 	}
 	if f.RecordRelation != nil {
-		fmt.Fprintf(b, "    returns: {\n%s    }\n", indentBlock(relationColumnsBlock(f.RecordRelation, tc), "    "))
+		fmt.Fprintf(b, "    returns: %s\n", recordRelationTypeExpr(f.RecordRelation, tc))
 		return
 	}
 	fmt.Fprintf(b, "    returns: %s\n", tsTypeExpr(f.ReturnType, tc))
+}
+
+// recordRelationTypeExpr renders a function's own synthetic RecordRelation
+// (RETURNS TABLE/OUT-parameter columns) as an inline object type. info_type.
+// go only ever builds a RecordRelation when it has at least one column, so
+// this can't actually be empty today — guarded anyway, defensively, the
+// same as renderRelationInterfaces' own zero-column case, rather than
+// relying on that upstream invariant never changing.
+func recordRelationTypeExpr(r *pg.Relation, tc *typeCollector) string {
+	body := relationColumnsBlock(r, tc)
+	if body == "" {
+		return "EmptyObject"
+	}
+	return "{\n" + indentBlock(body, "    ") + "    }"
 }
 
 // indentBlock prepends prefix to every line of s (relationColumnsBlock's own
