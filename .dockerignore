@@ -1,0 +1,8 @@
+.git
+jwt-secret
+/rel
+/cmd/rel/rel
+specs
+docs
+test
+*.md

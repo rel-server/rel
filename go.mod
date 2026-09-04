@@ -6,7 +6,7 @@ require (
 	github.com/CloudyKit/jet/v6 v6.3.2
 	github.com/brianvoe/gofakeit/v7 v7.15.0
 	github.com/bytedance/sonic v1.15.3
-	github.com/ceymard/dmut/v2 v2.0.3
+	github.com/ceymard/dmut/v2 v2.0.5
 	github.com/goccy/go-yaml v1.19.2
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/samber/oops v1.23.0
@@ -112,10 +112,3 @@ require (
 	google.golang.org/grpc v1.83.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// TEMPORARY, until the ceymard/dmut/v2 changes this integration needed
-// (mutations.MutationRunnerOptions.Output) are tagged/pushed upstream —
-// remove this replace and bump the require above to the real tagged
-// version once that happens. Breaks the build on any machine without
-// /home/chris/Code/dmut checked out at that exact path.
-replace github.com/ceymard/dmut/v2 => /home/chris/Code/dmut

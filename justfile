@@ -3,6 +3,9 @@ db_name := "hotel"
 db_user := "hotel"
 db_password := "test"
 
+image_registry := "ghcr.io/ceymard/rel"
+version := `git describe --tags --always --dirty`
+
 # Run the full test suite (testcontainers spins up its own throwaway Postgres
 # per package — docker must be running, but `just db-up` is not required)
 test:
@@ -53,3 +56,18 @@ db-fresh: db-down db-up db-migrate db-seed
 # Open a psql shell into the dev database
 db-psql:
     docker exec -it {{db_container}} psql -U postgres -d {{db_name}}
+
+# Build the scratch-based server image, tagged with the current git version
+# (git describe : the checked-out tag, or <tag>-N-g<sha>[-dirty] otherwise)
+# and "latest".
+image:
+    docker build --build-arg VERSION={{version}} \
+        -t {{image_registry}}:{{version}} \
+        -t {{image_registry}}:latest \
+        .
+
+# Push the image built by `just image` (both tags) to image_registry — log
+# in first (e.g. `docker login ghcr.io`).
+upload: image
+    docker push {{image_registry}}:{{version}}
+    docker push {{image_registry}}:latest
