@@ -153,10 +153,17 @@ func FillConstraintInformations(infos *DbInfos, conn *pgx.Conn) error {
 			c.Type = ConstraintTypePrimaryKey
 			relation.PrimaryKey = c
 			relation.uniqueColumnGroups[sortedColumnKey(dbc.Columns)] = c
+			for _, col := range c.Columns {
+				col.IsPrimaryKey = true
+				col.IsParOfUnique = true // a primary key is inherently unique
+			}
 
 		case "u":
 			c.Type = ConstraintTypeUnique
 			relation.uniqueColumnGroups[sortedColumnKey(dbc.Columns)] = c
+			for _, col := range c.Columns {
+				col.IsParOfUnique = true
+			}
 
 		case "f":
 			c.Type = ConstraintTypeOutgoingForeignKey

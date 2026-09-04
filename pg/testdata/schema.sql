@@ -198,3 +198,13 @@ create table warehouse (
 	id serial primary key,
 	addresses addr_t[]
 );
+
+-- Column-flag regression fixture : IsPrimaryKey/IsParOfUnique/IsGenerated
+-- (info_column.go/info_constraint.go).
+create table flagged_columns (
+	id serial primary key,
+	code text not null,
+	price numeric not null,
+	tax numeric generated always as (price * 0.2) stored,
+	unique (code)
+);

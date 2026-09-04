@@ -114,6 +114,7 @@ SELECT json_agg(R) FROM (SELECT
 		'IsNullable', is_nullable = 'YES',
 		'IsSelfReferencing', is_self_referencing = 'YES',
 		'IsIdentity', is_identity = 'YES',
+		'IsGenerated', is_generated = 'ALWAYS',
 		'IsUpdatable', is_updatable = 'YES',
 		'PgTypeOid', (SELECT t.oid::INT FROM pg_type t WHERE t.typname = udt_name AND t.typnamespace = udt_schema::regnamespace),
 		'DomainIdentifier', CASE WHEN domain_schema IS NULL THEN NULL ELSE json_build_object(
@@ -161,6 +162,7 @@ SELECT
 		'IsNullable', true,
 		'IsSelfReferencing', false,
 		'IsIdentity', false,
+		'IsGenerated', false,
 		'IsUpdatable', false,
 		'PgTypeOid', a.atttypid::integer,
 		'DomainIdentifier', NULL

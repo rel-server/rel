@@ -35,9 +35,13 @@ type Column struct {
 
 	DefaultExpression string
 
+	// IsPrimaryKey/IsParOfUnique are filled by FillConstraintInformations
+	// (info_constraint.go), after relations/columns themselves are ; not
+	// available directly from information_schema.columns like the rest of
+	// this struct's fields.
 	IsPrimaryKey  bool
 	IsIdentity    bool
-	IsGenerated   bool
+	IsGenerated   bool // GENERATED ALWAYS AS ... STORED
 	IsParOfUnique bool
 	IsNullable    bool
 	IsUpdatable   bool

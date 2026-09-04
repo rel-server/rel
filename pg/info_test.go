@@ -317,6 +317,41 @@ func TestFindUniqueConstraint(t *testing.T) {
 	}
 }
 
+// ---- column flags : IsPrimaryKey/IsParOfUnique/IsGenerated -----------------
+
+func TestColumnFlags_PrimaryKeyAndUniqueAndGenerated(t *testing.T) {
+	flagged := relationByName(t, "flagged_columns")
+
+	id := flagged.ColumnsMap["id"]
+	if !id.IsPrimaryKey {
+		t.Errorf("id is the primary key ; expected IsPrimaryKey")
+	}
+	if !id.IsParOfUnique {
+		t.Errorf("a primary key column is inherently unique ; expected IsParOfUnique")
+	}
+
+	code := flagged.ColumnsMap["code"]
+	if code.IsPrimaryKey {
+		t.Errorf("code is not the primary key ; expected !IsPrimaryKey")
+	}
+	if !code.IsParOfUnique {
+		t.Errorf("code has its own UNIQUE constraint ; expected IsParOfUnique")
+	}
+
+	price := flagged.ColumnsMap["price"]
+	if price.IsParOfUnique {
+		t.Errorf("price is neither a primary key nor unique ; expected !IsParOfUnique")
+	}
+	if price.IsGenerated {
+		t.Errorf("price is a plain column ; expected !IsGenerated")
+	}
+
+	tax := flagged.ColumnsMap["tax"]
+	if !tax.IsGenerated {
+		t.Errorf("tax is GENERATED ALWAYS ... STORED ; expected IsGenerated")
+	}
+}
+
 // ---- index introspection : INCLUDE / partial / expression exclusion -------
 
 func TestIsIndexed_CoveringIndexIgnoresIncludeColumns(t *testing.T) {
