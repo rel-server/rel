@@ -366,9 +366,8 @@ func (s *seeder) seedBookings() {
 	}
 }
 
-// pickNonOverlapping finds a stay for room r that doesn't clash with what's
-// already been assigned to it in this run, tracked in-memory rather than
-// relying on retrying against the exclusion constraint.
+// pickNonOverlapping finds a stay for room r that doesn't clash with
+// what's already assigned to it this run, tracked in-memory.
 func (s *seeder) pickNonOverlapping(r *room, horizon time.Time) (time.Time, time.Time, bool) {
 	for attempt := 0; attempt < 20; attempt++ {
 		offsetDays := s.rng.Intn(180)
@@ -464,9 +463,8 @@ func (s *seeder) seedStaff() {
 		`, propertyID, gofakeit.Name())
 		s.staffIDs = append(s.staffIDs, managerID)
 
-		// one deputy reporting to the GM, who in turn has reports — a
-		// three-level chain, deliberately deeper than 1 hop for the
-		// self-join fixture to have something non-trivial to walk
+		// A deputy reporting to the GM, who has reports — 3 levels deep,
+		// so the self-join fixture has something non-trivial to walk.
 		deputyID := s.queryInt64(`
 			insert into hotel.staff (property_id, manager_id, name, role) values ($1, $2, $3, 'Assistant Manager') returning id
 		`, propertyID, managerID, gofakeit.Name())

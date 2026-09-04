@@ -11,11 +11,8 @@ import (
 	"github.com/ceymard/rel/websec"
 )
 
-// wrapWithWebsec builds the same middleware chain boot.BuildMux composes
-// (websec.Middleware around a mux), reusing testDb/testReg as the inner
-// handler's own dependencies — needed for CORS preflight/actual-response
-// tests, which only engage at that outer layer, and for CSP tests, which
-// read RelHttpRequest.csp_nonce off the context websec.Middleware stashes.
+// wrapWithWebsec builds boot.BuildMux's same chain (websec.Middleware
+// around a mux) since CORS/CSP only engage at that outer layer.
 func wrapWithWebsec(t *testing.T, mutate func(cfg *config.Config)) http.Handler {
 	t.Helper()
 	cfg := *testCfg
@@ -56,9 +53,8 @@ func TestCors_PreflightAnsweredDirectly_NeverReachesRoute(t *testing.T) {
 	}
 }
 
-// TestCors_PlainOptionsWithoutBothHeaders_FallsThroughToRealRoute proves an
-// OPTIONS request missing either Origin or Access-Control-Request-Method
-// is NOT treated as a preflight — a real fn__options route must answer it.
+// TestCors_PlainOptionsWithoutBothHeaders_FallsThroughToRealRoute : an
+// OPTIONS missing either header isn't a preflight — a real route answers it.
 func TestCors_PlainOptionsWithoutBothHeaders_FallsThroughToRealRoute(t *testing.T) {
 	handler := wrapWithWebsec(t, nil)
 
@@ -92,12 +88,8 @@ func TestCors_DisallowedOrigin_NoHeadersSent(t *testing.T) {
 	}
 }
 
-// TestCors_Wildcard_NeverSendsCredentials_ReflectsLiteralStar proves ## CORS
-// ### `*` as an explicit value's rule end to end : allowed_origins:"*"
-// allows any origin, but sends the literal "*" (not the reflected Origin
-// value) and NEVER Access-Control-Allow-Credentials — combining a wildcard
-// origin with credentials is unsafe and must never happen regardless of
-// which origin actually sent the request.
+// TestCors_Wildcard_NeverSendsCredentials_ReflectsLiteralStar : "*" sends
+// the literal star, never the reflected Origin or Allow-Credentials.
 func TestCors_Wildcard_NeverSendsCredentials_ReflectsLiteralStar(t *testing.T) {
 	handler := wrapWithWebsec(t, func(cfg *config.Config) {
 		cfg.Http.Cors.AllowedOrigins = "*"
@@ -115,10 +107,7 @@ func TestCors_Wildcard_NeverSendsCredentials_ReflectsLiteralStar(t *testing.T) {
 		t.Errorf("expected no Access-Control-Allow-Credentials with a wildcard origin, got %q", got)
 	}
 
-	// The same "never credentials with a wildcard" rule on a PREFLIGHT
-	// response specifically — the traditional leak point, since a preflight
-	// is what a browser consults to decide whether to actually send
-	// credentials on the real request that follows.
+	// Same rule on the preflight response itself, the traditional leak point.
 	preflight := httptest.NewRequest(http.MethodOptions, "/route/public/fn_echo0", nil)
 	preflight.Header.Set("Origin", "https://anything.example.com")
 	preflight.Header.Set("Access-Control-Request-Method", "GET")
@@ -133,9 +122,8 @@ func TestCors_Wildcard_NeverSendsCredentials_ReflectsLiteralStar(t *testing.T) {
 	}
 }
 
-// TestCors_MultipleConfiguredOrigins_EachReflectedIndividually proves a
-// comma-separated allowlist matches EACH configured origin (not just the
-// first/last), reflecting that exact origin back with credentials+Vary.
+// TestCors_MultipleConfiguredOrigins_EachReflectedIndividually : a
+// comma-separated allowlist matches every origin, not just first/last.
 func TestCors_MultipleConfiguredOrigins_EachReflectedIndividually(t *testing.T) {
 	handler := wrapWithWebsec(t, func(cfg *config.Config) {
 		cfg.Http.Cors.AllowedOrigins = "https://a.example.com,https://b.example.com"
@@ -165,9 +153,8 @@ func TestCors_MultipleConfiguredOrigins_EachReflectedIndividually(t *testing.T) 
 	}
 }
 
-// TestCors_Preflight_MethodsAndHeadersReflectConfiguredValues proves the
-// preflight response's Access-Control-Allow-Methods/-Headers carry the
-// ACTUAL configured values, not merely a non-empty placeholder.
+// TestCors_Preflight_MethodsAndHeadersReflectConfiguredValues : the
+// preflight response carries actual configured values, not a placeholder.
 func TestCors_Preflight_MethodsAndHeadersReflectConfiguredValues(t *testing.T) {
 	handler := wrapWithWebsec(t, func(cfg *config.Config) {
 		cfg.Http.Cors.AllowedOrigins = "https://example.com"
@@ -189,9 +176,8 @@ func TestCors_Preflight_MethodsAndHeadersReflectConfiguredValues(t *testing.T) {
 	}
 }
 
-// TestCsp_RawPolicyConfigEndToEnd proves http.csp.policy (the config-level
-// raw override, distinct from a per-response RelHttpResponse.csp override)
-// actually replaces the ten-directive default on the wire.
+// TestCsp_RawPolicyConfigEndToEnd proves http.csp.policy replaces the
+// ten-directive default on the wire.
 func TestCsp_RawPolicyConfigEndToEnd(t *testing.T) {
 	handler := wrapWithWebsec(t, func(cfg *config.Config) {
 		cfg.Http.Csp.Policy = "default-src 'none'; connect-src 'self'"
@@ -205,11 +191,8 @@ func TestCsp_RawPolicyConfigEndToEnd(t *testing.T) {
 	if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "connect-src 'self'") {
 		t.Errorf("expected http.csp.policy's own directives on the wire, got %q", csp)
 	}
-	// config.Test()'s own ten-directive default (DefaultHttpCspDefaultSrc =
-	// "'self'") must not leak through once http.csp.policy is set : its
-	// marker directive is "default-src 'self'", distinct from this test's
-	// own raw override "default-src 'none'" — and script-src must synthesize
-	// from the OVERRIDE's own default-src ('none'), not the config default.
+	// The config default's own marker directive must not leak through once
+	// http.csp.policy is set.
 	if strings.Contains(csp, "default-src 'self'") {
 		t.Errorf("expected the ten-directive config default NOT to leak through: %q", csp)
 	}

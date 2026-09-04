@@ -35,7 +35,9 @@ type Column struct {
 	IsUpdatable   bool
 }
 
-/** Domains may define a not null constraint, which is of interest in the case of types or views that tend to say something is potentially null when it's really not. */
+// IsReallyNotNull reports IsNotNull OR a not-null constraint declared on
+// the column's own domain type — a domain-backed column/view can read as
+// nullable (IsNotNull false) while still never actually holding NULL.
 func (c *Column) IsReallyNotNull() bool {
 	return c.IsNotNull || c.Type.PgDomainNotNull
 }

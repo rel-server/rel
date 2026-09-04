@@ -16,42 +16,19 @@ type dmlCompiler struct {
 	conn Querier
 	ids  map[*QueryNode]int
 
-	// paramValues resolves a well-known write query's $param references
-	// (ParamExpr, compiled via writer.SQLWriter.BindParam — see sql_expr.go)
-	// against this specific request's own params : nil for a plain /rel
-	// write, which never contains a ParamExpr in the first place, so args()
-	// below degrades to exactly w.Args()'s old behavior. Threading this
-	// through is what lets a well-known write use $param without needing
-	// the compile/execute split specs/well-known-queries.md ## Behaviour
-	// flags as still-open : write_dml.go already recompiles its SQL text
-	// per request regardless of well-known-ness, so a param value is simply
-	// another per-request input alongside the payload itself.
+	// Resolves a well-known write's $param references against this
+	// request's params ; nil for a plain /rel write (never has a ParamExpr).
 	paramValues map[string]any
 
-	// populated is the set of node IDs (dc.ids' values) that received at
-	// least one "_data" row from denormalize — built once in
-	// ExecuteWriteState right after denormalize returns. A node absent
-	// here got no payload value at all (omitted or explicit null on an
-	// outgoing relation, an absent or empty array on an incoming one), and
-	// by construction (walkNode only ever recurses into a child using a
-	// value nested inside its own parent's JSON) every descendant of such
-	// a node is unpopulated too — there's no way payload data for a child
-	// could exist without also supplying the parent value it'd have to be
-	// nested inside. See specs/query-engine.md ## Writing Algorithm's noop
-	// -skipping note for the phase1/phase2 asymmetry this enables.
+	// Node IDs that received a "_data" row from denormalize ; absent means
+	// unpopulated (## Writing Algorithm's noop-skipping note).
 	populated map[int]bool
 }
 
 // ---- traversal --------------------------------------------------------------------
 
-// phase1 : outgoing children first (this node's own dependencies), then this
-// node's own DML, then incoming children — spec step 3. A node with no
-// "_data" rows of its own is skipped entirely, subtree included : every
-// run* statement in phase 1 (insert/update/upsert) correlates strictly
-// against its own __node_id, so an empty node produces zero affected rows
-// regardless — running it is a guaranteed no-op, and skipping the subtree
-// is sound because an unpopulated node's descendants are unpopulated too
-// (see dmlCompiler.populated).
+// phase1 : outgoing children, then this node's own DML, then incoming
+// children (step 3) ; the whole subtree skips when unpopulated (a no-op).
 func (dc *dmlCompiler) phase1(ctx context.Context, node *QueryNode) error {
 	nodeID, ok := dc.ids[node]
 	if !ok {
@@ -76,24 +53,8 @@ func (dc *dmlCompiler) phase1(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-// phase2 : incoming children deepest-first, then outgoing children walked
-// through (never emitting their own delete), then this node's own delete if
-// it has a delete component — spec step 4. parent is nil at the root.
-//
-// Delete's own skip condition is deliberately the mirror image of phase1's :
-// gated on the PARENT's population, never this node's own. runDelete
-// correlates its target rows against the parent's "_data" (via node's
-// JoinColumns, scoped to __node_id = ids[parent]) — an empty/absent
-// subtree is exactly the "nothing survived in the payload, delete
-// everything that used to be here" signal a delete-bearing write_mode
-// needs to see, not something to short-circuit. The root itself
-// (parent == nil) is never skipped this way : an empty or entirely-absent
-// payload is that same "delete everything matching where" signal at the
-// top of the tree, and root always has a "_data" entry in dc.ids.
-//
-// Recursing into this node's own children, on the other hand, CAN be
-// skipped once this node itself is unpopulated — same reasoning as
-// phase1, since none of them can hold data either.
+// phase2 : incoming children deepest-first, then this node's own delete
+// (step 4). Delete gates on the PARENT's population — an absent subtree IS "delete everything here", never a short-circuit.
 func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *QueryNode) error {
 	nodeID, ok := dc.ids[node]
 	if !ok {
@@ -121,21 +82,16 @@ func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *Quer
 	return nil
 }
 
-// args resolves w's bind slots against dc.paramValues — the single place
-// every run* function turns a compiled statement into the (sql, args) pair
-// it actually executes, so none of them need their own paramValues-aware
-// branch. See the dmlCompiler.paramValues field doc for why plain
-// w.Args() isn't used directly.
+// args resolves w's bind slots against dc.paramValues — the one place
+// every run* function turns a statement into its (sql, args) pair.
 func (dc *dmlCompiler) args(w *writer.SQLWriter) ([]any, error) {
 	return w.ResolveArgs(dc.paramValues)
 }
 
 // ---- shared column-set helpers -----------------------------------------------------
 
-// identityColumns is the column set that identifies a row for key-recovery
-// purposes : on_conflict's columns if set, else the primary key — the same
-// selection shape.go's identityIsWritable already applies, not reimplemented
-// independently.
+// identityColumns is on_conflict's columns if set, else the primary key —
+// the same selection shape.go's identityIsWritable already applies.
 func identityColumns(node *QueryNode) []*pg.Column {
 	if len(node.OnConflictColumns) > 0 {
 		cols := make([]*pg.Column, 0, len(node.OnConflictColumns))
@@ -152,24 +108,8 @@ func identityColumns(node *QueryNode) []*pg.Column {
 	return nil
 }
 
-// filterColumns applies an insert_columns/update_columns allowlist (empty =
-// no filtering, per query.ts's doc comment) to node.Shape.Extractors, then
-// forces in any identity column that's sequence/identity-backed (Default
-// Expression set) even if it wasn't itself present in the payload — those
-// need to be part of the "resolved" CTE regardless, so their pre-computed
-// value (not Postgres's own insert-time default) is what both the physical
-// INSERT and the recovered "keys" agree on. An identity column with no
-// default at all must already come from the payload (pass 2's writability
-// check already requires it), so no forcing is needed there.
-//
-// Returns ColumnPath, not *pg.Column : an Extractor's Path may be a
-// composite sub-field (len(Path)>1, e.g. home.city) as well as a plain
-// column — see query-engine.md ## Writability and this file's own
-// composite-handling notes in writeColumnCase/writeTargetPath below.
-// insert_columns/update_columns names PHYSICAL columns (query.ts's own
-// doc comment) — a composite sub-field's containing column (Path[0]) is
-// what's matched against the allowlist, since the sub-field itself was
-// never independently nameable there.
+// columnsFor applies an insert_columns/update_columns allowlist (empty = no
+// filtering) to node.Shape.Extractors ; ColumnPath since an Extractor may be a composite sub-field.
 func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
 	var cols []ColumnPath
 	seen := map[string]bool{}
@@ -198,14 +138,8 @@ func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
 			cols = append(cols, cp)
 		}
 	}
-	// Outgoing-child FK columns (e.g. movie.director_id, resolved from the
-	// director child's own recovered key) are structural, not payload
-	// content — they don't appear in Shape.Extractors at all (they're not
-	// part of node's own select), and insert_columns/update_columns filters
-	// a payload column allowlist, not this structural relationship, so they
-	// bypass "allowed" the same way default-backed identity columns do.
-	// Always plain (an FK constraint targets a real physical column, never
-	// a composite sub-field).
+	// Outgoing-child FK columns are structural, not payload content — never
+	// in Shape.Extractors, so they bypass "allowed" like identity columns do.
 	for _, c := range node.OutgoingNodes {
 		for _, jc := range c.JoinColumns {
 			cp := ColumnPath{Node: node, Path: []*pg.Column{jc.Distant}}
@@ -219,10 +153,8 @@ func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
 	return cols, nil
 }
 
-// wrapColumns wraps plain physical columns (identity/key columns — always
-// plain, since Postgres allows neither a composite sub-field nor an
-// expression as a PRIMARY KEY or ON CONFLICT target) as single-segment
-// ColumnPaths, for merging with columnsFor's own []ColumnPath output.
+// wrapColumns wraps plain identity/key columns as single-segment
+// ColumnPaths, to merge with columnsFor's own []ColumnPath output.
 func wrapColumns(node *QueryNode, cols []*pg.Column) []ColumnPath {
 	out := make([]ColumnPath, len(cols))
 	for i, c := range cols {
@@ -231,28 +163,14 @@ func wrapColumns(node *QueryNode, cols []*pg.Column) []ColumnPath {
 	return out
 }
 
-// withKeysColumns unions cols with keysColumns(node) — needed wherever
-// writeKeysObject's source is "resolved"/"dml" rather than a live
-// post-write row (runInsert, runUpsert) : those read every recovered
-// column straight off "resolved", so a keysColumns member not already
-// among cols (e.g. profile.id when on_conflict is user_email — id is
-// otherwise never forced in, since identityColumns(node) returns ONLY the
-// on_conflict set) would be a flat SQL error ("column resolved.id does not
-// exist"), not just a missing key. runUpdate deliberately does NOT use
-// this : it reads keys off "t" (the live, post-update row via RETURNING)
-// instead, so forcing extra columns into its SET list — which cols also
-// drives there — would wrongly self-assign them.
+// withKeysColumns unions cols with keysColumns(node) ; runUpdate reads
+// keys off "t" (RETURNING) instead, so skips this.
 func withKeysColumns(node *QueryNode, cols []ColumnPath) []ColumnPath {
 	return dedupeColumnPaths(cols, wrapColumns(node, keysColumns(node)))
 }
 
-// outgoingKeySource finds, for physical column col of node, the outgoing
-// child (if any) whose already-recovered key supplies col's value — the
-// "outgoing join's on mapping" case in ### Insertion/Updates, applied from
-// the PARENT's side : an outgoing child C's own JoinColumns pairs C's own
-// unique column (Local) with the column on ITS PARENT (Distant) that holds
-// the FK value — so from node's (the parent's) perspective, col == Distant
-// means node's own physical column is derived from C's Local key.
+// outgoingKeySource finds the outgoing child whose recovered key supplies
+// node's col (### Insertion/Updates' outgoing "on" mapping, parent's side).
 func outgoingKeySource(node *QueryNode, col *pg.Column) (child *QueryNode, keyCol *pg.Column) {
 	for _, c := range node.OutgoingNodes {
 		for _, jc := range c.JoinColumns {
@@ -264,10 +182,8 @@ func outgoingKeySource(node *QueryNode, col *pg.Column) (child *QueryNode, keyCo
 	return nil, nil
 }
 
-// incomingKeySource reports whether col is node's own FK column pointing at
-// its literal JSON-tree parent (node ∈ parent.IncomingNodes case) — node's
-// own JoinColumns pairs node's own FK column (Local) with the parent's
-// referenced column (Distant).
+// incomingKeySource reports whether col is node's own FK column pointing
+// at its literal JSON-tree parent (node ∈ parent.IncomingNodes).
 func incomingKeySource(node *QueryNode, col *pg.Column) (keyCol *pg.Column, ok bool) {
 	if node.Parent == nil {
 		return nil, false
@@ -285,12 +201,8 @@ func incomingKeySource(node *QueryNode, col *pg.Column) (keyCol *pg.Column, ok b
 
 // ---- resolved CTE -------------------------------------------------------------------
 
-// writeResolvedCTE writes "resolved as (select ...)" (without the leading
-// "with" — callers combine it with other CTEs) : one row per _data row for
-// node, one column per cols, using the three-way rule from
-// ### Insertion/Updates. outgoingAliases records the join alias assigned to
-// each outgoing child actually referenced by an emitted column, so the
-// caller doesn't need to re-derive it.
+// writeResolvedCTE writes "resolved as (select ...)" (no leading "with"),
+// one row per _data row, per ### Insertion/Updates' three-way rule.
 func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, cols []ColumnPath) error {
 	nodeID := dc.ids[node]
 	relID := node.Relation.Identifier.EscapedString()
@@ -357,16 +269,7 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 }
 
 // writeColumnCase writes the 3-way per-column resolution rule for a plain
-// column, or — for a composite sub-field (len(cp.Path)>1) — a fourth,
-// simpler rule : always read straight off tmp.data's own flat key
-// (columnPathFlatName, matching write_denormalize.go's extractRowData),
-// cast to the LEAF field's own introspected type. Never FK-linkage
-// (incomingKeySource/outgoingKeySource) or default-backed
-// (col.DefaultExpression) : a Postgres composite TYPE's own fields carry
-// neither — those are table-column concepts (pg_constraint/pg_attrdef),
-// and a composite type's fields, introspected via CompositeRelation(), are
-// never table columns in their own right, so both checks are skipped
-// entirely for this case rather than meaninglessly returning "no match".
+// column ; a composite sub-field (len(cp.Path)>1) always reads tmp.data's flat key instead — never FK-linkage or default-backed.
 func (dc *dmlCompiler) writeColumnCase(w *writer.SQLWriter, node *QueryNode, cp ColumnPath, outgoingAliases map[*QueryNode]string) error {
 	if len(cp.Path) > 1 {
 		leaf := cp.Path[len(cp.Path)-1]
@@ -421,16 +324,8 @@ func (dc *dmlCompiler) writeColumnCase(w *writer.SQLWriter, node *QueryNode, cp 
 	return nil
 }
 
-// keysColumns is identityColumns(node) unioned with every column an
-// incoming child's own JoinColumns needs from this node — the on_conflict
-// target and "keys"'s content aren't necessarily the same set : on_conflict
-// (e.g. profile's "user_email") only has to identify the conflicting row,
-// but a child correlating back via a DIFFERENT column of node (typically
-// the primary key, e.g. profile.id even though on_conflict is user_email)
-// needs THAT column recovered into keys too, or incomingKeySource's
-// "par.keys->>'id'" reads NULL. identityColumns(node) alone is what the
-// conflict target / WHERE-correlation clauses need — only keys' own
-// content needs this wider set.
+// keysColumns is identityColumns(node) plus every column an incoming
+// child's JoinColumns needs — not necessarily the same set as on_conflict's target.
 func keysColumns(node *QueryNode) []*pg.Column {
 	cols := append([]*pg.Column(nil), identityColumns(node)...)
 	seen := map[*pg.Column]bool{}
@@ -445,12 +340,8 @@ func keysColumns(node *QueryNode) []*pg.Column {
 			}
 		}
 	}
-	// Symmetric case : when node is itself an OUTGOING child of its own
-	// parent, outgoingKeySource reads "par.keys->>'<jc.Local.Name>'" from
-	// the PARENT's resolved CTE — jc.Local is a column of node, not
-	// node.Parent, and per query.ts's own "on" doc a to-one join may target
-	// any unique column, not just the primary key, so it isn't necessarily
-	// covered by identityColumns(node) already.
+	// Symmetric case : as an outgoing child, node's own jc.Local may not
+	// already be in identityColumns(node) (a join may target any unique column).
 	if node.Parent != nil && isOutgoingOf(node.Parent, node) {
 		for _, jc := range node.JoinColumns {
 			if !seen[jc.Local] {
@@ -463,8 +354,7 @@ func keysColumns(node *QueryNode) []*pg.Column {
 }
 
 // writeKeysObject writes jsonb_build_object(...) over keysColumns(node),
-// reading each from source (e.g. "resolved" or "excluded"/the insert's own
-// target-table alias).
+// reading each from source ("resolved", or the insert's own alias).
 func writeKeysObject(w *writer.SQLWriter, node *QueryNode, source string) {
 	w.Write("jsonb_build_object(")
 	for i, col := range keysColumns(node) {
@@ -497,23 +387,15 @@ func (dc *dmlCompiler) runPhase1Node(ctx context.Context, node *QueryNode) error
 	}
 }
 
-// runInsert : plain insert (query.ts INSERT), or, when doNothing is true
-// (MERGE_NEW), insert ... on conflict (identity) do nothing — followed by a
-// separate recovery select for keys of rows that already existed and so
-// contributed no RETURNING/resolved row of their own conflict outcome.
+// runInsert : plain insert, or with doNothing (MERGE_NEW) an "on conflict
+// do nothing" plus a separate recovery select for pre-existing rows' keys.
 func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing bool) error {
 	cols, err := columnsFor(node, node.InsertColumns)
 	if err != nil {
 		return err
 	}
-	// writeKeysObject (below) reads from "resolved" for a plain insert (no
-	// RETURNING available cross-table — see the package doc) ; force every
-	// keysColumns member into both the resolved CTE and the physical INSERT
-	// column list, or a member not already in cols (e.g. profile.id when
-	// on_conflict is user_email) is a flat SQL error, and one that DOES have
-	// a default (e.g. that same id) would otherwise get inserted via
-	// Postgres's own nextval() rather than the CTE's pre-computed value —
-	// two different sequence values, one silently discarded.
+	// Every keysColumns member must be forced into both the resolved CTE
+	// and the INSERT column list, or a member absent from cols is a flat SQL error (or a discarded, mismatched sequence value).
 	cols = withKeysColumns(node, cols)
 	w := writer.NewSQL()
 	w.Write("with ")
@@ -564,13 +446,8 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	w.Unindent()
 	w.Write(")\n")
 	if doNothing {
-		// "ins" only RETURNs a row for one that was ACTUALLY inserted — a
-		// conflicting row, discarded by DO NOTHING, contributes nothing
-		// here, so joining resolved to ins on the identity columns picks
-		// out exactly the genuinely-new rows (never a phantom nextval()
-		// value for a row that was never inserted). recoverKeys (below)
-		// separately handles the conflicting remainder, which this join
-		// can't see at all.
+		// "ins" only RETURNs actually-inserted rows ; joining on identity
+		// columns picks out genuinely-new ones. recoverKeys handles the rest.
 		w.Write("update _data\n")
 		w.Write("set keys = r.keys\n")
 		w.Write("from (select resolved.__row_id, ")
@@ -610,23 +487,15 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	return nil
 }
 
-// recoverKeys handles MERGE_NEW's "do nothing" branch : fills keys for rows
-// runInsert's own join couldn't see — a conflicting row, which "ins" never
-// RETURNs — by matching this node's "_data" rows against the real target
-// table by identity (the on_conflict columns, always payload-supplied
-// verbatim per pass 2's writability rule). Gated on "keys is null" : a
-// genuinely-new row already got its (correct, non-phantom) keys from
-// runInsert's own join against "ins", and must not be touched again here.
+// recoverKeys handles MERGE_NEW's "do nothing" branch : fills keys for a
+// conflicting row by identity match ; gated on "keys is null" so a new row isn't touched again.
 func (dc *dmlCompiler) recoverKeys(ctx context.Context, node *QueryNode) error {
 	identCols := identityColumns(node)
 	if len(identCols) == 0 {
 		return nil
 	}
-	// Identity columns are read straight off _data.data with a jsonb arrow
-	// rather than jsonb_populate_record, to avoid a LATERAL reference from
-	// one FROM-list item into the UPDATE target table's own column
-	// (_data.data), which Postgres rejects outside of an explicit LATERAL
-	// join.
+	// Read straight off _data.data with a jsonb arrow, not
+	// jsonb_populate_record : Postgres rejects that LATERAL reference here.
 	w := writer.NewSQL()
 	w.Write("update _data\n")
 	w.Write("set keys = ")
@@ -661,9 +530,8 @@ func (dc *dmlCompiler) recoverKeys(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-// runUpdate : query.ts UPDATE/MERGE_UPDATE — a single update ... from ...
-// returning suffices, since the row's identity is already known before the
-// statement runs.
+// runUpdate : a single update ... from ... returning suffices, since the
+// row's identity is already known before the statement runs.
 func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	updateAllowlist := node.UpdateColumns
 	if len(updateAllowlist) == 0 {
@@ -709,13 +577,8 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 		w.Id(col.Name)
 	}
 	w.Write("\n")
-	// keys read off "t" (the live, post-update row, via RETURNING) rather
-	// than "resolved" : unlike runInsert's plain-insert case, UPDATE's
-	// RETURNING can freely reference the physical target table's own
-	// columns, so there's no need to force keysColumns' extra members
-	// (e.g. profile.id when on_conflict is user_email) into "resolved"/the
-	// SET list at all — forcing them there would wrongly self-assign a
-	// column update_columns never asked to touch.
+	// Keys read off "t" (post-update row via RETURNING), unlike runInsert :
+	// no need to force keysColumns' extras into the SET list here.
 	w.Write("returning resolved.__row_id, ")
 	writeKeysObject(w, node, "t")
 	w.Write(" as keys")
@@ -754,9 +617,8 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-// runUpsert : query.ts UPSERT/MERGE — insert ... on conflict (...) do
-// update ... returning, correlated back to _data via the on_conflict
-// columns (known pre-insert, unlike a generated PK).
+// runUpsert : insert ... on conflict (...) do update ... returning,
+// correlated back via on_conflict columns (known pre-insert, unlike a generated PK).
 func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	identCols := identityColumns(node)
 	if len(identCols) == 0 {
@@ -766,10 +628,8 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	if err != nil {
 		return err
 	}
-	// Same reasoning as runInsert : "dml"'s RETURNING (below) needs every
-	// keysColumns member selectable, and the insert side needs to actually
-	// write any default-backed one (e.g. profile.id) rather than let
-	// Postgres generate its own.
+	// Same reasoning as runInsert : "dml"'s RETURNING needs every
+	// keysColumns member selectable, and the insert side must write it.
 	insertCols = withKeysColumns(node, insertCols)
 	updateAllowlist := node.UpdateColumns
 	if len(updateAllowlist) == 0 {
@@ -780,8 +640,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		return err
 	}
 	// Never update the identity columns themselves via excluded.* — they're
-	// the conflict target, updating them is meaningless (and for a PK,
-	// actively wrong).
+	// the conflict target.
 	updateCols = excludeColumnPaths(updateCols, identCols)
 
 	w := writer.NewSQL()
@@ -834,13 +693,8 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 			}
 			writeTargetPath(w, cp)
 			w.Write(" = ")
-			// "excluded" is the proposed-insert ROW, unlike "resolved" (a
-			// flat CTE) — a composite sub-field read off it needs Postgres's
-			// row-value parenthesization ("(excluded.home).city", verified
-			// directly against Postgres 16 ; "excluded.home.city" is a
-			// syntax error, parsed as a table reference), same as any other
-			// composite navigation off an aliased row (WriteQualifiedPath,
-			// resolved_field.go).
+			// "excluded" is a row, not a flat CTE : needs row-value
+			// parenthesization for a composite sub-field, verified against PG 16.
 			WriteQualifiedPath(w, "excluded", cp.Path)
 		}
 	}
@@ -882,12 +736,8 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-// dedupeColumnPaths dedupes by ColumnPath.Key() rather than the terminal
-// *pg.Column pointer : two different composite sub-fields (e.g. home.city,
-// work.city) can share that same pointer once navigated into (two columns
-// of the same composite type yield the identical leaf *pg.Column), so the
-// pointer alone would wrongly collapse them — Key() includes the FULL path,
-// not just the leaf, and disambiguates correctly.
+// dedupeColumnPaths dedupes by ColumnPath.Key(), not the terminal *pg.Column
+// pointer : two different composite sub-fields can share that same leaf pointer.
 func dedupeColumnPaths(a, b []ColumnPath) []ColumnPath {
 	seen := map[string]bool{}
 	var out []ColumnPath
@@ -908,9 +758,8 @@ func dedupeColumnPaths(a, b []ColumnPath) []ColumnPath {
 	return out
 }
 
-// excludeColumnPaths drops any cols entry matching one of exclude — always
-// plain columns (identity/on_conflict columns are never composite), so
-// only a len(Path)==1 entry can ever match.
+// excludeColumnPaths drops any cols entry matching exclude ; only
+// len(Path)==1 can match, since identity columns are never composite.
 func excludeColumnPaths(cols []ColumnPath, exclude []*pg.Column) []ColumnPath {
 	ex := map[*pg.Column]bool{}
 	for _, c := range exclude {
@@ -926,14 +775,8 @@ func excludeColumnPaths(cols []ColumnPath, exclude []*pg.Column) []ColumnPath {
 	return out
 }
 
-// writeTargetPath emits cp as an INSERT column-list item or an UPDATE/
-// UPSERT SET target : "col" for a plain column, or Postgres's own dotted
-// composite-sub-field target syntax, "col.field" (NOT parenthesized —
-// unlike a read reference off an aliased row, verified directly against
-// Postgres 16 that both "insert into t (col.field) values (...)" and
-// "update t set col.field = ..." accept the bare dotted form, no parens).
-// Multi-level (col.field.subfield) chains the same way — Postgres accepts
-// arbitrarily deep dotted targets identically.
+// writeTargetPath emits cp as an INSERT/UPDATE target — "col.field", not
+// parenthesized like a read reference (verified against Postgres 16).
 func writeTargetPath(w *writer.SQLWriter, cp ColumnPath) {
 	for i, col := range cp.Path {
 		if i > 0 {
@@ -945,11 +788,8 @@ func writeTargetPath(w *writer.SQLWriter, cp ColumnPath) {
 
 // ---- phase 2 : delete -----------------------------------------------------------------
 
-// runDelete deletes node's rows not present in this request's payload,
-// scoped to parent (nil at the root). Per ### Definitions, a delete-bearing
-// mode is only valid on an incoming (or root) relation, so node's own
-// physical FK-to-parent columns (node.JoinColumns) are what scope the
-// delete.
+// runDelete deletes node's rows absent from the payload, scoped to parent
+// (nil at root) via node's own FK-to-parent columns (### Definitions).
 func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *QueryNode) error {
 	identCols := identityColumns(node)
 	if len(identCols) == 0 {
@@ -1005,14 +845,8 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 	w.Write(fmt.Sprintf("%d", dc.ids[node]))
 	w.Write(" and keys is not null)")
 
-	// query.ts's write_mode doc comment is explicit, twice over : merge
-	// "delete[s] rows not in the payload that match the where condition",
-	// deleteonly "delete[s] only rows matching the where condition and not
-	// in data" — node.Where must additionally scope every delete-bearing
-	// mode, or an empty/partial payload deletes rows the query itself never
-	// selected. Reuse compileExpr (sql_expr.go) against a throwaway
-	// sqlCompiler with node pre-registered under alias "t" (this delete's
-	// own target alias), same registration trick compileLateralJoin uses.
+	// node.Where must scope every delete-bearing mode too (query.ts's
+	// write_mode doc), or a partial payload deletes rows never selected.
 	if node.Where != nil {
 		w.Write(" and (")
 		sc := &sqlCompiler{w: w, alias: map[*QueryNode]string{node: "t"}}

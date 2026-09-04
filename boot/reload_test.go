@@ -29,12 +29,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// TestReloader_Reload_EndToEnd builds a real ReloadableHandler wrapping
-// server.NewRelHandler+route.NewHandler against a testcontainers postgres,
-// applies a fixture migration via a Reload call, and confirms a request
-// against the schema the migration just created succeeds where it would
-// have 404'd beforehand — the integration test most likely to catch a
-// wiring mistake between dmut/pg.ReIntrospect/route.BuildRegistry/boot.
+// TestReloader_Reload_EndToEnd applies a fixture migration via Reload and
+// confirms a request against the newly-migrated schema succeeds.
 func TestReloader_Reload_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
@@ -49,10 +45,8 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 		t.Fatalf("connection string: %v", err)
 	}
 
-	// Base schema : the two mimetype/JSON domains route discovery needs,
-	// plus the anonymous role — set up directly, outside dmut, since
-	// they're a fixed precondition, not part of what this test is
-	// migrating.
+	// Base schema set up directly, outside dmut : a fixed precondition,
+	// not part of what this test is migrating.
 	setupPool, err := pg.NewInfos(uri)
 	if err != nil {
 		t.Fatalf("pg.NewInfos: %v", err)
@@ -99,9 +93,7 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 	reloader := NewReloader(wrapper, db, uri, cfg, logger)
 	reloader.Reload(ctx)
 
-	// After the reload : the migration ran, reintrospection/registry
-	// rebuild picked up the new function, and the wrapper is serving the
-	// new mux.
+	// Registry rebuild picked up the migration's new function.
 	reqAfter := httptest.NewRequest("GET", "/route/public/fn_created_by_migration", nil)
 	recAfter := httptest.NewRecorder()
 	wrapper.ServeHTTP(recAfter, reqAfter)

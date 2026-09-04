@@ -9,10 +9,8 @@ import (
 	"github.com/ceymard/rel/config"
 )
 
-// signingMethod maps jwt.algorithm's three accepted values to the library's
-// own SigningMethod — anything else is a configuration error (checked at
-// startup, not per-token ; a bad cfg.Jwt.Algorithm should never reach here
-// in practice, but Sign/Verify still return an error rather than panic).
+// signingMethod maps jwt.algorithm's three accepted values to the
+// library's SigningMethod ; anything else errors rather than panics.
 func signingMethod(algorithm string) (*jwtlib.SigningMethodHMAC, error) {
 	switch algorithm {
 	case "HS256":

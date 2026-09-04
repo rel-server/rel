@@ -25,12 +25,8 @@ func TestPostgresURI(t *testing.T) {
 	}
 }
 
-// TestPostgresURI_IPv6HostIsBracketed covers a bug an adversarial review
-// caught : fmt.Sprintf("%s:%d", pg.Host, pg.Port) on an IPv6 host produces
-// an unbracketed "::1:5432", which net.SplitHostPort (used internally by
-// pgconn.ParseConfig when pg.NewInfos actually connects) rejects outright
-// with "too many colons in address" — confirmed empirically. The built URI
-// must parse back to the exact host/port pgx will see.
+// TestPostgresURI_IPv6HostIsBracketed : an unbracketed IPv6 host produces
+// "::1:5432", which net.SplitHostPort rejects — confirmed empirically.
 func TestPostgresURI_IPv6HostIsBracketed(t *testing.T) {
 	got := postgresURI("::1", 5432, "rel_db", config.Login{User: "rel_user", Password: "pw"})
 	u, err := url.Parse(got)
@@ -86,10 +82,8 @@ func TestResolveConnectionURIs_GranularFields_QueryLoginNarrower(t *testing.T) {
 	}
 }
 
-// TestResolveConnectionURIs_PgURI_Authoritative covers pg.uri's own
-// all-or-nothing rule end to end : the granular Host/User fields here are
-// deliberately wrong ("should-be-ignored") and must NOT leak into either
-// built URI.
+// TestResolveConnectionURIs_PgURI_Authoritative : pg.uri's all-or-nothing
+// rule — the deliberately-wrong granular fields here must not leak in.
 func TestResolveConnectionURIs_PgURI_Authoritative(t *testing.T) {
 	primary, query, err := resolveConnectionURIs(config.Pg{
 		URI: "postgres://u:p@db.internal:5432/mydb", Host: "should-be-ignored", User: "should-be-ignored",
@@ -105,11 +99,8 @@ func TestResolveConnectionURIs_PgURI_Authoritative(t *testing.T) {
 	}
 }
 
-// TestResolveConnectionURIs_PgURI_WithQueryLogin covers the one case
-// dsn.go's own logic has to actually manipulate a URI rather than just
-// pass it through or build one from scratch : pg.uri set AND pg.query.user
-// set, which must swap only the userinfo, keeping host/port/database from
-// the original URI intact.
+// TestResolveConnectionURIs_PgURI_WithQueryLogin : pg.uri + pg.query.user
+// set must swap only the userinfo, keeping host/port/database intact.
 func TestResolveConnectionURIs_PgURI_WithQueryLogin(t *testing.T) {
 	primary, query, err := resolveConnectionURIs(config.Pg{
 		URI:   "postgres://u:p@db.internal:5432/mydb",

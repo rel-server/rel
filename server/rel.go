@@ -1,14 +1,10 @@
-// POST/GET /rel : the first vertical slice wiring passes 1-4 into an actual
-// HTTP request. ParsedQuery.Sequence (several queries sharing one
-// transaction) is handled ; so is a well-known query, in either of the two
-// positions query.ts's Query union allows one to appear (bare, a read ;
-// wrapped in WriteQuery.query, a write) — same as a Relation, and
-// composable alongside one in a Sequence, since specs/well-known-queries.md
-// dropped its own dedicated /wellknown endpoint once WellKnownQuery stopped
-// being a self-contained invocation shape (see that spec's own ## Querying
-// for the history). Auth/role switching — see applyRole below and
-// jwt/middleware.go's own doc comment for how the JWT Lifecycle splits
-// across the two packages.
+// Package server implements POST/GET /rel — query-engine.md's Reading/
+// Writing algorithms wired into an HTTP request, including a
+// ParsedQuery.Sequence and a well-known query in either position query.ts's
+// Query union allows (bare read, or wrapped in WriteQuery.query for a
+// write), composable alongside a plain Relation in the same Sequence. See
+// applyRole below, and jwt/middleware.go's own doc comment, for how the
+// JWT Lifecycle splits across the two packages.
 package server
 
 import (
@@ -34,44 +30,29 @@ import (
 	"github.com/samber/oops"
 )
 
-// resolvedItem is one request-body item, past parsing AND pass-1/2
-// resolution — everything needed to either run its write (if any) or
-// compile its response, with no further chance of a "the query itself is
-// wrong" (400) error from this point on.
+// resolvedItem is one request-body item, past pass-1/2 resolution — no
+// further chance of a "the query itself is wrong" (400) error past this.
 type resolvedItem struct {
 	root    *query.QueryNode
 	isWrite bool
 	data    []byte
 
-	// paramValues is non-nil only for a well-known item — resolved once,
-	// up front, from wellknown.Compiled.ResolveParams ; nil for an
-	// ordinary Relation/WriteQuery item, which never contains a $param to
-	// begin with. Threaded into both ExecuteWriteStateParams (write) and
-	// SQLWriter.ResolveArgs (every item's own response statement) —
-	// ResolveArgs degrades to exactly .Args()'s old behavior when nil,
-	// so this doesn't need a separate code path for the common case.
+	// Non-nil only for a well-known item ; threaded into ResolveArgs so a
+	// $param slot resolves without a separate code path for ordinary items.
 	paramValues map[string]any
 
-	// precompiledRead is wellknown.Compiled.Read for a well-known READ
-	// item (compiled once, at load time — specs/well-known-queries.md
-	// ## Behaviour's "prepared" story) ; nil for everything else, meaning
-	// "compile query.CompileSelect(root) fresh, at response time" as
-	// before. A well-known WRITE item's own response statement is still
-	// compiled fresh per request either way (CompileSelectForDataNode
-	// depends on this request's own __node_id assignment, not something
-	// reusable across requests).
+	// Non-nil only for a well-known READ item, reusing the statement
+	// compiled once at load time (well-known-queries.md ## Behaviour).
 	precompiledRead *writer.SQLWriter
 }
 
 // NewRelHandler serves POST/GET /rel per specs/query-engine.md's
 // ## Configuration ("all of them MUST be POST") and ## Response Shape.
-// db.Pool is acquired from once per request ; cfg drives scope/blacklist
-// resolution exactly as query.ResolveContext already does in every pass-1/2
-// test. wkReg resolves a well-known item by name — rebuilt alongside db/cfg
-// on every SIGUSR1 reload (boot/reload.go), exactly like route.Registry.
-// Wrapped in jwt.Middleware (Lifecycle step 2/Verify only) — applyRole
-// (called from handleRel once it has a connection) does step 3/Check, step
-// 4/Renew, and step 5/Apply role, in that order, reading the claims
+// db.Pool is acquired from once per request ; wkReg resolves a well-known
+// item by name, rebuilt alongside db/cfg on every SIGUSR1 reload
+// (boot/reload.go). Wrapped in jwt.Middleware (Lifecycle step 2/Verify
+// only) — applyRole (called once handleRel has a connection) does steps
+// 3 (Check), 4 (Renew), and 5 (Apply role), reading the claims
 // jwt.FromContext left behind.
 func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,16 +66,8 @@ func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry
 	return jwtpkg.Middleware(cfg.Jwt)(inner)
 }
 
-// relQueryBytes returns the query.ts Query JSON this request describes :
-// the POST body verbatim, or — for GET, per specs/query-json.md — the
-// query string decoded into either a bare Relation (querystring.
-// DecodeRelation, unchanged) or a bare WellKnownQuery (decodeWellKnownGET,
-// below) — the same two read-only positions a POST body's top-level query
-// can take, minus WriteQuery/Sequence (## Scope's read-only restriction
-// applies to both the same way). Dispatched on which discriminator key
-// ("wellknown" vs "relation"/"function") the query string's own structural
-// layer decodes, checked before committing to either decoder's own full
-// grammar.
+// relQueryBytes returns the query.ts Query JSON the request describes :
+// the POST body verbatim, or GET's own query-json.md decoding below.
 func relQueryBytes(r *http.Request) ([]byte, error) {
 	if r.Method == http.MethodGet {
 		return decodeGETQuery(r.URL.RawQuery)
@@ -106,12 +79,8 @@ func relQueryBytes(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// decodeGETQuery decides which of the two read-only GET shapes raw is —
-// peeking via querystring.DecodeQueryField's generic structural layer
-// alone (dot-path keys -> nested JSON) is enough to tell a "wellknown" key
-// apart from "relation"/"function", without committing to either
-// decoder's own full grammar (DecodeRelation's own structural decode plus
-// its filter-expression grammar) until the discriminator is known.
+// decodeGETQuery picks the wellknown vs relation/function GET grammar by
+// peeking at the "wellknown" key via the generic structural decoder first.
 func decodeGETQuery(raw string) ([]byte, error) {
 	tree, err := querystring.DecodeQueryField(raw)
 	if err != nil {
@@ -125,19 +94,8 @@ func decodeGETQuery(raw string) ([]byte, error) {
 	return querystring.DecodeRelation(raw)
 }
 
-// decodeWellKnownGET builds {"wellknown": ..., "params"?: ...} JSON off m,
-// an already-decoded ?wellknown=<name>&params.<key>=<value>&... query
-// string (querystring.DecodeQueryField's own dot-path structural layer,
-// the same generic decoder /route's own free-form `query` field already
-// uses). Each params leaf value is opportunistically re-parsed as JSON, so
-// "?params.limit=5" produces the number 5 rather than the string "5" —
-// falling back to the literal string when it isn't valid JSON (an ordinary
-// bare word like "bob"). A URL-encoded, explicitly quoted value
-// (params.code=%2212345%22) is the escape hatch for a text-typed param
-// whose value would otherwise coerce to a number/boolean. GET is
-// read-only : a request supplying "data" here is rejected outright,
-// matching query-json.md ## Scope's existing rule that a GET query string
-// setting a write-only field is a 400, never silently dropped.
+// decodeWellKnownGET builds {"wellknown", "params"?} JSON from a decoded
+// GET query string ; rejects "data" (query-json.md's read-only rule).
 func decodeWellKnownGET(m map[string]any) ([]byte, error) {
 	name, ok := m["wellknown"].(string)
 	if !ok {
@@ -153,14 +111,8 @@ func decodeWellKnownGET(m map[string]any) ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// coerceQueryStringLeaves re-parses every string leaf of v (a
-// querystring.DecodeQueryField tree) as JSON, keeping the parsed value
-// whenever it IS valid JSON — a bare word like "bob" isn't, and stays the
-// string "bob" ; "5" parses to the number 5 ; a literal, quoted "\"bob\""
-// (URL-encoded %22bob%22) parses BACK to the plain string "bob", the
-// escape hatch for a text-typed param whose value would otherwise coerce
-// to a number or boolean (params.code=12345 -> number 12345,
-// params.code=%2212345%22 -> the string "12345").
+// coerceQueryStringLeaves re-parses each string leaf of v as JSON, keeping
+// the parsed value when valid — query-json.md's %22-quoted escape hatch.
 func coerceQueryStringLeaves(v any) any {
 	switch t := v.(type) {
 	case string:
@@ -186,17 +138,8 @@ func coerceQueryStringLeaves(v any) any {
 	}
 }
 
-// resolveWellKnownItem looks up name in wkReg and validates/defaults
-// params against its declared shape — WELL_KNOWN_UNKNOWN_QUERY for an
-// unregistered or deactivated name (specs/well-known-queries.md
-// ## Behaviour : rejected identically to a genuinely unknown name),
-// otherwise whatever wellknown.Compiled.ResolveParams itself returns
-// (WELL_KNOWN_PARAM_REQUIRED/WELL_KNOWN_PARAM_TYPE_MISMATCH). data is nil
-// for a bare (read) invocation, or the write's own raw "data" bytes for one
-// wrapped in WriteQuery.query — mirrors resolvedItem.isWrite's existing
-// "item.Write != nil" convention, since a real write's Data is never
-// empty once WriteQuery's own "data" key is required to exist at parse
-// time (node_parse.go).
+// resolveWellKnownItem resolves name via wkReg (well-known-queries.md
+// ## Execution Errors for the codes) ; data non-nil means a write.
 func resolveWellKnownItem(wkReg *wellknown.Registry, name string, paramsRaw []byte, data []byte) (resolvedItem, error) {
 	wk, ok := wkReg.Lookup(name)
 	if !ok {
@@ -215,13 +158,8 @@ func resolveWellKnownItem(wkReg *wellknown.Registry, name string, paramsRaw []by
 func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
 	ctx := r.Context()
 
-	// specs/authentication.md "# Roles ## Anonymous role existence" :
-	// with anonymous access disabled, every unauthenticated request is
-	// rejected with 401 immediately — before the body is read, before a
-	// pool connection is acquired. jwtpkg.Middleware already ran
-	// Verify/Renew before this handler runs (see NewRelHandler's own doc
-	// comment), so claims/verified are already known with no DB access
-	// needed here.
+	// authentication.md "## Roles ## Anonymous role existence" : reject
+	// before reading the body or acquiring a connection when disabled.
 	if _, verified := jwtpkg.FromContext(r.Context()); !verified && !db.AnonymousRoleExists {
 		writeError(w, unauthorized(errcode.AnonymousDisabled, fmt.Errorf("%s", errcode.AnonymousDisabledMessage)), cfg.Dev)
 		return
@@ -239,12 +177,8 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	// GET /rel decodes to exactly one Relation or one well-known query
-	// (specs/query-json.md ## Scope / ## Well-known queries on GET /rel) —
-	// decodeGETQuery only ever produces a bare object, never a sequence,
-	// but this is still worth asserting explicitly : a silent Sequence
-	// branch here would defeat the whole point of the read-only/single-item
-	// restriction if the decoder ever grew a way to produce one.
+	// query-json.md ## Scope / ## Well-known queries on GET /rel : GET
+	// never decodes to a Sequence ; asserted explicitly, not just assumed.
 	if r.Method == http.MethodGet && pq.Sequence != nil {
 		writeError(w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
 		return
@@ -255,19 +189,13 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		items = []query.ParsedQuery{pq}
 	}
 
-	// Resolve every item's tree up front, before touching a connection or a
-	// transaction at all — a 400 here means nothing has been opened yet,
-	// nothing to roll back (see the plan's handler design, step 6).
+	// Resolve every item's tree before touching a connection — a 400 here
+	// means nothing has been opened yet, nothing to roll back.
 	resolved := make([]resolvedItem, 0, len(items))
 	rctx := &query.ResolveContext{Db: db, Config: cfg}
 	for i, item := range items {
-		// A well-known query can appear bare (item.WellKnown, a read) or
-		// wrapped in WriteQuery.query (item.Write.WellKnown, a write) —
-		// the exact same two positions a Relation can appear in, per
-		// query.ts's own union. Its tree is already resolved (at load
-		// time, wellknown.BuildRegistry) : no ResolveQuery/
-		// ResolveExpressions/DeriveShapes here, just a name lookup and
-		// request-time param validation/defaulting.
+		// Bare (item.WellKnown) or wrapped (item.Write.WellKnown) — both
+		// already resolved at load time, just a name lookup here.
 		if wk := item.WellKnown; wk != nil {
 			ri, wkErr := resolveWellKnownItem(wkReg, wk.WellKnown, wk.Params, nil)
 			if wkErr != nil {
@@ -303,11 +231,6 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			return
 		}
 		if rerr != nil {
-			// codeFromOopsErr reads back the specific QUERY_*/WRITE_*/
-			// UNKNOWN_IDENTIFIER/JOIN_MISSING_INDEX code the query package's
-			// own oc.Code(...) call sites attach at the point each failure is
-			// actually raised — errcode.Unclassified only as the fallback for
-			// whatever residual case isn't covered by that taxonomy yet.
 			writeError(w, badRequest(codeOrUnclassified(rerr), fmt.Errorf("item %d: %w", i, rerr)), cfg.Dev)
 			return
 		}
@@ -333,33 +256,20 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("preparing _data: %w", err)), cfg.Dev)
 		return
 	}
-	// "_data" is owned by the connecting role (whoever ran the CREATE TEMP
-	// TABLE above), so a request running under a switched role (see
-	// applyRole below) has no privileges on it by default — granted to
-	// PUBLIC unconditionally, every request, since it's a per-connection
-	// temp table : a fresh physical connection means a fresh, ungranted
-	// "_data" even though the CREATE itself is a same-request no-op after
-	// the first. Not a privilege concern in its own right : "_data" is
-	// request-scoped scratch space, invisible to any other session.
+	// "_data" is per-connection ; granted to PUBLIC every request since a
+	// switched role (applyRole below) has no default privileges on it.
 	if _, err := conn.Exec(ctx, "grant all on _data to public"); err != nil {
 		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("granting _data: %w", err)), cfg.Dev)
 		return
 	}
-	// Truncate BEFORE doing any work too, not just after — "_data" is
-	// "create ... if not exists", so on a pooled connection reused from an
-	// earlier request it already exists with that request's rows still in
-	// it if the release-time truncate below ever failed, was skipped by a
-	// killed process, or simply hasn't run yet. Making this request's
-	// correctness independent of the PREVIOUS request's cleanup having
-	// succeeded is worth the (cheap, empty-table) extra statement.
+	// Truncated before use too : a pooled connection may still hold a
+	// previous request's rows if the release-time truncate below never ran.
 	if _, err := conn.Exec(ctx, "truncate _data"); err != nil {
 		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("clearing _data: %w", err)), cfg.Dev)
 		return
 	}
-	// Truncation also happens once, at the very end of the whole request,
-	// after the response has been fully sent — specs/query-engine.md
-	// ## Response Shape. A fresh context.Background(), not ctx : a client
-	// disconnect or cancelled request must not skip this cleanup.
+	// Also truncated after the response is fully sent — context.Background(),
+	// not ctx, so a client disconnect can't skip this cleanup.
 	defer func() { _, _ = conn.Exec(context.Background(), "truncate _data") }()
 
 	if _, err := conn.Exec(ctx, "begin"); err != nil {
@@ -367,26 +277,16 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	// JWT Lifecycle steps 3 (Check), 4 (Renew), and 5 (Apply role) — see
-	// jwt.Middleware's own doc comment for why these three, unlike Verify,
-	// run here rather than as generic middleware : all three need this
-	// connection, which doesn't exist yet when the middleware runs.
-	// SET LOCAL ROLE, not session-scoped SET ROLE : the whole request now
-	// runs as ONE transaction, write phase and every item's read-back alike
-	// (specs/query-engine.md ## Transactions) — a transaction-scoped role
-	// applies for the entire thing and reverts automatically at the single
-	// commit/rollback below, with no separate RESET ROLE cleanup needed.
+	// Lifecycle steps 3-5 run here, needing this connection ; SET LOCAL
+	// ROLE reverts at the single commit/rollback below (## Transactions).
 	if err := applyRole(ctx, w, r, conn, cfg); err != nil {
 		_, _ = conn.Exec(ctx, "rollback")
 		writeError(w, err, cfg.Dev)
 		return
 	}
 
-	// One shared WriteState across every write item in this request : each
-	// ExecuteWriteState call must continue __node_id/__row_id numbering
-	// where the previous one left off, or two write items in one Sequence
-	// both start at 0 and collide on __row_id (_data's primary key) —
-	// see WriteState's own doc comment.
+	// One shared WriteState across every write item : __row_id numbering
+	// must continue across items, or two writes in one Sequence collide.
 	state := &query.WriteState{}
 	nodeIDs := make([]int, len(resolved))
 	for i, item := range resolved {
@@ -402,16 +302,11 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		nodeIDs[i] = result.NodeIDs[item.root]
 	}
 
-	// NO commit here : specs/query-engine.md ## Transactions now keeps the
-	// write phase and every item's read-back in the SAME transaction, all
-	// the way through streaming below — the actual commit is the very last
-	// thing this handler does, after every item (write AND read alike) has
-	// fully succeeded.
+	// NO commit here : ## Transactions keeps the write phase and every
+	// item's read-back in one transaction, committed only at the very end.
 
-	// Compile every item's response statement BEFORE writing any response
-	// bytes : once streaming starts, a failure here can no longer produce a
-	// clean error envelope (the client has already received a "["), so
-	// every recoverable failure must be caught first.
+	// Compile every statement before writing any response bytes : once
+	// streaming starts there's no clean error envelope left to fall back to.
 	statements := make([]*writer.SQLWriter, len(resolved))
 	args := make([][]any, len(resolved))
 	for i, item := range resolved {
@@ -421,9 +316,6 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		case item.isWrite:
 			sw, cerr = query.CompileSelectForDataNode(item.root, nodeIDs[i])
 		case item.precompiledRead != nil:
-			// Already compiled once, at load time — reused verbatim, not
-			// recompiled per request (specs/well-known-queries.md
-			// ## Behaviour's "prepared" story).
 			sw = item.precompiledRead
 		default:
 			sw, cerr = query.CompileSelect(item.root)
@@ -433,10 +325,8 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			return
 		}
 		statements[i] = sw
-		// ResolveArgs, not Args() : item.paramValues is nil for an ordinary
-		// item, in which case this is exactly Args()'s old behavior — but
-		// a well-known item's own statement may carry named $param slots
-		// Args() would panic on.
+		// ResolveArgs, not Args() : degrades to Args() when paramValues is
+		// nil, but also resolves a well-known item's named $param slots.
 		a, aerr := sw.ResolveArgs(item.paramValues)
 		if aerr != nil {
 			writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: resolving params: %w", i, aerr)), cfg.Dev)
@@ -454,49 +344,24 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		if multi && i > 0 {
 			_, _ = w.Write([]byte(","))
 		}
-		// A clean error envelope is only still possible for the very first
-		// byte of a single-item response — nothing (not even "[") has been
-		// written yet at that point. Role switching makes a read-time
-		// permission-denied error (the query itself fails at conn.Query,
-		// before any row is scanned) a routine outcome, not a pathological
-		// one, so this is worth the one extra branch — everywhere else, the
-		// response is already partway through streaming and there's no
-		// clean envelope to fall back to (see response.go's writeError doc
-		// comment for that inherent limitation).
+		// A clean envelope is only possible for a single-item request's
+		// very first byte — see response.go's writeError doc comment.
 		cleanErrorPossible := !multi && i == 0
 		if err := streamItem(ctx, w, conn, item.root, statements[i], args[i], cleanErrorPossible); err != nil {
-			// A read failing now rolls back the whole transaction, write
-			// phase included — specs/query-engine.md ## Transactions : a
-			// read calling into a function that "goes awry" must not leave
-			// an already-committed write behind it. pgxpool would notice
-			// the connection isn't idle and discard it on Release() even
-			// without this, but an explicit rollback states the intent
-			// plainly rather than relying on that as the only signal.
+			// A read failing rolls back the whole transaction too (##
+			// Transactions) ; explicit, though pgxpool would discard it anyway.
 			_, _ = conn.Exec(ctx, "rollback")
 			if cse, ok := errors.AsType[*cleanStreamError](err); ok {
 				writeError(w, classifyReadError(cse.Unwrap(), i), cfg.Dev)
 			}
-			// Otherwise the response is already partway through streaming —
-			// there is no clean error envelope to fall back to at this
-			// point ; the response is simply truncated/invalid JSON. See
-			// response.go's writeError doc comment for the same limitation.
+			// Otherwise streaming already started — truncated JSON is the
+			// only signal left (writeError's own doc comment covers this).
 			return
 		}
 	}
 
-	// The single commit for the whole request, only now that every item —
-	// write AND read-back alike — has fully succeeded. A failure here is
-	// a genuinely new, accepted risk this ordering creates (specs/
-	// query-engine.md ## Transactions spells it out in full) : for a
-	// multi-item request, skipping the closing "]" below at least leaves
-	// the client with truncated, unparseable JSON — a real, if blunt,
-	// failure signal. For a SINGLE-item request there is no such cue : its
-	// entire response may already be fully streamed and look completely
-	// valid by the time this fails, so a client can in principle observe
-	// what looks like a successful response for a write that was then
-	// rolled back. There is no way to avoid this without buffering the
-	// whole response first, which ## Response Shape already rejects for
-	// memory reasons.
+	// The single commit for the whole request — ## Transactions accepts
+	// the risk of a completed-looking response over buffering it whole.
 	if _, err := conn.Exec(ctx, "commit"); err != nil {
 		logging.FromContext(ctx).With("module", "server").Error("commit failed after streaming had already started", "error", err.Error())
 		return
@@ -506,31 +371,15 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 }
 
-// cleanStreamError marks a streamItem failure that happened before any
-// response bytes were written — the caller can still fall back to
-// writeError's clean JSON envelope instead of the usual silent truncation.
+// cleanStreamError marks a streamItem failure before any response bytes
+// were written — the caller can still fall back to writeError's envelope.
 type cleanStreamError struct{ err error }
 
 func (e *cleanStreamError) Error() string { return e.err.Error() }
 func (e *cleanStreamError) Unwrap() error { return e.err }
 
-// streamItem runs one item's already-compiled statement (sw, executed with
-// args — the caller's own responsibility to resolve : plain sw.Args() for
-// an ordinary /rel item, sw.ResolveArgs(paramValues) for a well-known
-// query's statement, which may carry named $param slots sw.Args() would
-// panic on) and streams its result : a bare scalar for a scalar (non-setof)
-// function root (## Response Shape : "the scalar of the result of a scalar
-// function"), a manually-streamed JSON array otherwise. cleanErrorPossible
-// is true only for a single-item request's first (only) item, before
-// anything has been written yet.
-//
-// pgx's Query itself rarely errors : execution failures (a permission
-// error, say) are deferred to the first rows.Next()/rows.Err() call
-// instead, per pgx's own lazy-Query design — so "before anything is
-// written" means peeking one row BEFORE writing the opening "[", not just
-// checking Query's own return error. Any failure surfacing after that peek
-// (a later row, a write) can't safely produce a clean envelope any more —
-// the response may already be partway through streaming.
+// streamItem runs sw and streams the result : a bare scalar for a scalar
+// function root, a JSON array otherwise (## Response Shape).
 func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, root *query.QueryNode, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
 	rows, err := conn.Query(ctx, sw.String(), args...)
 	if err != nil {
@@ -564,26 +413,13 @@ func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, 
 	return streamRows(w, rows, cleanErrorPossible)
 }
 
-// applyRole runs Lifecycle steps 3 (Check), 4 (Renew), and 5 (Apply role)
-// on conn, using the claims jwt.Middleware already verified — in that exact
-// order, matching route/handler.go's handleRoute and route/upload_handler.go's
-// handleUploadRoute (see jwt/middleware.go's own doc comment for why Renew
-// belongs here rather than in Middleware : /rel used to renew before
-// check, the other two after — the spec's own order — so check_session
-// saw different claims depending on transport ; git log has the commit
-// that unified it). conn must already be inside an open transaction — SET
-// LOCAL ROLE is transaction-scoped and reverts automatically at that
-// transaction's own commit/rollback, so unlike an earlier version of this
-// function there is no cleanup closure to run : the caller's own rollback-on-error path (and,
-// on success, the request's single final commit) already does it. Any
-// returned error is already a *requestError, ready for writeError.
+// applyRole runs Lifecycle steps 3-5 (Check/Renew/Apply role) on conn,
+// inside an open transaction — SET LOCAL ROLE reverts at commit/rollback.
 func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) error {
 	claims, verified := jwtpkg.FromContext(r.Context())
 
-	// jwtpkg.ClearSessionCookie's own Header().Del guards against a stray
-	// Set-Cookie some earlier point in the request already wrote — nothing
-	// does today (Renew runs AFTER this, not before), but the Del keeps
-	// this safe even if that ever changes, at zero cost when it's a no-op.
+	// ClearSessionCookie's own Header().Del guards a stray Set-Cookie ;
+	// currently a no-op since Renew runs after this, kept for safety.
 	if cerr := dbauth.CheckSessionIfConfigured(ctx, conn, cfg.Http.Functions.CheckSession, claims, verified); cerr != nil {
 		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
 		return classifyCheckSessionError(cerr)
@@ -602,15 +438,8 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 	return nil
 }
 
-// codeOrUnclassified reads back the errcode.Code a query-package oc.Code(...)
-// call site attached to err (or one of its wrapped ancestors — oops.OopsError's
-// own Code() walks to the deepest wrapped error that set one, so an outer
-// oc.Wrapf(...,"context") call on the way back up through resolveNode/
-// resolveJoin/etc. doesn't need to restate it), falling back to
-// errcode.Unclassified when err isn't an *oops.OopsError at all, or none of
-// its layers ever called .Code(...). The single place this fallback decision
-// is made, so the query-compile-error 400 paths (the resolve loop above) and
-// classifyWriteError's own fallback below can't independently drift on it.
+// codeOrUnclassified reads back the query package's own oc.Code(...) tag
+// off err (or a wrapped ancestor), falling back to errcode.Unclassified.
 func codeOrUnclassified(err error) errcode.Code {
 	oe, ok := oops.AsOops(err)
 	if !ok {
@@ -622,20 +451,8 @@ func codeOrUnclassified(err error) errcode.Code {
 	return errcode.Unclassified
 }
 
-// classifyCheckSessionError maps an exception raised by
-// http.functions.check_session — RSxxx first (## Postgres Exceptions), then
-// pgerr's PG_* table, same pgerr.Classify every Postgres-execution error in
-// this file now goes through. The JSON envelope (not plain text) still
-// applies here : /rel and /route keep their own separate error framings per
-// their respective spec sections, this is only the classification shared.
-// classifyOrFallback routes wrapped through pgerr.Classify, returning the
-// classified *requestError (built from the classified Detail, never from
-// wrapped.Error() — see classifyWriteError's own doc comment for why that
-// matters : a wrapped chain can embed generated SQL text) when it unwraps
-// to a *pgconn.PgError, or fallback(wrapped) otherwise. The shared shape
-// behind classifyCheckSessionError/classifyWriteError/classifyReadError,
-// which differ only in their own wrap-context and which status/code
-// applies when nothing classifies.
+// classifyOrFallback routes wrapped through pgerr.Classify (PG_*/RSxxx),
+// falling back to fallback(wrapped) when it isn't a *pgconn.PgError.
 func classifyOrFallback(wrapped error, fallback func(error) *requestError) *requestError {
 	if status, code, tier, detail, ok := pgerr.Classify(wrapped); ok {
 		return pgClassified(status, code, tier, detail, wrapped)
@@ -649,30 +466,16 @@ func classifyCheckSessionError(err error) *requestError {
 	})
 }
 
-// classifyWriteError distinguishes a problem with the query/data itself
-// (400) from a genuine Postgres execution error : write_dml.go's own errors
-// wrap a real *pgconn.PgError whenever a statement actually ran against
-// Postgres and failed there (a constraint violation, say) — routed through
-// pgerr.Classify so the response is built from the classified Detail, never
-// from wrapped.Error() (which embeds write_dml.go's own "insert:
-// %w\nsql: %s"-style generated-SQL text — see specs/error-handling.md's
-// codegen-fingerprinting concern, a live leak this classification closes).
-// Anything that DOESN'T unwrap to a *pgconn.PgError is one of
-// write_denormalize.go's own shape errors (a payload structure mismatch, an
-// unsupported composite write) — squarely "an error in the query/data."
+// classifyWriteError classifies via pgerr.Classify, never wrapped.Error()
+// (which can embed generated SQL text) ; anything else is a plain 400.
 func classifyWriteError(err error, item int) *requestError {
 	return classifyOrFallback(fmt.Errorf("item %d: %w", item, err), func(e error) *requestError {
 		return badRequest(codeOrUnclassified(err), e)
 	})
 }
 
-// classifyReadError is classifyWriteError's counterpart for a read that
-// failed cleanly (streamItem's *cleanStreamError case, single-item
-// requests only — see the caller's own comment) : the switched-role SELECT
-// can just as easily surface a permission-denied error, or an RSxxx raised
-// by a function it calls, as any write can. Unlike a write failure, a read
-// failure was never "bad data" in the request — anything unclassified here
-// falls back to a genuine 500, not badRequest.
+// classifyReadError mirrors classifyWriteError, but a read failure was
+// never "bad data" — unclassified falls back to 500, not 400.
 func classifyReadError(err error, item int) *requestError {
 	return classifyOrFallback(fmt.Errorf("item %d: %w", item, err), func(e error) *requestError {
 		return serverError(errcode.Internal, e)

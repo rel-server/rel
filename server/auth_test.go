@@ -14,9 +14,8 @@ import (
 	"github.com/ceymard/rel/pg"
 )
 
-// mintCookie signs role/extra claims under cfg.Jwt and returns the cookie a
-// real client would present — /rel never mints its own tokens (that's a
-// route function's job via /route), so tests stand in for that step directly.
+// mintCookie signs role/claims under cfg.Jwt ; /rel never mints its own
+// tokens (a route function's job), so tests stand in for that step.
 func mintCookie(t *testing.T, cfg *config.Config, role string) *http.Cookie {
 	t.Helper()
 	claims := jwtpkg.Mint(cfg.Jwt, role, time.Now(), cfg.Jwt.MaxAge, nil)
@@ -32,11 +31,8 @@ func TestRelHandler_AnonymousWriteDeniedOnRoleGatedTable(t *testing.T) {
 		"query": {"relation": "secret_notes", "schema": "public", "select": ["own"], "write_mode": "insert"},
 		"data": [{"note": "should not be allowed"}]
 	}`)
-	// "~anonymous" has no privileges on secret_notes (server/testdata/
-	// roles.sql) — a genuine Postgres permission-denied error, classified
-	// via pgerr.Classify as PG_PERMISSION_DENIED/403 (specs/error-handling.md
-	// ### Postgres-raised codes), proving the request actually ran under
-	// the switched role rather than some elevated connecting role.
+	// "~anonymous" has no privileges on secret_notes — a genuine Postgres
+	// permission-denied error, proving the switched role actually applied.
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 (permission denied), got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -83,12 +79,8 @@ func TestRelHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
 }
 
 func TestRelHandler_CheckSessionRejection_DoesNotAlsoRenew(t *testing.T) {
-	// jwt.Middleware runs Renew before this handler ever gets a chance to
-	// run check_session (Renew needs no DB, Check does — see jwt/
-	// middleware.go). A token past renewafter AND rejected by
-	// check_session must not leave two Set-Cookie headers on the response
-	// (a still-valid renewed token, then the clear) — see applyRole's own
-	// Header().Del("Set-Cookie") comment.
+	// A token past renewafter AND rejected by check_session must not leave
+	// two Set-Cookie headers (a renewed token, then the clear).
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
 	cfg.Http.Functions.CheckSession = "public.check_session"
@@ -119,11 +111,8 @@ func TestRelHandler_CheckSessionRejection_DoesNotAlsoRenew(t *testing.T) {
 }
 
 func TestRelHandler_AnonymousReadDeniedOnRoleGatedTable_CleanEnvelope(t *testing.T) {
-	// Same permission-denied cause as the write test above, but on the
-	// read path : the query fails inside conn.Query, before any response
-	// bytes are written, so this must still produce a clean JSON error
-	// envelope (403, PG_PERMISSION_DENIED), not a 200 with an empty/
-	// invalid body.
+	// Same cause as the write test above, but on the read path : the
+	// query fails before any bytes are written, so a clean envelope must result.
 	rec := postRel(t, `{
 		"relation": "secret_notes", "schema": "public", "select": ["own"]
 	}`)
@@ -185,14 +174,8 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	}
 }
 
-// TestRelHandler_CheckSessionSeesPreRenewalClaims proves applyRole's
-// Check-then-Renew ordering (specs/TODO.md's resolved "SET LOCAL ROLE /
-// auth timing" entry) actually took effect on /rel, matching /route : a
-// token past renewafter still gets check_session called with its
-// ORIGINAL (pre-renewal) "iat", never the renewed one, since Renew (step
-// 4) now runs strictly after Check (step 3) here too — /rel used to renew
-// first, inside jwt.Middleware, before this handler ever got a chance to
-// run check_session at all.
+// TestRelHandler_CheckSessionSeesPreRenewalClaims : a token past renewafter
+// still gets check_session called with its ORIGINAL (pre-renewal) "iat".
 func TestRelHandler_CheckSessionSeesPreRenewalClaims(t *testing.T) {
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
@@ -245,17 +228,8 @@ func TestRelHandler_CheckSessionSeesPreRenewalClaims(t *testing.T) {
 	}
 }
 
-// TestRelHandler_AnonymousRoleDoesNotExist_Is401 is
-// specs/authentication.md "# Roles ## Anonymous role existence" for
-// /rel specifically : a completely separate DbInfos, built against the
-// SAME container/schema but with pg.query.anonymous_role pointed at a
-// role nothing ever created, must reject an unauthenticated request with
-// a uniform 401 before the request body is even read — unlike
-// TestRelHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError below
-// (an EMPTY config value, still a 500 today, unaffected by this new gate
-// since db.AnonymousRoleExists there is still true off testDb), this is
-// the DATABASE-existence check : a real, non-empty name that simply
-// wasn't CREATE ROLEd.
+// TestRelHandler_AnonymousRoleDoesNotExist_Is401 : authentication.md's
+// Anonymous role existence rule — a role never CREATE ROLEd is 401.
 func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
 	cfg := *testCfg
 	cfg.Pg.Query.AnonymousRole = "role_nobody_ever_created"

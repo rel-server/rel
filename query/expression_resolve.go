@@ -44,15 +44,8 @@ func (ctx *ResolveContext) ResolveExpressions(node *QueryNode) error {
 
 	oc := oops.With("node", node.InnerName)
 
-	// resolvingOwn marks node for the duration of resolving its OWN
-	// where/select/distinct_on/order_by : resolveExternalHop consults this
-	// to refuse a self-alias hop into node's own Shape while it's mid-
-	// resolution (node's own expressions must not see node's own computed
-	// select keys — same "no forward-reference within one select object, no
-	// sibling access" rule already applied elsewhere ; see
-	// specs/query-engine.md's "## Scoping ### Identifier resolution"). Bottom-up
-	// ordering means nothing external can reach node here except node's own
-	// expressions, so this flag is unambiguous.
+	// Marks node while resolving its own expressions, so resolveExternalHop
+	// refuses a self-alias hop into its own still-resolving Shape (## Scoping).
 	if ctx.resolvingOwn == nil {
 		ctx.resolvingOwn = map[*QueryNode]bool{}
 	}
@@ -63,10 +56,8 @@ func (ctx *ResolveContext) ResolveExpressions(node *QueryNode) error {
 	if node.Where, err = ctx.resolveExpr(node.Where, node, oc); err != nil {
 		return err
 	}
-	// selectShape (not resolveExpr) : resolves node.Select AND caches the
-	// resulting Shape onto node.Shape in the same step, so DeriveShapes
-	// (shape.go) later gets a cache hit instead of re-resolving the same
-	// tree a second time.
+	// selectShape, not resolveExpr : caches the resulting Shape onto
+	// node.Shape too, so DeriveShapes (shape.go) gets a cache hit later.
 	if _, err = ctx.selectShape(node, oc); err != nil {
 		return err
 	}
@@ -82,12 +73,8 @@ func (ctx *ResolveContext) ResolveExpressions(node *QueryNode) error {
 	}
 
 	if node.IsFunction() {
-		// A function node's own Relation (if any) is what its call RETURNS,
-		// not something in scope while computing the call's own arguments —
-		// those correlate to the enclosing query, same as any subquery's
-		// arguments would. A root function call (no parent) has nothing to
-		// correlate to : only literals/params are legal there, and a bare
-		// Identifier is a hard error (argScope nil).
+		// A function's own arguments correlate to the ENCLOSING query, not
+		// its own Relation ; a root call (argScope nil) allows only literals/params.
 		argScope := node.Parent
 		for i := range node.FunctionArguments {
 			if node.FunctionArguments[i], err = ctx.resolveExpr(node.FunctionArguments[i], argScope, oc); err != nil {
@@ -104,11 +91,8 @@ func (ctx *ResolveContext) ResolveExpressions(node *QueryNode) error {
 	return nil
 }
 
-// resolveExpr is the generic entry point : recurses through every Expression
-// node type, rebuilding (not relying on in-place mutation) as it goes —
-// every caller stores what this returns back into the field it read from.
-// n may be nil (root function-call arguments, see ResolveExpressions above)
-// — any bare Identifier reached with n == nil is a hard error.
+// resolveExpr recurses through every Expression node type, rebuilding
+// (not mutating in place) as it goes ; n nil (root call args) makes any bare Identifier a hard error.
 func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsErrorBuilder) (Expression, error) {
 	if e == nil {
 		return nil, nil
@@ -125,10 +109,8 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 			return resolved, err
 		}
 		if v.Op == FoldJsonGet || v.Op == FoldJsonGetText || v.Op == FoldJsonPathGet || v.Op == FoldJsonPathGetText {
-			// Opaque JSON operators : Left resolves normally (it may itself
-			// be a "." chain landing on a jsonb column), but Right is data
-			// (a key, or a path array), never a name to scope-resolve —
-			// left untouched.
+			// Opaque JSON operators : Left resolves normally, but Right is
+			// data (a key or path array), never a name — left untouched.
 			left, err := ctx.resolveExpr(v.Left, n, oc)
 			if err != nil {
 				return nil, err
@@ -163,11 +145,8 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 		}
 		v.Left = left
 		if v.Op == BinaryCast {
-			// "::" : Right is a type name (e.g. "text", "int[]"), never a
-			// column/alias to scope-resolve — same treatment as the jsonb
-			// operator family's Right above. Left untouched so sql_expr.go's
-			// castTypeName can read it directly as a bare Identifier/
-			// StringLiteral.
+			// "::" : Right is a type name, never a column/alias — left
+			// untouched so sql_expr.go's castTypeName reads it directly.
 			return v, nil
 		}
 		right, err := ctx.resolveExpr(v.Right, n, oc)
@@ -281,10 +260,8 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 		return v, nil
 
 	case ObjectExpr, OwnExpr, FullExpr, OwnExceptExpr, FullExceptExpr, OwnAndExpr, FullAndExpr, OwnExceptAndExpr, FullExceptAndExpr:
-		// All shape-producing : delegate to resolveChain, which builds their
-		// Shape landing uniformly (buildShape) — nothing extra to do here,
-		// the landing is discarded because nothing at this call site is
-		// chaining further off it.
+		// All shape-producing : delegate to resolveChain (buildShape) ; the
+		// landing is discarded, nothing here chains further off it.
 		resolved, _, err := ctx.resolveChain(e, n, oc)
 		return resolved, err
 
@@ -353,9 +330,8 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 		return v, nil
 
 	default:
-		// Every remaining node type (NullLiteral, BoolLiteral, NumberLiteral,
-		// Star, StringLiteral, BigIntLiteral, NumericLiteral, DefaultKeyword,
-		// ParamExpr) has no Expression-typed children and nothing to resolve.
+		// Every remaining literal/keyword type has no Expression-typed
+		// children and nothing to resolve.
 		return e, nil
 	}
 }
@@ -371,10 +347,8 @@ func (ctx *ResolveContext) resolveExprSlice(exprs []Expression, n *QueryNode, oc
 	return nil
 }
 
-// resolvePlainColumn resolves a Scope-domain name that may ONLY land on a
-// plain physical column of n's own relation — GetExpr/SetExpr/GetSetExpr's
-// Column, and (via validateExceptColumns) the Except lists. Never an alias
-// or embed, unlike LookupInScope.
+// resolvePlainColumn resolves a name that may only land on a plain
+// physical column of n's own relation — never an alias/embed, unlike LookupInScope.
 func (ctx *ResolveContext) resolvePlainColumn(n *QueryNode, name string, oc oops.OopsErrorBuilder) (*pg.Column, error) {
 	if n == nil || n.Relation == nil {
 		return nil, oc.Code(errcode.UnknownIdentifier).Errorf("no relation in scope to resolve column %q", name)
@@ -395,17 +369,8 @@ func (ctx *ResolveContext) validateExceptColumns(n *QueryNode, except []string, 
 	return nil
 }
 
-// resolveChain resolves e and additionally returns the ResolvedField it
-// landed on, for a "." chain's next hop to resolve against. Carries a
-// landing : *Identifier ; a "." FoldedExpr ; ["index", ...] (one level of
-// array-unwrap) ; *GetSetExpr/*GetExpr (land directly on their own column) ;
-// and every shape-producing construct — own/full and their -except/-and
-// variants, and an inline ObjectExpr — uniformly, via buildShape, regardless
-// of whether that construct is a node's own top-level `select` or nested
-// arbitrarily deep inside another one. There's no special case for "the
-// top-level select" anywhere in this file : a node's own Select is chained
-// into via this exact same function (see selectShape below), not a
-// parallel mechanism. Everything else is opaque (nil landing).
+// resolveChain resolves e and also returns the ResolvedField it landed on,
+// for a "." chain's next hop ; a non-chainable form lands nil (opaque).
 func (ctx *ResolveContext) resolveChain(e Expression, n *QueryNode, oc oops.OopsErrorBuilder) (Expression, ResolvedField, error) {
 	switch v := e.(type) {
 	case *Identifier:
@@ -551,9 +516,8 @@ func (ctx *ResolveContext) resolveChain(e Expression, n *QueryNode, oc oops.Oops
 	return resolved, nil, err
 }
 
-// ownFullBase builds the physical-column (and, for "full", child-alias)
-// portion of an own/full family Shape — everything that isn't a computed
-// "and" key.
+// ownFullBase builds an own/full family Shape's physical-column (and, for
+// "full", child-alias) portion — everything that isn't a computed "and" key.
 func ownFullBase(n *QueryNode, except []string, includeAliases bool) map[string]ResolvedField {
 	base := map[string]ResolvedField{}
 	if n.Relation != nil {
@@ -578,15 +542,8 @@ func ownFullBase(n *QueryNode, except []string, includeAliases bool) map[string]
 	return base
 }
 
-// buildShape resolves each of and's values (via resolveChain, mutating and
-// in place with what it returns — maps are reference types, so this is
-// visible to the caller without any extra plumbing) and merges the results
-// with base (already-resolved fields — own/full's physical columns/aliases,
-// or nil for a bare object literal) into one Shape. A name in and colliding
-// with one already in base is a hard error, not a silent overwrite — e.g.
-// `["own_and", {"title": "id"}]` renaming id to the same output key as the
-// real title column would otherwise silently discard the fact that "title"
-// already means something else.
+// buildShape resolves and's values, merging into base ; a name colliding
+// between the two is a hard error, never a silent overwrite.
 func (ctx *ResolveContext) buildShape(n *QueryNode, base map[string]ResolvedField, and map[string]Expression, oc oops.OopsErrorBuilder) (Shape, error) {
 	shape := make(Shape, len(base)+len(and))
 	maps.Copy(shape, base)
@@ -604,17 +561,8 @@ func (ctx *ResolveContext) buildShape(n *QueryNode, base map[string]ResolvedFiel
 	return shape, nil
 }
 
-// resolveHopInto resolves `right` (must be an *Identifier — anything else in
-// a "." hop position is a hard error) as a hop landing on `into`. Resolves
-// a hop into ANY child, to-one or to-many alike — deliberately, since a "."
-// chain has more than one downstream use (writability-exclusion tracking,
-// generic Shape derivation, a `where`-clause reference) and not all of them
-// need "a single row to pick one field from" the way compiling it as a
-// plain scalar SELECT value does. That narrower restriction belongs to,
-// and is enforced by, whichever SQL-compilation path actually needs it —
-// see sql_expr.go's compileScalarHop, which rejects a to-many landing at
-// compile time, same late-stage pattern "agg"'s own opposite restriction
-// uses (query.ts : agg's target "must be an incoming relation").
+// resolveHopInto resolves `right` as a hop landing on `into`, to-many
+// included — the "single row" restriction is compileScalarHop's, not resolution's.
 func (ctx *ResolveContext) resolveHopInto(right Expression, into ResolvedField, oc oops.OopsErrorBuilder) (Expression, ResolvedField, error) {
 	ident, ok := right.(*Identifier)
 	if !ok {
@@ -624,10 +572,8 @@ func (ctx *ResolveContext) resolveHopInto(right Expression, into ResolvedField, 
 	switch land := into.(type) {
 	case ColumnPath:
 		last := land.Path[len(land.Path)-1]
-		// CurrentType/CompositeRelation, not last.Type.IsComposite()/.Relation
-		// directly : a domain wrapping a composite type has no typrelid of
-		// its own (only its base type does), and CurrentType() also accounts
-		// for an ["index", ...] hop overriding to the array's element type.
+		// CurrentType, not last.Type, directly : it accounts for a domain's
+		// base type and an ["index", ...] hop's element-type override.
 		rel := land.CurrentType().CompositeRelation()
 		if rel == nil {
 			return nil, nil, oc.Code(errcode.QueryInvalidExpression).Errorf("column %q is not composite, cannot chain \".%s\" past it", last.Name, ident.Name)
@@ -664,31 +610,12 @@ func (ctx *ResolveContext) resolveHopInto(right Expression, into ResolvedField, 
 	}
 }
 
-// resolveExternalHop resolves name as a hop INTO target from OUTSIDE — a
-// parent's "." chain — as opposed to a first-hop resolution within target's
-// OWN expressions (LookupInScope, called directly for that case). Unlike a
-// first hop, an external hop also reaches target's own exported Shape (its
-// select's Shape landing, via selectShape) : never target's own where/select
-// referencing itself, which must not see its own computed keys (same "no
-// forward-reference within one select object, no sibling access" rule
-// already applied elsewhere).
-//
-// Scope and Shape aren't disjoint namespaces — own/full's Shape literally
-// mirrors the relation's own columns, so an ordinary unrenamed column is
-// legitimately found by both without that being a real conflict. Only a
-// genuine disagreement (the two sources naming the same key but landing on
-// different things — e.g. an own_and computed key renamed to collide with a
-// child's join alias) is a hard error ; picking one silently would let a
-// query run and return data other than what the author meant.
+// resolveExternalHop resolves name as a hop INTO target — unlike a first
+// hop, this also reaches target's Shape (never while it's still resolving).
 func (ctx *ResolveContext) resolveExternalHop(target *QueryNode, name string, oc oops.OopsErrorBuilder) (ResolvedField, error) {
 	scopeField, scopeErr := target.LookupInScope(name)
 	scopeOK := scopeErr == nil
 
-	// target's own Shape is off-limits while target is resolving its own
-	// where/select/distinct_on/order_by (ctx.resolvingOwn) — this is
-	// exactly the "own where/select must not see own computed keys" rule,
-	// reached here via a self-alias hop (e.g. `[".", "self_alias", "x"]`)
-	// rather than only guarding selectShape's own reentrancy.
 	var shape Shape
 	if !ctx.resolvingOwn[target] {
 		var err error
@@ -710,19 +637,14 @@ func (ctx *ResolveContext) resolveExternalHop(target *QueryNode, name string, oc
 	case shapeOK:
 		return shapeField, nil
 	default:
-		// Neither found. scopeErr may itself be "ambiguous" (a collision
-		// among target's own column/alias/self) rather than "not found" ;
-		// either way it's the right error to surface.
+		// Neither found ; scopeErr may itself be "ambiguous" rather than
+		// "not found" — either way it's the right error to surface.
 		return nil, scopeErr
 	}
 }
 
-// resolvedFieldsEqual reports whether a and b represent the same landing —
-// used to tell "found the same thing two ways" (fine) from "found two
-// different things under the same name" (a hard error) in
-// resolveExternalHop. Two ResolvedFields of different concrete kinds, or
-// unequal Shapes, are never considered equal (a Shape colliding with
-// anything is always a real conflict, not merely redundant).
+// resolvedFieldsEqual tells resolveExternalHop's "found the same thing
+// twice" (fine) from "found two different things under one name" (an error).
 func resolvedFieldsEqual(a, b ResolvedField) bool {
 	switch av := a.(type) {
 	case ColumnPath:
@@ -736,19 +658,8 @@ func resolvedFieldsEqual(a, b ResolvedField) bool {
 	}
 }
 
-// selectShape returns target's exported Shape — target.Select's own
-// resolveChain landing, or an empty Shape if Select isn't one of the
-// shape-producing constructs (a scalar select has no named fields).
-// Memoized on target.Shape.Fields : safe to call from an external hop
-// before the real DeriveShapes pass ever reaches target, because resolution
-// is strictly bottom-up — target.Select is always already fully resolved by
-// the time anything external can hop into it, UNLESS target.Select hops
-// into target itself (a self-reference, e.g. select: {"x": [".", "self",
-// "id"]}) — ctx.shapeInProgress guards exactly that case, since nothing
-// legitimate needs a node's select to see its own shape (this node's own
-// where/select must not see its own computed keys, same as the no-sibling-
-// access rule ; see specs/query-engine.md's "## Scoping ### Identifier resolution").
-// DeriveShapes (shape.go) reuses this same cache rather than recomputing.
+// selectShape returns target's exported Shape, memoized on target.Shape.Fields ;
+// ctx.shapeInProgress guards the one unsafe case, a self-reference.
 func (ctx *ResolveContext) selectShape(target *QueryNode, oc oops.OopsErrorBuilder) (Shape, error) {
 	if target.Shape != nil {
 		return target.Shape.Fields, nil

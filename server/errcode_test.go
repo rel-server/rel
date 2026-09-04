@@ -11,21 +11,15 @@ import (
 	"github.com/ceymard/rel/errcode"
 )
 
-// TestRelHandler_UniqueViolation_AlwaysClassified proves
-// specs/error-handling.md ## Postgres error detail's tier 1 : a unique
-// violation is the client's own submitted data triggering the constraint,
-// so it's classified and shown in FULL regardless of dev mode — and,
-// crucially, the response must never contain the generated SQL
-// query/write_dml.go's "insert: %w\nsql: %s" wrapping embeds internally
-// (the live leak found while drafting the spec).
+// TestRelHandler_UniqueViolation_AlwaysClassified : ## Postgres error
+// detail's tier 1 — shown in full regardless of dev, never leaking SQL.
 func TestRelHandler_UniqueViolation_AlwaysClassified(t *testing.T) {
 	email := "dup-errcode-test@example.com"
 	insert := `{
 		"query": {"relation": "profile", "schema": "public", "select": ["own"], "write_mode": "insert"},
 		"data": [{"user_email": "` + email + `"}]
 	}`
-	// First insert succeeds (or already exists from a previous run — either
-	// way, the SECOND insert below is guaranteed to collide).
+	// First insert succeeds or already exists ; the second is guaranteed to collide.
 	_ = postRel(t, insert)
 
 	for _, dev := range []bool{false, true} {
@@ -68,9 +62,8 @@ func TestRelHandler_UniqueViolation_AlwaysClassified(t *testing.T) {
 				t.Errorf("pg_error.table_name = %q, want profile", envelope.PgError.TableName)
 			}
 
-			// The live leak this classification closes : the generated SQL
-			// (write_dml.go's own "sql: insert into ..." wrapper text) must
-			// never appear anywhere in the response body.
+			// The live leak this classification closes : generated SQL must
+			// never appear in the response body.
 			body := rec.Body.String()
 			if strings.Contains(body, "\nsql:") || strings.Contains(body, "insert into") {
 				t.Errorf("response body leaks generated SQL: %s", body)
@@ -79,11 +72,8 @@ func TestRelHandler_UniqueViolation_AlwaysClassified(t *testing.T) {
 	}
 }
 
-// TestRelHandler_UnclassifiedInternalError_DevGated proves the OTHER half
-// of the tiering : an ordinary, non-Postgres-classified 5xx (here,
-// NO_ROLE_CONFIGURED) gets a generic message in production and the full
-// detail only under dev — specs/error-handling.md ## `RelErrorResponse`,
-// updated shape's closing paragraph.
+// TestRelHandler_UnclassifiedInternalError_DevGated : an ordinary 5xx gets
+// a generic message in production, full detail only under dev.
 func TestRelHandler_UnclassifiedInternalError_DevGated(t *testing.T) {
 	for _, dev := range []bool{false, true} {
 		t.Run(map[bool]string{false: "dev=false", true: "dev=true"}[dev], func(t *testing.T) {

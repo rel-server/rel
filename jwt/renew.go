@@ -22,13 +22,10 @@ func ShouldRenew(cfg config.Jwt, claims Claims) bool {
 }
 
 // Renew re-mints claims per Lifecycle step 4 : fresh iat/exp reusing the
-// CURRENT token's own exp-iat width (this is how a jwt_attrs.maxage
-// override from the original mint "self-persists" across renewals with no
-// extra state — the width itself IS the state), auth_time/role/every other
-// key copied as-is. The renewed cookie's SameSite is NOT determined here —
-// per this session's resolution, it always reverts to cfg.Jwt.SameSite,
-// applied by the caller when building the Set-Cookie (CookieValue with no
-// override), not carried as a claim.
+// current token's own exp-iat width (preserving a jwt_attrs.maxage
+// override across renewals), every other key copied as-is. The renewed
+// cookie's SameSite always reverts to cfg.Jwt.SameSite ; it is never
+// carried as a claim.
 func Renew(cfg config.Jwt, claims Claims) Claims {
 	width := ExpiresAt(claims).Sub(IssuedAt(claims))
 	now := time.Now().UTC()
@@ -40,15 +37,10 @@ func Renew(cfg config.Jwt, claims Claims) Claims {
 	return renewed
 }
 
-// RenewIfDue is Lifecycle step 4 in full : ShouldRenew's check, Renew
-// itself, signing, and writing the fresh Set-Cookie — the exact sequence
-// Middleware, route/handler.go's handleRoute, and route/upload_handler.go's
-// handleUploadRoute each ran as their own copy before this was factored
-// out. Returns claims unchanged when renewal isn't due, or a signing
-// failure is silently ignored (same as before : a renewal is a courtesy,
-// not something worth failing the request over) — either way the caller
-// always gets back the claims it should keep using for the rest of the
-// request.
+// RenewIfDue is Lifecycle step 4 in full : ShouldRenew's check, then Renew,
+// signing, and writing the fresh Set-Cookie. Returns claims unchanged when
+// renewal isn't due ; a signing failure is silently ignored — a renewal is
+// a courtesy, never worth failing the request over.
 func RenewIfDue(cfg config.Jwt, w http.ResponseWriter, claims Claims) Claims {
 	if !ShouldRenew(cfg, claims) {
 		return claims
@@ -60,15 +52,10 @@ func RenewIfDue(cfg config.Jwt, w http.ResponseWriter, claims Claims) Claims {
 	return renewed
 }
 
-// ClearSessionCookie deletes any Set-Cookie header already written to w and
-// writes the clearing cookie in its place — server/rel.go's applyRole and
-// /route's two check-session-rejection sites all need this exact sequence :
-// Header().Del first, since http.SetCookie itself only Adds. Renewal (step
-// 4) always runs AFTER check_session (step 3) at every one of these call
-// sites, so nothing has actually set a cookie yet by the time this runs —
-// the Del is a no-op today, kept as a guard against a future call site
-// that renews earlier for some reason (a still-valid renewed token would
-// otherwise leave two Set-Cookie headers alongside the clear).
+// ClearSessionCookie deletes any Set-Cookie header already written to w,
+// then writes the clearing cookie — http.SetCookie only ever Adds, so
+// without the Del a cookie already written this request would linger
+// alongside the clear.
 func ClearSessionCookie(cfg config.Jwt, w http.ResponseWriter) {
 	w.Header().Del("Set-Cookie")
 	http.SetCookie(w, ClearCookie(cfg))

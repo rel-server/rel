@@ -92,9 +92,8 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	oldDb := rl.db
 	rl.mu.Unlock()
 
-	// Step 4 : reintrospect, reusing the EXISTING request-serving pool —
-	// including the anonymous-role existence re-check (pg.ReIntrospect
-	// does this internally ; see its own doc comment).
+	// Step 4 : reintrospect, reusing the EXISTING request-serving pool
+	// (pg.ReIntrospect re-checks anonymous-role existence internally).
 	newDb, err := pg.ReIntrospect(ctx, rl.PrimaryURI, oldDb.Pool, rl.Cfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		rl.Logger.Error("reload: reintrospection failed, resuming under the old schema", "error", err.Error())
@@ -105,12 +104,8 @@ func (rl *Reloader) Reload(ctx context.Context) {
 		rl.Logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", rl.Cfg.Pg.Query.AnonymousRole))
 	}
 
-	// Step 5 : the /route and well-known registries are rebuilt from the new
-	// schema. A well-known reload failure is treated the same as an /route
-	// one — log, resume under the old schema — rather than fatal : both
-	// are just as recoverable, and specs/well-known-queries.md's own
-	// intro folds "reload well-known queries" into this exact 7-step
-	// sequence rather than a separate SIGUSR2 trigger.
+	// Step 5 : /route and well-known registries rebuild from the new schema ;
+	// either failing logs and resumes under the old schema, same as step 3/4.
 	reg, err := route.BuildRegistry(newDb, rl.Cfg)
 	if err != nil {
 		rl.Logger.Error("reload: building /route registry failed, resuming under the old schema", "error", err.Error())
@@ -124,10 +119,8 @@ func (rl *Reloader) Reload(ctx context.Context) {
 		return
 	}
 
-	// Step 6 : a fresh inner mux is built (via the same BuildMux both this
-	// path and cmd/rel/main.go's startup path share) and stored into the
-	// wrapper's atomic.Pointer — a single pointer store, never a write to
-	// http.Server.Handler itself.
+	// Step 6 : a fresh mux (via the same BuildMux startup uses) is stored
+	// into the wrapper's atomic.Pointer, never written to Handler directly.
 	mux, err := BuildMux(newDb, rl.Cfg, reg, wkReg, rl.Logger)
 	if err != nil {
 		rl.Logger.Error("reload: building mux failed, resuming under the old schema", "error", err.Error())

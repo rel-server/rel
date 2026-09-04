@@ -104,9 +104,7 @@ func (s *Server) matchRule(reqPath string) (accessRule, bool) {
 }
 
 // hasDotSegment implements ## Static files' "Dotfiles are never served"
-// rule : any path segment starting with "." is a 404, checked before any
-// http.Dir/http.FileServer involvement — this function is the entire
-// enforcement, called before any filesystem call happens.
+// rule, checked before any filesystem call.
 func hasDotSegment(p string) bool {
 	for _, seg := range strings.Split(p, "/") {
 		if strings.HasPrefix(seg, ".") && seg != "" {
@@ -116,12 +114,8 @@ func hasDotSegment(p string) bool {
 	return false
 }
 
-// openMulti tries name across every directory in order, first success
-// wins — the "small http.FileSystem implementation" ## Static files
-// describes, reimplemented here as a plain function (rather than a
-// http.FileSystem passed to http.FileServer) since the caller also needs
-// the *os.FileInfo to decide the no-directory-listing rule before handing
-// off to http.FileServer for the actual bytes.
+// openMulti tries name across every directory, first success wins ; a
+// plain function since the caller also needs *os.FileInfo.
 func (s *Server) openMulti(name string) (dir string, fi os.FileInfo, ok bool) {
 	for _, d := range s.Dirs {
 		full := path.Join(d, name)
@@ -143,9 +137,8 @@ func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upath := strings.TrimPrefix(r.URL.Path, "/")
 
-		// Dotfile check first, unconditionally, before any filesystem call
-		// or access-control gating — closes the "partially-written upload
-		// mid-stream" and ".env next to static assets" cases identically.
+		// Before any filesystem call or access-control gating — closes off
+		// serving a partial upload mid-stream or a dotfile like .env either way.
 		if hasDotSegment(upath) {
 			http.NotFound(w, r)
 			return
@@ -159,25 +152,17 @@ func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 
 		claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
 
-		// ### Access control : anonymous-disabled 401s BEFORE the existence
-		// check for a GATED prefix specifically — matching /rel and /route's
-		// own "before route lookup, before any body read, before a
-		// connection is acquired" ordering, and for the same
-		// information-leak reason (stat-then-401 would otherwise leak
-		// existence to a caller who was never getting past the gate).
+		// ### Access control : 401 before the existence check (same
+		// ordering as /rel/route) — avoids leaking existence to the gate.
 		if !verified && !db.AnonymousRoleExists {
-			// No X-Rel-Errorcode header here — this package's writePlainError
-			// never carried one, unlike /rel and /route's own 401s for the same
-			// condition (out of scope for this factoring pass, flagged
-			// separately rather than silently changed).
+			// Unlike /rel and /route, no X-Rel-Errorcode header here — this
+			// package's writePlainError never carried one ; flagged, not fixed.
 			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabledMessage)
 			return
 		}
 
-		// Existence checked first, among the remaining ordinary case —
-		// cheap stat, no DB round trip for a request that was never going
-		// to succeed either way (see this package's own doc comment for the
-		// documented existence-leak caveat this ordering carries).
+		// Cheap stat before any DB round trip, for a request that was never
+		// going to succeed either way.
 		_, fi, exists := s.openMulti(upath)
 		if !exists {
 			http.NotFound(w, r)
@@ -202,10 +187,8 @@ func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 	})
 }
 
-// serve applies ## Static files' no-directory-listing rule (a directory
-// with no index.html is a 404, never Go's own listing page) and otherwise
-// delegates to the shared http.FileServer for the actual bytes (Range,
-// ETag, conditional GETs, all handled for free).
+// serve applies ## Static files' no-directory-listing rule and otherwise
+// delegates to http.FileServer for the actual bytes.
 func (s *Server) serve(w http.ResponseWriter, r *http.Request, fileServer http.Handler, upath string) {
 	_, fi, exists := s.openMulti(upath)
 	if !exists {
@@ -231,10 +214,8 @@ type checkStaticAccessPayload struct {
 	Jwt  jwtpkg.Claims `json:"jwt"`
 }
 
-// checkStaticAccess acquires ONE connection for the single
-// check_static_access call — no transaction, no SET LOCAL ROLE (### Access
-// control : "There is no SET LOCAL ROLE/Apply-role step here at all... a
-// static file read is never itself a database operation needing a role").
+// checkStaticAccess acquires one connection for the check_static_access
+// call — no transaction, no SET LOCAL ROLE (### Access control).
 func checkStaticAccess(ctx context.Context, db *pg.DbInfos, qualifiedName, reqPath string, verified bool, claims jwtpkg.Claims) error {
 	var jwtVal jwtpkg.Claims
 	if verified {
@@ -258,11 +239,8 @@ func writePlainError(w http.ResponseWriter, status int, message string) {
 	_, _ = w.Write([]byte(message))
 }
 
-// multiDirFS is the "small http.FileSystem implementation" ## Static files
-// requires, backing http.FileServer directly for actual byte serving
-// (Range/ETag/conditional-GET support) — tries each directory's own
-// http.Dir in order, first success wins ; http.Dir's own Open already
-// normalizes/rejects ".." traversal for each directory tried.
+// multiDirFS backs http.FileServer directly, trying each directory's own
+// http.Dir in order, first success wins.
 type multiDirFS []string
 
 func (m multiDirFS) Open(name string) (http.File, error) {

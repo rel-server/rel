@@ -94,11 +94,8 @@ func TestClassify_UnclassifiedFallsBackTo500(t *testing.T) {
 	}
 }
 
-// Detail's field allow-list must never grow to include Where/InternalQuery/
-// Position/InternalPosition/File/Line/Routine — a tripwire via reflection,
-// not just documentation, so a careless field addition to Detail fails a
-// test instead of silently widening what ## Postgres error detail's tier 1
-// sends to a production client.
+// TestDetail_FieldAllowList is a reflection tripwire : Detail must never
+// grow a Where/InternalQuery/Position/File/Line/Routine field silently.
 func TestDetail_FieldAllowList(t *testing.T) {
 	want := []string{"Message", "Detail", "SchemaName", "TableName", "ColumnName", "ConstraintName"}
 	sort.Strings(want)

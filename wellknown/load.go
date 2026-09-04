@@ -18,9 +18,8 @@ import (
 
 var log = logging.For("wellknown")
 
-// candidate is one file's successfully parsed-and-resolved definition,
-// before the cross-file collision check runs — everything BuildRegistry
-// needs to log a useful warning if it turns out to collide.
+// candidate is one file's parsed-and-resolved definition, before the
+// cross-file collision check runs.
 type candidate struct {
 	def  query.RawWellKnownDefinition
 	root *query.QueryNode
@@ -95,9 +94,7 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 }
 
 // loadFile reads, YAML-normalizes if needed, parses, and resolves every
-// definition in one file, appending each success onto byName — split out of
-// BuildRegistry's WalkDir callback purely to keep that callback's own
-// control flow (skip vs. real I/O error) readable.
+// definition in one file, appending each success onto byName.
 func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]candidate) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -136,22 +133,8 @@ func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]
 	}
 }
 
-// compile finalizes one already-resolved definition : compiles its read
-// statement once (query.CompileSelect), then cross-checks every $param
-// reference the compiled statement collected (writer.SQLWriter.ParamNames)
-// against the declared Params map both ways — WELL_KNOWN_UNKNOWN_PARAM for
-// a reference to an undeclared name, WELL_KNOWN_UNUSED_PARAM for a declared
-// name the query never actually reaches. Also validates each declared
-// default's own JSON shape against its declared type up front, so an
-// authoring mistake there surfaces at load time rather than on a caller's
-// very first request that happens to omit that param.
-//
-// compileExpr's ParamExpr case (sql_expr.go) is reached from anywhere the
-// resolved tree's own expressions are compiled — select fields, where,
-// order by, function arguments — and CompileSelect walks all of them, so a
-// $param used only in a write-only construct (e.g. a deleteonly node's
-// own "where") is still discovered here : where is shared between the read
-// and write compilers, the one case this matters for.
+// compile finalizes one resolved definition : compiles its read statement,
+// cross-checks every $param against declared Params both ways.
 func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled, error) {
 	params := make(map[string]ParamDef, len(def.Params))
 	for name, p := range def.Params {

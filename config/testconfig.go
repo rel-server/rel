@@ -52,11 +52,8 @@ func Test() *Config {
 				DefaultSrc: DefaultHttpCspDefaultSrc,
 			},
 		},
-		// Jwt.Secret is a fixed literal here, NOT DefaultJwtSecret's
-		// "$FILE$..." form : Test() bypasses config.Load/loader.go's $FILE$
-		// resolution entirely (it's a hand-built Config, not loaded from
-		// anything), so the real default would be used as a literal,
-		// useless-as-a-secret string rather than actually resolved.
+		// A fixed literal, not DefaultJwtSecret's "$FILE$..." form : Test()
+		// bypasses loader.go's $FILE$ resolution entirely (hand-built, not loaded).
 		Jwt: Jwt{
 			Secret:        "test-jwt-secret-not-for-production-use",
 			CookieName:    DefaultJwtCookieName,

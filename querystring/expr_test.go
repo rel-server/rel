@@ -71,11 +71,8 @@ func TestParseFullExpr_OwnFullFamilyNotUsableAsSubExpression(t *testing.T) {
 }
 
 func TestParseFullExpr_NegSubBnotMatchEnforceTheirOwnArity(t *testing.T) {
-	// neg/bnot (unary) and sub/match (binary/folded) exist specifically so
-	// "-" and "~"'s two different-arity query.ts meanings never collide in
-	// this grammar (specs/query-json.md) — using the wrong word for the
-	// argument count given must be a clear error, not a silent swap to the
-	// OTHER operator's meaning.
+	// Wrong argument count for the word used must error, not silently
+	// swap to the other same-symbol operator's meaning (specs/query-json.md).
 	for _, in := range []string{"neg(5,3)", "bnot(name,'foo')", "match(status)", "sub(5)"} {
 		if _, err := parseFullExpr(in); err == nil {
 			t.Fatalf("parseFullExpr(%q) : expected an arity error, got none", in)

@@ -237,11 +237,8 @@ func TestResolveQuery_UnknownFunction(t *testing.T) {
 
 func TestResolveQuery_FunctionNamedArguments(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	// {a: 1} must resolve to the 1-arg overload only, not be misdetected as
-	// also matching the 2-arg overload (b required, not supplied) — this is
-	// the exact case functionAcceptsNames had a bug on : it originally only
-	// checked that given names were valid, never that required names were
-	// covered.
+	// {a: 1} must resolve to the 1-arg overload only, not the 2-arg one
+	// (b required, not supplied) — functionAcceptsNames must check required names are covered, not just that given names are valid.
 	raw := mustParseRelation(t, `{"function": "fn_overload", "schema": "public", "arguments": {"a": 1}}`)
 	node, err := ctx.ResolveQuery(raw)
 	if err != nil {
@@ -318,11 +315,8 @@ func TestResolveQuery_MaxDepth(t *testing.T) {
 	}
 }
 
-// JoinColumns must come out in a deterministic (sorted-by-local-column-name)
-// order regardless of Go's randomized map iteration — re-parses the JSON
-// fresh on every iteration (a fresh Go map each time, so a genuinely
-// different iteration order per run) and asserts the resolved order is the
-// same every time, rather than just asserting it once and hoping.
+// JoinColumns must be deterministically sorted-by-local-column-name
+// regardless of Go's randomized map iteration — re-parses fresh each loop to get a genuinely different iteration order per run.
 func TestResolveQuery_JoinColumnsOrderIsDeterministic(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	src := `{

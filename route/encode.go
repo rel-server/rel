@@ -20,55 +20,34 @@ import (
 	"github.com/samber/oops"
 )
 
-// relHttpRequestPayload is specs/route.md ## Request's
-// RelHttpRequest — with ONE deliberate deviation, matching the spec file's
-// own ## Request note : Cookies is {[name]: string} (value only), not the
-// full Cookie shape (value/httponly/secure/samesite/maxage) the spec's
-// literal TypeScript reuses from the RESPONSE side. A browser's Cookie
-// header only ever sends name=value ; the other four attributes are
-// response-only and can never be known for an inbound cookie, so reusing
-// that shape here would just mean four fields that are always zero-valued.
+// relHttpRequestPayload is route.md ## Request's RelHttpRequest, with one
+// deviation : Cookies is {[name]: string}, a browser only sends name=value.
 type relHttpRequestPayload struct {
 	Method      string              `json:"method"`
 	URI         string              `json:"uri"`
 	Headers     map[string][]string `json:"headers"`
 	ContentType string              `json:"content_type"`
-	// Body is ## Request's RelHttpRequest.body (renamed from an earlier,
-	// always-a-raw-string "content" field), typed by ContentType — see
-	// encodeBody. Kept as json.RawMessage since its shape is genuinely
-	// polymorphic (JSON value / plain string / decoded form object /
-	// base64 string / null), already fully encoded by the time it reaches
-	// this struct.
+	// Typed by ContentType (see encodeBody) ; RawMessage since the shape is
+	// genuinely polymorphic (JSON value / string / form object / base64 / null).
 	Body    json.RawMessage   `json:"body"`
 	Cookies map[string]string `json:"cookies"`
 	Jwt     jwtpkg.Claims     `json:"jwt"`
-	// Query is specs/query-json.md's ## /route's query field : r.URL.RawQuery
-	// decoded through the STRUCTURAL layer only (querystring.DecodeQueryField
-	// — no filter expression grammar involvement, that's specific to
-	// Relation's where/select/order_by), handed to the Postgres function
-	// verbatim. nil (-> JSON null) when the request has no query string at
-	// all.
+	// Query is specs/query-json.md ## /route's query field, decoded
+	// through the structural layer only (querystring.DecodeQueryField).
 	Query any `json:"query"`
-	// CspNonce is specs/http-content.md ## CSP ### Nonce's
-	// RelHttpRequest.csp_nonce — generated fresh by websec.Middleware for
-	// every request, unconditionally, before the route function runs.
+	// CspNonce is specs/http-content.md ## CSP ### Nonce's csp_nonce.
 	CspNonce string `json:"csp_nonce"`
 }
 
-// badBodyError marks a request whose body failed to decode per ## Request's
-// body content-type rules (malformed application/json, or malformed
-// application/x-www-form-urlencoded) — a 400, same class as badQueryError.
+// badBodyError marks a malformed request body (specs/route.md ## Request)
+// — a 400, same class as badQueryError.
 type badBodyError struct{ err error }
 
 func (e *badBodyError) Error() string { return e.err.Error() }
 func (e *badBodyError) Unwrap() error { return e.err }
 
-// mediaTypeOf extracts the bare media type from a Content-Type header value
-// (params like charset= stripped), lower-cased. Falls back to a best-effort
-// manual split on the first ';' when mime.ParseMediaType rejects the header
-// outright (a malformed Content-Type is treated the same as an unrecognized
-// one — ## Request's "anything else (binary)" branch — not its own error
-// class, since only the BODY's own malformed-ness is a 400 per spec).
+// mediaTypeOf extracts the lower-cased bare media type, falling back to a
+// manual split on ';' when mime.ParseMediaType rejects it.
 func mediaTypeOf(contentType string) string {
 	mt, _, err := mime.ParseMediaType(contentType)
 	if err == nil {
@@ -80,11 +59,8 @@ func mediaTypeOf(contentType string) string {
 	return strings.ToLower(strings.TrimSpace(contentType))
 }
 
-// encodeBody implements ## Request's RelHttpRequest.body content-type
-// dispatch : hasFiles is true for a route declaring ## Request bodies'
-// "files bytea[]" parameter, in which case body is ALWAYS JSON null
-// regardless of content_type — the payload goes through files/parts_headers
-// instead (built separately by the handler's multipart/binary-body path).
+// encodeBody implements route.md ## Request's body dispatch ; hasFiles
+// forces JSON null since the payload goes through files/parts_headers instead.
 func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage, error) {
 	if hasFiles || len(body) == 0 {
 		return json.RawMessage("null"), nil
@@ -110,22 +86,15 @@ func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage
 	}
 }
 
-// badQueryError marks a request whose query string failed to decode
-// (specs/query-json.md's own structural layer, used here for /route's
-// `query` field) — a 400, same as every other malformed-request case, not
-// a 500 ; handleRoute type-switches on this to pick the right status.
+// badQueryError marks a request whose query string failed to decode — a
+// 400 ; handleRoute type-switches on this to pick the right status.
 type badQueryError struct{ err error }
 
 func (e *badQueryError) Error() string { return e.err.Error() }
 func (e *badQueryError) Unwrap() error { return e.err }
 
-// buildRelHttpRequest encodes r as ## Request's RelHttpRequest. bodyJSON is
-// the already-encoded RelHttpRequest.body value (see encodeBody, called by
-// the handler beforehand — it needs to know hasFiles, which depends on the
-// matched route, so it isn't computed in here). jwt is nil (encodes as JSON
-// null) for an anonymous request — symmetric with "jwt: null clears the
-// session" on the response side, a documented judgment call since the spec
-// doesn't pin down the anonymous case explicitly.
+// buildRelHttpRequest encodes r as route.md's RelHttpRequest ; bodyJSON is
+// pre-encoded (see encodeBody) since the handler needs the route's hasFiles.
 func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified bool, claims jwtpkg.Claims) ([]byte, error) {
 	cookies := map[string]string{}
 	for _, c := range r.Cookies() {
@@ -153,12 +122,8 @@ func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified boo
 	return sonic.Marshal(payload)
 }
 
-// relHttpResponsePayload is ## Responses' RelHttpResponse. Content/Headers/
-// Cookies/Jwt are kept as json.RawMessage : their shapes are each
-// polymorphic in ways a single Go type can't represent directly (Content is
-// TS `unknown` ; a header value is string|string[] ; a cookie value is
-// Cookie|string ; jwt is JWT|null, distinguishable from "absent" only via
-// RawMessage's own nil-vs-non-nil).
+// relHttpResponsePayload is route.md ## Responses' RelHttpResponse.
+// Content/Headers/Cookies/Jwt are json.RawMessage since each is polymorphic.
 type relHttpResponsePayload struct {
 	Status      int                        `json:"status"`
 	ContentType string                     `json:"content_type"`
@@ -167,16 +132,11 @@ type relHttpResponsePayload struct {
 	Cookies     map[string]json.RawMessage `json:"cookies"`
 	Jwt         json.RawMessage            `json:"jwt"`
 	JwtAttrs    *jwtAttrsPayload           `json:"jwt_attrs"`
-	// Template/TemplateData are specs/http-content.md ## Templates :
-	// when Template is a non-empty string, it names a Jet template path
-	// (relative to http.templates.path) rendered in place of Content as the
-	// response body ; TemplateData is that template's Data variable (JSON
-	// null when unset).
+	// Template/TemplateData are specs/http-content.md ## Templates : a
+	// non-empty Template renders in place of Content as the response body.
 	Template     string          `json:"template"`
 	TemplateData json.RawMessage `json:"template_data"`
-	// Csp is specs/http-content.md ## CSP ### Per-response override : a
-	// raw policy string that replaces the process-wide default CSP header
-	// for this one response only, "" meaning "use the default".
+	// Csp is specs/http-content.md ## CSP ### Per-response override.
 	Csp string `json:"csp"`
 }
 
@@ -185,13 +145,8 @@ type jwtAttrsPayload struct {
 	MaxAge   *int   `json:"maxage"`
 }
 
-// writeRelHttpResponse decodes raw as a RelHttpResponse and writes the
-// actual HTTP response : headers and cookies (including a jwt mint/logout)
-// are all set BEFORE status/body, since http.ResponseWriter silently drops
-// header changes made after WriteHeader. r is needed for the request's own
-// CSP nonce (## CSP ### Per-response override re-injects it into resp.csp
-// exactly as it was injected into the process-wide default) and, once a
-// Jet template set is wired in (## Templates), for Req/Nonce template vars.
+// writeRelHttpResponse decodes raw and writes the response ; headers/
+// cookies are set before status/body, since WriteHeader freezes headers.
 func writeRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, route Route, raw []byte, templates *TemplateSet) {
 	var resp relHttpResponsePayload
 	if err := sonic.Unmarshal(raw, &resp); err != nil {
@@ -253,10 +208,8 @@ type outboundCookiePayload struct {
 	MaxAge   *int    `json:"maxage"`
 }
 
-// decodeOutboundCookie applies ## Cookies' stated defaults ("Unless a
-// response overrides them, rel sets secure: true, httponly: true,
-// samesite: Lax, and a max-age of http.cookiesmaxage") on top of either
-// shorthand form.
+// decodeOutboundCookie applies specs/route.md ## Cookies' stated defaults
+// on top of either shorthand form.
 func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) *http.Cookie {
 	c := &http.Cookie{
 		Name:     name,
@@ -293,9 +246,8 @@ func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) 
 	return c
 }
 
-// routeSameSite mirrors jwt package's own unexported sameSite mapping — kept
-// as its own small copy rather than exporting an internal helper from jwt
-// for this one call site.
+// routeSameSite mirrors jwt's own unexported sameSite mapping — a small
+// copy rather than exporting an internal helper for one call site.
 func routeSameSite(s string) http.SameSite {
 	switch s {
 	case "Strict":
@@ -307,12 +259,8 @@ func routeSameSite(s string) http.SameSite {
 	}
 }
 
-// contentBytes serializes RelHttpResponse.content (TS `unknown`) per this
-// session's documented judgment call : a JSON string whose content_type
-// isn't itself JSON-flavored is written raw/unquoted (the common case —
-// "text/plain"/"text/html" content authored as a plain string) ; anything
-// else (an object/array, or content_type is itself a JSON mimetype) is
-// written as content's own raw JSON representation.
+// contentBytes writes a JSON string raw/unquoted when content_type isn't
+// JSON-flavored ; anything else is written as its raw JSON representation.
 func contentBytes(content json.RawMessage, contentType string) []byte {
 	trimmed := bytes.TrimSpace(content)
 	if len(trimmed) >= 2 && trimmed[0] == '"' && !strings.Contains(contentType, "json") {
@@ -324,9 +272,7 @@ func contentBytes(content json.RawMessage, contentType string) []byte {
 	return trimmed
 }
 
-// authFunctionAllowed is http.functions.auth's own gate : "regexp
-// restricting which functions' responses rel will honor a jwt field from".
-// Empty regexp = unrestricted.
+// authFunctionAllowed is http.functions.auth's gate ; empty regexp = unrestricted.
 func authFunctionAllowed(cfg *config.Config, route Route) bool {
 	if cfg.Http.Functions.AllowedAuth == "" {
 		return true
@@ -338,15 +284,11 @@ func authFunctionAllowed(cfg *config.Config, route Route) bool {
 	return re.MatchString(route.Function.Identifier.String())
 }
 
-// handleResponseJwt is Lifecycle step 1 (Mint) / logout, driven by a route
-// function's own RelHttpResponse.jwt : JSON null clears the session ;
-// {role, ...} mints a fresh one ; a route function outside
-// http.functions.auth setting jwt is silently NOT honored (a documented
-// judgment call — "restricting which functions' responses rel will honor a
-// jwt field from" reads as "ignore it", not "error").
+// handleResponseJwt is Lifecycle step 1 (Mint)/logout : JSON null clears
+// the session, {role, ...} mints one ; ignored outside http.functions.auth.
 func handleResponseJwt(w http.ResponseWriter, cfg *config.Config, route Route, resp relHttpResponsePayload) {
 	if len(resp.Jwt) == 0 {
-		return // key not present at all — nothing to do
+		return
 	}
 	if !authFunctionAllowed(cfg, route) {
 		return

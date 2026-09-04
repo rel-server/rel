@@ -88,12 +88,8 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 		return err
 	}
 
-	// Index into infos.Types directly throughout, never range-by-value : a
-	// fresh loop ranging over infos.Types by value would mutate a throwaway
-	// copy on every assignment below, distinct from whatever infos.TypeMapByOid
-	// points to, and none of it would stick (the same class of bug as the
-	// f.Arguments fix above, just easier to miss because nothing failed loudly
-	// — every type silently reported IsArray()/IsDomain()/IsComposite() false).
+	// Index directly, never range-by-value — that mutates a throwaway
+	// copy, the same bug class as the f.Arguments fix below.
 	for i := range infos.Types {
 		infos.TypeMapByOid[infos.Types[i].PgOid] = &infos.Types[i]
 	}
@@ -127,11 +123,8 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 		}
 	}
 
-	// A composite type's backing relation, resolved now that both maps exist —
-	// needs the relation to actually have been introspected, which is why
-	// introspection must never exclude pg_catalog/information_schema : a
-	// function returning a pg_catalog composite type (or SETOF a system view)
-	// still needs IsComposite()/.Relation to resolve correctly.
+	// A composite type's backing relation, resolved now both maps exist —
+	// needs introspection to never exclude pg_catalog.
 	for i := range infos.Types {
 		t := &infos.Types[i]
 		if t.PgRelId > 0 {
@@ -147,9 +140,8 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 			return oops.With("function", f.Identifier.String()).With("returnTypeOid", f.PgReturnTypeOid).Errorf("failed to find return type (this should not happen)")
 		}
 
-		// Arguments is a value slice ; index into it directly rather than
-		// ranging by value, or the assignment below would silently mutate a
-		// throwaway copy and never stick on the real element.
+		// Arguments is a value slice ; index directly rather than ranging
+		// by value, or the assignment below mutates a throwaway copy.
 		for i := range f.Arguments {
 			a := &f.Arguments[i]
 			if a.Type, ok = infos.TypeMapByOid[a.PgTypeOid]; !ok {
@@ -157,33 +149,14 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 			}
 		}
 
-		// RecordRelation : built directly from this function's own OUT-mode
-		// arguments, independent of ReturnType — see Function.RecordRelation's
-		// own doc comment for why ReturnType.Relation can never resolve this
-		// (every record-returning function shares the one generic
-		// pg_catalog.record pseudo-type, which has no backing pg_class row).
-		// PrimaryKey/OutgoingForeignKeys/IncomingForeignKeys/Indexes and every
-		// unexported lookup map are deliberately left at their zero value —
-		// there is genuinely nothing here for them to describe : a function's
-		// computed output is never constrained or indexed by Postgres, so
-		// leaving them nil/empty is the accurate representation, not a
-		// shortcut. This is also what makes the result automatically safe to
-		// hand to the query engine unchanged : every write-eligibility check
-		// (identityIsWritable, on_conflict's own FindUniqueConstraint lookup)
-		// and every join-eligibility check (ResolveJoin's FindUniqueConstraint/
-		// RelationshipsTo/IsIndexed) already reads from exactly these fields,
-		// and a nil map read in Go safely reports "not found" rather than
-		// panicking — so this relation is structurally unwritable and can
-		// never be the covered/indexed (child) side of any join, with no
-		// separate guard needed anywhere else.
+		// PrimaryKey/ForeignKeys/Indexes and every lookup map stay nil — a
+		// nil-map read safely reports "not found," so no separate guard is needed.
 		var outCols []*Column
 		outColsMap := map[string]*Column{}
 		for i := range f.Arguments {
 			a := &f.Arguments[i]
-			// RETURNS TABLE(...)'s own pseudo-columns are proargmode 't'
-			// (MODE_TABLE), NOT 'o' (a plain OUT parameter, MODE_OUT) —
-			// genuinely distinct Postgres concepts, both included here since
-			// both represent "part of this function's own output."
+			// MODE_TABLE and MODE_OUT are distinct (see MODE_TABLE's own
+			// doc comment) ; both count as this function's own output.
 			if !a.IsOut() && !a.IsTableColumn() {
 				continue
 			}
@@ -213,8 +186,6 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 			}
 		}
 	}
-
-	// Now, do the relations
 
 	return nil
 }

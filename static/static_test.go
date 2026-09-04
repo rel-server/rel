@@ -100,12 +100,8 @@ func TestServer_DotfileIsNotFound_EvenIfItExists(t *testing.T) {
 	}
 }
 
-// TestServer_DotfileSegment_MidPath_NotFound proves hasDotSegment's rule
-// applies to a dot-prefixed segment ANYWHERE in the path, not only when the
-// dotfile is the final segment — hitting the real HTTP handler, not just
-// the hasDotSegment unit test above. A naive "does the last path element
-// start with '.'" check would miss this ; the file genuinely exists on
-// disk, so a wrong implementation would serve it.
+// TestServer_DotfileSegment_MidPath_NotFound : hasDotSegment's rule
+// applies anywhere in the path, not just the final segment.
 func TestServer_DotfileSegment_MidPath_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, ".git/config", "[core]\n")

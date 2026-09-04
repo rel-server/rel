@@ -58,9 +58,8 @@ func TestReloadableHandler_FastRequestNotCancelled(t *testing.T) {
 	}
 }
 
-// TestReloadableHandler_SlowRequestObservesCancelOnTimeout covers
-// specs/migrations.md ## Reloading step 2 : a request still running past the
-// drain timeout must have its context cancelled.
+// migrations.md ## Reloading step 2 : a straggler past the drain timeout
+// must have its context cancelled.
 func TestReloadableHandler_SlowRequestObservesCancelOnTimeout(t *testing.T) {
 	started := make(chan struct{})
 	var observedErr error
@@ -92,9 +91,7 @@ func TestReloadableHandler_SlowRequestObservesCancelOnTimeout(t *testing.T) {
 	}
 }
 
-// TestReloadableHandler_MaintenanceRejectsNewRequestsWithout503Reaching
-// covers step 1 : a brand-new request during maintenance gets 503 and never
-// reaches the inner handler at all.
+// Step 1 : a new request during maintenance gets 503, never reaches the inner handler.
 func TestReloadableHandler_MaintenanceRejectsNewRequestsWithoutReachingInner(t *testing.T) {
 	var called int32
 	h := NewReloadableHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,9 +111,7 @@ func TestReloadableHandler_MaintenanceRejectsNewRequestsWithoutReachingInner(t *
 	}
 }
 
-// TestReloadableHandler_SwapAndEndMaintenanceResumeAgainstNewHandler covers
-// steps 6/7 : after Swap + EndMaintenance, requests are served by the NEW
-// handler, not the old one.
+// Steps 6/7 : after Swap + EndMaintenance, requests hit the NEW handler.
 func TestReloadableHandler_SwapAndEndMaintenanceResumeAgainstNewHandler(t *testing.T) {
 	h := NewReloadableHandler(handlerReturning("old"))
 	h.BeginMaintenance()
@@ -136,9 +131,8 @@ func TestReloadableHandler_SwapAndEndMaintenanceResumeAgainstNewHandler(t *testi
 	}
 }
 
-// TestReloadableHandler_EndMaintenanceWithoutSwapResumesOldHandler covers
-// EndMaintenance's own doc comment : without a Swap call (e.g. dmut failed
-// and reload aborted before step 6), resuming serves the ORIGINAL handler.
+// Without a Swap call (e.g. dmut failed before step 6), resuming serves
+// the ORIGINAL handler — see EndMaintenance's own doc comment.
 func TestReloadableHandler_EndMaintenanceWithoutSwapResumesOldHandler(t *testing.T) {
 	h := NewReloadableHandler(handlerReturning("original"))
 	h.BeginMaintenance()
@@ -154,9 +148,8 @@ func TestReloadableHandler_EndMaintenanceWithoutSwapResumesOldHandler(t *testing
 	}
 }
 
-// TestReloadableHandler_ConcurrentRequestsDuringDrain exercises many
-// concurrent in-flight requests, all tracked and all cancelled correctly on
-// a drain timeout — run with -race.
+// Many concurrent in-flight requests, all tracked and cancelled correctly
+// on a drain timeout — run with -race.
 func TestReloadableHandler_ConcurrentRequestsDuringDrain(t *testing.T) {
 	const n = 50
 	var startedWg sync.WaitGroup

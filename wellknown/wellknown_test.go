@@ -42,10 +42,8 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// buildRegistry writes files (path -> content) under a fresh temp
-// directory, points cfg.Pg.Query.WellKnownDirs at it, and returns the
-// resulting *Registry — every test's own well-known files are throwaway
-// fixtures, never the real filesystem.
+// buildRegistry writes files under a fresh temp directory and returns the
+// *Registry built against it — throwaway fixtures, never the real filesystem.
 func buildRegistry(t *testing.T, files map[string]string) *Registry {
 	t.Helper()
 	dir := t.TempDir()
@@ -116,9 +114,8 @@ func TestBuildRegistry_InvalidQueryDeactivatesOnlyThatEntry(t *testing.T) {
 	}
 }
 
-// TestBuildRegistry_DuplicateNameDeactivatesBothEntries pins ## Behaviour's
-// "deactivates *every* well-known query registered under that name (not
-// just the newest one)".
+// TestBuildRegistry_DuplicateNameDeactivatesBothEntries : ## Behaviour
+// deactivates every entry under a duplicate name, not just the newest.
 func TestBuildRegistry_DuplicateNameDeactivatesBothEntries(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{
 		"a.json": `{"name": "dup", "query": {"relation": "director", "schema": "public", "select": ["own"]}}`,

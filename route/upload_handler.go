@@ -1,9 +1,6 @@
 // This file implements specs/http-content.md ### Upload destinations'
-// numbered "Ordering" subsection : a genuinely different request flow from
-// handleRoute's own single-transaction one — the body is resolved (streamed
-// straight to a temp file on disk) AFTER __prepare's placement decision,
-// and the file only changes on disk after the mandatory function's own
-// transaction has actually committed.
+// "Ordering" subsection : the body streams to a temp file only after
+// __prepare's placement decision, and disk only changes after commit.
 package route
 
 import (
@@ -33,9 +30,8 @@ import (
 	"github.com/ceymard/rel/static"
 )
 
-// relUploadPayload mirrors ### Upload destinations' RelUpload domain —
-// Path/Mkdir/Overwrite are __prepare's own decision ; Part/Size are always
-// rel-filled, never read from __prepare's own response.
+// relUploadPayload mirrors the RelUpload domain. Path/Mkdir/Overwrite are
+// __prepare's decision ; Part/Size are always rel-filled.
 type relUploadPayload struct {
 	Path      *string         `json:"path"`
 	Mkdir     bool            `json:"mkdir"`
@@ -44,11 +40,8 @@ type relUploadPayload struct {
 	Size      *int64          `json:"size"`
 }
 
-// handleUploadRoute implements every numbered step of ### Upload
-// destinations' "Ordering" subsection. reqJSON isn't precomputed by the
-// caller (unlike the ordinary path) — RelHttpRequest.body is always JSON
-// null for this family (the payload never goes through body), so it's
-// built directly here.
+// handleUploadRoute implements ### Upload destinations' "Ordering" ; body
+// is always JSON null here, so reqJSON is built directly, not by the caller.
 func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, route Route, staticSrv *static.Server, templates *TemplateSet, verified bool, claims jwtpkg.Claims) {
 	ctx := r.Context()
 	rlog := logging.FromContext(ctx).With("module", "route")
@@ -61,9 +54,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	r = r.WithContext(withRequestJSON(ctx, reqJSON))
 	ctx = r.Context()
 
-	// Step 2's own 415 rule : "A request that IS JSON/text/form-urlencoded
-	// is a 415... checked BEFORE invoking either function, from the
-	// request's own Content-Type alone."
+	// Step 2 : a JSON/text/form body is a 415, checked before either
+	// function runs, from Content-Type alone.
 	contentTypeHeader := r.Header.Get("Content-Type")
 	mt := mediaTypeOf(contentTypeHeader)
 	if mt == "application/json" || strings.HasSuffix(mt, "+json") ||
@@ -100,7 +92,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 				writePlainError(w, http.StatusBadRequest, errcode.MalformedMultipart, "malformed multipart body: "+perr.Error())
 				return
 			}
-			// Zero parts : "no upload at all", same as no body.
+			// Zero parts : no upload at all, same as no body.
 		} else {
 			hasUpload = true
 			currentPart = p
@@ -109,27 +101,16 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			}
 		}
 	} else if r.ContentLength != 0 {
-		// A non-multipart request is a potential single raw upload regardless
-		// of whether Content-Type was sent at all — matching ## Request
-		// bodies' own general dispatch rule elsewhere ("anything else... a
-		// single raw binary POST"), where a MISSING Content-Type is treated
-		// the same as an unrecognized one, not as "nothing to read." Gating
-		// this on contentTypeHeader != "" (the previous, narrower condition)
-		// meant a genuine binary upload sent with no Content-Type header at
-		// all was silently never streamed/consumed. r.ContentLength == 0 is
-		// still excluded (a definitely-empty body, same as no upload at all)
-		// ; -1 (unknown/chunked length) is treated as "might have a body,"
-		// same as everywhere else that can't know length ahead of reading.
+		// A missing Content-Type is treated as "might have a body" (like
+		// -1/chunked), not as "nothing to read" — only 0 is excluded.
 		hasUpload = true
 		if b, merr := sonic.Marshal(synthesizedPseudoPart(r, contentTypeHeader)); merr == nil {
 			partJSON = b
 		}
 	}
 
-	// Step 3 : connection acquire ; check_session as a PLAIN STATEMENT,
-	// before BEGIN READ ONLY opens ; renew ; BEGIN READ ONLY ; SET LOCAL
-	// ROLE ; invoke __prepare(req, part) ; COMMIT (trivial for a read-only
-	// transaction).
+	// Step 3 : check_session as a plain statement before BEGIN READ ONLY,
+	// then renew, SET LOCAL ROLE, invoke __prepare, commit.
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
@@ -194,19 +175,11 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		writeDir = staticSrv.WriteDir()
 	}
 
-	// Immediately after __prepare returns, still before any bytes are
-	// read : traversal validation (500), the overwrite/409 fast-fail check,
-	// and mkdir — all skipped entirely (not executed-but-vacuous) when
-	// !hasUpload, per step 2's own "part: null... whatever path/mkdir/
-	// overwrite it returned is simply never acted on" rule.
+	// Traversal validation/409 check/mkdir are skipped entirely when
+	// !hasUpload — __prepare's path/mkdir/overwrite are never acted on.
 	var finalPath, tempPath, overwrite string
-	// Every error return past this point used to repeat its own
-	// "if tempPath != \"\" { os.Remove(tempPath) }" by hand — a future
-	// error return added without that line would silently leak a temp
-	// file. One unconditional defer instead : safe even past a successful
-	// swap (swapUploadIntoPlace's own os.Rename has already moved tempPath
-	// away by then, so this becomes a no-op on an already-gone path) or
-	// the discard-case's own removal below.
+	// One unconditional defer rather than repeating cleanup at every error
+	// return ; a no-op once swapUploadIntoPlace has already moved tempPath.
 	defer func() {
 		if tempPath != "" {
 			_ = os.Remove(tempPath)
@@ -246,9 +219,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			}
 			tempPath = filepath.Join(filepath.Dir(finalPath), ".upload-"+randomToken())
 		} else if writeDir != "" {
-			// path omitted (discard case) : still streamed, into a generic
-			// staging location, so the mandatory function still gets an
-			// accurate size.
+			// Discard case : still streamed to a staging location, so the
+			// mandatory function gets an accurate size.
 			tempPath = filepath.Join(writeDir, ".upload-"+randomToken())
 		} else {
 			rlog.Error("route: upload route has no http.static.path directory configured/exists to stage the discarded upload into")
@@ -257,8 +229,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 	}
 
-	// Step 4-5 : stream bytes to the temp file ; for multipart, one more
-	// NextPart() call after streaming ends catches a second part.
+	// Steps 4-5 : stream to the temp file ; for multipart, one more
+	// NextPart() catches a second part.
 	var size int64
 	if hasUpload {
 		f, ferr := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -302,8 +274,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	// Steps 6-8 : a SECOND connection/transaction — check_session/renew are
-	// NOT repeated here, they already ran exactly once, in step 3.
+	// Steps 6-8 : a second connection/transaction ; check_session/renew
+	// already ran once, in step 3, and aren't repeated.
 	conn2, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
@@ -327,8 +299,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	mrow := tx2.QueryRow(ctx, "select "+mandIdent+"($1::jsonb, $2::jsonb)", reqJSON, uploadForMandatory)
 	if err := mrow.Scan(&respRaw); err != nil {
 		_ = tx2.Rollback(ctx)
-		// "If the mandatory function raises (no commit) : the temp file is
-		// deleted, nothing further happens." — the deferred cleanup above.
+		// No commit : the temp file is deleted by the deferred cleanup above.
 		writeErrorForPgErr(w, err, cfg.Dev)
 		return
 	}
@@ -337,9 +308,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	// Step 9 : ONLY on a successful commit, and ONLY if path was set, the
-	// disk swap finalizes. Path omitted : the deferred cleanup above deletes
-	// the temp file instead — not an error.
+	// Step 9 : the disk swap finalizes only on commit AND a set path ;
+	// path omitted means the deferred cleanup deletes the temp file instead.
 	if hasUpload && finalPath != "" {
 		if err := swapUploadIntoPlace(rlog, tempPath, finalPath, overwrite); err != nil {
 			rlog.Error("route: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
@@ -351,16 +321,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	writeRelHttpResponse(w, r, cfg, route, respRaw, templates)
 }
 
-// resolveUnderDir cleans rel (a path relative to dir) and confirms the
-// result stays under dir — ## Static files' own traversal/escaping rules,
-// reused here per ### Upload destinations' "Placement" paragraph : a `path`
-// that escapes dir is a hard rejection, never silently rewritten into some
-// OTHER location still under dir. filepath.Join(dir, filepath.Clean(sep+rel))
-// alone does NOT achieve this — Clean roots ".." components at "/" before
-// Join ever runs, so "../../etc/passwd" (or an absolute "/etc/passwd")
-// resolves to a real, if unintended, path under dir instead of failing ; an
-// attacker-influenced path is caught explicitly, BEFORE that rewriting can
-// happen, not after.
+// resolveUnderDir rejects a path escaping dir outright ; plain
+// filepath.Join+Clean alone would silently rewrite it elsewhere under dir.
 func resolveUnderDir(dir, rel string) (string, bool) {
 	if rel == "" || filepath.IsAbs(rel) {
 		return "", false
@@ -377,36 +339,23 @@ func resolveUnderDir(dir, rel string) (string, bool) {
 	return full, true
 }
 
-// randomToken is the ".upload-<random>" temp/backup file naming scheme —
-// always dot-prefixed regardless of directory (## Static files' own
-// dotfile rule then makes it unservable mid-stream, no separate mechanism
-// needed).
+// randomToken names a temp/backup file's suffix ; always dot-prefixed by
+// the caller, so ## Static files' dotfile rule keeps it unservable mid-stream.
 func randomToken() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// swapUploadIntoPlace is step 9's own rename sequence : rename any
-// existing file at finalPath aside to a dot-prefixed backup, rename temp
-// into place, delete the backup on success. On any failure partway,
-// restore the backup (if one was made) and clean up the temp file — the
-// caller has already committed the mandatory function's own DB write by
-// the time this runs, so this failure window never rolls that back, only
-// logs/500s per the spec's own documented limitation.
+// swapUploadIntoPlace is step 9's rename sequence ; the DB write already
+// committed by this point, so a failure here can only log/500, never roll back.
 func swapUploadIntoPlace(rlog *slog.Logger, tempPath, finalPath, overwrite string) error {
 	dir := filepath.Dir(finalPath)
 	backupPath := filepath.Join(dir, ".upload-backup-"+randomToken())
 	hadExisting := false
 	if _, err := os.Stat(finalPath); err == nil {
-		// overwrite:'disallow' was already enforced once, early (before any
-		// bytes were read) — deliberately NOT re-enforced here (step 9's own
-		// "last-write-wins on a genuine race" rule : the mandatory function's
-		// transaction has already committed by this point, so refusing the
-		// swap now would leave the database referencing a file that was
-		// never actually written). A file existing here despite that early
-		// check passing means exactly such a race happened — worth a warning
-		// even though it isn't an error.
+		// Not re-enforced here — refusing now would leave the DB referencing
+		// a file that was never actually written (step 9 : last-write-wins).
 		if overwrite == "disallow" {
 			rlog.Warn("route: upload overwrote an existing file at commit time despite overwrite:'disallow' — a concurrent request won the race after the early existence check", "path", finalPath)
 		}
@@ -429,11 +378,8 @@ func swapUploadIntoPlace(rlog *slog.Logger, tempPath, finalPath, overwrite strin
 	return nil
 }
 
-// buildUploadForMandatory decodes __prepare's own raw RelUpload response,
-// overwrites ONLY the rel-filled part/size fields (never touching
-// path/mkdir/overwrite, which __prepare alone controls), and re-marshals —
-// preserves any field __prepare's own response happened to carry rather
-// than narrowing through relUploadPayload's own Go shape.
+// buildUploadForMandatory decodes __prepare's raw response, overwrites
+// only the rel-filled part/size fields, and re-marshals unnarrowed.
 func buildUploadForMandatory(prepareRaw []byte, partJSON json.RawMessage, hasUpload bool, size int64) ([]byte, error) {
 	var m map[string]any
 	if err := sonic.Unmarshal(prepareRaw, &m); err != nil {

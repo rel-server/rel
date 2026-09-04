@@ -27,7 +27,8 @@ func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, "\"", "\"\"")
 }
 
-// Scan the result of a json_agg query into a target, because the json deserialization is actually easier to use that defining custom types with pgx, and since we only do it once to refresh the schema information, we don't bother.
+// scanIntoThroughJsonAgg decodes a json_agg(...) result into target via
+// encoding/json — simpler than pgx row types for a one-shot introspection query.
 func scanIntoThroughJsonAgg(conn *pgx.Conn, query string, target any) error {
 	oc := oops.With("query", query)
 

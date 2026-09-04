@@ -85,14 +85,8 @@ import (
 	"github.com/ceymard/rel/query"
 )
 
-// mustResolveQuery runs the full pass-1/pass-2 pipeline (ParseQuery ->
-// ResolveQuery -> ResolveExpressions -> DeriveShapes), exactly mirroring
-// query/expression_resolve_test.go's own mustResolveQuery — duplicated
-// rather than imported because it's hard-wired to *testing.T there and this
-// file needs the *testing.B form throughout; query_bench is also a
-// different package (it needs its OWN container/schema/seed, see
-// main_test.go), so it can't reuse the query package's unexported test
-// helpers regardless.
+// mustResolveQuery runs the full pass-1/pass-2 pipeline ; duplicated from
+// query/expression_resolve_test.go's *testing.T form since this needs *testing.B.
 func mustResolveQuery(b *testing.B, src string) *query.QueryNode {
 	b.Helper()
 	pq, err := query.ParseQuery([]byte(src))
@@ -125,10 +119,8 @@ func mustCompileSelect(b *testing.B, node *query.QueryNode) (string, []any) {
 	return w.String(), w.Args()
 }
 
-// runAndDecode executes sql/args and decodes every row's single "json"
-// column, exactly like query/sql_test.go's own runSelect — returns the row
-// count so callers can b.ReportMetric it (rows/call, matching
-// write_bench_test.go's rows/call convention for its own batch-size case).
+// runAndDecode executes sql/args and decodes each row's "json" column,
+// returning the row count for callers to b.ReportMetric.
 func runAndDecode(b *testing.B, sql string, args []any) int {
 	b.Helper()
 	rows, err := testDb.Pool.Query(context.Background(), sql, args...)
@@ -155,10 +147,7 @@ func runAndDecode(b *testing.B, sql string, args []any) int {
 }
 
 // ---- 1. Flat list : filter + pagination -------------------------------
-//
-// The simplest realistic case : one table, an equality filter on an enum
-// column, ordered, a real page size (20 rows), offset into the middle of
-// the ~500 seeded bookings.
+// One table, an equality filter, ordered, a real page offset mid-dataset.
 
 func BenchmarkSelect_FlatFilterPagination(b *testing.B) {
 	node := mustResolveQuery(b, `{
@@ -198,12 +187,7 @@ func BenchmarkSelect_FlatFilterPagination_Compile(b *testing.B) {
 }
 
 // ---- 2. One-hop join : bookings embedding their guest and room --------
-//
-// Both are OUTGOING (to-one) : bookings.guest_id -> guests.id and
-// bookings.room_id -> rooms.id, each landing on the target's own primary
-// key, so both are eligible regardless of any index on the FK column
-// itself (### Join eligibility : the unique/"one" side never needs a
-// separate index check).
+// Both outgoing (to-one), landing on the target's own PK — no FK index needed (### Join eligibility).
 
 const oneHopJoinQuery = `{
 	"relation": "bookings", "schema": "hotel",
@@ -242,11 +226,7 @@ func BenchmarkSelect_OneHopJoin_Compile(b *testing.B) {
 }
 
 // ---- 3. Embedded to-many : a property embedding its rooms -------------
-//
-// rooms.property_id IS indexed — the leading column of unique(property_id,
-// room_number) — unlike most other incoming relations in this schema (see
-// the package doc comment), which is exactly why this is the realistic
-// to-many choice here rather than e.g. reviews.
+// rooms.property_id is indexed, unlike most incoming relations here — the realistic to-many choice.
 
 func BenchmarkSelect_EmbeddedToMany(b *testing.B) {
 	node := mustResolveQuery(b, `{
@@ -265,11 +245,7 @@ func BenchmarkSelect_EmbeddedToMany(b *testing.B) {
 }
 
 // ---- 4. Deeper nested embed : booking -> room -> room_type/property ---
-//
-// Three levels, all outgoing (to-one) : bookings.room_id -> rooms.id,
-// rooms.room_type_id -> room_types.id, rooms.property_id -> properties.id.
-// All eligible regardless of indexing on the FK columns themselves, since
-// every landing side is a primary key.
+// Three levels, all outgoing (to-one), every landing side a primary key.
 
 func BenchmarkSelect_DeepNestedEmbed(b *testing.B) {
 	node := mustResolveQuery(b, `{
@@ -297,12 +273,7 @@ func BenchmarkSelect_DeepNestedEmbed(b *testing.B) {
 }
 
 // ---- 5. Self-join : staff walking the manager_id hierarchy two levels -
-//
-// The fixture's own stated reason for existing (test/README.md : "the
-// fixture's instance of query-engine.md's own self-join example"). Each
-// "manager" hop is outgoing (staff.manager_id -> staff.id, the PK), so
-// eligible regardless of the incoming direction (direct reports) being
-// unindexed and therefore un-embeddable.
+// Each "manager" hop is outgoing (staff.manager_id -> staff.id, the PK).
 
 func BenchmarkSelect_SelfJoin(b *testing.B) {
 	node := mustResolveQuery(b, `{
@@ -326,13 +297,7 @@ func BenchmarkSelect_SelfJoin(b *testing.B) {
 }
 
 // ---- 6. Aggregate-heavy : a property's rooms, embedded AND counted ----
-//
-// Deliberately both embeds "rooms" as an array AND aggregates over the
-// exact same child (room_count via count(*)) — the dual-consumption shape
-// that forces LATERAL sharing (see query/sql_test.go's own comment on the
-// equivalent movie/director case) : the child is materialized once, read
-// twice, rather than joined in twice. Read-path cost distinct from a plain
-// join, per the task's own framing.
+// Dual-consumption of "rooms" forces LATERAL sharing — materialized once, read twice.
 
 func BenchmarkSelect_AggregateHeavy(b *testing.B) {
 	node := mustResolveQuery(b, `{
@@ -372,12 +337,7 @@ func BenchmarkSelect_AggregateHeavy_Compile(b *testing.B) {
 }
 
 // ---- 7. Full text search : search_properties(query) --------------------
-//
-// A function-relation (SETOF hotel.properties), a genuinely different
-// query shape from a plain table/join — hotel.search_properties runs
-// websearch_to_tsquery against properties.description_search internally.
-// "Located" is guaranteed to match : test/seed/seed's seeder appends
-// "Located in <city>." to every generated property description.
+// A function-relation (SETOF) ; "Located" matches every seeded property's description.
 
 func BenchmarkSelect_FullTextSearch(b *testing.B) {
 	node := mustResolveQuery(b, `{
@@ -396,12 +356,7 @@ func BenchmarkSelect_FullTextSearch(b *testing.B) {
 }
 
 // ---- 7b. RETURNS TABLE function root : hotel.booking_stats -------------
-//
-// A genuinely different resolution path from every other benchmark here
-// (pg.Function.RecordRelation, not Type.Relation) — see the package doc
-// comment above. property_id=1 is guaranteed to exist : test/seed/seed
-// always seeds at least one property per chain, in insertion order
-// starting at id 1.
+// Resolves via pg.Function.RecordRelation, not Type.Relation ; property_id=1 always exists.
 
 func BenchmarkSelect_RecordFunction(b *testing.B) {
 	node := mustResolveQuery(b, `{
@@ -435,16 +390,7 @@ func BenchmarkSelect_RecordFunction_Compile(b *testing.B) {
 }
 
 // ---- 8. Filter-heavy : several combined where conditions --------------
-//
-// Stresses the filter EXPRESSION GRAMMAR's compilation specifically (not
-// just execution) : an "in", a "between", and a tstzrange overlap ("&&",
-// the exclusion-constraint operator itself), all "and"-ed together. The
-// literal range is built from time.Now() (not hard-coded) so it always
-// overlaps a meaningful slice of the seeded data regardless of when the
-// benchmark runs — test/seed/seed's own bookings span roughly "now minus 6
-// months" through "now plus a few days" (its horizon/offsetDays/nights
-// arithmetic), so a 4-month window centered on "now minus 3 months" reliably
-// intersects a real portion of it.
+// "in"/"between"/tstzrange overlap and-ed ; range built from time.Now() so it always overlaps seeded data.
 
 func filterHeavyQuery() string {
 	now := time.Now().UTC()
@@ -486,11 +432,7 @@ func BenchmarkSelect_FilterHeavy_Compile(b *testing.B) {
 }
 
 // ---- 9. Wide/unscoped : every booking, embedding guest and room -------
-//
-// The deliberate "what does this cost at real volume, unbounded" stress
-// case the task calls for explicitly : same shape as #2 (one-hop join),
-// but with NO limit — all ~500 seeded bookings, each embedding its guest
-// and room, in one response.
+// Same shape as #2 but with no limit — all ~500 seeded bookings at once.
 
 const wideUnscopedQuery = `{
 	"relation": "bookings", "schema": "hotel",

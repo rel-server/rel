@@ -61,17 +61,8 @@ type WriteResult struct {
 	RowCount int
 }
 
-// assignNodeIDs walks root pre-order, assigning a distinct index per node
-// by tree position — never by table, so a self-join produces distinct IDs
-// for each occurrence (specs/query-engine.md ## Writing Algorithm step 1). A
-// READONLY node, and everything nested under it, is skipped entirely : its
-// own children have no parent key to correlate against once it's excluded
-// from "_data", so pruning has to take the whole subtree, not just the one
-// node (spec : "ignored from here on out"). startAt lets a caller running
-// several ExecuteWrite calls against the same "_data" table (several write
-// items in one request, see WriteState) continue numbering where the
-// previous call left off, instead of every root colliding on __node_id 0 —
-// returns the next free id alongside the assignment.
+// assignNodeIDs walks root pre-order, pruning a READONLY node's whole
+// subtree ; startAt continues numbering across calls sharing one WriteState.
 func assignNodeIDs(root *QueryNode, startAt int) (map[*QueryNode]int, int) {
 	ids := map[*QueryNode]int{}
 	next := startAt
@@ -93,17 +84,8 @@ func assignNodeIDs(root *QueryNode, startAt int) (map[*QueryNode]int, int) {
 	return ids, next
 }
 
-// findUnwritableNode walks root, children first (post-order), looking for
-// the ORIGINATING non-writable node — specs/query-engine.md ## Configuration :
-// "A user attempting a write on such a query receives an error indicating
-// the offending relation." Shape.Writable already folds every non-READONLY
-// descendant's failure into each ancestor as DeriveShapes computes it
-// bottom-up (shape.go), so checking root.Shape.Writable alone would catch
-// the problem but could only ever name the root — visiting children first
-// and returning the first (deepest) failure found is what actually
-// identifies which relation's own identity columns are the problem, not
-// just that somewhere under the root one is. READONLY nodes are skipped :
-// writability is meaningless for a subtree with nothing to write.
+// findUnwritableNode walks post-order for the deepest, originating
+// non-writable node (## Configuration) — root.Shape.Writable alone only names the root.
 func findUnwritableNode(node *QueryNode) *QueryNode {
 	if node.WriteMode == READONLY {
 		return nil
@@ -124,10 +106,8 @@ func findUnwritableNode(node *QueryNode) *QueryNode {
 	return nil
 }
 
-// unwritableNodeName picks the best available display name for an error
-// naming "the offending relation" : InnerName (the request's own alias) when
-// set, falling back to the relation's schema-qualified identifier — a root
-// node commonly has no alias of its own.
+// unwritableNodeName picks InnerName, or the relation's identifier when a
+// root has no alias of its own.
 func unwritableNodeName(node *QueryNode) string {
 	if node.InnerName != "" {
 		return node.InnerName
@@ -194,11 +174,8 @@ func ExecuteWriteStateParams(ctx context.Context, conn Querier, root *QueryNode,
 		return nil, oops.Code(errcode.WriteForbidden).Errorf("write: root node is readonly, nothing to write")
 	}
 	if bad := findUnwritableNode(root); bad != nil {
-		// WriteForbiddenFunctionRoot specifically when the offending node is
-		// function-rooted (specs/query-engine.md ## Reading Algorithm
-		// ### Function-rooted nodes' own unconditionally-unwritable rule) —
-		// a distinct, documented rule from the generic "identity columns
-		// aren't writable" case, worth a client being able to tell apart.
+		// A function-rooted node gets its own code — specs/query-engine.md
+		// ## Reading Algorithm ### Function-rooted nodes.
 		code := errcode.WriteForbidden
 		if bad.IsFunction() {
 			code = errcode.WriteForbiddenFunctionRoot

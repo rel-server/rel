@@ -36,12 +36,8 @@ type SQLWriter struct {
 	slots []sqlBindSlot
 }
 
-// sqlBindSlot is one $N placeholder : either a literal value already known
-// at compile time (Bind, the common case — name == "") or a well-known
-// query's named parameter reserved via BindParam, whose value only exists
-// per-request. Both share the same $N sequence (Postgres's placeholders are
-// one flat positional list regardless of why each one was written), so they
-// live in one ordered slice rather than two independently-numbered ones.
+// sqlBindSlot is one $N placeholder : a literal value (Bind, name == "") or
+// a named param reserved via BindParam, sharing one $N sequence.
 type sqlBindSlot struct {
 	name  string
 	value any
@@ -143,11 +139,8 @@ func (w *SQLWriter) ResolveArgs(paramValues map[string]any) ([]any, error) {
 
 var validUnquotedSQLId = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
-// sqlReservedKeywords are Postgres's fully "reserved" keywords — the ones
-// that are never valid as an unquoted identifier, regardless of position.
-// Not exhaustive of every keyword Postgres knows (unreserved/type/
-// function-name keywords are still fine unquoted); this is the set that
-// actually matters for correctness.
+// sqlReservedKeywords are Postgres's fully "reserved" keywords, never valid
+// unquoted — not exhaustive of every keyword, just the ones that matter here.
 var sqlReservedKeywords = map[string]bool{
 	"all": true, "analyse": true, "analyze": true, "and": true, "any": true,
 	"array": true, "as": true, "asc": true, "asymmetric": true, "both": true,

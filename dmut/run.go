@@ -62,12 +62,8 @@ func Run(ctx context.Context, primaryURI string, cfg config.Dmut, logger *slog.L
 	return true, nil
 }
 
-// logWriter adapts dmut's *log.Logger (via MutationRunnerOptions.Output)
-// into rel's structured logger : dmut's own PgRunner makes exactly one
-// io.Writer.Write call per log line, already newline-terminated (see
-// MutationRunnerOptions.Output's own doc comment in dmut), so each Write
-// call becomes one logger.Info call at "component"="dmut", per
-// specs/migrations.md ## dmut's own logging.
+// logWriter adapts dmut's *log.Logger output into rel's structured logger :
+// each Write call (one newline-terminated line) becomes one logger.Info call.
 type logWriter struct {
 	logger *slog.Logger
 }

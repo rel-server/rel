@@ -20,18 +20,14 @@ import (
 type Tier int
 
 const (
-	// TierUnclassified is the conservative default : not one of the
-	// SQLSTATEs this package recognizes. Detail (below) is nil ; a caller
-	// only gets a generic message/pg_error unless dev mode is on.
+	// TierUnclassified is the conservative default : Detail is nil, a
+	// caller gets only a generic message unless dev mode is on.
 	TierUnclassified Tier = iota
 	// TierConstraintViolation is unique/foreign_key/not_null/check : the
-	// client's own submitted data triggered this, so Detail is always
-	// safe to send, production included.
+	// client's own data triggered this, so Detail is always safe to send.
 	TierConstraintViolation
-	// TierPermissionDenied is insufficient_privilege : status/code are
-	// always shown, but the object name Postgres's own message may embed
-	// is exactly the fingerprinting risk specs/TODO.md flags, so the
-	// message stays generic unless dev mode is on.
+	// TierPermissionDenied is insufficient_privilege : the object name
+	// Postgres embeds is a fingerprinting risk, generic unless dev mode is on.
 	TierPermissionDenied
 )
 
@@ -59,10 +55,8 @@ type classified struct {
 	tier   Tier
 }
 
-// pgClassTable maps well-known SQLSTATEs to their (status, code, tier) —
-// specs/error-handling.md ### Postgres-raised codes' "small fixed table".
-// Deliberately small : only classes with unambiguous HTTP semantics and a
-// clear tier ; everything else stays TierUnclassified.
+// pgClassTable maps well-known SQLSTATEs to (status, code, tier) — the
+// "small fixed table" of specs/error-handling.md ### Postgres-raised codes.
 var pgClassTable = map[string]classified{
 	"23505": {409, "PG_UNIQUE_VIOLATION", TierConstraintViolation},
 	"23503": {409, "PG_FOREIGN_KEY_VIOLATION", TierConstraintViolation},
@@ -94,10 +88,8 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 	}
 
 	if rsStatus, message, isRS := RSStatus(err); isRS {
-		// Tier is not meaningful for RSxxx : the raised message IS the
-		// response body per route.md ## Postgres Exceptions' existing
-		// convention, unconditionally — a caller uses Detail.Message
-		// directly here rather than consulting tier at all.
+		// Tier isn't meaningful for RSxxx : the raised message IS the
+		// response body, unconditionally (route.md ## Postgres Exceptions).
 		return rsStatus, errcode.Code(pgErr.Code), TierUnclassified, &Detail{Message: message}, true
 	}
 
@@ -119,22 +111,12 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 
 // AllowsDetail reports whether specs/error-handling.md ## Postgres error
 // detail's tiering allows a client-facing response to include the
-// classified error's full Detail (raw Postgres message/constraint/column
-// names, or — for a caller with no separate structured field — folded
-// straight into its one text channel) : unconditionally true for a
-// constraint violation (the client's own submitted data caused it), true
-// for permission-denied/unclassified only under dev — the same condition
-// FallbackMessage's own callers gate on.
-//
-// The single source of truth for this decision, shared between /rel's
-// structured envelope (server/response.go, which additionally gets to
-// show Detail as its own separate pg_error field when this is true) and
-// /route's plain-text body (route/response.go, which folds Detail straight
-// into its one channel instead) — the two render an "allowed" case
-// differently, but must never independently drift on WHICH tier allows
-// what or under which condition, which is exactly what happened before
-// this was factored out : both packages carried their own copy of this
-// same switch.
+// classified error's full Detail : unconditionally true for a constraint
+// violation (the client's own submitted data caused it), true for
+// permission-denied/unclassified only under dev. The single source of
+// truth for this decision — shared between /rel's structured envelope and
+// /route's plain-text body, which render an "allowed" case differently but
+// must never independently drift on which tier allows what.
 func AllowsDetail(tier Tier, dev bool) bool {
 	switch tier {
 	case TierConstraintViolation:

@@ -25,13 +25,8 @@ const (
 	MODE_OUT      = "o"
 	MODE_INOUT    = "b"
 	MODE_VARIADIC = "v"
-	// MODE_TABLE ('t') is Postgres's own DISTINCT proargmode for a RETURNS
-	// TABLE(...) pseudo-column — genuinely different from a plain OUT
-	// parameter (MODE_OUT, 'o'), declared via "out x int" instead. Kept as
-	// its own constant/predicate (IsTableColumn) rather than folded into
-	// IsOut() : the two really are different Postgres concepts, even though
-	// RecordRelation's own construction (info_type.go) treats both as "this
-	// is one of the function's own output columns" for that one purpose.
+	// MODE_TABLE ('t') is RETURNS TABLE(...)'s proargmode, distinct from a
+	// plain OUT parameter (MODE_OUT) — kept as its own predicate.
 	MODE_TABLE = "t"
 )
 
@@ -70,9 +65,8 @@ func (f *FunctionArgument) IsVariadic() bool {
 type Function struct {
 	Identifier SqlIdentifier
 
-	// PgOid is the function's own Postgres OID (pg_proc.oid) — needed for
-	// has_function_privilege(role, oid, 'EXECUTE'), which is more robust
-	// than reconstructing a schema.name(argtypes) signature string.
+	// PgOid is the function's own Postgres OID (pg_proc.oid), used for
+	// has_function_privilege(role, oid, 'EXECUTE') privilege checks.
 	PgOid int
 
 	// The function's own COMMENT ON, if any — meant primarily for the
@@ -102,20 +96,12 @@ type Function struct {
 	PgReturnTypeOid int
 
 	// RecordRelation is set only for a function with at least one OUT-mode
-	// or TABLE-mode argument (RETURNS TABLE(...) uses MODE_TABLE 't' for
-	// its own pseudo-columns, distinct from a plain "out x int" parameter's
-	// MODE_OUT 'o' — see FunctionArgument.IsTableColumn) — a synthetic
-	// *Relation built directly from those arguments' own name/type
-	// (info_type.go's FillTypeInformations), never resolved via
-	// ReturnType.Relation. Postgres gives EVERY such function the exact
-	// same prorettype, the single shared pg_catalog.record pseudo-type
-	// (typrelid = 0, no backing pg_class row) — so unlike a real composite
-	// return type, ReturnType.Relation can never resolve this function's
-	// OWN specific column list ; the actual per-function shape lives on
-	// pg_proc's own proallargtypes/proargmodes/proargnames instead, which
-	// Arguments (filtered to IsOut()/IsTableColumn()) already captures. nil for every
-	// other function, including one returning SETOF a real relation (that
-	// case already resolves through ReturnType.Relation as before).
+	// or TABLE-mode argument — a synthetic *Relation built from those
+	// arguments' own name/type (info_type.go's FillTypeInformations),
+	// since every such function shares one generic pg_catalog.record
+	// pseudo-type with no real composite backing ReturnType.Relation could
+	// resolve instead. Nil for every other function, including one
+	// returning SETOF a real relation (resolves via ReturnType.Relation).
 	RecordRelation *Relation
 
 	// Other function attributes that are not relevant as of now
@@ -143,13 +129,10 @@ func (f *Function) String() string {
 
 // AcceptsArity reports whether a positional call with n arguments is valid
 // for this function. Base range is [PgNargs-PgNargsDefaults, PgNargs] ; a
-// trailing VARIADIC argument widens both ends independently of defaults — it
-// can absorb any number of extra positional arguments (raising the upper
-// bound to unbounded), but can also absorb *zero*, so it lowers the minimum
-// to PgNargs-1 regardless of PgNargsDefaults (the two reductions don't
-// stack : PgNargsDefaults and a trailing variadic parameter both shrinking
-// the required count is a rare combination, but the true minimum is
-// whichever of the two is smaller, not their sum).
+// trailing VARIADIC argument widens both ends independently of defaults —
+// it absorbs any extra above PgNargs, and can also absorb zero, lowering
+// the minimum to PgNargs-1 regardless of PgNargsDefaults (whichever of the
+// two produces the smaller minimum wins, not their sum).
 func (f *Function) AcceptsArity(n int) bool {
 	min := f.PgNargs - f.PgNargsDefaults
 	variadic := false

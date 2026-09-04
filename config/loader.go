@@ -40,9 +40,8 @@ func Load(args []string) (*Config, error) {
 
 	path, err := resolveConfigFilePath(args, os.Getenv("REL_CONFIG"), discoveryRoots())
 	if err != nil {
-		// slog.Default() throughout this file, not logging.For(...) — see
-		// reader.go's logErr doc comment for why (ordering AND an actual
-		// import cycle, not a convenience shortcut).
+		// slog.Default() throughout this file, not logging.For(...) : see
+		// reader.go's logErr doc comment (ordering, plus an import cycle).
 		slog.Default().Error("config: resolving config file path", "error", err.Error())
 		return nil, err
 	}
@@ -53,13 +52,8 @@ func Load(args []string) (*Config, error) {
 			return nil, perr
 		}
 		if err := k.Load(file.Provider(path), parser); err != nil {
-			// Deliberately NOT logging/wrapping err.Error() here : TOML/YAML/
-			// HUML parse errors can embed a fragment of the offending VALUE
-			// verbatim (confirmed empirically — e.g. go-toml's "no value can
-			// start with s" for an unquoted "pg.password = supersecret..."
-			// line literally echoes the value's first character(s)), which
-			// ## Error handling and secrets forbids regardless of whether the
-			// value looks like a secret. Only the path is safe to surface.
+			// Not err.Error() : TOML/YAML/HUML parse errors can echo a
+			// fragment of the offending value verbatim (## Error handling and secrets).
 			slog.Default().Error("config: loading config file: parse error", "path", path)
 			return nil, fmt.Errorf("config: %s: parse error", path)
 		}
@@ -100,12 +94,8 @@ func Load(args []string) (*Config, error) {
 	return assemble(k)
 }
 
-// resolveConfigFilePath is ## Config file discovery : an explicit --config/
-// -c flag (highest precedence, checked first) or REL_CONFIG env var names
-// exactly one file to load, fatally if it can't be found ; otherwise walk
-// roots in order, returning the first step with exactly one matching
-// filename, fatally if a step has more than one. No match anywhere is not
-// an error — returns "", nil.
+// resolveConfigFilePath is ## Config file discovery : --config/-c or
+// REL_CONFIG take precedence, else the first root with exactly one match.
 func resolveConfigFilePath(args []string, envConfig string, roots []string) (string, error) {
 	if explicit := explicitConfigFlag(args); explicit != "" {
 		if _, err := os.Stat(explicit); err != nil {
@@ -139,10 +129,8 @@ func resolveConfigFilePath(args []string, envConfig string, roots []string) (str
 	return "", nil
 }
 
-// explicitConfigFlag scans args for --config/-c, either "--config=path",
-// "--config path", "-c=path", or "-c path" — a small, self-contained scan
-// since this decides WHICH file to load before the general flag-loading
-// pass (parseFlags) even runs.
+// explicitConfigFlag scans args for --config/-c (either "=path" or a
+// separate " path" arg) before the general flag-loading pass runs.
 func explicitConfigFlag(args []string) string {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -191,13 +179,8 @@ func parserFor(path string) (koanf.Parser, error) {
 	}
 }
 
-// parseFlags is ## Sources and precedence's highest-precedence source :
-// "--logging.handler=value" or "--logging.handler value" -> "logging.handler".
-// Not stdlib flag/pflag : both require every flag pre-registered by name,
-// which doesn't fit arbitrary dotted config keys known only at the config
-// schema level, not compiled into this loader. --config/-c are skipped here
-// (handled separately by explicitConfigFlag, since which file to load must
-// be resolved before this general pass runs).
+// parseFlags is ## Sources and precedence's highest-precedence source ;
+// not stdlib flag/pflag, which need flags pre-registered by name.
 func parseFlags(args []string) (map[string]any, error) {
 	out := map[string]any{}
 	for i := 0; i < len(args); i++ {
@@ -227,8 +210,7 @@ func parseFlags(args []string) (map[string]any, error) {
 }
 
 // resolveFileIndirection is ## $FILE$ value indirection, run once over the
-// fully merged tree (per the spec : "resolved once, over the fully merged
-// configuration tree, before any type coercion or validation").
+// fully merged tree, before any type coercion or validation.
 func resolveFileIndirection(k *koanf.Koanf) error {
 	for key, v := range k.All() {
 		s, ok := v.(string)
@@ -247,20 +229,8 @@ func resolveFileIndirection(k *koanf.Koanf) error {
 	return nil
 }
 
-// resolveFileValue implements the three $FILE$ forms : plain, $DEFAULT$
-// fallback, $GEN$ generate-and-write. filePath is resolved relative to the
-// process's current working directory (the spec's own rule) — that's
-// os.ReadFile's default behavior for a relative path, nothing extra needed.
-//
-// The marker is located via the LAST occurrence of "$DEFAULT$"/"$GEN$" in
-// the remainder, not the first : the spec's own syntax puts the marker
-// right before the fallback/length suffix at the END of the value, and a
-// real file PATH can itself legitimately contain either marker string as a
-// substring (e.g. a directory literally named "secrets_$GEN$_v2") — using
-// the first occurrence would misparse the path itself as the split point.
-// This isn't a full fix (an arbitrary $DEFAULT$ fallback string could in
-// principle also contain "$DEFAULT$"), but it correctly handles the much
-// more likely case : the path containing the marker, not the value.
+// resolveFileValue implements the three $FILE$ forms (plain/$DEFAULT$/$GEN$) ;
+// the marker is found via its LAST occurrence, since a path can itself contain it as a substring.
 func resolveFileValue(raw string) (string, error) {
 	rest := strings.TrimPrefix(raw, "$FILE$")
 
@@ -273,17 +243,8 @@ func resolveFileValue(raw string) (string, error) {
 		return trimOneNewline(data), nil
 	}
 
-	// $GEN$'s own syntax requires a positive integer immediately after the
-	// marker (nothing else), unlike $DEFAULT$'s free-form fallback text —
-	// so unlike $DEFAULT$, a $GEN$-shaped split that DOESN'T parse as a
-	// valid length is treated as "this wasn't really a $GEN$ marker, just a
-	// path that happens to contain the substring" and falls through to the
-	// plain-path case below, rather than erroring immediately. This
-	// resolves the realistic case (a path segment literally named e.g.
-	// "secrets_$GEN$_v2") without needing an escape syntax the spec never
-	// defined ; a genuine $GEN$ typo (garbage after a real trailing marker)
-	// still ends up as an error either way, just via "file not found" on
-	// the whole string instead of "invalid length".
+	// A split that doesn't parse as a valid length falls through to the
+	// plain-path case instead of erroring — handles a literal "$GEN$" in a path segment.
 	if idx := strings.LastIndex(rest, "$GEN$"); idx >= 0 {
 		filePath, lenStr := rest[:idx], rest[idx+len("$GEN$"):]
 		if n, cerr := parseGenLength(lenStr); cerr == nil {
@@ -298,20 +259,14 @@ func resolveFileValue(raw string) (string, error) {
 	return trimOneNewline(data), nil
 }
 
-// resolveGenValue is $GEN$'s own branch, split out of resolveFileValue so
-// the "isn't shaped like $GEN$" fallthrough above stays a plain early
-// return.
+// resolveGenValue is $GEN$'s own branch, split out so resolveFileValue's
+// "isn't shaped like $GEN$" fallthrough stays a plain early return.
 func resolveGenValue(filePath string, n int) (string, error) {
 	data, err := os.ReadFile(filePath)
 	if err == nil {
 		existing := trimOneNewline(data)
-		// A cheap, unambiguous safety check : two config keys pointing at
-		// the same $GEN$ path but declaring different lengths is almost
-		// certainly a config mistake (copy-paste, or two unrelated fields
-		// accidentally sharing a path), not an intentional "reuse
-		// whatever's there" — silently returning the wrong length would be
-		// exactly the kind of value-shaped surprise ## Error handling and
-		// secrets' "malformed value is fatal" posture is meant to catch.
+		// Two keys sharing a $GEN$ path but declaring different lengths is
+		// almost certainly a config mistake, not intentional reuse.
 		if len(existing) != n {
 			return "", fmt.Errorf("$GEN$: %s already holds a %d-character value, but this key requested %d", filePath, len(existing), n)
 		}
@@ -340,11 +295,8 @@ func trimOneNewline(data []byte) string {
 	return s
 }
 
-// parseGenLength uses strconv.Atoi (full-string match), not fmt.Sscanf :
-// Sscanf("%d", ...) happily accepts "16xyz" as 16, silently ignoring the
-// trailing garbage instead of rejecting the malformed value — confirmed
-// empirically. A stray character after the number is a config typo that
-// deserves the same fatal treatment every other malformed value gets here.
+// parseGenLength uses strconv.Atoi (full-string match), not fmt.Sscanf,
+// which silently accepts "16xyz" as 16 instead of rejecting the typo.
 func parseGenLength(s string) (int, error) {
 	n, err := strconv.Atoi(s)
 	if err != nil || n <= 0 {
@@ -368,9 +320,8 @@ func generateRandom(n int) (string, error) {
 	return enc[:n], nil
 }
 
-// rejectArrays is ## No arrays' enforcement pass, run over the fully merged
-// tree : any value whose concrete type is a slice/array is fatal, naming
-// only the key.
+// rejectArrays is ## No arrays' enforcement pass over the fully merged
+// tree ; a slice/array value is fatal, naming only the key.
 func rejectArrays(k *koanf.Koanf) error {
 	for key, v := range k.All() {
 		rv := reflect.ValueOf(v)
@@ -382,46 +333,27 @@ func rejectArrays(k *koanf.Koanf) error {
 	return nil
 }
 
-// assemble builds *Config from k, per ## The assembled Config object :
-// every field's error is collected (errors.Join), not raised immediately,
-// so a misconfigured deployment sees everything wrong at once.
+// assemble builds *Config from k ; every field's error is collected
+// (errors.Join), so a misconfigured deployment sees everything at once.
 func assemble(k *koanf.Koanf) (*Config, error) {
 	var errs []error
 	root := newReader(k, "", &errs)
 
 	cfg := &Config{}
 
-	// pg.uri / pg.user / pg.query.* / pg.host / pg.port / pg.database —
-	// see config.go's Pg/PgQuery doc comments for the full reasoning
-	// behind this shape : one primary connection (URI, or the granular
-	// fields), used for introspection and dmut migrations always, and as
-	// the request-serving connection's own fallback ; pg.query.* is an
-	// OPTIONAL narrower login for request-serving specifically, never
-	// required. Previously dmut.*/query.* as two unrelated top-level
-	// namespaces, then briefly pg.admin.*/pg.query.* — unified under
-	// pg.* directly, no "admin" distinction : SET ROLE is what actually
-	// restricts a request's data access, not the connecting login's own
-	// privileges, so requiring two separate logins just to get started
-	// was never buying real safety, only friction.
+	// pg.uri/pg.user/pg.query.*/... — see config.go's Pg/PgQuery doc
+	// comments for the full shape ; pg.query.* is optional, never required.
 	cfg.Pg.URI = root.GetStringOrDefault("pg.uri", "")
 	cfg.Pg.User = root.GetStringOrDefault("pg.user", "")
 	cfg.Pg.Password = root.GetStringOrDefault("pg.password", "")
 	cfg.Pg.Host = root.GetStringOrDefault("pg.host", DefaultPgHost)
 	cfg.Pg.Port = root.GetIntOrDefault("pg.port", DefaultPgPort)
-	// pg.database : NOT in query-engine.md at all — config.Pg had no field
-	// naming which database to connect to, genuinely missing before this
-	// (see specs/TODO.md's own note on this invented key).
+	// pg.database : not in query-engine.md, an invented key (specs/TODO.md).
 	cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
 	cfg.Pg.PoolSize = root.GetIntOrDefault("pg.pool_size", DefaultPgPoolSize)
 
-	// pg.query.user/pg.query.password default to pg.user/pg.password when
-	// not otherwise provided — the spec's own explicit cross-default, not
-	// a general "OrDefault" fallback (the default VALUE is another config
-	// key, not a constant). Left as an empty Login (not falling back) when
-	// pg.uri is set instead of granular fields : swapping just the
-	// userinfo on an otherwise-opaque URI is cmd/rel's own concern (see
-	// dsn.go), not this package's — assemble() only resolves cross-
-	// defaults it can express as plain config values.
+	// pg.query.user/password default to pg.user/password ; left empty when
+	// pg.uri is set instead, since swapping URI userinfo is cmd/rel's job.
 	if cfg.Pg.URI == "" {
 		cfg.Pg.Query.User = root.GetStringOrDefault("pg.query.user", cfg.Pg.User)
 		cfg.Pg.Query.Password = root.GetStringOrDefault("pg.query.password", cfg.Pg.Password)
@@ -432,12 +364,8 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Pg.Query.AnonymousRole = root.GetStringOrDefault("pg.query.anonymous_role", DefaultPgQueryAnonymousRole)
 
 	cfg.Pg.Query.MaxDepth = root.GetIntOrDefault("pg.query.max_depth", DefaultMaxDepth)
-	// well-known-queries.md ## Configuration's actual key (originally
-	// query.wellknown.path) : pg.query.wellknown_path, default
-	// "/wellknown" — flattened to match every other single-scalar key's
-	// underscore convention (it used to be the one gratuitously-nested
-	// exception, nested two levels deep for no reason a sibling like
-	// anonymous_role didn't share).
+	// well-known-queries.md ## Configuration : pg.query.wellknown_path,
+	// flattened (not nested) to match every other single-scalar key.
 	cfg.Pg.Query.WellKnownDirs = root.GetStringOrDefault("pg.query.wellknown_path", DefaultPgQueryWellKnownPath)
 
 	// dev : specs/configuration.md ## Development mode, default false.
@@ -480,15 +408,8 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Csp.FormAction = root.GetStringOrDefault("http.csp.form_action", "")
 	cfg.Http.Csp.Policy = root.GetStringOrDefault("http.csp.policy", "")
 
-	// jwt.secret's own DEFAULT (DefaultJwtSecret) is itself a "$FILE$..."
-	// expression — but resolveFileIndirection (called above, before
-	// assemble runs) only walks k.All(), the keys ACTUALLY PRESENT in the
-	// merged tree ; when nothing sets jwt.secret at all, it's absent from
-	// that tree entirely, so the $FILE$ machinery never sees it, and
-	// GetStringOrDefault would otherwise hand back the literal, unresolved
-	// "$FILE$jwt-secret$GEN$32" string as if it were the real secret. Only
-	// resolve it here, targeted, rather than a second blanket $FILE$ pass
-	// over the whole tree for one field.
+	// DefaultJwtSecret is itself "$FILE$..." ; resolveFileIndirection only
+	// walks keys present in the merged tree, so an absent jwt.secret needs its own resolve here.
 	jwtSecret := root.GetStringOrDefault("jwt.secret", DefaultJwtSecret)
 	if strings.HasPrefix(jwtSecret, "$FILE$") {
 		resolved, ferr := resolveFileValue(jwtSecret)
@@ -519,10 +440,8 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	return cfg, nil
 }
 
-// readStringMap reads path's immediate children as a flat map[string]string
-// — logging.filter.<key>/logging.exclude.<key>, each value a plain string.
-// An absent/non-object path yields an empty map, not an error : filter/
-// exclude are optional per the spec ("default empty").
+// readStringMap reads path's immediate children as a flat map[string]string.
+// An absent/non-object path yields an empty map, not an error — optional.
 func readStringMap(root *ConfigReader, path string) map[string]string {
 	out := map[string]string{}
 	it, err := root.GetIterator(path)
@@ -537,11 +456,8 @@ func readStringMap(root *ConfigReader, path string) map[string]string {
 	return out
 }
 
-// readStaticAccess reads http.static.access.<name>.{prefix,function} into
-// a map[string]StaticAccessRule — same named-sub-key shape readBlacklist
-// uses for blacklist.functions/relations, since config can't hold arrays
-// (specs/http-content.md ### Access control). An absent/non-object path
-// yields an empty map, not an error — access control is entirely opt-in.
+// readStaticAccess reads http.static.access.<name>.{prefix,function} —
+// named sub-keys, not an array (config can't hold arrays).
 func readStaticAccess(root *ConfigReader, path string) map[string]StaticAccessRule {
 	out := map[string]StaticAccessRule{}
 	it, err := root.GetIterator(path)
@@ -561,12 +477,8 @@ func readStaticAccess(root *ConfigReader, path string) map[string]StaticAccessRu
 	return out
 }
 
-// readBlacklist reads blacklist.functions.<schema>.<name> (or
-// blacklist.relations.<schema>.<name>, same shape, called separately for
-// each) into Blacklist's two-level map shape, merged on top of def
-// (DefaultBlacklist()'s own entries — config never removes the spec's
-// built-in defaults, only adds to them, per ## Scoping's "Default
-// blacklist").
+// readBlacklist reads blacklist.functions/relations.<schema>.<name> merged
+// on top of def — config only adds to the built-in defaults, never removes.
 func readBlacklist(root *ConfigReader, path string, def map[string]map[string]string) map[string]map[string]string {
 	out := map[string]map[string]string{}
 	for schema, names := range def {

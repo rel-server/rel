@@ -46,9 +46,7 @@ func runSelect(t *testing.T, sql string, args []any) []map[string]any {
 }
 
 // runSelectScalar is runSelect's counterpart for a scalar-selected node
-// (query-engine.md ## Reading Algorithm ### Scalar-selected nodes) : each
-// row's single "json" column is a bare value (a string, a JSON array, ...),
-// not an object, so it decodes into "any" rather than map[string]any.
+// (## Reading Algorithm ### Scalar-selected nodes) : decodes into "any", not map[string]any.
 func runSelectScalar(t *testing.T, sql string, args []any) []any {
 	t.Helper()
 	rows, err := testDb.Pool.Query(context.Background(), sql, args...)
@@ -93,15 +91,8 @@ func TestCompileSelect_BareOwn(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_ComputedColumnSelfAlias exercises specs/query-engine.md's
-// "## Scoping" computed-column paragraph : a row-type-taking function
-// (director_display_name(d director), pg/testdata/schema.sql) called with
-// the node's own declared alias as its bare argument — "d" resolves to the
-// *QueryNode itself (query/scope.go's LookupInScope self case), which used
-// to hit compileResolvedField's "not yet supported" error unconditionally.
-// Regression test for that fix : query/sql_expr.go now recognizes a
-// self-reference (the resolved *QueryNode IS the node currently being
-// compiled) and emits its own already-known SQL alias.
+// TestCompileSelect_ComputedColumnSelfAlias proves a row-type-taking
+// function called with the node's own alias (## Scoping) resolves via a self-reference, not "not yet supported".
 func TestCompileSelect_ComputedColumnSelfAlias(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Self Alias Director')`); err != nil {
@@ -127,14 +118,8 @@ func TestCompileSelect_ComputedColumnSelfAlias(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_EmbeddedChildAlias_ToOneChild proves a direct to-one
-// child's own alias, embedded as a bare value NESTED inside another
-// expression (e.g. a coalesce() argument, not a top-level select entry —
-// that's compileSelectField's own, completely different path), compiles as
-// a self-contained correlated subquery selecting the child's own row alias
-// (compileChildRowValue) : Postgres returns that as the row's composite
-// type, which coalesce() (or any other function taking a row argument)
-// consumes directly.
+// TestCompileSelect_EmbeddedChildAlias_ToOneChild proves a to-one child's
+// alias nested inside another expression (e.g. coalesce()) compiles via compileChildRowValue, not compileSelectField's top-level path.
 func TestCompileSelect_EmbeddedChildAlias_ToOneChild(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -170,12 +155,8 @@ func TestCompileSelect_EmbeddedChildAlias_ToOneChild(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_EmbeddedChildAlias_NullTarget proves the same
-// mechanism reads back as JSON null, not an error, when the to-one
-// relation doesn't exist (director.studio_id is nullable) — the
-// correlated subquery returns zero rows, and Postgres's own
-// scalar-subquery "no rows -> NULL" rule does the rest, same as
-// compileScalarHop's own null-target case.
+// TestCompileSelect_EmbeddedChildAlias_NullTarget proves a nullable to-one
+// target reads back as JSON null, not an error (Postgres's own "no rows -> NULL" rule).
 func TestCompileSelect_EmbeddedChildAlias_NullTarget(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -200,10 +181,8 @@ func TestCompileSelect_EmbeddedChildAlias_NullTarget(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_EmbeddedChildAlias_ToManyChild_Rejected proves the
-// to-many case (an incoming child's own alias, embedded as a bare value)
-// is still rejected — there is no single row for a to-many child's alias
-// to name, same reasoning compileScalarHop's own to-many rejection uses.
+// TestCompileSelect_EmbeddedChildAlias_ToManyChild_Rejected proves a
+// to-many child's bare alias is still rejected — no single row to name.
 func TestCompileSelect_EmbeddedChildAlias_ToManyChild_Rejected(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
@@ -225,12 +204,8 @@ func TestCompileSelect_Cast(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	// ["::", "id", "text"] : the type name (an unquoted identifier, "text")
-	// must NOT be scope-resolved as a column of the current relation — it's
-	// data, not a name. Also covers ["ilike"] not-needed here; the real
-	// point is that pass 2 leaves BinaryCast's Right alone (see
-	// expression_resolve.go's BinaryExpr case and sql_expr.go's
-	// castTypeName).
+	// ["::", "id", "text"] : the type name must NOT be scope-resolved as a
+	// column — pass 2 leaves BinaryCast's Right alone (sql_expr.go's castTypeName).
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"id_text": ["::", "id", "text"]},
@@ -246,8 +221,7 @@ func TestCompileSelect_Cast(t *testing.T) {
 	}
 
 	// castTypeName's other branch : a quoted type name arrives as a
-	// StringLiteral, not a bare Identifier — e.g. an array type where the
-	// caller writes it as a JSON string rather than a bare identifier.
+	// StringLiteral, not a bare Identifier.
 	node2 := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"tags": ["::", ["arr", ["a"], ["b"]], ["text[]"]]},
@@ -264,12 +238,8 @@ func TestCompileSelect_Cast(t *testing.T) {
 	}
 }
 
-// TestParseExpression_BigIntLiteral_RejectsMalformed proves
-// ["bigint", v]/["numeric", v]'s own v is validated at PARSE time, before
-// it ever has a chance to reach SQL text — v used to be written straight
-// into the query with no validation at all, a SQL injection (a crafted v
-// like "1) OR (1=1) --" closed the parenthesis early and appended
-// arbitrary SQL). Now malformed v is a clean parse error instead.
+// TestParseExpression_BigIntLiteral_RejectsMalformed proves ["bigint"/"numeric", v]'s
+// v is validated at parse time, before it ever reaches SQL text (was a SQL-injection path).
 func TestParseExpression_BigIntLiteral_RejectsMalformed(t *testing.T) {
 	_, err := ParseExpression([]byte(`["bigint", "1) OR (1=1) --"]`))
 	if err == nil {
@@ -291,12 +261,7 @@ func TestParseExpression_NumericLiteral_RejectsMalformed(t *testing.T) {
 }
 
 // TestCompileSelect_BigIntLiteral_BoundAsParam proves a well-formed
-// ["bigint", v] compiles to a bound $n parameter (never v inlined into the
-// SQL text) — both closing the injection risk at the root (Postgres itself
-// validates/parses v as data, never as SQL) and keeping the compiled SQL
-// text identical across different id values, which is what lets pgx's
-// automatic statement cache actually reuse the plan across requests
-// carrying different literal values.
+// ["bigint", v] compiles to a bound $n parameter, never inlined into the SQL text.
 func TestCompileSelect_BigIntLiteral_BoundAsParam(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('BigInt Literal Director')`); err != nil {
@@ -359,9 +324,8 @@ func TestCompileSelect_NumericLiteral_BoundAsParam(t *testing.T) {
 }
 
 func TestCompileSelect_Cast_MultiWordTypeName(t *testing.T) {
-	// Multi-word standard SQL type names ("character varying") must still
-	// compile — validCastTypeName's whole point is to distinguish these
-	// from injected SQL, not to reject them.
+	// Multi-word type names ("character varying") must still compile —
+	// validCastTypeName distinguishes these from injected SQL, not rejects them.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"n": ["::", "name", "character varying"]}
@@ -375,12 +339,8 @@ func TestCompileSelect_Cast_MultiWordTypeName(t *testing.T) {
 }
 
 func TestCompileSelect_Cast_RejectsInjectedTypeName(t *testing.T) {
-	// castTypeName's Right is never scope-resolved (BinaryCast is special-
-	// cased in pass 2 precisely so a legitimate type name doesn't error as
-	// an unresolvable column) — that unresolved string then gets written
-	// straight into the generated SQL after "::", so it must be validated
-	// here or it's a raw injection point. Assert on the compile-time error,
-	// not execution : the point is the fragment never reaches the database.
+	// castTypeName's Right is never scope-resolved and is written straight
+	// after "::" — must be validated here, an unvalidated string is a raw injection point.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"x": ["::", "id", "text) or (1=1"]}
@@ -420,14 +380,8 @@ func TestCompileSelect_ToManyEmbed(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_RootScalarSelect proves query-engine.md ## Reading
-// Algorithm ### Scalar-selected nodes : a table-rooted node whose own
-// select is a bare column (not own/full/an object literal) reads back as a
-// flat JSON array of scalars, not an array of one-key objects — the
-// "distinct shape" a scalar FUNCTION root already got (## Response Shape),
-// now available for an ordinary table root too. TEXT is the important type
-// to prove, not an integer : to_jsonb's quoting is what makes this safe at
-// all — an unquoted raw string is not valid JSON on its own.
+// TestCompileSelect_RootScalarSelect proves ## Scalar-selected nodes for a
+// table root : a bare-column select reads back as a flat array of scalars, not one-key objects. TEXT matters since to_jsonb's quoting is the point.
 func TestCompileSelect_RootScalarSelect(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Scalar Root Director')`); err != nil {
@@ -447,8 +401,7 @@ func TestCompileSelect_RootScalarSelect(t *testing.T) {
 }
 
 // TestCompileSelect_RootScalarSelect_Expression proves the scalar branch
-// isn't limited to a bare column — any non-shape-producing expression
-// works, compiled and to_jsonb-cast the same way.
+// isn't limited to a bare column — any non-shape-producing expression works.
 func TestCompileSelect_RootScalarSelect_Expression(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Expr Root Director')`); err != nil {
@@ -468,8 +421,7 @@ func TestCompileSelect_RootScalarSelect_Expression(t *testing.T) {
 }
 
 // TestCompileSelect_ToOneEmbedScalarSelect proves the same mechanism
-// through a to-one embed : movie's "director" key becomes a bare string
-// (the director's name), not a nested {"name": ...} object.
+// through a to-one embed : a bare string, not a nested {"name": ...} object.
 func TestCompileSelect_ToOneEmbedScalarSelect(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -498,9 +450,8 @@ func TestCompileSelect_ToOneEmbedScalarSelect(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_ToManyEmbedScalarSelect proves the to-many side :
-// director's "movies" key becomes a flat array of bare title strings, not
-// an array of {"title": ...} objects.
+// TestCompileSelect_ToManyEmbedScalarSelect proves the to-many side : a
+// flat array of bare strings, not an array of {"title": ...} objects.
 func TestCompileSelect_ToManyEmbedScalarSelect(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -561,12 +512,8 @@ func TestCompileSelect_ToOneEmbed(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_ScalarHopThroughOutgoing proves query-engine.md's new
-// "." hop through a to-one relation : ["own_and", {"director_name": [".",
-// "director", "name"]}] pulls director.name straight into movie's own flat
-// select, with no nested "director" object at all — the mechanism
-// discussed this session as an alternative to always embedding the whole
-// child.
+// TestCompileSelect_ScalarHopThroughOutgoing proves a "." hop through a
+// to-one relation pulls one field into the parent's flat select, no nested object at all.
 func TestCompileSelect_ScalarHopThroughOutgoing(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -601,11 +548,8 @@ func TestCompileSelect_ScalarHopThroughOutgoing(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_ScalarHopThroughOutgoing_NullTarget proves a scalar hop
-// through a to-one relation that doesn't exist (director.studio_id is
-// nullable) reads back as JSON null, not an error — the correlated
-// subquery simply returns zero rows, and Postgres's own scalar-subquery
-// rule ("no rows" -> NULL) does the rest.
+// TestCompileSelect_ScalarHopThroughOutgoing_NullTarget proves a hop
+// through a nullable to-one relation reads back as JSON null, not an error.
 func TestCompileSelect_ScalarHopThroughOutgoing_NullTarget(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -631,9 +575,7 @@ func TestCompileSelect_ScalarHopThroughOutgoing_NullTarget(t *testing.T) {
 }
 
 // TestCompileSelect_ScalarHopThroughTwoOutgoingLevels proves a "." hop
-// chained through TWO to-one relations (movie -> director -> studio)
-// compiles as nested scalar correlated subqueries, per compileScalarHop's
-// own recursion through compileScalarHopWhere -> compileColumnPath.
+// chained through two to-one relations compiles as nested correlated subqueries.
 func TestCompileSelect_ScalarHopThroughTwoOutgoingLevels(t *testing.T) {
 	ctx := context.Background()
 	var studioID int
@@ -669,12 +611,7 @@ func TestCompileSelect_ScalarHopThroughTwoOutgoingLevels(t *testing.T) {
 }
 
 // TestCompileSelect_ScalarHopAlongsideFullEmbed proves the same child can
-// be BOTH fully embedded AND reached via a "." hop in the same select,
-// without alias collision — compileScalarHop always allocates its own
-// fresh alias and never consults c.alias[child], precisely so this can't
-// pick up (or collide with) the full embed's own, separately-scoped alias.
-// Redundant (the join executes twice), by design — see compileScalarHop's
-// own doc comment on why deduplication isn't attempted here.
+// be both fully embedded and "." hopped without alias collision — compileScalarHop always allocates its own fresh alias, by design (see its own doc comment).
 func TestCompileSelect_ScalarHopAlongsideFullEmbed(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -707,11 +644,8 @@ func TestCompileSelect_ScalarHopAlongsideFullEmbed(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_ScalarHopThroughIncoming_Rejected proves the other
-// half : resolution allows a "." hop into a to-many child (it has other
-// uses — see resolveHopInto's own doc comment), but compiling it as a
-// plain scalar select value is rejected at SQL-compile time, same
-// late-compile-stage pattern "agg"'s own opposite restriction uses.
+// TestCompileSelect_ScalarHopThroughIncoming_Rejected proves a "." hop
+// into a to-many child resolves fine but is rejected as a scalar select value at SQL-compile time.
 func TestCompileSelect_ScalarHopThroughIncoming_Rejected(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
@@ -790,9 +724,8 @@ func TestCompileSelect_LateralSharedChild(t *testing.T) {
 		t.Fatalf("insert movies: %v", err)
 	}
 
-	// "movies" is consumed twice : embedded as its own array, AND counted
-	// via "agg" — exactly the dual-consumption case that forces LATERAL
-	// (Reading Algorithm step 5).
+	// "movies" is consumed twice (embedded array + "agg") — the dual-
+	// consumption case that forces LATERAL (## Reading Algorithm step 5).
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "director", "schema": "public",
 		"select": {"id": "id", "movies": "movies", "movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]]},
@@ -818,14 +751,8 @@ func TestCompileSelect_LateralSharedChild(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_LateralSharedChild_ScalarSelect is
-// TestCompileSelect_LateralSharedChild with "movies" itself scalar-selected
-// — the highest-risk path this session's scalar-select work touched :
-// compileLateralJoin's own json_agg(...) wrapping (the "arr" column shared
-// LATERAL children materialize once for every consumer) must also switch
-// between row_to_json and the bare "__scalar" column, or a LATERAL-shared
-// scalar child would silently embed {"__scalar": ...} objects instead of
-// bare values.
+// TestCompileSelect_LateralSharedChild_ScalarSelect proves
+// compileLateralJoin also switches to the bare "__scalar" column for a LATERAL-shared scalar-selected child.
 func TestCompileSelect_LateralSharedChild_ScalarSelect(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -889,16 +816,8 @@ func TestCompileSelect_TableValuedFunctionRoot(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_SingleRowCompositeFunctionRoot pins the fix for a bug
-// where CompileSelect's bare-scalar shortcut (gated on Function.ReturnsSet
-// alone) also caught a single-row COMPOSITE-returning function — fn_
-// one_director returns ONE director row, not a set, but it's still a real,
-// indexed relation type (Relation != nil, exactly like fn_directors
-// above), unlike a genuinely scalar function (fn_plain_add, Relation ==
-// nil). Before the fix, this compiled to a bare "select
-// fn_one_director($1)" with no row_to_json wrapping at all — Postgres's
-// raw composite-literal text, not valid JSON, breaking response streaming
-// even with no select/join declared.
+// TestCompileSelect_SingleRowCompositeFunctionRoot proves a single-row
+// composite function (Relation != nil, ReturnsSet false) gets ordinary row_to_json wrapping, not the bare-scalar shortcut.
 func TestCompileSelect_SingleRowCompositeFunctionRoot(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Single Row Fn Director')`); err != nil {
@@ -923,11 +842,8 @@ func TestCompileSelect_SingleRowCompositeFunctionRoot(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_SingleRowCompositeFunctionRoot_Join pins the join half
-// of the same bug : a single-row composite function root's own `join`
-// entries were silently dropped by the same bare-scalar shortcut, never
-// reaching compileNode at all — this asserts the embedded child's rows
-// actually come back, not just that the query happens to still succeed.
+// TestCompileSelect_SingleRowCompositeFunctionRoot_Join proves a single-row
+// composite function root's own `join` entries actually compile and return rows.
 func TestCompileSelect_SingleRowCompositeFunctionRoot_Join(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Single Row Fn Join Director')`); err != nil {
@@ -964,12 +880,7 @@ func TestCompileSelect_SingleRowCompositeFunctionRoot_Join(t *testing.T) {
 }
 
 // TestCompileSelect_RecordRelationFunctionRoot exercises pg.Function.
-// RecordRelation : movie_counts_by_director() is RETURNS TABLE(...), an
-// anonymous record with no backing composite type (unlike fn_directors'
-// SETOF director above), so its own column list only ever resolves via its
-// OUT-mode Arguments, not ReturnType.Relation. Both explicit-select and
-// "own" shorthand are checked, since "own" walks node.Relation.Columns
-// directly.
+// RecordRelation : a RETURNS TABLE(...) function's columns resolve via its OUT-mode Arguments, not ReturnType.Relation.
 func TestCompileSelect_RecordRelationFunctionRoot(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('RecordRelation Director') returning id`); err != nil {
@@ -1005,11 +916,8 @@ func TestCompileSelect_RecordRelationFunctionRoot(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_RecordRelationCannotBeJoinChild confirms the structural
-// limit explained to the user : a RETURNS TABLE function's output can never
-// be indexed by Postgres, so it can never be the CHILD/joined-into side of
-// any relationship, even now that its own columns resolve. This must fail
-// at RESOLUTION time (ResolveJoin, called from resolveNode), not later.
+// TestCompileSelect_RecordRelationCannotBeJoinChild proves a RETURNS TABLE
+// function can never be the joined-into side (unindexable) — fails at resolution, not later.
 func TestCompileSelect_RecordRelationCannotBeJoinChild(t *testing.T) {
 	err := resolveQueryExpectError(t, `{
 		"relation": "director", "schema": "public",
@@ -1021,11 +929,8 @@ func TestCompileSelect_RecordRelationCannotBeJoinChild(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_RecordRelationAsOutgoingJoinParent confirms the
-// direction that DOES work : the record-relation function as the
-// PARENT/outer side of an outgoing join out to a real, indexed relation
-// (director.id, its primary key) — no index is required on the local
-// (record-relation) side for an outgoing join, only on the joined side.
+// TestCompileSelect_RecordRelationAsOutgoingJoinParent proves the working
+// direction : record-relation as the outgoing join's parent side, no local index required.
 func TestCompileSelect_RecordRelationAsOutgoingJoinParent(t *testing.T) {
 	ctx := context.Background()
 	var directorID int
@@ -1056,12 +961,8 @@ func TestCompileSelect_RecordRelationAsOutgoingJoinParent(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_RecordRelationRootIsCleanlyRejected confirms a write
-// attempt against a RETURNS TABLE function root is rejected cleanly
-// (findUnwritableNode, before any DML is generated) rather than reaching
-// Postgres as broken SQL trying to INSERT into a function call — the
-// safety this session traced back to PrimaryKey/every constraint lookup
-// being correctly left nil on RecordRelation, not a separate guard.
+// TestExecuteWrite_RecordRelationRootIsCleanlyRejected proves a write
+// against a RETURNS TABLE root is rejected before any DML is generated.
 func TestExecuteWrite_RecordRelationRootIsCleanlyRejected(t *testing.T) {
 	conn := acquireWriteConn(t)
 	node := mustResolveQuery(t, `{"function": "movie_counts_by_director", "schema": "public", "select": ["own"]}`)
@@ -1183,11 +1084,8 @@ func TestCompileSelect_NestedObjectLiteral(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	// A plain JSON object nested as a select value compiles to
-	// jsonb_build_object — the same untyped-$1-parameter inference failure
-	// that ARRAY[$1,...] had (subjectPgType's fix) applies to its bound
-	// keys too; this must run against real Postgres to prove the key bind
-	// is typed correctly, not just that it compiles.
+	// jsonb_build_object's bound keys need the same untyped-$1 inference
+	// fix ARRAY[$1,...] needed (subjectPgType) — must run against real Postgres.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"info": {"n": "name"}},
@@ -1210,10 +1108,8 @@ func TestCompileSelect_NestedShapeAsValue(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	// own_except reached as a nested VALUE (not the node's own top-level
-	// select) exercises compileShapeAsJsonObject — a separate codepath
-	// from compileNode's plain-column select list, and one that also
-	// binds its keys via jsonb_build_object.
+	// own_except as a nested VALUE exercises compileShapeAsJsonObject, a
+	// separate codepath from compileNode's plain-column select list.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"id": "id", "basic": ["own_except", ["id"]]},
@@ -1266,9 +1162,8 @@ func TestCompileSelect_NotInAndNotBetween(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	// Negate is set (not_in / not_between) but never exercised — a wrong
-	// "not " placement here is a syntax error at execution, not a compile
-	// error, so this needs to run against real Postgres.
+	// Negate (not_in/not_between) : a wrong "not " placement is a syntax
+	// error at execution, not compile time — needs real Postgres.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": ["own_except", []],
@@ -1323,12 +1218,8 @@ func TestCompileSelect_EmbeddedOrderByLimitOffset(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_OrderByDescNullsLast proves query.ts's "asc and desc are
-// nulls last by default" for a bare "desc" term specifically — Postgres's
-// own native default for DESC is NULLS FIRST (only plain ASC defaults to
-// NULLS LAST), verified directly against Postgres 16 ; compileOrderBy must
-// emit "desc nulls last" explicitly rather than relying on Postgres's own
-// default, or this promise is silently broken for every descending sort.
+// TestCompileSelect_OrderByDescNullsLast proves a bare "desc" term emits
+// "desc nulls last" explicitly — Postgres's own DESC default is NULLS FIRST.
 func TestCompileSelect_OrderByDescNullsLast(t *testing.T) {
 	ctx := context.Background()
 	var withStudioID, withoutStudioID int
@@ -1364,9 +1255,7 @@ func TestCompileSelect_OrderByDescNullsLast(t *testing.T) {
 }
 
 // TestCompileSelect_OrderByAscNullsFirst proves the explicit
-// "asc-nulls-first" tag (query.ts's own opt-out of ASC's usual nulls-last
-// default) actually reorders nulls to the front — previously untested :
-// nothing exercised this tag's SQL compilation at all before this test.
+// "asc-nulls-first" tag actually reorders nulls to the front.
 func TestCompileSelect_OrderByAscNullsFirst(t *testing.T) {
 	ctx := context.Background()
 	var withStudioID, withoutStudioID int

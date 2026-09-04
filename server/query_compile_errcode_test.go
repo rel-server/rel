@@ -7,14 +7,8 @@ import (
 	"github.com/ceymard/rel/errcode"
 )
 
-// TestRelHandler_QueryCompileErrors_AttachSpecificCodes proves
-// specs/error-handling.md ## Rel-internal codes' query-compile-error family
-// (UNKNOWN_IDENTIFIER, JOIN_MISSING_INDEX, WRITE_FORBIDDEN,
-// WRITE_FORBIDDEN_FUNCTION_ROOT, QUERY_INVALID_EXPRESSION) actually reaches
-// the response now, instead of every resolve/derive-shapes failure falling
-// back to the generic errcode.Unclassified specs/TODO.md used to flag as a
-// real gap — one representative failure per code, each chosen to exercise a
-// different query package call site.
+// TestRelHandler_QueryCompileErrors_AttachSpecificCodes : ## Rel-internal
+// codes' query-compile-error family reaches the response, one per code.
 func TestRelHandler_QueryCompileErrors_AttachSpecificCodes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -64,15 +58,8 @@ func TestRelHandler_QueryCompileErrors_AttachSpecificCodes(t *testing.T) {
 	}
 }
 
-// TestRelHandler_WriteForbiddenFunctionRoot_HasItsOwnCode proves the
-// function-rooted-node write rejection (specs/query-engine.md ## Reading
-// Algorithm ### Function-rooted nodes' "unconditionally UNWRITABLE" rule)
-// gets its own WRITE_FORBIDDEN_FUNCTION_ROOT code, distinct from the
-// generic WRITE_FORBIDDEN a non-function node's own unwritable identity
-// gets — this failure surfaces from ExecuteWriteState (query/write.go), at
-// write-execution time, not the earlier resolve loop, so it's routed
-// through classifyWriteError rather than the resolve-loop's own
-// codeOrUnclassified call.
+// TestRelHandler_WriteForbiddenFunctionRoot_HasItsOwnCode : ### Function-
+// rooted nodes' unwritable rule gets its own code, not generic WRITE_FORBIDDEN.
 func TestRelHandler_WriteForbiddenFunctionRoot_HasItsOwnCode(t *testing.T) {
 	body := `{
 		"query": {"function": "fn_directors", "schema": "public", "select": ["own"]},

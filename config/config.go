@@ -286,13 +286,9 @@ const (
 	DefaultPgPort               = 5432
 	DefaultPgQueryAnonymousRole = "~anonymous"
 	DefaultPgQueryWellKnownPath = "/wellknown"
-	// DefaultPgPoolSize is pg.pool_size's default : the max number of
-	// connections in the pool that actually serves requests. pgx's own
-	// unconfigured default (max(4, runtime.NumCPU())) scales with the
-	// machine rel happens to run on, not with what the database can
-	// actually sustain — 10 is a small, common, framework-agnostic
-	// starting point (Node's node-postgres and Java's HikariCP both
-	// default here too) rather than a value tied to host CPU count.
+	// DefaultPgPoolSize is pg.pool_size's default : the max connections in
+	// the pool that serves requests — a fixed, framework-agnostic starting
+	// point, not pgx's own machine-CPU-scaled default.
 	DefaultPgPoolSize = 10
 )
 

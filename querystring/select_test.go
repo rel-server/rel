@@ -56,15 +56,8 @@ func TestCompileSelect_BareNonIdentifierIsError(t *testing.T) {
 }
 
 func TestCompileSelect_OwnPlusCommaListIsNotTheWholeValueForm(t *testing.T) {
-	// Per the spec, own/full's whole-value form and the plain comma-list
-	// form are mutually exclusive within one select= — there is no
-	// spelling for "own plus an extra key" side by side. "own,name" does
-	// NOT trigger own/full dispatch (that only fires when "own"/"full" is
-	// the entire value) : it falls through to the ordinary comma-list
-	// compiler, where "own" is just a bare identifier like any other,
-	// self-aliased same as "name" — a plain column/alias reference the
-	// server-side resolve step (not this package) would reject if no
-	// column named "own" actually exists.
+	// own/full dispatch only fires when it's the entire value ; "own,name"
+	// falls through to the comma-list compiler, "own" as a bare identifier.
 	got, err := compileSelect("own,name")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

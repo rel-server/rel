@@ -21,9 +21,8 @@ type Code string
 // regardless of body framing — specs/error-handling.md ## Delivery.
 const Header = "X-Rel-Errorcode"
 
-// Fallbacks for an error that reached a response with no more specific
-// code assigned — specs/error-handling.md ## Error codes : "there is no
-// unclassified/silent case."
+// Fallbacks for an error reaching a response with no more specific code
+// assigned — ## Error codes : "there is no unclassified/silent case."
 const (
 	Internal     Code = "INTERNAL"     // 5xx, no more specific code applies
 	Unclassified Code = "UNCLASSIFIED" // 4xx, no more specific code applies
@@ -62,9 +61,8 @@ const (
 	WriteForbiddenFunctionRoot Code = "WRITE_FORBIDDEN_FUNCTION_ROOT"
 )
 
-// Well-known query compile errors (specs/well-known-queries.md ##
-// Compilation Errors) — raised once, at load/reload time, against a file's
-// cached tree, never re-checked per request.
+// Well-known query compile errors (## Compilation Errors) — raised once,
+// at load/reload time, never re-checked per request.
 const (
 	WellKnownDuplicateName Code = "WELL_KNOWN_DUPLICATE_NAME"
 	WellKnownUnusedParam   Code = "WELL_KNOWN_UNUSED_PARAM"

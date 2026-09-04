@@ -22,22 +22,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// TestNewInfos_NonSuperuserConnectingRole regression-tests
-// FillConstraintInformations' pg_catalog-visibility fix directly, next to
-// the code it protects — route/deployment_test.go exercises the same bug but
-// only reaches it through three layers (route.NewHandler -> BuildRegistry ->
-// NewInfos), so a revert of info_constraint.go's continue-not-return fix
-// would surface there as an opaque route failure, not as "constraint
-// resolution rejects invisible relations."
-//
-// INFO_QUERY_CONSTRAINTS reads pg_constraint directly (world-readable,
-// unfiltered), but the relation map it resolves against comes from
-// information_schema.columns, which DOES filter by the connecting role's
-// own privileges. Several pg_catalog system tables have real p/u/f
-// constraints in pg_constraint but are invisible via information_schema to
-// anything but a superuser — every OTHER test in this package connects as
-// the testcontainers module's default superuser, which can see all of
-// them, silently masking this until tested under a plain login role.
+// Regression-tests FillConstraintInformations' pg_catalog-visibility fix —
+// invisible under this package's other, superuser-connected tests.
 func TestNewInfos_NonSuperuserConnectingRole(t *testing.T) {
 	ctx := context.Background()
 	container, err := postgres.Run(ctx, "postgres:16-alpine",

@@ -63,11 +63,8 @@ func TestRelHandler_GET_ReadWithJoinAndWhere(t *testing.T) {
 	}
 }
 
-// TestRelHandler_GET_OwnExceptAndWithLiteralSemicolon proves the ';'
-// separator own_except_and/full_except_and rely on survives a REAL HTTP
-// GET request end to end — this is the whole reason this package hand-
-// rolls query-string splitting instead of using net/url.ParseQuery, which
-// rejects any raw query string containing a literal ';' outright.
+// TestRelHandler_GET_OwnExceptAndWithLiteralSemicolon : net/url.ParseQuery
+// rejects a raw ';' outright, which is why this package hand-rolls splitting.
 func TestRelHandler_GET_OwnExceptAndWithLiteralSemicolon(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Semicolon Director')`); err != nil {

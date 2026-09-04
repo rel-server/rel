@@ -28,9 +28,8 @@ func TestSearchPath_IncludesPublic(t *testing.T) {
 	}
 }
 
-// withSearchPath temporarily overrides testDb.SearchPath for the duration of
-// one test, restoring it afterward. Tests in this package run sequentially
-// (none call t.Parallel()), so mutating the shared testDb is safe here.
+// withSearchPath overrides the shared testDb.SearchPath for one test,
+// restoring it after — safe since this package's tests never run parallel.
 func withSearchPath(t *testing.T, path []string, fn func()) {
 	t.Helper()
 	saved := testDb.SearchPath
@@ -159,10 +158,8 @@ func TestFunction_AcceptsArity_PureVariadic(t *testing.T) {
 		t.Fatalf("expected exactly 1 fn_pure_variadic, got %d", len(fns))
 	}
 	f := fns[0]
-	// No required (non-variadic) argument at all : the variadic slot alone
-	// can absorb zero, so the minimum callable arity is 0, not PgNargs-1's
-	// naive floor of 0 by coincidence here — this specifically exercises
-	// the "no fixed arguments before the variadic one" case.
+	// No required argument at all — exercises "no fixed args before the
+	// variadic one" specifically, minimum arity 0.
 	cases := map[int]bool{0: true, 1: true, 5: true}
 	for n, want := range cases {
 		if got := f.AcceptsArity(n); got != want {

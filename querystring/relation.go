@@ -22,13 +22,8 @@ import (
 	"github.com/samber/oops"
 )
 
-// relationFields is every query.ts Relation key this package understands,
-// each mapped to how its structurally-decoded value (a string, from
-// DecodeStructural — nested maps only ever occur for "on" and "join")
-// compiles to the final Relation JSON. Fields not listed here (an unknown
-// query key) are a decode error — specs/query-json.md never says GET /rel
-// should silently ignore an unrecognized key, and erroring catches typos
-// (e.g. "order-by" instead of "order_by") that would otherwise silently no-op.
+// fieldKind is how one Relation key's decoded value compiles to JSON. A
+// key not in relationFieldKinds is a decode error, catching typos.
 type fieldKind int
 
 const (
@@ -121,9 +116,8 @@ func DecodeQueryField(raw string) (any, error) {
 	return tree, nil
 }
 
-// compileRelation walks one structurally-decoded node (a map[string]any
-// whose values are strings/[]any-of-strings/nested maps, per
-// DecodeStructural) and compiles it into query.ts's Relation JSON shape.
+// compileRelation walks one structurally-decoded node (per DecodeStructural)
+// into query.ts's Relation JSON shape.
 func compileRelation(node map[string]any) (map[string]any, error) {
 	out := map[string]any{}
 	for key, raw := range node {
@@ -261,10 +255,7 @@ func compileField(kind fieldKind, key string, raw any) (any, error) {
 }
 
 // asString requires raw to be a single (non-repeated) string value — every
-// Relation field this package compiles other than "on"/"join"/"arguments"
-// (nested objects) and comma-lists (which split their OWN internal commas,
-// so the raw query key itself must not repeat) is exactly one query-string
-// value.
+// Relation field this package compiles besides on/join/arguments/comma-lists.
 func asString(raw any) (string, error) {
 	s, ok := raw.(string)
 	if !ok {
@@ -296,25 +287,12 @@ func stringSlice(items []any) ([]string, error) {
 	return out, nil
 }
 
-// compileArguments implements specs/query-json.md's `arguments.<key>=value`
-// rule : each value is one filter-value TOKEN (an atom : identifier or
-// literal — see ## Filter expression grammar's own atom production), never
-// a full condition (`arguments.0=eq(status,'open')` is an error, per the
-// spec's own worked note). All-digit sibling keys compile to the positional
-// (array) form ; any other key set compiles to the named (object) form —
-// this is a judgment call specs/query-json.md leaves implicit (see this
-// session's report), chosen because query.ts's own "arguments" field is
-// itself `Expression[] | {[name]: Expression}` and a set of purely numeric
-// keys has no other sensible reading as anything but array indices.
-// maxArgumentIndex bounds a positional "arguments.<n>" key : an attacker
-// otherwise controls make([]any, n+1) directly off an unauthenticated GET
-// query string (a single key like arguments.100000000 forces a ~1.6GB
-// allocation ; an index past strconv.Atoi's int range forces a panic in
-// make() once its error was silently ignored). No real query has anywhere
-// near this many positional arguments, so this bound is purely a sanity
-// cap, not a functional limit.
+// maxArgumentIndex bounds "arguments.<n>" against an unauthenticated GET
+// forcing a huge allocation — a sanity cap, not a functional limit.
 const maxArgumentIndex = 4096
 
+// compileArguments : all-digit sibling keys compile to the positional
+// (array) form, any other key set to the named (object) form.
 func compileArguments(m map[string]any) (any, error) {
 	allNumeric := len(m) > 0
 	for k := range m {
@@ -377,9 +355,8 @@ func isAllDigits(s string) bool {
 	return true
 }
 
-// parseArgumentToken parses one `arguments.*` value as a bare `atom` (never
-// a `call`) — a plain identifier or a literal, per the spec's explicit
-// "arguments are values, not conditions" rule.
+// parseArgumentToken parses one `arguments.*` value as a bare atom, never
+// a call — "arguments are values, not conditions" (spec).
 func parseArgumentToken(s string) (any, error) {
 	p := newExprParser(s)
 	p.skipSpace()
@@ -428,14 +405,8 @@ func parseArgumentToken(s string) (any, error) {
 	return v, nil
 }
 
-// rejectGetOnlyFields walks the FULLY COMPILED Relation tree (never the raw
-// query string keys — see specs/query-json.md's own note on why a key-name
-// scan isn't equivalent) rejecting write_mode/on_conflict/insert_columns/
-// update_columns at the root and at every nested join.<alias>, recursing
-// only through "join" (a user-chosen select alias happening to be named
-// "write_mode", e.g. select=write_mode:name, must not false-positive here —
-// walking the decoded STRUCTURE, not scanning every map for a matching key,
-// is what keeps that distinction intact).
+// rejectGetOnlyFields walks the compiled Relation tree, not raw query keys
+// (specs/query-json.md), so a select alias named e.g. "write_mode" can't false-positive.
 func rejectGetOnlyFields(rel map[string]any) error {
 	for field := range getOnlyForbiddenFields {
 		if _, present := rel[field]; present {

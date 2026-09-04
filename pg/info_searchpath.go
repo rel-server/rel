@@ -20,13 +20,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// FillSearchPath introspects the connecting role's resolved search path into
-// infos.SearchPath, in lookup order. Deliberately live-introspected here
-// rather than kept as static config : query-engine.md's ## Search path section
-// is explicit that only the base connection's actual search path is ever
-// respected (switched-to roles' own search paths are not), so this is a
-// fact about the connection, same category as everything else pg
-// introspects, not something the config package should invent separately.
+// FillSearchPath introspects the connecting role's resolved search path
+// into infos.SearchPath, in lookup order. Live-introspected, not static
+// config : query-engine.md ## Search path only ever respects the base
+// connection's actual search path, never a switched-to role's own.
 func FillSearchPath(infos *DbInfos, conn *pgx.Conn) error {
 	row := conn.QueryRow(context.Background(), INFO_QUERY_SEARCH_PATH)
 	return row.Scan(&infos.SearchPath)

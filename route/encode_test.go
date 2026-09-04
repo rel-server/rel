@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// TestEncodeBody_JSON covers ## Request's application/json branch : body
-// decodes to the request's actual JSON value, never a JSON-encoded STRING
-// of it.
+// TestEncodeBody_JSON : body decodes to the actual JSON value, never a
+// JSON-encoded string of it.
 func TestEncodeBody_JSON(t *testing.T) {
 	raw, err := encodeBody("application/json", []byte(`{"a":1,"b":[true,null]}`), false)
 	if err != nil {
@@ -60,9 +59,8 @@ func TestEncodeBody_TextPlain(t *testing.T) {
 	}
 }
 
-// TestEncodeBody_FormUrlencoded covers application/x-www-form-urlencoded :
-// body decodes to a JSON object through querystring.DecodeStructural,
-// including dotted-key nesting, applied to the body's own bytes.
+// TestEncodeBody_FormUrlencoded : body decodes through
+// querystring.DecodeStructural, including dotted-key nesting.
 func TestEncodeBody_FormUrlencoded(t *testing.T) {
 	raw, err := encodeBody("application/x-www-form-urlencoded", []byte("name=John&email=john%40example.com&user.role=admin"), false)
 	if err != nil {
@@ -125,10 +123,8 @@ func TestEncodeBody_NoBody(t *testing.T) {
 	}
 }
 
-// TestEncodeBody_HasFiles_AlwaysNull covers "A route declaring files
-// bytea[] : body is ALWAYS JSON null, regardless of content_type" — even
-// for a content_type/body combination that would otherwise decode to a
-// real JSON value.
+// TestEncodeBody_HasFiles_AlwaysNull : body is always JSON null when files
+// is declared, even for a combination that would otherwise decode to JSON.
 func TestEncodeBody_HasFiles_AlwaysNull(t *testing.T) {
 	raw, err := encodeBody("application/json", []byte(`{"a":1}`), true)
 	if err != nil {

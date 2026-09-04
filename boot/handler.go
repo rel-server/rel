@@ -28,9 +28,8 @@ import (
 	"time"
 )
 
-// maintenancePageBody is the fixed, plain-text 503 page served for every
-// new request while a reload is in progress — specs/migrations.md ## Reloading
-// step 1 : "a small, fixed convenience page ... no templating."
+// maintenancePageBody is the fixed 503 page for a reload in progress
+// (migrations.md ## Reloading step 1 : "no templating").
 const maintenancePageBody = "rel is applying migrations, please retry shortly.\n"
 
 // ReloadableHandler is http.Server.Handler's own, permanent value — see
@@ -42,12 +41,8 @@ const maintenancePageBody = "rel is applying migrations, please retry shortly.\n
 type ReloadableHandler struct {
 	inner atomic.Pointer[http.Handler]
 
-	// mu guards maintenance and inflight together : a request must be
-	// unable to observe "not in maintenance" and then get registered into
-	// inflight AFTER BeginMaintenance has already flipped the flag and
-	// moved on to draining — checking maintenance and registering into
-	// inflight happen under the same lock in ServeHTTP for exactly that
-	// reason.
+	// mu guards maintenance and inflight together : both must be checked
+	// under the same lock, or a request could register after BeginMaintenance has already moved on to draining.
 	mu          sync.Mutex
 	maintenance bool
 	inflight    map[*inflightRequest]struct{}
@@ -55,10 +50,7 @@ type ReloadableHandler struct {
 }
 
 // inflightRequest is one in-flight request's own cancel func, individually
-// cancellable on drain-timeout — a plain sync.WaitGroup alone can count
-// in-flight requests but can't cancel a specific straggler's context, which
-// specs/migrations.md ## Reloading step 2 requires (pgx honors context
-// cancellation and releases whatever locks that request was holding).
+// cancellable on drain-timeout — a plain sync.WaitGroup alone can't do that.
 type inflightRequest struct {
 	cancel context.CancelFunc
 }
@@ -99,9 +91,8 @@ func (h *ReloadableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		delete(h.inflight, entry)
 		h.mu.Unlock()
 		h.wg.Done()
-		// Always cancel, even on the happy path : avoids leaking the
-		// context.WithCancel's own internal goroutine/resources — a
-		// no-op if Drain already fired it on timeout.
+		// Always cancel, even on the happy path : avoids leaking
+		// context.WithCancel's goroutine ; a no-op if Drain already fired it.
 		cancel()
 	}()
 
@@ -152,11 +143,8 @@ func (h *ReloadableHandler) Drain(timeout time.Duration) {
 	}
 	h.mu.Unlock()
 
-	// Wait (unbounded) for the now-cancelled handlers to actually return
-	// and deregister themselves — cancellation is a request, not a
-	// guarantee of immediate return, but every handler in this codebase
-	// is expected to honor ctx promptly (pgx does), so this is bounded in
-	// practice even though it has no second timeout here.
+	// Unbounded wait : cancellation is a request, not a guarantee of
+	// immediate return, but every handler here is expected to honor ctx promptly (pgx does).
 	<-done
 }
 

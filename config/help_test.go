@@ -27,13 +27,8 @@ func TestFlagOf(t *testing.T) {
 	}
 }
 
-// dynamicNamespaceKeys are the loader.go keys read via readStringMap/
-// readBlacklist (a path prefix, not a single scalar *OrDefault call) —
-// Options documents these as prose in Help()'s own "Dynamic namespaces"
-// section instead of individual table rows, since "<schema>.<name>" isn't
-// a fixed key. Kept as an explicit, short allowlist so
-// TestOptions_MatchAssembleKeys stays meaningful rather than silently
-// excusing a real gap.
+// dynamicNamespaceKeys are loader.go's path-prefix keys (readStringMap/
+// readBlacklist) — Help() documents these as prose, not table rows.
 var dynamicNamespaceKeys = map[string]bool{
 	"logging.filter":      true,
 	"logging.exclude":     true,
@@ -43,17 +38,11 @@ var dynamicNamespaceKeys = map[string]bool{
 }
 
 // assembleOrDefaultKeyPattern matches every "root.GetXxxOrDefault("key""
-// call in loader.go's assemble() — the actual, authoritative list of
-// scalar dotted keys rel reads config for.
+// call in loader.go's assemble() — the authoritative list of scalar keys.
 var assembleOrDefaultKeyPattern = regexp.MustCompile(`Get\w+OrDefault\("([^"]+)"`)
 
-// TestOptions_MatchAssembleKeys is the check --help's whole value depends
-// on : it reads loader.go's own source and extracts every key assemble()
-// actually calls a *OrDefault accessor for, then asserts Options (config/
-// help.go) documents exactly that set (minus the dynamic-namespace
-// prefixes above). Options is still a hand-maintained table — this test is
-// what stops it from silently drifting the moment a key is added, removed,
-// or renamed in assemble() without the matching Options edit.
+// Guards Options (config/help.go, hand-maintained) against drifting from
+// assemble()'s actual key set as keys are added/removed/renamed.
 func TestOptions_MatchAssembleKeys(t *testing.T) {
 	src, err := os.ReadFile("loader.go")
 	if err != nil {
@@ -86,13 +75,8 @@ func TestOptions_MatchAssembleKeys(t *testing.T) {
 	}
 }
 
-// TestHelp_MentionsEveryOption guards against Options drifting out of sync
-// with itself : every declared key's dotted form and derived env var must
-// actually appear in the rendered text, and every default value that isn't
-// "" must show up too — a regression here means a key/default was added to
-// Options but the render loop silently dropped it (or vice versa). This is
-// deliberately NOT a check that Options covers assemble() itself — see
-// TestOptions_MatchAssembleKeys for that.
+// Guards against Help()'s render loop silently dropping a key/env-var pair
+// that Options still declares — not a check against assemble() itself.
 func TestHelp_MentionsEveryOption(t *testing.T) {
 	out := Help()
 	for _, opt := range Options {
@@ -105,13 +89,8 @@ func TestHelp_MentionsEveryOption(t *testing.T) {
 	}
 }
 
-// TestHelp_NoDegenerateWrapping guards against wrapIndented regressing
-// into one-word-per-line output (the exact bug this function shipped with
-// once already, when the wrap width computation went non-positive) — every
-// line BEFORE the last should carry more than one word ; the last line is
-// legitimately allowed to be a single short trailing word (e.g. a
-// paragraph ending "... than, pg.admin.user." wrapping cleanly to one word
-// on its own last line is normal wrapping, not the bug).
+// Guards against wrapIndented regressing to one-word-per-line (a real past
+// bug) — every line but the last must carry more than one word.
 func TestHelp_NoDegenerateWrapping(t *testing.T) {
 	for _, opt := range Options {
 		wrapped := wrapIndented(opt.Desc, 8)

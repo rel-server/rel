@@ -14,17 +14,8 @@ import (
 	"github.com/ceymard/rel/pg"
 )
 
-// TestDeploymentShapedRoleSwitch exercises the full /route JWT lifecycle —
-// login with a real (pgcrypto) credential check, cookie mint, an
-// authenticated role-gated call — against a connecting role that is a
-// genuine, non-superuser LOGIN role granted membership in every role it
-// needs to SET LOCAL ROLE into, matching the deployment prerequisite
-// specs/TODO.md now documents. Every other test in this package connects
-// as the testcontainers module's default superuser (see schema.sql's own
-// note), which can SET ROLE to anything regardless of grants and would
-// silently mask a missing grant here — that's the exact class of bug
-// (found empirically, "permission denied to set role") this test exists
-// to catch on every future change, not just once by hand.
+// TestDeploymentShapedRoleSwitch connects as a non-superuser LOGIN role
+// with real grants, unlike every other test's superuser (which would mask a missing grant).
 func TestDeploymentShapedRoleSwitch(t *testing.T) {
 	ctx := context.Background()
 	container, err := postgres.Run(ctx, "postgres:16-alpine",
@@ -50,9 +41,8 @@ func TestDeploymentShapedRoleSwitch(t *testing.T) {
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
 
-	// NewInfosAdminQuery, threading through the real anonymous role name —
-	// "anonymous call still works" below needs DbInfos.AnonymousRoleExists
-	// true, same reasoning as route_test.go's TestMain.
+	// Threads the real anonymous role name through so AnonymousRoleExists
+	// is true below, same as route_test.go's TestMain.
 	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		t.Fatalf("NewInfosAdminQuery: %v", err)

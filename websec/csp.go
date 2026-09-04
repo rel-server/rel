@@ -26,9 +26,7 @@ type Directive struct {
 }
 
 // cspDirectiveOrder is ## CSP ### Configuration's ten named directives, in
-// the order BuildPolicyFromConfig emits them — default_src first (its
-// value is what script-src/style-src synthesize from), the rest in the
-// spec's own listed order.
+// emission order — default-src first, since script/style-src synthesize from it.
 var cspDirectiveOrder = []struct {
 	name string
 	get  func(config.HttpCsp) string
@@ -125,16 +123,8 @@ func InjectNonce(directives []Directive, nonce string) []Directive {
 			out[i].Value = appendToken(out[i].Value, nonceToken)
 		}
 	}
-	// Synthesizing a nonce-only script-src/style-src when NEITHER that
-	// directive NOR default-src is present would narrow the policy rather
-	// than merely tighten it : with no default-src at all, the browser's own
-	// fallback for an unlisted fetch type is "allowed" — injecting a
-	// nonce-only script-src here would make scripts MORE restricted than the
-	// base policy ever asked for, exactly the "never nonce-alone" case ###
-	// Nonce warns against, just reached from an absent-default-src base
-	// policy rather than an absent-script-src one. Skipping injection
-	// entirely leaves that fetch type exactly as unrestricted as the base
-	// policy already made it — the nonce simply isn't needed there.
+	// Skip when default-src is ALSO absent : a nonce-only script-src would
+	// narrow the policy past what it asked for — ### Nonce's "never nonce-alone".
 	if !haveScript && haveDefault {
 		out = append(out, Directive{Name: "script-src", Value: appendToken(defaultSrc, nonceToken)})
 	}

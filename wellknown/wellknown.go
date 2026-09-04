@@ -43,10 +43,8 @@ type Compiled struct {
 	Params map[string]ParamDef
 	Root   *query.QueryNode
 
-	// Read is query.CompileSelect(Root), compiled exactly once at load
-	// time — specs/well-known-queries.md ## Behaviour's "prepared" story :
-	// the SQL text is fixed, only ResolveArgs' per-request paramValues
-	// changes between invocations.
+	// Read is query.CompileSelect(Root), compiled once at load time (##
+	// Behaviour's "prepared" story) ; only ResolveArgs' paramValues change.
 	Read *writer.SQLWriter
 }
 

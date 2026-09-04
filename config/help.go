@@ -105,10 +105,8 @@ var Options = []Option{
 	{"dmut.reload_drain_timeout", fmt.Sprint(DefaultDmutReloadDrainTimeout) + " (seconds)", "How long a SIGUSR1 reload waits for in-flight requests to finish before cancelling their contexts and proceeding anyway."},
 }
 
-// Sections groups Options for --help's own rendering — {heading, key
-// prefix}, checked in order, first match wins. Keep in sync with Options'
-// own key set above (an unmatched key falls into a catch-all "Other"
-// section rather than being silently dropped).
+// sections groups Options for --help's rendering ; checked in order, first
+// match wins, with an unmatched key falling into a catch-all "Other".
 var sections = []struct {
 	Heading string
 	Prefix  string
@@ -233,11 +231,8 @@ plain scalars is one comma-separated string.
 	return b.String()
 }
 
-// wrapIndented is a small, deliberately simple word-wrap : Desc strings
-// here are one paragraph each, wrapped to a fixed 78-column budget (a
-// conservative width that fits comfortably in a default 80-column
-// terminal even after the indent), continuation lines indented to align
-// under the description column rather than the key column.
+// wrapIndented word-wraps s to a fixed 78-column budget (fits an 80-column
+// terminal after indent), continuation lines aligned under the description.
 func wrapIndented(s string, indent int) string {
 	const width = 78
 	words := strings.Fields(s)

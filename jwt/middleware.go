@@ -17,21 +17,7 @@ var log = logging.For("jwt")
 type contextKey struct{}
 
 // requestSession is what Middleware stashes in the request context : the
-// verified claims and whether a session was actually verified —
-// route.md ## HTTP's "dispatched dynamically... implemented as
-// ordinary func(http.Handler) http.Handler middleware" applies only to
-// Verify (step 2) here : Check (step 3, the check_session function), Renew
-// (step 4), and Apply role (step 5) all need the request's own DB
-// connection/transaction, which doesn't exist yet at the point generic
-// middleware runs — those three steps stay the calling handler's own
-// responsibility, immediately after acquiring a connection, in that exact
-// order (route/handler.go's handleRoute, route/upload_handler.go's
-// handleUploadRoute, and server/rel.go's applyRole all now do Check then
-// Renew then Apply role uniformly — this used to diverge, /rel renewing
-// here in Middleware BEFORE Check ever ran, so check_session saw
-// post-renewal claims on /rel but pre-renewal claims on /route ; fixed by
-// moving Renew out of Middleware and into applyRole, see git log for the
-// commit that changed it).
+// verified claims and whether verification succeeded — see Middleware.
 type requestSession struct {
 	claims   Claims
 	verified bool

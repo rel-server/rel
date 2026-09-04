@@ -16,13 +16,10 @@ import (
 	"github.com/ceymard/rel/static"
 )
 
-// NewHandler is /route/{schema}/{function} : one dynamic dispatch pattern per
-// ## HTTP's own wording ("dispatched dynamically... rather than registered
-// as their own routes"), not one ServeMux registration per discovered
-// function. staticSrv is ### Upload destinations' own write target
-// (http.static.path's first directory) — nil when no static directory is
-// configured/exists, in which case an upload route resolving a non-empty
-// "path" is a 500 (there's nowhere to write to).
+// NewHandler serves /route/{schema}/{function} as one dynamic dispatch
+// pattern (specs/route.md ## HTTP), not one registration per function.
+// staticSrv is the upload write target (specs/http-content.md ### Upload
+// destinations) ; nil means an upload route resolving a "path" is a 500.
 func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server) http.Handler {
 	templates := templatesForConfig(cfg)
 	mux := http.NewServeMux()
@@ -43,16 +40,12 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		return
 	}
 
-	// Verify (Lifecycle step 2) needs no DB connection — run it first, so
-	// "is this request anonymous" is knowable before anything DB-related
-	// happens at all.
+	// Verify (Lifecycle step 2) needs no DB connection — run first, so
+	// anonymity is knowable before anything DB-related happens.
 	claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
 
-	// specs/authentication.md "# Roles ## Anonymous role existence" and
-	// "# HTTP ## Anonymous route authorization" : both checks run here,
-	// BEFORE the request body is read and BEFORE a pool connection is
-	// acquired — a request already known to be unauthorized never holds a
-	// connection open, and never costs a connection-acquire round trip.
+	// Both anonymous checks run before the body is read or a connection
+	// acquired, so an unauthorized request never holds one.
 	if !verified {
 		if !db.AnonymousRoleExists {
 			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabled, errcode.AnonymousDisabledMessage)
@@ -64,21 +57,13 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		}
 	}
 
-	// specs/http-content.md ### Upload destinations : a genuinely
-	// different request flow (body resolved AFTER __prepare's placement
-	// decision, streamed straight to disk, never through resolveRequestBody
-	// at all) — dispatched to its own handler entirely, before any of the
-	// ordinary single-transaction machinery below runs.
+	// specs/http-content.md ### Upload destinations : a different request
+	// flow entirely, dispatched before the single-transaction path below.
 	if route.IsUpload {
 		handleUploadRoute(w, r, db, cfg, route, staticSrv, templates, verified, claims)
 		return
 	}
 
-	// ## Request bodies : parses multipart/form-data or a single raw
-	// binary body per route.AcceptsFiles, enforcing http.max_body_size/
-	// http.max_part_count and the 415 shape-mismatch rules, and produces
-	// the already-content-type-encoded RelHttpRequest.body value either
-	// way (see resolveRequestBody's own doc comment).
 	resolved, err := resolveRequestBody(w, r, route, int64(cfg.Http.MaxBodySize), cfg.Http.MaxPartCount)
 	if err != nil {
 		writeRequestBodyError(w, err)
@@ -94,13 +79,11 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
 		return
 	}
-	// Stashed for ## Templates' "Req" VarMap — the exact RelHttpRequest JSON
-	// the route function itself received, not independently re-derived.
+	// Stashed for ## Templates' "Req" var — the exact JSON the route
+	// function received, not re-derived independently.
 	r = r.WithContext(withRequestJSON(ctx, reqJSON))
 	ctx = r.Context()
 
-	// Only now — request known-authorized, body already fully read and
-	// resolved — does a pool connection get acquired.
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
@@ -108,16 +91,14 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	}
 	defer conn.Release()
 
-	// SET LOCAL ROLE only has effect for the current transaction — this
-	// spans check_session, the role switch itself, and the route function
-	// call, all sharing one transaction, committed only once the route
-	// function has actually returned successfully.
+	// SET LOCAL ROLE only holds for the current transaction, so
+	// check_session/role-switch/the route call all share one.
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
 		return
 	}
-	defer func() { _ = tx.Rollback(ctx) }() // no-op if already committed
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := dbauth.CheckSessionIfConfigured(ctx, tx, cfg.Http.Functions.CheckSession, claims, verified); err != nil {
 		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
@@ -159,15 +140,8 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	writeRelHttpResponse(w, r, cfg, route, raw, templates)
 }
 
-// invokeRoute calls route.Function with the argument list matching
-// whichever of ## Request bodies' four signature shapes it was discovered
-// with — (), (req), (req, files bytea[]), or (req, files bytea[],
-// parts_headers jsonb) — returning the function's raw jsonb
-// (RelHttpResponse) or bytea/text (mimetype domain) return value.
-// partsHeadersRaw is only actually sent when route.AcceptsPartsHeaders ;
-// files is always sent (as a bytea[] positional parameter — pgx encodes a
-// [][]byte Go value directly, no manual array-literal building needed) for
-// any route.AcceptsFiles route.
+// invokeRoute calls route.Function with the discovered ## Request bodies
+// signature shape, returning its raw jsonb or bytea/text return value.
 func invokeRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSON []byte, files [][]byte, partsHeadersRaw json.RawMessage) ([]byte, error) {
 	ident := route.Function.Identifier.EscapedString()
 	var row pgx.Row

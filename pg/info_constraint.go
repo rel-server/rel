@@ -23,18 +23,15 @@ import (
 	"github.com/samber/oops"
 )
 
-// Raw constraint row as returned by introspection, before resolution into
-// Constraint objects with real *Column/*Relation pointers. Transient : never
-// stored on Relation, only threaded through FillConstraintInformations.
+// dbConstraint is introspection's raw row, before resolution into Constraint.
+// Transient — never stored, only threaded through FillConstraintInformations.
 type dbConstraint struct {
 	Name  string
 	Type  string // pg_constraint.contype : "p", "u", "f"
 	RelId int
 
-	// True declared order (pg_constraint.conkey), NOT alphabetical — required to
-	// pair correctly with TargetColumns for composite foreign keys. Never sort
-	// this independently of TargetColumns ; use sortedColumnKey for lookup keys
-	// instead, computed once each side is resolved.
+	// True declared order (pg_constraint.conkey) — pairs positionally with
+	// TargetColumns for composite FKs. Use sortedColumnKey for lookup keys.
 	Columns []string
 
 	TargetRelId   int      // 0 unless Type == "f"
@@ -95,10 +92,7 @@ func (c *Constraint) OtherRelation() *Relation {
 }
 
 // sortedColumnKey canonicalizes a column set into a map key : sorted, since
-// map lookups only ever need to answer a set-membership question (do these
-// exact columns, in any order, back a constraint), never a positional one.
-// The one place order matters — pairing a foreign key's two sides together —
-// is handled separately, from the true declared order, never from this key.
+// a lookup only ever needs set membership, never positional order.
 func sortedColumnKey(columns []string) string {
 	sorted := append([]string(nil), columns...)
 	sort.Strings(sorted)
@@ -130,32 +124,15 @@ func FillConstraintInformations(infos *DbInfos, conn *pgx.Conn) error {
 	}
 
 	for _, dbc := range raw {
-		// INFO_QUERY_CONSTRAINTS reads pg_constraint directly (world-
-		// readable, unfiltered by design), but relation.GetRelation only
-		// knows about relations INFO_QUERY_RELATIONS could see through
-		// information_schema.columns — which, unlike pg_constraint, DOES
-		// filter by the connecting role's own privileges. Under a real,
-		// properly-locked-down (non-superuser) connecting role, several
-		// pg_catalog system tables (pg_authid, pg_subscription,
-		// pg_replication_origin, ...) have p/u/f constraints in
-		// pg_constraint but are invisible via information_schema — a
-		// relation the connecting role can't see can never be a query
-		// target either, so skipping it here (same reasoning, same
-		// pattern, as info_index.go's identical GetRelation-returns-nil
-		// case) costs nothing downstream. A superuser connection never
-		// hits this : it can see everything, which is exactly why this
-		// went unnoticed until tested under a non-superuser role.
+		// pg_constraint is unfiltered by role privilege, unlike GetRelation —
+		// skip an invisible relation, same pattern as info_index.go's case.
 		relation := infos.GetRelation(dbc.RelId)
 		if relation == nil {
 			continue
 		}
 
-		// For a foreign key specifically, the TARGET side needs the same
-		// check — and it must happen before any mutation below, so a skip
-		// here can't leave a half-built constraint registered under
-		// relation.byName (its Type would read as the zero value,
-		// ConstraintTypePrimaryKey, which is actively wrong, not just
-		// incomplete).
+		// The FK's target side needs the same check, before any mutation,
+		// so a skip never leaves a half-built Constraint under byName.
 		var target *Relation
 		if dbc.Type == "f" {
 			target = infos.GetRelation(dbc.TargetRelId)
@@ -229,11 +206,7 @@ FROM pg_constraint c
 WHERE c.contype IN ('p', 'u', 'f')
 ) C;`
 
-// ---- lookup API ---------------------------------------------------------------
-//
-// This is the only public surface for consulting a relation's constraints —
-// canonicalization (sorting, joining, prefix expansion) happens once, in here,
-// never in calling code.
+// ---- lookup API : column-set canonicalization happens once, here -------------
 
 // FindConstraintByName looks up a constraint by its real, database-assigned
 // name (e.g. resolving a query's on_conflict target).
@@ -256,11 +229,8 @@ func (r *Relation) RelationshipsTo(other *Relation) []*Constraint {
 	return r.byOtherRelation[other.PgRelId]
 }
 
-// pairingMatches checks the full ordered correspondence between a foreign key
-// constraint and a client-supplied `on` mapping — not just that the column
-// sets independently match, which would also silently accept an inverted
-// pairing (see query-engine.md ### Insertion / Updates for the analogous point on
-// the write side).
+// pairingMatches checks full ordered correspondence, not just that column
+// sets match — that would also accept an inverted pairing.
 func pairingMatches(c *Constraint, on map[string]string) bool {
 	if c.Target == nil || len(c.Columns) != len(on) {
 		return false
@@ -301,13 +271,8 @@ func splitOn(on map[string]string) (local, parent []string) {
 // parent row, regardless of whether the embed turns out to be to-one or
 // to-many. This is a hard error, not a warning.
 func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constraint *Constraint, isToOne bool, err error) {
-	// errcode.JoinMissingIndex on the shared builder, once : every error
-	// this function raises is part of specs/error-handling.md's "## Join
-	// eligibility's compile-time rejection" family, even the ones not
-	// literally about a missing index (an empty `on`, an inverted FK
-	// pairing, no backing constraint at all) — the taxonomy's own wording
-	// groups them as one client-actionable category, distinct from a
-	// plain typo'd identifier (errcode.UnknownIdentifier).
+	// error-handling.md's whole "Join eligibility" family, not just the
+	// literal missing-index case — distinct from errcode.UnknownIdentifier.
 	oc := oops.With("relation", r.Identifier.String()).With("parent", parent.Identifier.String()).With("on", on).Code(errcode.JoinMissingIndex)
 
 	if len(on) == 0 {
@@ -325,14 +290,8 @@ func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constrai
 	}
 
 	if constraint == nil {
-		// A real FK between r and parent over exactly this column set exists,
-		// but its declared pairing didn't match `on` (pairingMatches above
-		// already rejected it) : that's near-certainly a swapped/typo'd `on`,
-		// not a deliberate second relationship, so refuse rather than silently
-		// falling through to the set-only unique+indexed check below. rel
-		// otherwise doesn't care about FKs as such — eligibility is fundamentally
-		// "unique value, indexed access" — this is narrowly about not accepting
-		// a pairing that contradicts one a real FK already claims.
+		// A same-column-set FK exists but its pairing didn't match `on` :
+		// near-certainly a swapped/typo'd `on`, not a second relationship.
 		for _, c := range r.RelationshipsTo(parent) {
 			if sortedColumnKey(columnNames(c.Columns)) == sortedColumnKey(localCols) &&
 				sortedColumnKey(columnNames(c.Target.Columns)) == sortedColumnKey(parentCols) {

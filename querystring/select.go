@@ -45,12 +45,8 @@ func compileSelect(s string) (any, error) {
 	return compileSelectCommaList(s)
 }
 
-// tryCompileOwnFull recognizes the bare keywords "own"/"full", or one of
-// the six own/full-family calls, ONLY when they take up the value's entire
-// text (mutually exclusive with the plain comma-list form per the spec) —
-// ok is false (no error) for anything else, letting the caller fall
-// through to the comma-list compiler, whose own error messages are more
-// relevant to that (the overwhelmingly common) case.
+// tryCompileOwnFull matches only when own/full (or family) takes up the
+// entire value ; ok is false, no error, otherwise — falls through to the comma-list.
 func tryCompileOwnFull(s string) (any, bool, error) {
 	p := newExprParser(s)
 	p.skipSpace()
@@ -120,9 +116,8 @@ func requireExhausted(p *exprParser) error {
 	return nil
 }
 
-// parseIdentListUntilClose parses own_except/full_except's own argument
-// list : a plain comma-list of bare identifiers, up to and including the
-// closing ')' (already positioned right after the opening '(').
+// parseIdentListUntilClose parses own_except/full_except's argument list :
+// a comma-list of bare identifiers through the closing ')'.
 func parseIdentListUntilClose(p *exprParser) ([]string, error) {
 	var out []string
 	p.skipSpace()
@@ -153,10 +148,8 @@ func parseIdentListUntilClose(p *exprParser) ([]string, error) {
 	}
 }
 
-// parseAndMapUntilClose parses own_and/full_and's own argument list : a
-// comma-list of [alias:]expr entries (## own / full's own rule, identical
-// to a top-level select comma-list entry), up to and including the closing
-// ')'.
+// parseAndMapUntilClose parses own_and/full_and's argument list : a
+// comma-list of [alias:]expr entries through the closing ')'.
 func parseAndMapUntilClose(p *exprParser) (map[string]any, error) {
 	out := map[string]any{}
 	p.skipSpace()
@@ -186,11 +179,8 @@ func parseAndMapUntilClose(p *exprParser) (map[string]any, error) {
 	}
 }
 
-// parseExceptAndUntilClose parses own_except_and/full_except_and's own
-// argument list : an except-list (comma-separated bare identifiers), a
-// literal ';', then an and-map (comma-separated [alias:]expr entries), up
-// to and including the closing ')'. The ';' is special to these two forms
-// alone — nowhere else in this grammar.
+// parseExceptAndUntilClose parses an except-list, a literal ';' (special
+// to this form alone), then an and-map, through the closing ')'.
 func parseExceptAndUntilClose(p *exprParser) ([]string, map[string]any, error) {
 	var except []string
 	p.skipSpace()
@@ -230,14 +220,8 @@ and_map:
 	return except, and, nil
 }
 
-// parseSelectEntry parses one [alias:]expr entry (shared by a top-level
-// select comma-list and own_and/full_and's own argument list) : if the
-// entry starts with a bare identifier immediately followed by ':' (outside
-// any nested call/literal, guaranteed here since this runs BEFORE any
-// nested parsing starts), that identifier is the alias and the rest is the
-// value expr. Otherwise the whole entry is one expr, and — this is the
-// caller's job, since only a top-level select comma-list enforces it, not
-// own_and's — a bare (alias-less) entry must be a plain identifier.
+// parseSelectEntry parses one [alias:]expr entry : ident immediately
+// followed by ':' is an alias, otherwise the whole entry is one expr.
 func parseSelectEntry(p *exprParser) (alias string, value any, err error) {
 	p.skipSpace()
 	if p.i < len(p.s) && isIdentStart(p.s[p.i]) {
@@ -266,9 +250,7 @@ func parseSelectEntry(p *exprParser) (alias string, value any, err error) {
 	return ident, v, nil
 }
 
-// compileSelectCommaList implements ## select's plain-comma-list form : one
-// object key per entry, built via parseSelectEntry (bare entries
-// self-alias, per that function's own rule).
+// compileSelectCommaList implements ## select's plain-comma-list form.
 func compileSelectCommaList(s string) (any, error) {
 	p := newExprParser(s)
 	out := map[string]any{}
@@ -289,12 +271,8 @@ func compileSelectCommaList(s string) (any, error) {
 	}
 }
 
-// compileOrderBy implements ## order_by : a comma-list of `expr` entries,
-// each optionally prefixed with one leading "-" for descending. A leading
-// "-" immediately followed by a digit opens a negative NUMBER literal
-// instead (per the grammar's own identifier/number disambiguation rule),
-// never a descending marker — order_by=-4 would be a strange thing to
-// write, but is not itself invalid per the expr grammar, just unusual.
+// compileOrderBy implements ## order_by ; a leading "-" immediately
+// followed by a digit opens a negative number, not a descending marker.
 func compileOrderBy(s string) ([]any, error) {
 	p := newExprParser(s)
 	if p.atEnd() {

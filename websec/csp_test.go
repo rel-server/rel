@@ -29,15 +29,8 @@ func TestPolicy_ExistingScriptSrcGetsNonceAppended(t *testing.T) {
 	}
 }
 
-// TestInjectNonce_NoDefaultSrcSkipsSynthesis regression-tests a real bug
-// found by adversarial review : a raw policy (http.csp.policy or a route's
-// resp.csp) that omits default-src entirely used to get a nonce-only
-// "script-src 'nonce-x'"/"style-src 'nonce-x'" synthesized — which, per CSP
-// semantics, is MORE restrictive than the base policy ever asked for (an
-// explicit script-src with only a nonce no longer falls back to an absent
-// default-src's own "allowed" default), exactly the "never nonce-alone"
-// case ### Nonce warns against. With neither script-src/style-src NOR
-// default-src present, injection must be skipped entirely.
+// TestInjectNonce_NoDefaultSrcSkipsSynthesis : with neither script-src/
+// style-src nor default-src present, injection must be skipped entirely.
 func TestInjectNonce_NoDefaultSrcSkipsSynthesis(t *testing.T) {
 	directives := ParsePolicy("frame-ancestors 'none'")
 	got := SerializePolicy(InjectNonce(directives, "abc123"))
@@ -49,9 +42,8 @@ func TestInjectNonce_NoDefaultSrcSkipsSynthesis(t *testing.T) {
 	}
 }
 
-// TestInjectNonce_DefaultSrcPresentStillSynthesizes confirms the fix didn't
-// overcorrect : when default-src IS present, synthesis still happens exactly
-// as before.
+// TestInjectNonce_DefaultSrcPresentStillSynthesizes : when default-src IS
+// present, synthesis still happens as before.
 func TestInjectNonce_DefaultSrcPresentStillSynthesizes(t *testing.T) {
 	directives := ParsePolicy("default-src 'self'; frame-ancestors 'none'")
 	got := SerializePolicy(InjectNonce(directives, "abc123"))
@@ -95,9 +87,8 @@ func TestPolicy_PerResponseOverrideTakesPrecedenceOverConfigPolicy(t *testing.T)
 }
 
 func TestPolicy_WholeTokenMatchNotSubstring(t *testing.T) {
-	// script-src-elem is a distinct real directive and must not be matched
-	// by a bare "script-src" search, nor should it prevent a separate
-	// script-src from being synthesized.
+	// script-src-elem must not match a bare "script-src" search, nor block
+	// a separate script-src from being synthesized.
 	csp := config.HttpCsp{Policy: "default-src 'self'; script-src-elem 'self'"}
 	got := Policy(csp, "", "n4")
 	if !strings.Contains(got, "script-src-elem 'self'") {

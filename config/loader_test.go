@@ -78,10 +78,8 @@ func TestResolveConfigFilePath_NoMatchIsNotAnError(t *testing.T) {
 }
 
 func TestLoad_PrecedenceFileEnvFlag(t *testing.T) {
-	// jwt.secret isn't set anywhere in this test ; its $GEN$ default would
-	// otherwise write a "jwt-secret" file wherever `go test` runs from —
-	// isolate cwd instead (see TestLoad_JwtSecretDefault_GenAndResolve's
-	// own doc comment for the underlying behavior this works around).
+	// Isolate cwd : jwt.secret's unset $GEN$ default would otherwise write
+	// a "jwt-secret" file wherever `go test` runs from.
 	t.Chdir(t.TempDir())
 	dir := t.TempDir()
 	// query-engine.md ## Configuration's real keys : pg.host/pg.port.
@@ -123,10 +121,8 @@ port = 1111
 	}
 }
 
-// TestLoad_QueryUserDefaultsToPgUser covers query-engine.md's own explicit
-// cross-default : "pg.query.user (default: pg.user if provided)" — the
-// default's VALUE is another config key, not a constant, so this needs its
-// own test distinct from the generic *OrDefault coverage elsewhere.
+// Covers pg.query.user's cross-default onto pg.user — the default's VALUE
+// is another config key, not a constant, unlike ordinary *OrDefault keys.
 func TestLoad_QueryUserDefaultsToPgUser(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
@@ -163,15 +159,8 @@ user = "query_user"
 	}
 }
 
-// TestLoad_PgURI_IsAuthoritative covers pg.uri's own all-or-nothing rule :
-// when set, it wins outright, and the granular pg.host/port/user/password/
-// database fields are ignored entirely rather than merged with it.
-// pg.query.user, being an independent OPTIONAL override, must still apply
-// on top — assemble() itself never parses pg.uri (that's cmd/rel's own
-// concern, building the actual connection strings), it only decides
-// whether pg.query.user/password fall back to pg.user/password (skipped
-// when pg.uri is set, since there's no plain-string default to fall back
-// to).
+// pg.uri, when set, wins outright over granular pg.host/port/user/... ;
+// pg.query.user (an independent optional override) must still apply on top.
 func TestLoad_PgURI_IsAuthoritative(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
@@ -196,12 +185,8 @@ user = "query_user"
 }
 
 func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
-	// jwt.secret is set explicitly here to a fixed value : its real default
-	// is a $GEN$ expression that writes a generated-secret FILE to the
-	// process's cwd when nothing else sets it — TestLoad_JwtSecretDefault_
-	// GenAndResolve below exercises that behavior properly, isolated via
-	// t.Chdir into a temp dir ; this test would otherwise leave a stray
-	// "jwt-secret" file in the config/ package directory on every run.
+	// jwt.secret is fixed explicitly here to avoid the real $GEN$ default
+	// writing a stray "jwt-secret" file ; TestLoad_JwtSecretDefault_GenAndResolve below exercises that behavior, isolated via t.Chdir.
 	dir := t.TempDir()
 	p := writeFile(t, dir, "rel.toml", "[jwt]\nsecret = \"fixed-test-secret\"\n")
 	cfg, err := Load([]string{"--config=" + p})
@@ -292,10 +277,8 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	}
 }
 
-// TestLoad_HttpContentKeys covers specs/http-content.md's new config
-// surface : CORS/CSP scalars, http.templates.path, http.upload_domain_name,
-// and the named http.static.access.<name>.{prefix,function} map — same
-// named-sub-key shape blacklist.functions/relations already use.
+// Covers http-content.md's CORS/CSP scalars and the named
+// http.static.access.<name>.{prefix,function} map.
 func TestLoad_HttpContentKeys(t *testing.T) {
 	dir := t.TempDir()
 	p := writeFile(t, dir, "rel.toml", `
@@ -385,14 +368,8 @@ policy = "default-src 'self'; script-src 'self' 'unsafe-inline'"
 	}
 }
 
-// TestLoad_JwtSecretDefault_GenAndResolve covers a bug caught before it
-// shipped : jwt.secret's own DEFAULT is a "$FILE$jwt-secret$GEN$32"
-// expression, but resolveFileIndirection only resolves $FILE$ values
-// actually PRESENT in the merged config tree — a Go-level fallback default
-// applied afterward in assemble() was never being resolved at all, handing
-// back the literal, unresolved "$FILE$..." string as if it were the real
-// secret. t.Chdir isolates the $GEN$ file write to a temp directory, not
-// wherever `go test` actually runs from.
+// Covers a caught bug : a Go-level fallback default applied after
+// resolveFileIndirection was never itself resolved. t.Chdir isolates the $GEN$ file write to a temp dir.
 func TestLoad_JwtSecretDefault_GenAndResolve(t *testing.T) {
 	t.Chdir(t.TempDir())
 	cfg, err := Load([]string{"--config=" + writeFile(t, t.TempDir(), "rel.toml", "")})
@@ -439,14 +416,8 @@ func TestLoad_UnreadableExplicitConfigIsFatal(t *testing.T) {
 	}
 }
 
-// TestLoad_MalformedValueIsFatal_TOML covers the gap advisor-caught :
-// assemble() previously used only *OrDefault accessors, whose errors were
-// silently discarded (the "errs" slice was write-only), so a PRESENT but
-// wrong-type value (e.g. http.port = "abc") would just silently fall back
-// to the default instead of failing Load — contradicting ## Accessing
-// configuration's "never silently coerced or zeroed" and ## The assembled
-// Config object's "if any errors were collected, Rel logs all of them
-// together and exits."
+// A present but wrong-type value must fail Load, not silently fall back
+// to the default (## Accessing configuration's "never silently coerced").
 func TestLoad_MalformedValueIsFatal_TOML(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
@@ -468,11 +439,8 @@ func TestLoad_MalformedValueIsFatal_Env(t *testing.T) {
 	}
 }
 
-// TestLoad_FileIndirectionEndToEnd exercises resolveFileIndirection's own
-// k.All()/k.Set() write-back through the real Load() pipeline, not just
-// resolveFileValue's string-parsing logic in isolation (advisor : the
-// koanf-specific assumptions there — Set unflattening a dotted key, All
-// being safe to iterate while Setting — were previously unverified).
+// Exercises resolveFileIndirection's k.All()/k.Set() write-back through
+// the real Load() pipeline, not just resolveFileValue's parsing in isolation.
 func TestLoad_FileIndirectionEndToEnd(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	dir := t.TempDir()
@@ -554,13 +522,8 @@ func TestResolveFileValue_GenGeneratesAndPersists(t *testing.T) {
 	}
 }
 
-// TestResolveFileValue_PathContainingMarkerSubstring covers a bug an
-// adversarial review caught : the marker search used to be the FIRST
-// occurrence of "$GEN$"/"$DEFAULT$" in the remainder, so a real, readable
-// file whose own path happens to contain "$GEN$" as a substring (e.g. a
-// directory literally named "secrets_$GEN$_v2") got misparsed — the path
-// was split at the substring instead of the real trailing marker, and the
-// leftover path fragment was rejected as an invalid $GEN$ length.
+// A caught bug : searching from the FIRST "$GEN$"/"$DEFAULT$" occurrence
+// misparsed a path that itself contains the marker as a substring.
 func TestResolveFileValue_PathContainingMarkerSubstring(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "secrets_$GEN$_v2")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -576,10 +539,7 @@ func TestResolveFileValue_PathContainingMarkerSubstring(t *testing.T) {
 	}
 }
 
-// TestResolveFileValue_GenLengthRejectsTrailingGarbage covers a bug an
-// adversarial review caught : parseGenLength used fmt.Sscanf("%d", ...),
-// which silently accepts "16xyz" as 16 instead of rejecting the malformed
-// trailing characters.
+// A caught bug : fmt.Sscanf("%d", ...) silently accepted "16xyz" as 16.
 func TestResolveFileValue_GenLengthRejectsTrailingGarbage(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "generated.txt")
@@ -588,11 +548,8 @@ func TestResolveFileValue_GenLengthRejectsTrailingGarbage(t *testing.T) {
 	}
 }
 
-// TestResolveFileValue_GenLengthMismatchIsFatal covers a bug an adversarial
-// review caught : two config keys pointing at the same $GEN$ path with
-// different declared lengths used to silently return whichever length was
-// generated first, with no error — a config keys copy-paste or path
-// collision would go completely unnoticed.
+// A caught bug : two keys sharing a $GEN$ path with different lengths
+// used to silently return whichever was generated first.
 func TestResolveFileValue_GenLengthMismatchIsFatal(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "generated.txt")

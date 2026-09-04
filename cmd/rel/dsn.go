@@ -9,20 +9,8 @@ import (
 	"github.com/ceymard/rel/config"
 )
 
-// postgresURI builds a pgx connection URI for login against host:port/
-// database — no existing helper builds this anywhere in the repo (pg.
-// NewInfos takes a ready-made URI string). Takes the pieces directly (not
-// a config.Pg) since the primary and query logins are two different
-// values sharing the same host/port/database. Built via net/url.URL
-// (User: url.UserPassword(...)) rather than hand-escaping with
-// url.QueryEscape + fmt.Sprintf : QueryEscape encodes a space as "+",
-// which is only meaningful in a query string, not the userinfo component
-// — a literal "+" in a password would round-trip wrong. url.URL.String()
-// escapes userinfo correctly for that component. net.JoinHostPort (not
-// fmt.Sprintf("%s:%d", ...)) for the host:port pair — an IPv6 host needs
-// bracketing ("::1" -> "[::1]:5432") or pgconn.ParseConfig's own
-// net.SplitHostPort call fails outright on the unbracketed form ;
-// confirmed empirically.
+// postgresURI builds a pgx connection URI via net/url.URL (QueryEscape
+// mis-escapes userinfo) and net.JoinHostPort (IPv6 needs bracketing).
 func postgresURI(host string, port int, database string, login config.Login) string {
 	u := &url.URL{
 		Scheme: "postgres",
@@ -34,10 +22,7 @@ func postgresURI(host string, port int, database string, login config.Login) str
 }
 
 // redactedTarget extracts "host:port/database" from a connection URI for
-// logging — never the credentials, regardless of whether the URI came
-// from pg.uri directly or was built from granular fields. Empty/unparsed
-// input yields "" rather than an error : this is diagnostic-only, never
-// worth failing startup over.
+// logging, never the credentials ; unparsed input yields "" rather than an error.
 func redactedTarget(uri string) string {
 	u, err := url.Parse(uri)
 	if err != nil {
@@ -46,14 +31,8 @@ func redactedTarget(uri string) string {
 	return u.Host + u.Path
 }
 
-// resolveConnectionURIs builds the two connection strings pg.
-// NewInfosAdminQuery needs from cfg.Pg : primaryURI (used for
-// introspection and dmut migrations, always) and queryURI (used for the
-// pool that actually serves requests). pg.query.user is OPTIONAL — see
-// config.PgQuery's own doc comment — so queryURI is simply primaryURI
-// again whenever it's unset ; NewInfosAdminQuery(primaryURI, primaryURI)
-// then degenerates to one shared pool, same as the simplest possible
-// pg.uri-only setup implies.
+// resolveConnectionURIs builds primaryURI (introspection/dmut) and
+// queryURI (serving pool) ; queryURI falls back to primaryURI when unset.
 func resolveConnectionURIs(cfg config.Pg) (primaryURI, queryURI string, err error) {
 	if cfg.URI != "" {
 		primaryURI = cfg.URI
@@ -69,9 +48,7 @@ func resolveConnectionURIs(cfg config.Pg) (primaryURI, queryURI string, err erro
 		return primaryURI, postgresURI(cfg.Host, cfg.Port, cfg.Database, cfg.Query.Login), nil
 	}
 
-	// pg.uri set AND pg.query.user set : swap just the userinfo on the
-	// otherwise-opaque URI, keeping whatever host/port/database/query
-	// params it already specifies.
+	// pg.uri AND pg.query.user set : swap just the userinfo, keep the rest.
 	u, perr := url.Parse(primaryURI)
 	if perr != nil {
 		return "", "", fmt.Errorf("parsing pg.uri to apply pg.query.user: %w", perr)

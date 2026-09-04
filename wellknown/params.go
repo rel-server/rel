@@ -52,17 +52,8 @@ func (c *Compiled) ResolveParams(raw []byte) (map[string]any, error) {
 	return out, nil
 }
 
-// checkParamType is a deliberately shallow, JSON-kind-level front door —
-// specs/well-known-queries.md ## Definition : "type is checked against the
-// caller-supplied JSON value up front, in Go, before the query ever
-// reaches Postgres". It buckets a handful of common Postgres type spellings
-// into "must be a JSON number/string/boolean", and defers everything else
-// (an unset type, jsonb/json, an unrecognized/exotic type name) to the
-// actual SQL-side ::cast written at the $param's own usage site
-// (sql_expr.go's ParamExpr case) — this is not a Postgres type system, just
-// enough to catch the routine mistake of sending a string where a number
-// was declared. A JSON null always passes, for any declared type : SQL NULL
-// is valid for any column regardless of its type.
+// checkParamType is a shallow, JSON-kind-level front door (## Definition) ;
+// a JSON null always passes, an unrecognized type defers to the SQL cast.
 func checkParamType(pgType string, raw json.RawMessage) error {
 	kind := jsonKindOf(raw)
 	if kind == jsonNull {
@@ -111,8 +102,7 @@ func (k jsonKind) String() string {
 }
 
 // jsonKindOf sniffs raw's outermost JSON kind from its first non-whitespace
-// byte — cheap and sufficient here, since the only thing checkParamType
-// needs is the coarse bucket, not a full decode.
+// byte ; checkParamType only needs the coarse bucket, not a full decode.
 func jsonKindOf(raw json.RawMessage) jsonKind {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {

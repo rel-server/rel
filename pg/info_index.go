@@ -50,9 +50,8 @@ func FillIndexInformations(infos *DbInfos, conn *pgx.Conn) error {
 	return nil
 }
 
-// registerIndexCoverage records every leading prefix of columns (in true
-// index order) as a valid equality-lookup key — an index on (a,b,c) can serve
-// a lookup on {a}, {a,b}, or {a,b,c}, not just its full column set.
+// registerIndexCoverage records every leading prefix of columns as a valid
+// lookup key — an index on (a,b,c) covers {a}, {a,b}, and {a,b,c}.
 func (r *Relation) registerIndexCoverage(columns []string) {
 	if r.indexCoverage == nil {
 		r.indexCoverage = make(map[string]struct{})

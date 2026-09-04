@@ -6,10 +6,7 @@ import (
 )
 
 // TestCompileSelect_ParamExprReservesNamedPlaceholder pins ["$param", ...]
-// codegen (sql_expr.go's ParamExpr case) : it must reserve a $N placeholder
-// via writer.SQLWriter.BindParam rather than error, share the same
-// positional sequence as any literal Bind on the same statement, and cast
-// to the declared Cast when present.
+// codegen: shares the positional $N sequence with literal Binds, casts to Cast.
 func TestCompileSelect_ParamExprReservesNamedPlaceholder(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public", "select": ["own"],
@@ -38,9 +35,8 @@ func TestCompileSelect_ParamExprReservesNamedPlaceholder(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_ParamExprDefaultsToJsonbCast pins the "no explicit
-// cast" default (specs/well-known-queries.md ## Definition : "unless if it
-// is JSON since it will be JSON by default").
+// TestCompileSelect_ParamExprDefaultsToJsonbCast pins the no-cast default
+// to jsonb (specs/well-known-queries.md ## Definition).
 func TestCompileSelect_ParamExprDefaultsToJsonbCast(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public", "select": ["own"],

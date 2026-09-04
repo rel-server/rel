@@ -88,12 +88,8 @@ func For(module string) *slog.Logger {
 	return slog.New(dynamicHandler{attrs: []slog.Attr{slog.String("module", module)}})
 }
 
-// dynamicHandler holds only the extra attrs a For(...) logger (or a further
-// .With(...) off of one) has accumulated — never a handler of its own. See
-// For's own doc comment for why : resolving slog.Default().Handler() fresh
-// in Enabled/Handle, instead of capturing it once at construction time, is
-// what makes a package-level `var log = logging.For(...)` safe regardless
-// of whether it runs before or after logging.Install.
+// dynamicHandler holds only the extra attrs a For(...) logger has
+// accumulated, resolving slog.Default()'s handler fresh on each call — see For.
 type dynamicHandler struct {
 	attrs []slog.Attr
 }
@@ -117,9 +113,8 @@ func (h dynamicHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return dynamicHandler{attrs: merged}
 }
 
-// WithGroup is a no-op (returns h unchanged) — nothing in this package's
-// current scope produces groups, the same scope limit filterHandler's own
-// doc comment already states for the identical reason.
+// WithGroup is a no-op — nothing in this package's scope produces groups ;
+// see filterHandler's own doc comment for the same limitation.
 func (h dynamicHandler) WithGroup(name string) slog.Handler {
 	return h
 }
@@ -141,37 +136,16 @@ func parseLevel(level string) (slog.Level, error) {
 	}
 }
 
-// filterHandler wraps another slog.Handler, applying ## Configuration's
-// logging.filter.*/logging.exclude.* rules before delegating :
-//
-//   - Filter : for each key present in the filter map, a record whose
-//     attributes INCLUDE that key must match the compiled regexp to be
-//     emitted — a record that doesn't carry the key at all still passes
-//     (the spec's own "log payloads that do not have anything to filter
-//     against are displayed").
-//   - Exclude : the same mechanism inverted (a matching record is
-//     suppressed instead of required), applied after Filter.
-//
-// Caveat : only top-level attributes (a record's own Attrs() plus anything
-// attached via logger.With(...)) are checked — a key nested inside an
-// slog.Group is invisible to this check (the group as a whole stringifies
-// to a single opaque value under the group's own key), so filtering/
-// excluding on a grouped key silently behaves as "key absent" (passes
-// through) rather than matching inside the group. Not fixed here since
-// nothing in this package's current scope produces groups — worth
-// revisiting if ## Request-scoped logging's request-ID middleware (still
-// deferred, see this package's own doc comment) ever groups its attributes.
-//
-// attrs accumulates every attribute attached via logger.With(...)
-// (WithAttrs), since those never appear in a Record's own Attrs() at Handle
-// time — only attrs added directly to that specific call do. Without
-// tracking accumulated attrs separately, filter/exclude keys set via
-// .With() would be invisible to this check.
+// filterHandler applies logging.filter/logging.exclude (## Configuration) ;
+// a key nested inside an slog.Group is invisible, treated as absent.
 type filterHandler struct {
 	inner   slog.Handler
 	filter  map[string]*regexp.Regexp
 	exclude map[string]*regexp.Regexp
-	attrs   []slog.Attr
+
+	// attrs accumulates logger.With(...) attributes, which a Record's own
+	// Attrs() at Handle time doesn't include on its own.
+	attrs []slog.Attr
 }
 
 func newFilterHandler(inner slog.Handler, filter, exclude map[string]string) (*filterHandler, error) {

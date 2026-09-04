@@ -75,9 +75,8 @@ func TestVerify_ExpiredTokenFails(t *testing.T) {
 	}
 }
 
-// TestVerify_RejectsNoneAlgorithm covers the spec's explicit requirement :
-// "rejects any token whose header claims a different one — including
-// none — as an invalid signature."
+// TestVerify_RejectsNoneAlgorithm : a token claiming "none" as its
+// algorithm must be rejected as an invalid signature, not accepted.
 func TestVerify_RejectsNoneAlgorithm(t *testing.T) {
 	cfg := testCfg()
 	claims := Mint(cfg, "editor", time.Now(), cfg.MaxAge, nil)
@@ -147,10 +146,8 @@ func TestShouldRenew_ThresholdBoundary(t *testing.T) {
 	}
 }
 
-// TestRenew_ReusesOriginalWidth covers this session's resolution : a
-// jwt_attrs.maxage override from the original mint "self-persists" across
-// renewal because Renew reuses the CURRENT token's own exp-iat width, not
-// cfg.Jwt.MaxAge.
+// TestRenew_ReusesOriginalWidth : a jwt_attrs.maxage override persists
+// across renewal — Renew reuses the token's own exp-iat width.
 func TestRenew_ReusesOriginalWidth(t *testing.T) {
 	cfg := testCfg()
 	customMaxage := 7200 // an override, different from cfg.MaxAge (1800)

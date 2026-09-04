@@ -13,10 +13,7 @@ import (
 )
 
 // acquireWriteConn returns one pinned connection with a fresh "_data" temp
-// table — writes need one physical connection throughout (temp tables are
-// connection-scoped, and phase 1's later nodes must see earlier nodes'
-// committed "keys"), unlike sql_test.go's reads, which can run each query
-// against whatever connection the pool happens to hand back.
+// table — writes need one physical connection throughout (temp tables are connection-scoped).
 func acquireWriteConn(t *testing.T) *pgxpool.Conn {
 	t.Helper()
 	conn, err := testDb.Pool.Acquire(context.Background())
@@ -24,10 +21,8 @@ func acquireWriteConn(t *testing.T) *pgxpool.Conn {
 		t.Fatalf("acquire: %v", err)
 	}
 	t.Cleanup(conn.Release)
-	// The pool can hand back a connection a previous test already created
-	// "_data" on (temp tables outlive a Release, they're connection-scoped,
-	// not request-scoped) — DROP first so this is idempotent regardless of
-	// which physical connection the pool happens to reuse.
+	// The pool can hand back a connection with a leftover "_data" from a
+	// previous test (temp tables outlive Release) — DROP first for idempotency.
 	if _, err := conn.Exec(context.Background(), `drop table if exists _data`); err != nil {
 		t.Fatalf("drop _data: %v", err)
 	}
@@ -96,10 +91,8 @@ func TestExecuteWrite_IncomingChildFK(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	// director (root, insert) with an incoming "movies" child (default
-	// write_mode for an incoming subquery is merge) : movie.director_id
-	// must be resolved from the just-inserted director's own key, not from
-	// the payload (which doesn't supply it at all).
+	// Incoming "movies" child (default write_mode merge) : movie.director_id
+	// must resolve from the just-inserted director's own key, not the payload.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"id": "id", "name": "name", "movies": "movies"},
@@ -140,12 +133,8 @@ func TestExecuteWrite_OutgoingChildFK(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	// movie (root, insert) with an outgoing "director" child (default
-	// write_mode for an outgoing subquery is upsert) : movie.director_id
-	// must be resolved from the director child's own just-recovered key —
-	// the reverse direction from TestExecuteWrite_IncomingChildFK, and the
-	// one case that needs the extra "left join _data ocN" in the resolved
-	// CTE (outgoingKeySource), not the plain "par" join.
+	// Outgoing "director" child (default write_mode upsert) : movie.director_id
+	// resolves from the child's own recovered key via outgoingKeySource's extra left join, not the plain "par" join.
 	node := mustResolveQuery(t, `{
 		"relation": "movie", "schema": "public",
 		"select": {"id": "id", "title": "title", "director": "director"},
@@ -203,13 +192,8 @@ func TestExecuteWrite_Update(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_UnwritableSelect_Rejected covers specs/query-engine.md
-// ## Configuration : a relation is writable only when its identity target's
-// columns are present, unique, and untransformed in the select output. A
-// select omitting the identity column (here, "id") must be rejected up
-// front, not silently write a phantom/mismatched identity — see write.go's
-// findUnwritableNode doc comment for why this matters (an update whose keys
-// are wrong can match zero rows, or the wrong row, and still return 200).
+// TestExecuteWrite_UnwritableSelect_Rejected proves a select omitting the
+// identity column ("id") is rejected up front (## Configuration), not silently writing a phantom identity — see write.go's findUnwritableNode.
 func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -234,15 +218,8 @@ func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation covers
-// specs/query-engine.md ## Reading Algorithm ### Function-rooted nodes : a
-// function-rooted node is NEVER writable, even when its return type
-// resolves to a real, otherwise-writable table via a real primary key
-// (fn_directors() returns setof director — its own Relation IS director's
-// real Relation, PK included). Without the query/shape.go IsFunction()
-// guard, this would look identical to writing through "director" directly
-// and silently succeed, bypassing whatever filtering the function's own SQL
-// body does.
+// TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation proves
+// a function root is never writable even with a real Relation (### Function-rooted nodes) — shape.go's IsFunction() guard.
 func TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -327,10 +304,8 @@ func TestExecuteWrite_MergeDeletesAbsentRows(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	// default write_mode for an incoming subquery is "merge" : rows not in
-	// the payload get deleted (phase 2), rows present get upserted (phase
-	// 1). "Keep Me" is present (by id, so it upserts in place), "Drop Me"
-	// is absent, "New One" is new.
+	// Default incoming write_mode "merge" : "Keep Me" upserts in place,
+	// "Drop Me" (absent) gets deleted, "New One" is a fresh insert.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"id": "id", "movies": "movies"},
@@ -361,14 +336,8 @@ func TestExecuteWrite_MergeDeletesAbsentRows(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren pins the
-// asymmetry the noop-skip optimization in phase1/phase2 depends on : a
-// merge-mode incoming child entirely OMITTED from the payload (not even an
-// empty array) is not "nothing to do" — director itself (the parent) is
-// populated, so per query.ts's own write_mode doc ("delete rows not in the
-// payload"), every existing movie must still be deleted. This is exactly
-// the case phase2's skip must NOT trigger on : it gates on the PARENT's
-// population, not the (here, unpopulated) child node's own.
+// TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren proves an
+// incoming child entirely OMITTED from the payload still gets every row deleted — phase 2 gates on the PARENT's population, not the child's own.
 func TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -403,11 +372,8 @@ func TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren(t *testing.T) {
 	}
 }
 
-// countingQuerier wraps a Querier, counting Exec/Query calls — used to prove
-// the noop-skip optimization actually skips statements, not just that it
-// doesn't break behavior. CopyFrom is passed straight through unwrapped :
-// it's the one per-request step the algorithm always needs regardless of
-// which nodes end up populated.
+// countingQuerier wraps a Querier, counting Exec/Query calls, to prove the
+// noop-skip optimization actually skips statements. CopyFrom passes through unwrapped — always needed regardless of which nodes end up populated.
 type countingQuerier struct {
 	Querier
 	execs   int
@@ -425,13 +391,7 @@ func (c *countingQuerier) Query(ctx context.Context, sql string, args ...any) (p
 }
 
 // TestExecuteWrite_NullOutgoingSkipsChildStatements proves the skip itself
-// fires, not just that it's behavior-preserving : director -> studio is a
-// nullable outgoing relation (pg/testdata/schema.sql's own comment : "added
-// purely so a write-path benchmark has a genuine 3-level outgoing chain...
-// nullable so every existing director-inserting test is unaffected").
-// Supplying null for "studio" must skip studio's own phase1 statement(s)
-// entirely — round-trip count is the only thing that can tell "ran and
-// affected 0 rows" apart from "never ran".
+// fires (not just that it's behavior-preserving) : supplying null for the nullable outgoing "studio" must skip its phase1 statement(s) entirely.
 func TestExecuteWrite_NullOutgoingSkipsChildStatements(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -468,10 +428,8 @@ func TestExecuteWrite_NullOutgoingSkipsChildStatements(t *testing.T) {
 		t.Fatalf("expected studio_id null, got %v", *studioID)
 	}
 
-	// The actual assertion this test exists for : baseline is director's own
-	// insert (1 exec via runInsert) — if studio's own phase1 statement also
-	// ran, this would be at least 2. Guards against the skip silently
-	// regressing back to "always run" without any test noticing.
+	// Baseline is director's own insert (1 exec) — if studio's phase1
+	// statement also ran, this would be at least 2.
 	if counting.execs != 1 {
 		t.Fatalf("expected exactly 1 Exec (director's own insert, studio's skipped), got %d", counting.execs)
 	}
@@ -497,9 +455,8 @@ func TestExecuteWrite_MergeNewLeavesExistingUntouched(t *testing.T) {
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"], "write_mode": "merge-new"}}
 	}`)
 	movieNode := node.IncomingNodes[0]
-	// The existing movie is present (by id) but with a DIFFERENT title —
-	// merge-new must NOT update it (only insert-new/delete-absent), yet
-	// still recover its key so it's not treated as deleted.
+	// The existing movie has a DIFFERENT title — merge-new must NOT update
+	// it (insert-new/delete-absent only), yet still recover its key.
 	payload := fmt.Appendf(nil, `[{"id": %d, "movies": [{"id": %d, "title": "Attempted Rename"}]}]`, directorID, movieID)
 
 	result, err := ExecuteWrite(ctx, conn, node, payload)
@@ -526,10 +483,7 @@ func TestExecuteWrite_DefaultValueOmitted(t *testing.T) {
 	ctx := context.Background()
 
 	// director.id is serial (DefaultExpression = nextval(...)) and never
-	// supplied in the payload — this is the same path
-	// TestExecuteWrite_PlainInsert already exercises, named explicitly here
-	// per the plan's coverage list to make the default-application case a
-	// first-class, intentionally-named test rather than incidental.
+	// supplied in the payload — the default-application case, named explicitly rather than incidental.
 	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
 	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Default Value Director"}]`))
 	if err != nil {
@@ -545,11 +499,8 @@ func TestExecuteWrite_InsertColumnsFiltering(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	// insert_columns restricts which payload columns are actually written —
-	// "name" is deliberately excluded, so the column should end up
-	// null-violating (director.name is NOT NULL, no default) if the filter
-	// is respected, proving the payload's "name" value was genuinely
-	// dropped rather than merely unused.
+	// insert_columns excludes "name" deliberately — should null-violate
+	// (director.name NOT NULL, no default) if the filter is actually respected.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": ["own"], "write_mode": "insert",
@@ -561,15 +512,8 @@ func TestExecuteWrite_InsertColumnsFiltering(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_CompositeSubFieldInsert proves specs/query-engine.md ##
-// Writability's composite sub-field writability is actually implemented,
-// not just derived : inserting through a bare "." chain writes ONLY the
-// named sub-field, leaving the composite's other field NULL — Postgres's
-// own behavior for a dotted INSERT target against a NULL/absent composite
-// base (verified directly against Postgres 16 : "insert into t (col.field)
-// ..." populates just that field, the rest of the composite reading back
-// NULL), which is exactly what write_dml.go's writeTargetPath relies on
-// rather than trying to synthesize a full ROW(...) itself.
+// TestExecuteWrite_CompositeSubFieldInsert proves a "." chain writes ONLY
+// the named sub-field via a dotted INSERT target, leaving the composite's other field NULL (Postgres's own behavior ; write_dml.go's writeTargetPath relies on it).
 func TestExecuteWrite_CompositeSubFieldInsert(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -602,9 +546,7 @@ func TestExecuteWrite_CompositeSubFieldInsert(t *testing.T) {
 }
 
 // TestExecuteWrite_CompositeSubFieldUpdate proves an UPDATE through a "."
-// chain touches ONLY the named sub-field — the composite's OTHER field,
-// already set from before this write, must survive untouched (Postgres's
-// own partial-composite-update semantics, verified directly).
+// chain touches ONLY the named sub-field — the other field survives untouched.
 func TestExecuteWrite_CompositeSubFieldUpdate(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -636,12 +578,8 @@ func TestExecuteWrite_CompositeSubFieldUpdate(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_CompositeSubFieldUpsert covers the ON CONFLICT DO UPDATE
-// SET path specifically : the composite sub-field target on the conflict
-// side must read back off "excluded" using Postgres's row-value
-// parenthesization ("(excluded.home).city", not "excluded.home.city",
-// which is a syntax error — verified directly against Postgres 16 ; see
-// WriteQualifiedPath, resolved_field.go).
+// TestExecuteWrite_CompositeSubFieldUpsert proves ON CONFLICT DO UPDATE
+// reads a composite sub-field via row-value parenthesization, "(excluded.home).city" not "excluded.home.city" (a syntax error).
 func TestExecuteWrite_CompositeSubFieldUpsert(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -656,11 +594,8 @@ func TestExecuteWrite_CompositeSubFieldUpsert(t *testing.T) {
 		"select": {"id": "id", "name": "name", "city": [".", "home", "city"]},
 		"write_mode": "upsert"
 	}`)
-	// name is required : venue.name is NOT NULL with no default, and an
-	// UPSERT's own INSERT side is still fully constructed (and its
-	// constraints checked) even when the row is known to already exist —
-	// this is a pre-existing requirement of every upsert, unrelated to the
-	// composite sub-field this test is actually about.
+	// name is required : an UPSERT's INSERT side is still fully constructed
+	// and constraint-checked even when the row is known to already exist.
 	payload := []byte(`[{"id": ` + itoa(venueID) + `, "name": "Composite Upsert Venue", "city": "Upserted City"}]`)
 	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
@@ -678,15 +613,8 @@ func TestExecuteWrite_CompositeSubFieldUpsert(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected proves the
-// one combination genuinely left unhandled : selecting BOTH a composite
-// column whole (e.g. via own/full) AND one of its own sub-fields
-// independently in the same write is rejected — by Postgres itself
-// ("column specified more than once" / "multiple assignments to same
-// column", verified directly), not a check this package duplicates.
-// query-engine.md ## Writability already treats "home" and "home.city" as
-// independent write targets by design ; this is the one case where that
-// independence can't actually both apply at the SQL level.
+// TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected proves a
+// composite column whole plus one of its own sub-fields is rejected by Postgres itself, not a check this package duplicates.
 func TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -714,12 +642,8 @@ func TestExecuteWrite_DeleteOnlyScopedByWhere(t *testing.T) {
 		t.Fatalf("insert movies: %v", err)
 	}
 
-	// deleteonly with an empty payload and a "where" that only matches one
-	// of the two rows : without compiling node.Where into the delete, "not
-	// in (select ... from _data where __node_id=X)" is true for every row
-	// once _data is empty, deleting the whole table — query.ts's own
-	// write_mode doc comment requires the where condition to also scope
-	// deleteonly/merge deletes.
+	// deleteonly + empty payload + a "where" matching only one row : without
+	// compiling node.Where into the delete, an empty _data deletes the whole table instead of just the matched row.
 	node := mustResolveQuery(t, `{
 		"relation": "movie", "schema": "public",
 		"select": ["own"], "write_mode": "deleteonly",
@@ -746,12 +670,7 @@ func TestExecuteWrite_DeleteOnlyScopedByWhere(t *testing.T) {
 }
 
 // TestExecuteWrite_ParamScopesDeleteOnlyWhere pins $param support on the
-// write side (query/sql_expr.go's ParamExpr case + dmlCompiler.paramValues,
-// threaded through ExecuteWriteStateParams) : specs/well-known-queries.md's
-// deferred compile/execute split only affects whether a well-known write's
-// SQL text is cached across requests, not whether $param resolves at all —
-// write_dml.go already recompiles per request regardless, so a param value
-// is just another per-request input alongside the payload.
+// write side (dmlCompiler.paramValues, threaded through ExecuteWriteStateParams).
 func TestExecuteWrite_ParamScopesDeleteOnlyWhere(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -791,14 +710,8 @@ func TestExecuteWrite_ParamScopesDeleteOnlyWhere(t *testing.T) {
 }
 
 func TestKeysColumns_IncludesChildTargetedColumnBeyondOnConflict(t *testing.T) {
-	// profile's on_conflict target (user_email) isn't its primary key (id).
-	// A child correlating back to the parent via the PK, rather than via
-	// the on_conflict column, needs "id" recovered into keys too — or
-	// incomingKeySource's "par.keys->>'id'" reads NULL at DML time. This is
-	// a direct unit test of keysColumns (no real FK in the fixture schema
-	// conveniently targets a non-PK on_conflict column, so a synthetic
-	// child node is simpler and more precise than routing through a full
-	// ExecuteWrite).
+	// profile's on_conflict target (user_email) isn't its PK (id) — a child
+	// correlating via the PK needs "id" recovered into keys too, or incomingKeySource reads NULL. A synthetic node, since no fixture FK targets a non-PK on_conflict column.
 	rel := testDb.ResolveRelation("public", "profile")
 	if rel == nil {
 		t.Fatal("profile relation not found")
@@ -835,14 +748,8 @@ func TestExecuteWrite_MergeNewNonPKOnConflictRecoversRealKey(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	// profile's on_conflict target (user_email) isn't its primary key
-	// (id). The payload supplies only user_email (never id), so a
-	// conflicting row's "resolved.id" would be a phantom nextval() value,
-	// not the real row's id — recoverKeys must be the sole source of keys
-	// for merge-new, not a blanket write off "resolved". profile_note (an
-	// incoming child correlating via id, not user_email) is what forces id
-	// into keysColumns at all — without a child, this bug can't manifest,
-	// since nothing downstream ever reads the phantom value.
+	// profile's on_conflict target isn't its PK ; a conflicting row's
+	// "resolved.id" would be a phantom nextval() value, so recoverKeys must be the sole source of keys for merge-new, not "resolved" itself.
 	var existingID int
 	if err := conn.QueryRow(ctx, `insert into profile (user_email) values ('phantom@example.com') returning id`).Scan(&existingID); err != nil {
 		t.Fatalf("insert: %v", err)
@@ -885,12 +792,8 @@ func TestExecuteWrite_MergeNewInsertsGenuinelyNewRow(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	// merge-new's primary purpose : insert a row that ISN'T already there.
-	// A genuinely-new row must (a) get real keys recovered (not left null)
-	// and (b) survive phase 2's delete — a row with null keys looks
-	// indistinguishable from "not in this request" to runDelete's own
-	// "keys is not null" filter, so a bug here manifests as the row being
-	// inserted and then immediately deleted again in the same request.
+	// A genuinely-new row must get real keys recovered AND survive phase
+	// 2's delete — null keys look like "not in this request" to runDelete's own filter, inserting then immediately deleting it.
 	var directorID int
 	if err := conn.QueryRow(ctx, `insert into director (name) values ('MergeNew New Row Director') returning id`).Scan(&directorID); err != nil {
 		t.Fatalf("insert director: %v", err)
@@ -925,11 +828,8 @@ func TestExecuteWrite_MergeNewInsertsGenuinelyNewRow(t *testing.T) {
 }
 
 func TestKeysColumns_IncludesOutgoingChildsOwnJoinColumn(t *testing.T) {
-	// Symmetric case to TestKeysColumns_IncludesChildTargetedColumnBeyondOnConflict :
-	// when node is itself an outgoing child, its parent reads
-	// "par.keys->>'<jc.Local.Name>'" off node's own keys — jc.Local must be
-	// in node's own keysColumns even when it isn't node's primary key
-	// (query.ts's "on" doc : a to-one join may target any unique column).
+	// Symmetric to TestKeysColumns_IncludesChildTargetedColumnBeyondOnConflict :
+	// jc.Local must be in node's own keysColumns even when it isn't the PK.
 	rel := testDb.ResolveRelation("public", "director")
 	if rel == nil {
 		t.Fatal("director relation not found")
@@ -952,9 +852,8 @@ func TestKeysColumns_IncludesOutgoingChildsOwnJoinColumn(t *testing.T) {
 	}
 }
 
-// runSelectOn is sql_test.go's runSelect, but against a specific pinned
-// connection instead of testDb.Pool — the write-then-reread tests below
-// need "_data" on the SAME connection ExecuteWrite just used.
+// runSelectOn is runSelect against a specific pinned connection — the
+// write-then-reread tests below need "_data" on the SAME connection ExecuteWrite just used.
 func runSelectOn(t *testing.T, conn *pgxpool.Conn, sql string, args []any) []map[string]any {
 	t.Helper()
 	rows, err := conn.Query(context.Background(), sql, args...)
@@ -1012,15 +911,7 @@ func TestCompileSelectForDataNode_ScopesToWrittenRows(t *testing.T) {
 }
 
 // TestCompileSelectForDataNode_ScalarSelect proves the scalar-select
-// mechanism applies to the write-then-reread path too, not just an
-// ordinary read : CompileSelectForDataNode shares compileNodeCorrelated
-// with CompileSelect, so this is really confirming that sharing holds, not
-// testing a separately-implemented case. The scalar select lives on a
-// READONLY embedded child, not the root : a write's own root/writable
-// node always needs its identity columns present in select (##
-// Configuration), which a bare scalar select can never satisfy on its
-// own — a readonly child has no such requirement, and its own reread goes
-// through the exact same shared compileNodeCorrelated path regardless.
+// mechanism applies via the compileNodeCorrelated path shared with CompileSelect — on a READONLY child, since the root needs identity columns in select.
 func TestCompileSelectForDataNode_ScalarSelect(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()

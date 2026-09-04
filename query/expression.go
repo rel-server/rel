@@ -22,8 +22,7 @@ type Expression interface {
 }
 
 // notYetValidated is embedded by every node type below to satisfy Expression
-// without repeating the same no-op Validate on each one. See Expression's
-// doc comment : this is a placeholder, not real validation.
+// without repeating the same no-op Validate on each one.
 type notYetValidated struct{}
 
 func (notYetValidated) Validate() error { return nil }

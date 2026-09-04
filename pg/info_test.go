@@ -97,14 +97,8 @@ func TestFunctionArguments_PlainInArgs(t *testing.T) {
 
 // ---- RecordRelation : RETURNS TABLE(...) gets its own synthetic column list ---
 
-// TestFunction_RecordRelation_BuiltFromTableModeArguments confirms
-// pg.Function.RecordRelation resolves movie_counts_by_director's own
-// RETURNS TABLE(director_id int, movie_count bigint) columns — the actual
-// bug this was built to catch : Postgres's proargmode for a RETURNS TABLE
-// pseudo-column is 't' (MODE_TABLE), NOT 'o' (a plain OUT parameter) ; an
-// implementation checking IsOut() alone would silently build an empty
-// RecordRelation (or none at all) for exactly this, the single most common
-// case the feature exists for.
+// Confirms RecordRelation resolves RETURNS TABLE columns — the guarded
+// bug : proargmode 't' (MODE_TABLE), not 'o' (MODE_OUT), for these columns.
 func TestFunction_RecordRelation_BuiltFromTableModeArguments(t *testing.T) {
 	var fn *Function
 	for _, f := range testDb.Functions {
@@ -133,11 +127,8 @@ func TestFunction_RecordRelation_BuiltFromTableModeArguments(t *testing.T) {
 		t.Errorf("expected movie_count to resolve to int8 (bigint), got %+v", c)
 	}
 
-	// Structural write/join safety : the whole design relies on these being
-	// genuinely unset (nil/empty), not just absent from this one test's
-	// assertions — see the RecordRelation-building comment in
-	// info_type.go's FillTypeInformations for why that's what actually
-	// keeps it unwritable and ineligible as a join's covered/child side.
+	// Genuinely nil/empty, not just untested — see FillTypeInformations'
+	// comment (info_type.go) for why that's what keeps this unwritable.
 	if fn.RecordRelation.PrimaryKey != nil {
 		t.Errorf("expected no PrimaryKey on a synthetic record relation")
 	}
@@ -152,11 +143,8 @@ func TestFunction_RecordRelation_BuiltFromTableModeArguments(t *testing.T) {
 	}
 }
 
-// TestFunction_RecordRelation_NilForOrdinaryFunction confirms the fallback
-// doesn't fire for functions that never needed it — a function with no
-// OUT/TABLE-mode arguments at all (fn_plain_add) and one whose SETOF return
-// type already resolves via the ordinary Type.Relation path (fn_directors)
-// should both leave RecordRelation nil.
+// Confirms the fallback doesn't fire for functions that never needed it :
+// no OUT/TABLE args (fn_plain_add) and SETOF-of-a-real-relation (fn_directors).
 func TestFunction_RecordRelation_NilForOrdinaryFunction(t *testing.T) {
 	for _, name := range []string{"fn_plain_add", "fn_directors"} {
 		var fn *Function
@@ -191,9 +179,8 @@ func TestForeignKey_CompositePairing(t *testing.T) {
 		t.Fatalf("expected 2 columns on each side, got %d local / %d target", len(c.Columns), len(c.Target.Columns))
 	}
 
-	// True declared pairing is b<->y, a<->x (see testdata/schema.sql). If the
-	// target side were independently alphabetized instead of following the
-	// true conkey/confkey correspondence, this would come back as b<->x, a<->y.
+	// True declared pairing is b<->y, a<->x (testdata/schema.sql) ; alphabetized
+	// pairing instead of true conkey/confkey order would give b<->x, a<->y.
 	if c.Columns[0].Name != "b" || c.Target.Columns[0].Name != "y" {
 		t.Errorf("expected first pair b<->y, got %s<->%s", c.Columns[0].Name, c.Target.Columns[0].Name)
 	}
@@ -212,12 +199,8 @@ func TestForeignKey_CompositePairing(t *testing.T) {
 		t.Errorf("expected a mapping through the unconstrained column z to be rejected, but it resolved")
 	}
 
-	// ...and reject the same-set-different-order swap ({b:x, a:y}) even though
-	// target_t(x,y) being unique and src_t(b,a) being indexed would otherwise
-	// make it pass the generic non-FK eligibility check : it reuses exactly
-	// fk_composite's column set with an inverted pairing, which ResolveJoin
-	// treats as near-certainly a mistake rather than a deliberate second
-	// relationship.
+	// ...and reject the same-set-different-order swap, even though it'd
+	// otherwise pass the generic non-FK eligibility check on its own merits.
 	if _, _, err := src.ResolveJoin(target, map[string]string{"b": "x", "a": "y"}); err == nil {
 		t.Errorf("expected the inverted pairing over fk_composite's own column set to be rejected, but it resolved")
 	}
@@ -245,9 +228,8 @@ func TestResolveJoin_IncomingIsToOne(t *testing.T) {
 	movie := relationByName(t, "movie")
 	director := relationByName(t, "director")
 
-	// Same relationship, opposite tree orientation : director embedded as a
-	// child of movie. Cardinality flips because it's now director's own
-	// column (id, the PK) that's being checked for uniqueness, not movie's.
+	// Same relationship, opposite orientation : director's own PK is now
+	// what's checked for uniqueness, not movie's.
 	c, isToOne, err := director.ResolveJoin(movie, map[string]string{"id": "director_id"})
 	if err != nil {
 		t.Fatalf("expected director -> movie to resolve, got error: %v", err)
@@ -297,10 +279,8 @@ func TestResolveJoin_NonFKUniqueOnParentSide(t *testing.T) {
 	account := relationByName(t, "account")
 	profile := relationByName(t, "profile")
 
-	// No FK backs this ; eligibility comes from profile.user_email being
-	// unique, and it's indexed on account's side (idx_account_email).
-	// Cardinality must still be to-many : account.email itself is not unique,
-	// even though the join is eligible via the *parent's* uniqueness.
+	// No FK ; eligible via profile.user_email's uniqueness, but cardinality
+	// stays to-many since account.email itself isn't unique.
 	_, isToOne, err := account.ResolveJoin(profile, map[string]string{"email": "user_email"})
 	if err != nil {
 		t.Fatalf("expected the non-FK unique+indexed join to resolve, got error: %v", err)

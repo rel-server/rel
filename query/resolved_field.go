@@ -84,17 +84,8 @@ func writeQualifiedPathN(w *writer.SQLWriter, alias string, path []*pg.Column, i
 	w.Id(path[i].Name)
 }
 
-// columnPathFlatName is a ColumnPath's own internal, synthetic flat name —
-// the leaf column's bare name (Path[0].Name) unchanged for a plain column
-// (len(Path)==1), preserving the pre-composite-write naming exactly ;
-// "__"-joined path segment names for a composite sub-field (len(Path)>1,
-// e.g. "home__city"), matching this codebase's own "__"-prefixed-name
-// convention for synthetic identifiers never meant to collide with a real
-// column (__row_id, __node_id, __parent_id). Used BOTH as
-// write_denormalize.go's "_data.data" flat JSON key AND as
-// write_dml.go's "resolved" CTE output column alias — two different
-// internal purposes, same naming scheme, since neither is ever visible
-// outside the SQL this package itself generates.
+// columnPathFlatName is a ColumnPath's synthetic flat name : Path[0].Name,
+// or "__"-joined segments for a composite sub-field (e.g. "home__city").
 func columnPathFlatName(cp ColumnPath) string {
 	if len(cp.Path) == 1 {
 		return cp.Path[0].Name

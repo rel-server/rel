@@ -31,12 +31,8 @@ func Middleware(cfg *config.Config) func(http.Handler) http.Handler {
 			requestMethod := r.Header.Get("Access-Control-Request-Method")
 
 			if IsPreflight(r.Method, origin, requestMethod) {
-				// ### Preflight handling : answered entirely by rel itself,
-				// never reaching route dispatch. No Content-Security-Policy
-				// header is sent on a preflight response at all — a 204 No
-				// Content has no body for CSP to govern, and there's no
-				// RelHttpResponse to read a per-response csp override from
-				// either way.
+				// ### Preflight handling : answered entirely by rel itself.
+				// No CSP header here — a 204 has no body for it to govern.
 				h, ok := BuildCorsHeaders(cfg.Http.Cors, origin, true)
 				if ok {
 					writeCorsHeaders(w, h)

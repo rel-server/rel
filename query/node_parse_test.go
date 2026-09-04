@@ -32,10 +32,8 @@ func TestParseQuery_WellKnown(t *testing.T) {
 	}
 }
 
-// TestParseQuery_WellKnownWrite pins query.ts's current shape : a
-// WellKnownQuery is written to exactly the same way a Relation is —
-// wrapped in {"query": {"wellknown": ...}, "data": ...} — never via an
-// inline "data" field on the bare wellknown object itself.
+// TestParseQuery_WellKnownWrite pins query.ts's shape : a WellKnownQuery
+// writes wrapped in {"query": {"wellknown": ...}, "data": ...}, never via an inline "data" field.
 func TestParseQuery_WellKnownWrite(t *testing.T) {
 	pq, err := ParseQuery([]byte(`{"query": {"wellknown": "my_query", "params": {"a": 1}}, "data": {"title": "x"}}`))
 	if err != nil {
@@ -56,10 +54,7 @@ func TestParseQuery_WellKnownWrite(t *testing.T) {
 }
 
 // TestParseQuery_WellKnownRejectsInlineData pins the removal of
-// WellKnownQuery's own "data" field : a bare {"wellknown": ..., "data": ...}
-// is no longer a valid shape now that WriteQuery.query accepts
-// Relation | WellKnownQuery — the write path is exclusively through that
-// wrapper, matching how a bare Relation was already required to write.
+// WellKnownQuery's own "data" field — the write path is exclusively through the WriteQuery.query wrapper now.
 func TestParseQuery_WellKnownRejectsInlineData(t *testing.T) {
 	_, err := ParseQuery([]byte(`{"wellknown": "my_query", "data": {"title": "x"}}`))
 	if err == nil {
@@ -106,9 +101,8 @@ func TestParseRawRelation_RelationVsFunction(t *testing.T) {
 		t.Errorf("expected IsFunction=false for a \"relation\"-named node")
 	}
 
-	// "function" with no "arguments" key at all : still a function, zero
-	// args — unlike the old "relation"+"arguments" scheme, "function" alone
-	// already says this node is a call, no empty-array trick needed.
+	// "function" with no "arguments" key : still a function, zero args —
+	// "function" alone says this node is a call, no empty-array trick needed.
 	pq, err = ParseQuery([]byte(`{"function": "fn"}`))
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
@@ -156,11 +150,8 @@ func TestParseRawRelation_ArgumentsRequiresFunction(t *testing.T) {
 }
 
 func TestParseRawRelation_EmptyNameRejected(t *testing.T) {
-	// Presence alone isn't enough : rawRelation's own doc comment claims
-	// "exactly one of Relation/Function is NON-EMPTY" as a real invariant,
-	// so an empty string for whichever key was given must be rejected here
-	// rather than silently flowing through to a function/relation lookup
-	// for name "".
+	// Presence alone isn't enough : rawRelation's own invariant is "exactly
+	// one of Relation/Function is NON-EMPTY" — an empty string must be rejected here, not flow through to a lookup for name "".
 	if _, err := ParseQuery([]byte(`{"relation": ""}`)); err == nil {
 		t.Fatalf("expected an empty \"relation\" to be rejected")
 	}
@@ -222,10 +213,8 @@ func TestParseRawRelation_OffsetLimit(t *testing.T) {
 	}
 }
 
-// A 2-element array whose first element is a string that ISN'T one of the
-// four direction tags must be parsed as a bare Expression, not misdetected
-// as an [direction, Expression] tuple — this is the exact ambiguity the
-// tag-membership check in parseOrderByTerm exists to avoid.
+// A 2-element array whose first string ISN'T a direction tag must parse
+// as a bare Expression — the ambiguity parseOrderByTerm's tag-membership check exists to avoid.
 func TestParseRawRelation_OrderBy_NoTagCollision(t *testing.T) {
 	pq, err := ParseQuery([]byte(`{"relation": "movie", "order_by": [["own_except", ["title"]]]}`))
 	if err != nil {

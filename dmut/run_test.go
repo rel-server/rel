@@ -28,9 +28,8 @@ func testLogger(buf *bytes.Buffer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }
 
-// TestRun_MissingDirectorySkipsSilently covers specs/migrations.md ## Execution
-// : a nonexistent dmut.path is not an error, dmut is simply skipped, logged
-// at info level.
+// TestRun_MissingDirectorySkipsSilently : ## Execution — a nonexistent
+// dmut.path is not an error, skipped and logged at info level.
 func TestRun_MissingDirectorySkipsSilently(t *testing.T) {
 	var buf bytes.Buffer
 	logger := testLogger(&buf)
@@ -49,10 +48,8 @@ func TestRun_MissingDirectorySkipsSilently(t *testing.T) {
 	}
 }
 
-// TestLogWriter_ForwardsLineByLine covers the io.Writer adapter directly :
-// each Write call (one per dmut log line, already newline-terminated)
-// becomes one logger.Info call with component=dmut, and the trailing
-// newline is stripped rather than embedded in the log message.
+// TestLogWriter_ForwardsLineByLine : each Write call becomes one
+// logger.Info call, trailing newline stripped rather than embedded.
 func TestLogWriter_ForwardsLineByLine(t *testing.T) {
 	var buf bytes.Buffer
 	logger := testLogger(&buf)
@@ -78,9 +75,8 @@ func TestLogWriter_ForwardsLineByLine(t *testing.T) {
 	}
 }
 
-// TestLogWriter_EmptyLineIsNotLogged covers a plausible edge case in dmut's
-// own PgRunner output : a bare "\n" Write call shouldn't produce an empty
-// log record.
+// TestLogWriter_EmptyLineIsNotLogged : a bare "\n" Write call shouldn't
+// produce an empty log record.
 func TestLogWriter_EmptyLineIsNotLogged(t *testing.T) {
 	var buf bytes.Buffer
 	logger := testLogger(&buf)

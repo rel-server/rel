@@ -19,10 +19,8 @@ import (
 	"testing"
 )
 
-// TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm is point 4 of
-// this session's task : specs/query-json.md's word-form operator spelling
-// must be an accepted synonym in POST /rel's JSON body, resolving to the
-// EXACT same tree the canonical symbolic spelling already produces.
+// TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm checks the
+// word-form spelling (specs/query-json.md) resolves to the identical tree.
 func TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm(t *testing.T) {
 	cases := []struct {
 		word   string
@@ -50,9 +48,8 @@ func TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm(t *testing.T) {
 	}
 }
 
-// TestOperatorWordSynonym_AnyAllOperatorPosition covers any/all's own
-// second-position operator string, which parseArrayExpression normalizes
-// separately from the leading array tag.
+// TestOperatorWordSynonym_AnyAllOperatorPosition covers any/all's second
+// operator position, normalized separately from the leading array tag.
 func TestOperatorWordSynonym_AnyAllOperatorPosition(t *testing.T) {
 	wordExpr, err := ParseExpression([]byte(`["any", "gte", "x", "arr"]`))
 	if err != nil {
@@ -67,24 +64,15 @@ func TestOperatorWordSynonym_AnyAllOperatorPosition(t *testing.T) {
 	}
 }
 
-// TestOperatorWords_NoCollisionWithExistingTags is this session's
-// mechanical safety net for the "strictly additive, non-breaking" claim :
-// every word form that differs from its own canonical spelling must not
-// already mean something else as a raw array tag (an existing unary/
-// binary/folded operator key, or a fixed keyword parseArrayExpression's
-// switch dispatches on directly) — otherwise adding the synonym would
-// silently reinterpret existing, already-persisted JSON.
+// TestOperatorWords_NoCollisionWithExistingTags checks no word form collides
+// with an existing tag, which would silently reinterpret persisted JSON.
 func TestOperatorWords_NoCollisionWithExistingTags(t *testing.T) {
 	fixedKeywords := map[string]bool{
 		"between": true, "not_between": true, "bigint": true, "numeric": true,
 		"in": true, "not_in": true, "any": true, "all": true,
 		"concat_ws": true, "coalesce": true, "format": true,
-		// "aggregate" deliberately excluded : parseArrayExpression's own
-		// switch already treats "agg" and "aggregate" as exact synonyms
-		// (case "agg", "aggregate":), so OperatorWords normalizing
-		// "aggregate" -> "agg" doesn't change behavior — it's the harmless
-		// kind of overlap, not the "silently reinterprets existing JSON"
-		// kind this test actually guards against.
+		// "aggregate" excluded: parseArrayExpression already treats it as
+		// a synonym of "agg", so the overlap is harmless, not a collision.
 		"agg": true, "call": true,
 		"own": true, "full": true,
 		"own_except": true, "full_except": true,

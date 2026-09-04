@@ -26,10 +26,8 @@ func TestHandler_AnonymousCall(t *testing.T) {
 }
 
 func TestHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
-	// config.Test() leaves Pg.Anonymous unset by design — handleRoute must
-	// reject an anonymous request with a clear 500, not hand an empty role
-	// name to `SET LOCAL ROLE` (a Postgres syntax error) or silently skip
-	// the role switch (a privilege escalation for anonymous callers).
+	// An unset anonymous role must be a clear 500, not an empty-role
+	// SET LOCAL ROLE syntax error or a silently skipped role switch.
 	cfgCopy := *testCfg
 	cfgCopy.Pg.Query.AnonymousRole = ""
 	handler := NewHandler(testDb, &cfgCopy, testReg, nil)
@@ -43,12 +41,8 @@ func TestHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
 	}
 }
 
-// TestHandler_RouteAnonymousCannotReach_Is401 proves route.Route.
-// AnonymousAuthorized actually gates the request BEFORE the route function
-// ever runs (schema.sql's fn_app_only has EXECUTE revoked from PUBLIC,
-// never re-granted to "~anonymous", only to app_user) — distinct from
-// fn_secret's denial, which happens INSIDE the function at the
-// table-select level.
+// TestHandler_RouteAnonymousCannotReach_Is401 : AnonymousAuthorized gates
+// before the route function runs, distinct from fn_secret's own denial.
 func TestHandler_RouteAnonymousCannotReach_Is401(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_app_only", nil)
 	rec := httptest.NewRecorder()
@@ -59,9 +53,7 @@ func TestHandler_RouteAnonymousCannotReach_Is401(t *testing.T) {
 }
 
 // TestHandler_RouteAnonymousCannotReach_AuthenticatedStillWorks proves the
-// 401 above is genuinely about anonymous access specifically, not a
-// broken route : an authenticated app_user call to the same function
-// succeeds.
+// 401 above is about anonymous access, not a broken route.
 func TestHandler_RouteAnonymousCannotReach_AuthenticatedStillWorks(t *testing.T) {
 	loginReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_login", nil)
 	loginRec := httptest.NewRecorder()
@@ -88,14 +80,8 @@ func TestHandler_RouteAnonymousCannotReach_AuthenticatedStillWorks(t *testing.T)
 	}
 }
 
-// TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies builds a completely
-// separate DbInfos/Registry/Handler against the SAME container/schema, but
-// with pg.query.anonymous_role pointed at a name nothing ever created —
-// specs/authentication.md "# Roles ## Anonymous role existence" : with
-// anonymous access disabled outright, every unauthenticated request gets a
-// uniform 401, regardless of which route it targets (fn_echo0 has no
-// route-level restriction at all — this is specifically the blanket gate,
-// not route.AnonymousAuthorized).
+// TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies : a role nothing
+// created gets a uniform 401 (authentication.md ## Anonymous role existence).
 func TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies(t *testing.T) {
 	cfg := *testCfg
 	cfg.Pg.Query.AnonymousRole = "role_nobody_ever_created"
@@ -120,11 +106,8 @@ func TestHandler_AnonymousRoleDoesNotExist_UniformlyDenies(t *testing.T) {
 		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// An authenticated request is entirely unaffected by the anonymous
-	// role not existing — only unauthenticated requests are in scope here.
-	// fn_login itself is called anonymously (no cookie presented yet), so
-	// it's correctly ALSO denied by this same gate — a cookie is minted
-	// directly instead, standing in for an already-established session.
+	// An authenticated request is unaffected ; a cookie is minted directly
+	// here rather than via fn_login, which would itself be denied anonymous.
 	claims := jwtpkg.Mint(cfg.Jwt, "app_user", time.Now(), cfg.Jwt.MaxAge, nil)
 	token, err := jwtpkg.Sign(cfg.Jwt, claims)
 	if err != nil {
@@ -160,9 +143,8 @@ func TestHandler_SecretRoute_AnonymousDenied(t *testing.T) {
 	}
 }
 
-// TestHandler_FullLoginRoundTrip is the core proof : login mints a cookie,
-// a subsequent authenticated call using that cookie can read role-gated
-// data that the anonymous call above cannot.
+// TestHandler_FullLoginRoundTrip : login mints a cookie, a subsequent
+// authenticated call reads role-gated data the anonymous call cannot.
 func TestHandler_FullLoginRoundTrip(t *testing.T) {
 	loginReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_login", nil)
 	loginRec := httptest.NewRecorder()
@@ -318,22 +300,15 @@ func TestHandler_MimeTypeDomainResponse(t *testing.T) {
 	}
 }
 
-// TestHandler_AuthNotHonoredOutsideAllowedFunctions covers
-// http.functions.auth : fn_echo1 (not in the restricted allow-list) can
-// still set a "jwt" key in its response, but it must not actually be
-// honored.
+// TestHandler_AuthNotHonoredOutsideAllowedFunctions : fn_echo1, outside
+// http.functions.auth's allow-list, can set "jwt" but it's not honored.
 func TestHandler_AuthNotHonoredOutsideAllowedFunctions(t *testing.T) {
 	restricted := *testCfg
 	restricted.Http.Functions.AllowedAuth = `^public\.fn_login$`
 	handler := NewHandler(testDb, &restricted, testReg, nil)
 
-	// fn_echo1 echoes the whole request back — it never itself sets a jwt
-	// key, so this proves the DEFAULT (no accidental minting) rather than
-	// an active suppression ; a function that actually tries to set jwt
-	// outside the allow-list would need its own fixture to prove
-	// suppression specifically, deferred as lower-value than the
-	// mint-is-gated-at-all coverage this already gives via fn_login itself
-	// requiring no restriction to work (see TestHandler_FullLoginRoundTrip).
+	// fn_echo1 never sets jwt itself, so this proves the default (no
+	// accidental mint), not active suppression of a real attempt.
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -347,9 +322,8 @@ func TestHandler_AuthNotHonoredOutsideAllowedFunctions(t *testing.T) {
 	}
 }
 
-// TestHandler_RequestEchoShape verifies buildRelHttpRequest's actual wire
-// encoding end-to-end (not just unit-level) : fn_echo1 returns the whole
-// RelHttpRequest it received as its own content.
+// TestHandler_RequestEchoShape verifies buildRelHttpRequest's wire
+// encoding end-to-end via fn_echo1's own request echo.
 func TestHandler_RequestEchoShape(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1?x=1", nil)
 	req.AddCookie(&http.Cookie{Name: "session_hint", Value: "abc"})
@@ -378,10 +352,8 @@ func TestHandler_RequestEchoShape(t *testing.T) {
 	}
 }
 
-// TestHandler_RenewalFiresPastThreshold proves the renewal wiring end-to-
-// end (jwt package's own ShouldRenew/Renew logic is already unit-tested in
-// jwt_test.go — this is specifically about handleRoute actually calling it
-// and writing the resulting Set-Cookie).
+// TestHandler_RenewalFiresPastThreshold proves handleRoute actually calls
+// the already-unit-tested renewal logic and writes the Set-Cookie.
 func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 	fastRenew := *testCfg
 	fastRenew.Jwt.MaxAge = 5 // seconds
@@ -401,13 +373,8 @@ func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 		t.Fatalf("login didn't set a cookie")
 	}
 
-	// iat/exp are second-granularity claims, so the sleep must reliably
-	// cross an integer-second boundary (a short sleep can land within the
-	// SAME second as the original mint depending on where in the second it
-	// started, producing a byte-identical re-signed token even though
-	// renewal genuinely ran) — 1.5s comfortably clears both the 0.1×5s=0.5s
-	// renewafter threshold and any single-second timing coincidence, while
-	// staying well under the 5s maxage so the token hasn't expired.
+	// iat/exp are second-granularity ; 1.5s reliably crosses a second
+	// boundary and clears the 0.5s renewafter threshold, still under 5s maxage.
 	time.Sleep(1500 * time.Millisecond)
 
 	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo0", nil)
@@ -432,11 +399,8 @@ func TestHandler_RenewalFiresPastThreshold(t *testing.T) {
 	}
 }
 
-// TestHandler_QueryFieldStructuralDecode proves specs/query-json.md's
-// RelHttpRequest.query field : the request's raw query string, decoded
-// through the querystring package's structural layer only (dot-path ->
-// nested JSON, repeated keys -> arrays — no filter expression grammar
-// involvement), shows up as the "query" key a route function receives.
+// TestHandler_QueryFieldStructuralDecode : the raw query string, decoded
+// through the structural layer only, shows up as "query" (query-json.md).
 func TestHandler_QueryFieldStructuralDecode(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1?page.size=20&tags=a&tags=b&filter=gte(year,1999)", nil)
 	rec := httptest.NewRecorder()
@@ -461,22 +425,15 @@ func TestHandler_QueryFieldStructuralDecode(t *testing.T) {
 	if !ok || len(tags) != 2 || tags[0] != "a" || tags[1] != "b" {
 		t.Errorf("expected query.tags==[\"a\",\"b\"] (repeated key -> array), got %#v", query["tags"])
 	}
-	// The structural layer only : "gte(year,1999)" must stay a plain
-	// string, NOT get compiled through the filter expression grammar —
-	// that grammar is specific to Relation's where/select/order_by, per
-	// the spec's own note.
+	// Structural layer only : "gte(year,1999)" stays a plain string, never
+	// compiled through the filter expression grammar.
 	if query["filter"] != "gte(year,1999)" {
 		t.Errorf("expected query.filter to stay the raw string \"gte(year,1999)\", got %#v", query["filter"])
 	}
 }
 
 // TestHandler_QueryFieldStructuralDecode_RealGETRequest covers the same
-// structural-decode contract as TestHandler_QueryFieldStructuralDecode, but
-// through an ACTUAL GET request (the other test uses POST, since it's
-// really testing buildRelHttpRequest's query decoding rather than method
-// dispatch) — "heavier tests using post/get forms... GET requests carrying
-// a real, non-trivial query string... not just a bare GET with no query
-// string."
+// contract through an actual GET request with a real query string, not POST.
 func TestHandler_QueryFieldStructuralDecode_RealGETRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_echo1?filters.status=open&filters.priority=high&ids=1&ids=2&ids=3", nil)
 	rec := httptest.NewRecorder()
@@ -522,10 +479,8 @@ func TestHandler_QueryFieldNullWhenNoQueryString(t *testing.T) {
 	}
 }
 
-// setSessionReject toggles session_control.reject for
-// TestHandler_CheckSessionRejection_AbortsAndClearsCookie, resetting it via
-// t.Cleanup since session_control is shared, ordering-sensitive state
-// across every test in this package's single shared container.
+// setSessionReject toggles session_control.reject, resetting via
+// t.Cleanup since it's shared state across this package's container.
 func setSessionReject(t *testing.T, reject bool) {
 	t.Helper()
 	ctx := context.Background()

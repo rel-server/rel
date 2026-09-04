@@ -1,9 +1,6 @@
 // This file implements specs/http-content.md ### Upload destinations'
-// discovery half : pairing a <name>__prepare/<name> function pair into one
-// Route, kept separate from registry.go's ordinary matchesRouteShape-based
-// discovery since this family is matched and paired by a genuinely
-// different rule (two functions, not one ; the suffix is reserved, not a
-// __VERB).
+// discovery half : pairing a <name>__prepare/<name> function pair into
+// one Route.
 package route
 
 import (
@@ -16,9 +13,7 @@ import (
 const prepareSuffix = "__prepare"
 
 // isPrepareSuffixed reports whether name ends with the reserved __prepare
-// suffix, case-insensitively (matching __VERB's own case-insensitivity
-// precedent) — used both to exclude such a function from ordinary route
-// discovery entirely, and to find its pairing base name here.
+// suffix, case-insensitively.
 func isPrepareSuffixed(name string) bool {
 	return len(name) > len(prepareSuffix) && strings.EqualFold(name[len(name)-len(prepareSuffix):], prepareSuffix)
 }
@@ -28,19 +23,10 @@ func prepareBaseName(name string) string {
 	return name[:len(name)-len(prepareSuffix)]
 }
 
-// discoverUploadRoutes implements ### Upload destinations' whole discovery
-// paragraph : both <name>__prepare(req, part jsonb) returns RelUpload and
-// <name>(req, upload RelUpload) returns RelHttpResponse must be present
-// for the pair to become a route at all — an orphan either direction gets
-// a non-fatal warning, same treatment as the existing ambiguous-route and
-// PUBLIC-executable warnings. Mutates reg.routes in place, adding an
-// IsUpload Route under the unsuffixed ("") verb slot for each complete
-// pair (this family doesn't compose with __VERB).
+// discoverUploadRoutes : both halves of a pair must be present to become
+// a route ; an orphan either direction gets a non-fatal warning.
 func discoverUploadRoutes(db *pg.DbInfos, reg *Registry, reqType, uploadType, respType *pg.Type, allowedRoutes *regexp.Regexp) {
 	if reqType == nil || uploadType == nil || respType == nil {
-		// Non-fatal : "that mechanism simply isn't discovered" — same
-		// treatment BuildRegistry's own doc comment gives an unresolved
-		// RequestDomainName/ResponseDomainName.
 		return
 	}
 

@@ -82,12 +82,8 @@ func serveGated(srv *Server, db *pg.DbInfos, cfg *config.Config, path string) *h
 	return rec
 }
 
-// TestAccessControl_ExistenceCheckedFirst_MissingFileIs404NotGateError
-// proves the existence check happens BEFORE the DB call, in the ordinary
-// case (anonymous access enabled) : a missing file under a gated prefix is
-// a plain 404, even when the gate function would otherwise reject with a
-// distinctly different status (403) — if the DB call had run first, this
-// request would see 403, not 404.
+// TestAccessControl_ExistenceCheckedFirst_MissingFileIs404NotGateError :
+// existence is checked before the DB gate call — a missing file is 404, not 403.
 func TestAccessControl_ExistenceCheckedFirst_MissingFileIs404NotGateError(t *testing.T) {
 	srv, _ := newGatedServer(t)
 	setReject(t, true)
@@ -130,9 +126,8 @@ func TestAccessControl_ExistingFile_GateAllows(t *testing.T) {
 	}
 }
 
-// TestAccessControl_AnonymousDisabled_401BeforeExistenceCheck proves the
-// anonymous-access-disabled case 401s BEFORE the existence check — even a
-// nonexistent file under a gated prefix gets 401, not 404.
+// TestAccessControl_AnonymousDisabled_401BeforeExistenceCheck : disabled
+// anonymous access 401s before the existence check, even for a missing file.
 func TestAccessControl_AnonymousDisabled_401BeforeExistenceCheck(t *testing.T) {
 	srv, _ := newGatedServer(t)
 
@@ -146,15 +141,8 @@ func TestAccessControl_AnonymousDisabled_401BeforeExistenceCheck(t *testing.T) {
 	}
 }
 
-// TestAccessControl_GatedPrefix_SecondDirectory_StillGoverned proves the
-// access-control gate applies to a file found in the SECOND listed
-// directory, not just Dirs[0] (WriteDir's own target) — the gate matches on
-// the REQUEST PATH's prefix, independent of which directory in the search
-// list actually resolves it. A regression that accidentally scoped gating
-// to Dirs[0] only (e.g. by checking existence against WriteDir() instead of
-// openMulti's own full search) would pass every other access-control test
-// here, since newGatedServer only ever uses one directory — this is the one
-// test that puts both layering and gating in play together.
+// TestAccessControl_GatedPrefix_SecondDirectory_StillGoverned : the gate
+// matches on request-path prefix, not on which Dirs[] entry resolves it.
 func TestAccessControl_GatedPrefix_SecondDirectory_StillGoverned(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
@@ -194,9 +182,8 @@ func TestAccessControl_GatedPrefix_SecondDirectory_StillGoverned(t *testing.T) {
 	}
 }
 
-// TestAccessControl_UngatedPrefix_UnaffectedByAnonymousDisabled proves an
-// ungated prefix is served exactly as before, regardless of the
-// anonymous-role-existence state.
+// TestAccessControl_UngatedPrefix_UnaffectedByAnonymousDisabled : an
+// ungated prefix is unaffected by anonymous-role-existence state.
 func TestAccessControl_UngatedPrefix_UnaffectedByAnonymousDisabled(t *testing.T) {
 	srv, _ := newGatedServer(t)
 

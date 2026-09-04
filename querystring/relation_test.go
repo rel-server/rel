@@ -8,9 +8,8 @@ import (
 	"github.com/ceymard/rel/query"
 )
 
-// TestDecodeRelation_SpecWorkedExample reproduces specs/query-json.md's own
-// ## Structural layer worked example verbatim : the raw query string at the
-// top of that section must decode to exactly the JSON shown right below it.
+// TestDecodeRelation_SpecWorkedExample reproduces query-json.md's own
+// ## Structural layer worked example verbatim.
 func TestDecodeRelation_SpecWorkedExample(t *testing.T) {
 	raw := "relation=movie&schema=api&alias=m" +
 		"&select=movie_id,name,actors" +
@@ -63,10 +62,8 @@ func TestDecodeRelation_SpecWorkedExample(t *testing.T) {
 		t.Fatalf("DecodeRelation(%q) =\n%#v\nwant\n%#v", raw, got, want)
 	}
 
-	// The whole architecture rests on this : the compiled bytes must feed
-	// straight into the EXISTING query.ParseQuery pipeline unchanged (see
-	// this session's own architecture decision — no second, parallel
-	// Expression parser).
+	// The compiled bytes must feed straight into the existing
+	// query.ParseQuery pipeline unchanged — no second Expression parser.
 	pq, err := query.ParseQuery(out)
 	if err != nil {
 		t.Fatalf("query.ParseQuery(compiled bytes): unexpected error: %v", err)
@@ -102,9 +99,8 @@ func TestDecodeRelation_RejectsOnConflictInsertColumnsUpdateColumns(t *testing.T
 }
 
 func TestDecodeRelation_ArgumentIndexOutOfRangeIsRejected(t *testing.T) {
-	// A single crafted key must not be able to force a huge allocation
-	// (arguments.<n> -> make([]any, n+1)) or overflow strconv.Atoi into a
-	// panic from make() — both are a 400, not a resource-exhaustion/crash.
+	// A crafted key must not force a huge make([]any, n+1) allocation or
+	// overflow strconv.Atoi into a make() panic — both are a 400, not a crash.
 	for _, raw := range []string{
 		"relation=movie&function=f&arguments.100000000=x",
 		"relation=movie&function=f&arguments.99999999999999999999=x",
@@ -116,10 +112,8 @@ func TestDecodeRelation_ArgumentIndexOutOfRangeIsRejected(t *testing.T) {
 }
 
 func TestDecodeRelation_SelectAliasNamedWriteModeIsNotFalselyRejected(t *testing.T) {
-	// A user-chosen select alias happening to be spelled "write_mode" must
-	// not false-positive the GET-only rejection — that check walks the
-	// decoded Relation STRUCTURE (only the real write_mode field, and only
-	// through "join"), never a blind key-name scan.
+	// A select alias spelled "write_mode" must not false-positive the
+	// GET-only rejection, which walks structure, not a blind key-name scan.
 	out, err := DecodeRelation("relation=movie&select=write_mode:name")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -141,9 +135,8 @@ func TestDecodeRelation_UnrecognizedKeyIsError(t *testing.T) {
 }
 
 func TestDecodeQueryField_StructuralOnly(t *testing.T) {
-	// /route's query field decode must NOT run the filter expression grammar
-	// — a value like "gte(year,1999)" stays a plain string, not a compiled
-	// Expression array.
+	// Must NOT run the filter expression grammar : "gte(year,1999)" stays a
+	// plain string, not a compiled Expression array.
 	got, err := DecodeQueryField("filter=gte(year,1999)&page.size=20")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

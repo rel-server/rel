@@ -34,11 +34,8 @@ func TestBuildRegistry_ExcludesLeadingUnderscore(t *testing.T) {
 	}
 }
 
-// TestBuildRegistry_ExcludesWrongShape covers fn_check_session specifically
-// : it takes one jsonb argument, NOT one RelHttpRequest argument, so it
-// must never become a discoverable /route function even though
-// http.functions.check_session names it — check_session is invoked
-// directly by the JWT lifecycle, never dispatched as a route.
+// TestBuildRegistry_ExcludesWrongShape : fn_check_session takes one jsonb
+// argument, not RelHttpRequest, so it must never be discoverable.
 func TestBuildRegistry_ExcludesWrongShape(t *testing.T) {
 	reg, err := BuildRegistry(testDb, testCfg)
 	if err != nil {
@@ -102,9 +99,8 @@ func TestBuildRegistry_AllowedRoutesRestricts(t *testing.T) {
 	}
 }
 
-// TestBuildRegistry_TextMimeTypeDomain covers the mimetype-domain
-// generalization to text-underlying domains (## HTTP's opening
-// paragraphs), alongside the existing bytea-underlying case.
+// TestBuildRegistry_TextMimeTypeDomain covers the text-underlying
+// mimetype-domain case, alongside the existing bytea-underlying one.
 func TestBuildRegistry_TextMimeTypeDomain(t *testing.T) {
 	reg, err := BuildRegistry(testDb, testCfg)
 	if err != nil {
@@ -119,9 +115,8 @@ func TestBuildRegistry_TextMimeTypeDomain(t *testing.T) {
 	}
 }
 
-// TestBuildRegistry_FilesShapes covers ## Request bodies' (req, files
-// bytea[]) and (req, files bytea[], parts_headers jsonb) shapes being
-// discovered, with the right Route flags set.
+// TestBuildRegistry_FilesShapes covers the two files-accepting shapes
+// being discovered with the right Route flags set.
 func TestBuildRegistry_FilesShapes(t *testing.T) {
 	reg, err := BuildRegistry(testDb, testCfg)
 	if err != nil {
@@ -145,11 +140,8 @@ func TestBuildRegistry_FilesShapes(t *testing.T) {
 	}
 }
 
-// TestBuildRegistry_ReorderedFilesShapeExcluded proves the four shapes are
-// matched by TYPE SEQUENCE, not by "has the right types somewhere" :
-// fn_wrong_shape declares (req, parts_headers jsonb, files bytea[]) —
-// jsonb before bytea[], the reverse of the one recognized order — and must
-// not be discovered at all.
+// TestBuildRegistry_ReorderedFilesShapeExcluded : shapes match by type
+// sequence, not "has the right types somewhere" — reversed order excludes.
 func TestBuildRegistry_ReorderedFilesShapeExcluded(t *testing.T) {
 	reg, err := BuildRegistry(testDb, testCfg)
 	if err != nil {
@@ -160,12 +152,8 @@ func TestBuildRegistry_ReorderedFilesShapeExcluded(t *testing.T) {
 	}
 }
 
-// TestBuildRegistry_AmbiguousRoute_TwoCollidingFunctions_NeitherRoutable is
-// a regression test for a real bug found by hand : two Postgres overloads
-// colliding on the same (schema, base, verb) registry key used to leave
-// the FIRST one silently registered (only the second was skipped), even
-// though the log line already promised "skipping both". schema.sql defines
-// fn_dupe() and fn_dupe(req) — both collide on (public, "fn_dupe", "").
+// TestBuildRegistry_AmbiguousRoute_TwoCollidingFunctions_NeitherRoutable :
+// both colliding overloads are excluded, not the first left registered.
 func TestBuildRegistry_AmbiguousRoute_TwoCollidingFunctions_NeitherRoutable(t *testing.T) {
 	reg, err := BuildRegistry(testDb, testCfg)
 	if err != nil {
@@ -176,14 +164,8 @@ func TestBuildRegistry_AmbiguousRoute_TwoCollidingFunctions_NeitherRoutable(t *t
 	}
 }
 
-// TestBuildRegistry_AmbiguousRoute_ThirdCollidingFunction_StillNotRoutable
-// covers the specific gap the hand-fix's "ambiguous" tracking set closes :
-// schema.sql ALSO defines a third overload, fn_dupe(req, files bytea[]),
-// colliding on the exact same key. A naive fix that only deletes the map
-// entry on the SECOND collision would leave room for this third function to
-// walk in afterward and register itself as the key's sole (and, from the
-// registry's point of view, unambiguous-looking) owner — this test proves
-// that doesn't happen : the key stays excluded even after a third collider.
+// TestBuildRegistry_AmbiguousRoute_ThirdCollidingFunction_StillNotRoutable :
+// a third overload can't become sole owner once the collision cleared the entry.
 func TestBuildRegistry_AmbiguousRoute_ThirdCollidingFunction_StillNotRoutable(t *testing.T) {
 	reg, err := BuildRegistry(testDb, testCfg)
 	if err != nil {

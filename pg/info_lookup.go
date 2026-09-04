@@ -14,11 +14,8 @@
 
 package pg
 
-// buildLookupIndices populates the by-schema-then-name indices below from
-// infos.Relations/Functions. Pure Go, no DB round-trip ; must run after both
-// are filled. Built once, at introspection time, not re-derived per request
-// — same convention as Relation's own byName/uniqueColumnGroups/
-// byOtherRelation, built once in FillConstraintInformations.
+// buildLookupIndices populates the by-schema-then-name indices, once at
+// introspection time — same convention as Relation's own byName/uniqueColumnGroups.
 func buildLookupIndices(infos *DbInfos) {
 	infos.RelationMapBySchemaName = make(map[string]map[string]*Relation)
 	for _, r := range infos.Relations {

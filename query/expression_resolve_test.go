@@ -238,9 +238,8 @@ func TestResolveExpressions_ExceptValidation(t *testing.T) {
 }
 
 func TestDeriveShapes_Writability(t *testing.T) {
-	// director.id (single, bare) : writable. director.name referenced twice
-	// (once bare, once via coalesce) : the bare one is fine on its own but
-	// duplicated -> not writable.
+	// director.name referenced twice (bare + coalesce) : the bare one is
+	// fine alone but duplicated -> not writable.
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -305,9 +304,8 @@ func TestDeriveShapes_OtherwiseWrappedIsNotWritable(t *testing.T) {
 }
 
 func TestDeriveShapes_SetSharesOccurrenceBucketWithBare(t *testing.T) {
-	// "name" referenced once via a bare column AND once via set : that's two
-	// occurrences of the same column, so it must NOT be writable — set does
-	// not get its own separate allowance.
+	// "name" via bare column AND set : two occurrences of the same column,
+	// not writable — set gets no separate allowance.
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -323,9 +321,7 @@ func TestDeriveShapes_SetSharesOccurrenceBucketWithBare(t *testing.T) {
 }
 
 func TestDeriveShapes_GetExcludedFromWritability(t *testing.T) {
-	// "name" referenced via get (excluded) plus a real bare reference
-	// elsewhere would still be writable if get truly doesn't count — but
-	// simplest direct check : get alone contributes no extractor at all.
+	// Simplest direct check : get alone contributes no extractor at all.
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -425,11 +421,8 @@ func TestDeriveShapes_ExplicitReadonlyChildDoesNotPropagate(t *testing.T) {
 }
 
 func TestResolveExpressions_DomainWrappedComposite(t *testing.T) {
-	// depot.location is nested_t{label, addr}, and addr is addr_domain (a
-	// domain over addr_t) — regression for the domain-unwrap fix : composite
-	// navigation through a domain-typed composite FIELD (not a top-level
-	// column, which information_schema.columns already auto-unwraps) must
-	// still work.
+	// Regression for the domain-unwrap fix : composite navigation through a
+	// domain-typed composite FIELD (not just a top-level column) must still work.
 	node := mustResolveQuery(t, `{"relation": "depot", "schema": "public", "where": [".", [".", "location", "addr"], "city"]}`)
 	outer := node.Where.(FoldedExpr)
 	id := outer.Right.(*Identifier)
@@ -440,11 +433,8 @@ func TestResolveExpressions_DomainWrappedComposite(t *testing.T) {
 }
 
 func TestResolveExpressions_ArrayIndexThenDot(t *testing.T) {
-	// ["index", "addresses", 1] lands with ElementType set (the array's
-	// element type, addr_t) ; the subsequent ".city" hop then appends "city"
-	// to Path using that element type for its composite check — the FINAL
-	// landing (city's own) is Path=[addresses, city], no longer needing the
-	// override since city's own Type is what a further hop would check.
+	// ["index", "addresses", 1] lands with ElementType set ; the ".city" hop
+	// appends to Path using it, landing on Path=[addresses, city].
 	node := mustResolveQuery(t, `{"relation": "warehouse", "schema": "public", "where": [".", ["index", "addresses", 1], "city"]}`)
 	outer := node.Where.(FoldedExpr)
 	id := outer.Right.(*Identifier)
@@ -534,15 +524,8 @@ func TestResolveExpressions_OwnAndNestedInsideObjectLiteral_BaseColumn(t *testin
 }
 
 func TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn(t *testing.T) {
-	// query.ts's own_except_and/full_except_and comment : "and" MAY specify a
-	// key that was omitted via "except" — that's a legal override, not a
-	// build-time collision, since the base no longer has that column once
-	// omitted. (A parent hopping externally into "movies.title" afterwards
-	// is a separate question, and genuinely ambiguous — Scope always sees
-	// the real "title" column regardless of what select exports it as, so
-	// that name simultaneously means two different things from outside ;
-	// covered by TestResolveExpressions_AndKeyImplicitlyShadowsColumn_Error's
-	// sibling case below, not asserted successful here.)
+	// query.ts's own_except_and comment : "and" MAY specify a key omitted via
+	// "except" — a legal override, not a build-time collision, since the base no longer has that column.
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -560,9 +543,8 @@ func TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn(t *testing.T) {
 }
 
 func TestResolveExpressions_AndKeyImplicitlyShadowsColumn_Error(t *testing.T) {
-	// query.ts's comment : "merge_with cannot shadow keys implicitly ; this
-	// is an error" — a plain own_and colliding with a real, non-omitted
-	// column must be rejected, not silently overridden.
+	// query.ts : "merge_with cannot shadow keys implicitly" — a plain
+	// own_and colliding with a real, non-omitted column is rejected.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -578,16 +560,8 @@ func TestResolveExpressions_AndKeyImplicitlyShadowsColumn_Error(t *testing.T) {
 }
 
 func TestResolveExpressions_SelfHopInsideOwnSelect_Error(t *testing.T) {
-	// A node's own select referencing one of its own COMPUTED keys through a
-	// "." chain into its own alias must not see its own Shape (same "no
-	// forward-reference within one select object, no sibling access" rule
-	// that already applies elsewhere) — must be a clean hard error, not
-	// unbounded recursion (selectShape -> resolveChain -> self *QueryNode
-	// landing -> resolveExternalHop -> selectShape again). A self-hop into a
-	// plain physical column (as opposed to a computed key) is NOT this case
-	// — that's ordinary Scope access, same as any other self-reference, and
-	// resolves fine regardless of select's own state ; see
-	// TestResolveExpressions_SelfAlias.
+	// A "." chain into one's own COMPUTED key via self-alias must be a clean
+	// hard error (no forward-reference within one select object), not unbounded recursion. A self-hop into a plain column is unaffected (ordinary Scope access).
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -600,14 +574,8 @@ func TestResolveExpressions_SelfHopInsideOwnSelect_Error(t *testing.T) {
 }
 
 func TestResolveExpressions_SelfHopFromWhereIntoOwnShape_Error(t *testing.T) {
-	// Same rule as TestResolveExpressions_SelfHopInsideOwnSelect_Error, but
-	// reached from "where" instead of "select" : where resolves BEFORE
-	// select (ResolveExpressions), so without ctx.resolvingOwn this hop
-	// would reach selectShape while node.Select is still fully unresolved
-	// scope-only (LookupInScope finds nothing for a name that only exists
-	// as an own_and computed key), silently returning the computed value
-	// instead of being rejected — a node's own where must not see its own
-	// select's computed keys, regardless of resolution order between them.
+	// Same rule reached from "where" instead of "select" : where resolves
+	// BEFORE select, so without ctx.resolvingOwn this would silently see the still-unresolved select's computed key instead of erroring.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -621,14 +589,8 @@ func TestResolveExpressions_SelfHopFromWhereIntoOwnShape_Error(t *testing.T) {
 }
 
 func TestResolveExpressions_ExceptAndOverrideAmbiguousFromOutside_Error(t *testing.T) {
-	// The except-and override in TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn
-	// is legal to BUILD (the base no longer has "title" once omitted, so no
-	// collision), but that key is still unreferenceable from a PARENT's
-	// where/order_by under that same name : Scope always sees the real
-	// "title" column regardless of what select exports it as, so an
-	// external hop by "title" is genuinely ambiguous between the real
-	// column and the overridden export value — must stay a hard error via
-	// resolveExternalHop's scope/shape disagreement check.
+	// The except-and override is legal to BUILD, but still unreferenceable
+	// from a PARENT's where/order_by — Scope sees the real "title" column regardless, genuinely ambiguous with the export value.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -674,9 +636,8 @@ func TestResolveExpressions_UnknownComputedKey_Error(t *testing.T) {
 }
 
 func TestResolveExpressions_ChainPastJsonOpaque_Error(t *testing.T) {
-	// "->" lands opaque (jsonb navigation, not "." semantics) : chaining a
-	// "." hop off of it must be rejected, not silently treated as chaining
-	// off whatever "metadata" itself was.
+	// "->" lands opaque (jsonb navigation, not "." semantics) : a further
+	// "." hop off it must be rejected, not silently chained off "metadata" itself.
 	err := resolveQueryExpectError(t, `{"relation": "venue", "schema": "public", "where": [".", ["->", "metadata", ["key"]], "x"]}`)
 	if err == nil {
 		t.Fatalf("expected chaining \".\" off a ->-opaque value to be rejected")
@@ -684,10 +645,8 @@ func TestResolveExpressions_ChainPastJsonOpaque_Error(t *testing.T) {
 }
 
 func TestResolveExpressions_IndexOpaqueExpression_NoError(t *testing.T) {
-	// Indexing something that isn't a known ColumnPath (here, an inline "arr"
-	// literal) must resolve successfully (its Items still get resolved) and
-	// simply produce an opaque (unchainable) landing — not an error. Only
-	// indexing a real, non-array COLUMN is an error (IndexIntoNonArray_Error).
+	// Indexing a non-ColumnPath (an inline "arr" literal) resolves fine to
+	// an opaque landing — only indexing a real, non-array COLUMN errors.
 	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["index", ["arr", "id", "id"], 1]}`)
 	idx, ok := node.Where.(IndexExpr)
 	if !ok {
@@ -705,10 +664,8 @@ func TestResolveExpressions_IndexOpaqueExpression_NoError(t *testing.T) {
 }
 
 func TestResolveExpressions_FullAndKeyCollidesWithChildAlias_Error(t *testing.T) {
-	// buildShape's collision check must catch an "and" key colliding with a
-	// CHILD ALIAS (only present in "full"'s base, not "own"'s), not just a
-	// physical column — ownFullBase folds aliases into the same base map a
-	// plain column would occupy, so the same collision rule must apply.
+	// buildShape's collision check must also catch an "and" key colliding
+	// with a CHILD ALIAS (only in "full"'s base) — ownFullBase folds aliases into the same base map a column occupies.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -721,10 +678,8 @@ func TestResolveExpressions_FullAndKeyCollidesWithChildAlias_Error(t *testing.T)
 }
 
 func TestResolveExpressions_BetweenSubExpressionsResolve(t *testing.T) {
-	// Min/Exp/Max are three distinct fields ; use three distinct queries,
-	// each with a bad identifier in exactly one position, to prove all three
-	// (not just Min, the first one, easy to typo-copy the other two from) are
-	// actually threaded through resolution.
+	// Min/Exp/Max are three distinct fields — three distinct queries, each
+	// with a bad identifier in exactly one position, to prove all three are actually threaded through.
 	if _, err := ParseAndResolve(t, `["between", "no_such_column", "id", "id"]`); err == nil {
 		t.Fatalf("expected an unresolvable Min to be rejected")
 	}
@@ -751,11 +706,8 @@ func TestResolveExpressions_BetweenSubExpressionsResolve(t *testing.T) {
 }
 
 func TestResolveExpressions_InCandidatesResolve(t *testing.T) {
-	// A bare JSON string candidate is ALWAYS a literal (query.ts's explicit
-	// carve-out) and must stay untouched, never scope-resolved even if it
-	// happens to spell a real column name ; a non-literal candidate (here,
-	// wrapped in a single-arg coalesce so it isn't a bare string) DOES
-	// resolve, and an unresolvable one is rejected.
+	// A bare JSON string candidate is ALWAYS a literal (query.ts's carve-out),
+	// never scope-resolved ; a non-literal one (wrapped in coalesce) DOES resolve, and an unresolvable one is rejected.
 	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["in", "id", "name", ["coalesce", "id"]]}`)
 	in := node.Where.(InExpr)
 	if !in.Candidates[0].IsLiteral || in.Candidates[0].Literal != "name" {
@@ -795,11 +747,8 @@ func TestResolveExpressions_AnyAllSubExpressionsResolve(t *testing.T) {
 }
 
 func TestResolveExpressions_ConcatWsSubExpressionsResolve(t *testing.T) {
-	// Separator is itself a generic Expression (not a raw string), so a bare
-	// JSON string there parses as an *Identifier* to resolve, same as
-	// anywhere else — ["x"] is query.ts's one-element-array escape hatch for
-	// an actual string literal, used below once Separator is meant to be a
-	// literal rather than deliberately a column reference under test.
+	// Separator is a generic Expression, so a bare JSON string parses as an
+	// *Identifier* to resolve ; ["x"] is query.ts's escape hatch for an actual literal.
 	if _, err := ParseAndResolve(t, `["concat_ws", "no_such_column", "id"]`); err == nil {
 		t.Fatalf("expected an unresolvable Separator to be rejected")
 	}
@@ -828,12 +777,8 @@ func TestResolveExpressions_ArrLstSubExpressionsResolve(t *testing.T) {
 }
 
 func TestResolveExpressions_SliceSubExpressionsResolve(t *testing.T) {
-	// Array/From/To are three distinct fields ; use an unresolvable
-	// identifier in each position individually (rather than a literal
-	// number, which resolveExpr's default no-op case would pass through
-	// whether or not it was ever actually threaded) to prove all three are
-	// actually resolved, not just Array (copy-paste risk on the other two).
-	// venue has no array column ; use warehouse.addresses (addr_t[]).
+	// Array/From/To are three distinct fields — an unresolvable identifier
+	// in each position individually proves all three are actually threaded, not just Array (a literal number would pass through unthreaded).
 	if _, err := parseAndResolveOn(t, "warehouse", `["slice", "no_such_column", "id", "id"]`); err == nil {
 		t.Fatalf("expected an unresolvable Array to be rejected")
 	}
@@ -876,13 +821,8 @@ func TestResolveExpressions_RootFunctionArgumentBareIdentifier_Error(t *testing.
 }
 
 func TestResolveExpressions_CorrelatedFunctionArgumentResolvesAgainstParentScope(t *testing.T) {
-	// fn_movies_by_director(p_director_id int) returns setof movie, embedded
-	// as a JOIN child of director : its own "arguments" resolve against its
-	// PARENT's scope (correlating to the enclosing query, same as any
-	// subquery's arguments would), NOT against the function node's own
-	// scope (which is movie's, via "on") — the counterpart to
-	// TestResolveExpressions_RootFunctionArgumentBareIdentifier_Error's
-	// no-parent case, this is the actual correlated success path.
+	// A JOIN child function's own "arguments" resolve against its PARENT's
+	// scope, not the function node's own (movie's, via "on") — the correlated counterpart to the no-parent root case.
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -907,9 +847,8 @@ func TestResolveExpressions_CorrelatedFunctionArgumentResolvesAgainstParentScope
 }
 
 func TestResolveExpressions_CorrelatedFunctionArgumentUnresolvable_Error(t *testing.T) {
-	// Correlation reaches the parent's scope, not an unbounded one : a name
-	// that isn't a real column/alias/self of the PARENT must still be
-	// rejected, exactly like any other scope lookup.
+	// Correlation reaches the parent's scope, not an unbounded one : a
+	// name that isn't a real column/alias/self of the PARENT is still rejected.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -925,11 +864,8 @@ func TestResolveExpressions_CorrelatedFunctionArgumentUnresolvable_Error(t *test
 }
 
 func TestResolveExpressions_CorrelatedNamedFunctionArgumentResolvesAgainstParentScope(t *testing.T) {
-	// Same rule as the positional case above, but through
-	// FunctionArgumentMap — a separate loop in ResolveExpressions, with its
-	// own store-back, so coverage of one doesn't imply the other (if the
-	// named loop passed the function node's OWN scope instead of argScope,
-	// "id" would land on movie.id instead, and cp.Node would be the child).
+	// Same rule via FunctionArgumentMap — a separate loop with its own
+	// store-back, so coverage of the positional case doesn't imply this one.
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -970,9 +906,8 @@ func TestResolveExpressions_CorrelatedNamedFunctionArgumentUnresolvable_Error(t 
 }
 
 func TestResolveExpressions_GetSetOnRelationlessFunctionNode_Error(t *testing.T) {
-	// fn_plain_add returns a scalar (int), not a relation : Relation is nil,
-	// so a "select" trying to get/set a column has nothing to resolve
-	// against — must be a clean error, not a nil-pointer panic.
+	// fn_plain_add returns a scalar : Relation is nil, so "select" trying
+	// to get/set a column has nothing to resolve against — a clean error, not a panic.
 	err := resolveQueryExpectError(t, `{
 		"function": "fn_plain_add", "schema": "public", "arguments": [1, 2],
 		"select": {"x": ["get", "id"]}
@@ -984,8 +919,7 @@ func TestResolveExpressions_GetSetOnRelationlessFunctionNode_Error(t *testing.T)
 
 func TestResolveExpressions_SelfHopFromOrderByIntoOwnShape_Error(t *testing.T) {
 	// Same rule as the where/select self-hop cases, extended to order_by :
-	// ctx.resolvingOwn is set for node's ENTIRE own-expression block
-	// (where/select/distinct_on/order_by alike), not just where/select.
+	// ctx.resolvingOwn covers node's entire own-expression block.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -999,14 +933,8 @@ func TestResolveExpressions_SelfHopFromOrderByIntoOwnShape_Error(t *testing.T) {
 }
 
 func TestDeriveShapes_BareCompositeChainIsWritable(t *testing.T) {
-	// Regression : a bare composite "." chain used directly as a select
-	// value (e.g. {"c": [".", "home", "city"]}) is ONE reference to the
-	// terminal sub-field, and must be writable on its own, same as any other
-	// single clean reference. The pre-fix walkSelectForWritability treated
-	// FoldDot like a generic binary fold — walking BOTH "home" (the
-	// navigation prefix) and "home.city" (the terminal) each with
-	// coalesceOnly forced false — which meant a composite chain used bare in
-	// select was NEVER writable, structurally, regardless of duplication.
+	// Regression : a bare "." chain as a select value is ONE reference to
+	// the terminal sub-field, writable like any clean reference — the pre-fix walkSelectForWritability walked BOTH prefix and terminal, never writable.
 	node := mustResolveQuery(t, `{
 		"relation": "venue",
 		"schema": "public",
@@ -1032,15 +960,8 @@ func TestDeriveShapes_BareCompositeChainIsWritable(t *testing.T) {
 }
 
 func TestDeriveShapes_ChildHopChainIsNotParentWritable(t *testing.T) {
-	// Regression : a "." chain that hops INTO A CHILD (e.g.
-	// [".", "movies", "title"], as opposed to genuine same-node composite
-	// navigation like [".", "home", "city"]) lands on a ColumnPath whose
-	// Node is the CHILD, not the node doing the selecting. That write target
-	// belongs to the child's own Shape derivation, never the parent's —
-	// found while fixing TestDeriveShapes_BareCompositeChainIsWritable :  an
-	// early version of that fix recorded ANY FoldDot landing on a ColumnPath
-	// unconditionally, which spuriously attributed the CHILD's column as a
-	// clean, writable extractor of the PARENT.
+	// Regression : a "." chain hopping INTO A CHILD lands on a ColumnPath
+	// whose Node is the CHILD — that write target belongs to the child's own Shape, never the parent's.
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
@@ -1056,17 +977,8 @@ func TestDeriveShapes_ChildHopChainIsNotParentWritable(t *testing.T) {
 }
 
 func TestDeriveShapes_IndexedCompositeChainIsNotWritable(t *testing.T) {
-	// Conservative-by-design exclusion : a "." chain that hops through an
-	// ["index", ...] anywhere along the way (e.g.
-	// [".", ["index", "addresses", 1], "city"]) must NOT become a writable
-	// extractor, even as a single, otherwise-clean reference — ColumnPath's
-	// Key() carries no record of WHICH array element was navigated through
-	// (only ElementType, which a further "." hop clears again once it lands
-	// on the element's own field), so two different indices would otherwise
-	// collapse to the identical extractor key with no way for a write-side
-	// extractor to know which array element a value belongs to. Whether an
-	// indexed element should be a legal write target at all is an open
-	// design question, not something to default into silently.
+	// Conservative exclusion : a "." chain through ["index", ...] must NOT
+	// become a writable extractor — ColumnPath's Key() carries no record of WHICH element, so two indices would collapse to the same key.
 	node := mustResolveQuery(t, `{
 		"relation": "warehouse",
 		"schema": "public",
@@ -1101,11 +1013,8 @@ func TestDeriveShapes_DuplicateCompositeChainIsNotWritable(t *testing.T) {
 }
 
 func TestDeriveShapes_CompositeChainAndContainingColumnAreIndependent(t *testing.T) {
-	// "home" (the whole composite column) and "home.city" (a sub-field of
-	// it) referenced as TWO DIFFERENT select keys are independent write
-	// targets (composite sub-fields are independently writable, this
-	// session's decision) — neither should count as an occurrence of the
-	// other, so both come out writable.
+	// "home" and "home.city" as TWO DIFFERENT select keys are independent
+	// write targets — neither counts as an occurrence of the other.
 	node := mustResolveQuery(t, `{
 		"relation": "venue",
 		"schema": "public",

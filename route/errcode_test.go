@@ -7,13 +7,8 @@ import (
 	"github.com/ceymard/rel/errcode"
 )
 
-// TestHandler_SecretRoute_PermissionDenied_IsClassified proves
-// specs/error-handling.md ### Postgres-raised codes / ## Postgres error
-// detail's tier 2 on the /route plain-text path : fn_secret's underlying
-// `select ... from secret_data` fails with a genuine Postgres
-// permission-denied (no SELECT grant to "~anonymous") — classified as
-// PG_PERMISSION_DENIED/403, with the message generic in production and
-// the real Postgres text only under dev.
+// TestHandler_SecretRoute_PermissionDenied_IsClassified : PG_PERMISSION_DENIED/403,
+// generic message in production, real only under dev.
 func TestHandler_SecretRoute_PermissionDenied_IsClassified(t *testing.T) {
 	req := httptest.NewRequest("GET", "/route/public/fn_secret", nil)
 	rec := httptest.NewRecorder()

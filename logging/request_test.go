@@ -9,11 +9,8 @@ import (
 	"testing"
 )
 
-// TestRequestMiddleware_GeneratesAndLogsRequestID proves a request with no
-// inbound X-Request-Id still gets one generated, and that a handler
-// downstream retrieving its logger via FromContext(ctx) emits it as
-// "request_id" on every log line — the actual point of this middleware
-// (correlation in logs), not the response header.
+// TestRequestMiddleware_GeneratesAndLogsRequestID : no inbound
+// X-Request-Id still gets one generated, emitted as "request_id" in logs.
 func TestRequestMiddleware_GeneratesAndLogsRequestID(t *testing.T) {
 	var buf bytes.Buffer
 	old := slog.Default()
@@ -45,10 +42,8 @@ func TestRequestMiddleware_GeneratesAndLogsRequestID(t *testing.T) {
 	}
 }
 
-// TestRequestMiddleware_ReusesInboundRequestID proves an inbound
-// X-Request-Id header is reused verbatim rather than always generating a
-// fresh one — ## Request-scoped logging step 1's "reads a request ID from
-// an inbound X-Request-Id header, or generates one if absent/blank."
+// TestRequestMiddleware_ReusesInboundRequestID : an inbound X-Request-Id
+// header is reused verbatim, not always regenerated (## Request-scoped logging).
 func TestRequestMiddleware_ReusesInboundRequestID(t *testing.T) {
 	var buf bytes.Buffer
 	old := slog.Default()
@@ -74,9 +69,8 @@ func TestRequestMiddleware_ReusesInboundRequestID(t *testing.T) {
 	}
 }
 
-// TestFromContext_FallsBackToDefault proves a context that never passed
-// through RequestMiddleware (startup code, a test calling application code
-// directly) still gets a usable logger rather than a nil one.
+// TestFromContext_FallsBackToDefault : a context that never passed through
+// RequestMiddleware still gets a usable logger, not a nil one.
 func TestFromContext_FallsBackToDefault(t *testing.T) {
 	logger := FromContext(t.Context())
 	if logger == nil {

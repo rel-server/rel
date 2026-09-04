@@ -28,12 +28,8 @@ func TestType_CompositeRelation_Direct(t *testing.T) {
 }
 
 func TestType_CompositeRelation_ThroughDomain(t *testing.T) {
-	// depot.location is a plain composite column (nested_t) — the domain
-	// wrapping only shows up one level DEEPER, on nested_t's own "addr"
-	// field (introspected via pg_attribute directly, unlike a top-level
-	// table column, which information_schema.columns already auto-unwraps
-	// via udt_name — see the schema.sql comment for why this fixture is
-	// shaped this way).
+	// depot.location is plain composite (nested_t) ; the domain wrapping
+	// only shows up one level deeper, on nested_t's own "addr" field.
 	depot := relationByName(t, "depot")
 	loc := depot.ColumnsMap["location"]
 	if loc == nil {

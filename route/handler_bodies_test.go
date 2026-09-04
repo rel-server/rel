@@ -12,8 +12,7 @@ import (
 )
 
 // buildMultipart writes a multipart/form-data body from (fieldName,
-// fileName, contentType, content) tuples — fileName=="" writes a plain
-// field (no filename= on its Content-Disposition).
+// fileName, contentType, content) tuples ; fileName=="" writes a plain field.
 type multipartField struct {
 	FieldName   string
 	FileName    string
@@ -49,9 +48,8 @@ func buildMultipart(t *testing.T, fields []multipartField) (*bytes.Buffer, strin
 	return buf, w.FormDataContentType()
 }
 
-// TestHandler_Upload_MultipleFiles proves a (req, files bytea[]) route
-// receiving a real multipart request with 2+ files round-trips the bytes
-// correctly.
+// TestHandler_Upload_MultipleFiles proves a files-route round-trips 2+
+// multipart files correctly.
 func TestHandler_Upload_MultipleFiles(t *testing.T) {
 	body, contentType := buildMultipart(t, []multipartField{
 		{FieldName: "a", FileName: "a.txt", ContentType: "text/plain", Content: []byte("hello")},
@@ -66,9 +64,7 @@ func TestHandler_Upload_MultipleFiles(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// writeRelHttpResponse writes RelHttpResponse.content DIRECTLY as the
-	// HTTP body (unwrapped, no surrounding "content" key) — matching
-	// existing tests like TestHandler_RequestEchoShape.
+	// content is written directly as the HTTP body, unwrapped.
 	var decoded struct {
 		Body  any      `json:"body"`
 		Count int      `json:"count"`
@@ -85,10 +81,8 @@ func TestHandler_Upload_MultipleFiles(t *testing.T) {
 	}
 }
 
-// TestHandler_UploadWithHeaders_PartsMetadata proves a (req, files
-// bytea[], parts_headers jsonb) route sees correct name/filename/
-// content_type per part, including a mixed plain-field-plus-file
-// submission.
+// TestHandler_UploadWithHeaders_PartsMetadata : correct name/filename/
+// content_type per part, including a mixed plain-field-plus-file submission.
 func TestHandler_UploadWithHeaders_PartsMetadata(t *testing.T) {
 	body, contentType := buildMultipart(t, []multipartField{
 		{FieldName: "title", Content: []byte("my document")}, // plain field, no filename
@@ -139,10 +133,8 @@ func TestHandler_UploadWithHeaders_PartsMetadata(t *testing.T) {
 	}
 }
 
-// TestHandler_Upload_SingleBinaryPOST_SynthesizesOneElementFilesArray
-// proves ## Request bodies' "a single, non-multipart, raw binary POST" ->
-// files is a one-element array holding the whole body, with a synthesized
-// pseudo-part when parts_headers is declared.
+// TestHandler_Upload_SingleBinaryPOST_SynthesizesOneElementFilesArray : a
+// raw binary POST becomes a one-element files array plus a pseudo-part.
 func TestHandler_Upload_SingleBinaryPOST_SynthesizesOneElementFilesArray(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload_with_headers", bytes.NewReader([]byte("raw binary payload")))
 	req.Header.Set("Content-Type", "application/octet-stream")
@@ -181,9 +173,8 @@ func TestHandler_Upload_SingleBinaryPOST_SynthesizesOneElementFilesArray(t *test
 	}
 }
 
-// TestHandler_FilesRoute_NoBodyAtAll_NotA415 covers ## Request bodies'
-// explicit non-415 edge case : a files-declaring route called with no body
-// at all gets empty files/parts_headers, not a 415.
+// TestHandler_FilesRoute_NoBodyAtAll_NotA415 : a files-declaring route
+// with no body gets empty files/parts_headers, not a 415.
 func TestHandler_FilesRoute_NoBodyAtAll_NotA415(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", nil)
 	rec := httptest.NewRecorder()
@@ -202,9 +193,8 @@ func TestHandler_FilesRoute_NoBodyAtAll_NotA415(t *testing.T) {
 	}
 }
 
-// TestHandler_FilesRoute_ZeroPartMultipart_NotA415 covers the second
-// explicit non-415 edge case : a syntactically valid multipart/form-data
-// envelope with zero parts.
+// TestHandler_FilesRoute_ZeroPartMultipart_NotA415 : a syntactically
+// valid multipart envelope with zero parts is not a 415.
 func TestHandler_FilesRoute_ZeroPartMultipart_NotA415(t *testing.T) {
 	body, contentType := buildMultipart(t, nil)
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", body)
@@ -229,9 +219,8 @@ func TestHandler_NonFilesRoute_ZeroPartMultipart_NotA415(t *testing.T) {
 	}
 }
 
-// TestHandler_FilesRoute_JSONBody_Is415 covers the first real mismatch
-// bullet : a files route receiving a request whose content_type falls into
-// the JSON/text/form-urlencoded branches is a 415.
+// TestHandler_FilesRoute_JSONBody_Is415 : a files route receiving a
+// JSON/text/form-urlencoded content_type is a 415.
 func TestHandler_FilesRoute_JSONBody_Is415(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_upload", strings.NewReader(`{"a":1}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -242,9 +231,8 @@ func TestHandler_FilesRoute_JSONBody_Is415(t *testing.T) {
 	}
 }
 
-// TestHandler_NonFilesRoute_RealMultipart_Is415 covers the second real
-// mismatch bullet : a route NOT declaring files, receiving actual
-// multipart/form-data (>=1 part), is a 415.
+// TestHandler_NonFilesRoute_RealMultipart_Is415 : a route not declaring
+// files, receiving real multipart data, is a 415.
 func TestHandler_NonFilesRoute_RealMultipart_Is415(t *testing.T) {
 	body, contentType := buildMultipart(t, []multipartField{
 		{FieldName: "a", FileName: "a.txt", ContentType: "text/plain", Content: []byte("hello")},
@@ -258,10 +246,8 @@ func TestHandler_NonFilesRoute_RealMultipart_Is415(t *testing.T) {
 	}
 }
 
-// TestHandler_MaxBodySize_RejectsOversizedRequest covers
-// http.max_body_size actually rejecting an oversized request, both via a
-// declared Content-Length (checked before any read) and via an actual
-// oversized stream.
+// TestHandler_MaxBodySize_RejectsOversizedRequest covers http.max_body_size
+// rejecting via both a declared Content-Length and an actual stream.
 func TestHandler_MaxBodySize_RejectsOversizedRequest(t *testing.T) {
 	small := *testCfg
 	small.Http.MaxBodySize = 8
@@ -276,12 +262,8 @@ func TestHandler_MaxBodySize_RejectsOversizedRequest(t *testing.T) {
 	}
 }
 
-// TestHandler_MaxBodySize_RejectsStreamedOverflow_NoDeclaredLength covers
-// http.max_body_size's "or whose body turns out to exceed it while
-// streaming, for a chunked request with no declared length" branch —
-// distinct from the Content-Length pre-check above : ContentLength is
-// forced to -1 (unknown), so http.MaxBytesReader itself, not the
-// pre-check, is what has to catch the overflow.
+// TestHandler_MaxBodySize_RejectsStreamedOverflow_NoDeclaredLength forces
+// ContentLength -1, so MaxBytesReader itself must catch the overflow.
 func TestHandler_MaxBodySize_RejectsStreamedOverflow_NoDeclaredLength(t *testing.T) {
 	small := *testCfg
 	small.Http.MaxBodySize = 8
@@ -297,12 +279,8 @@ func TestHandler_MaxBodySize_RejectsStreamedOverflow_NoDeclaredLength(t *testing
 	}
 }
 
-// TestHandler_MaxBodySize_RejectsStreamedOverflow_MidMultipartPart covers
-// the same streaming-overflow case for the multipart parsing path
-// specifically : MaxBytesReader tripping mid-part surfaces through
-// mime/multipart's own NextPart/Read plumbing, which must still be
-// recognized as *http.MaxBytesError (413), not misclassified as a generic
-// malformed-multipart 400.
+// TestHandler_MaxBodySize_RejectsStreamedOverflow_MidMultipartPart :
+// MaxBytesReader tripping mid-part is 413, not a generic 400.
 func TestHandler_MaxBodySize_RejectsStreamedOverflow_MidMultipartPart(t *testing.T) {
 	small := *testCfg
 	small.Http.MaxBodySize = 16
@@ -342,9 +320,8 @@ func TestHandler_MaxPartCount_RejectsTooManyParts(t *testing.T) {
 	}
 }
 
-// TestHandler_FormUrlencodedBody_EndToEnd proves
-// application/x-www-form-urlencoded body decoding through a real route
-// function, via fn_echo1's whole-request echo.
+// TestHandler_FormUrlencodedBody_EndToEnd proves form-urlencoded body
+// decoding through a real route function, via fn_echo1's echo.
 func TestHandler_FormUrlencodedBody_EndToEnd(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", strings.NewReader("name=John&user.role=admin"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -370,12 +347,8 @@ func TestHandler_FormUrlencodedBody_EndToEnd(t *testing.T) {
 	}
 }
 
-// TestHandler_FormUrlencodedBody_HeavierNestedPayload_EndToEnd covers a
-// heavier form payload than TestHandler_FormUrlencodedBody_EndToEnd's single
-// nesting level : two-deep dotted nesting alongside a repeated key (array),
-// combined in one body, proving querystring.DecodeStructural's dot-path and
-// repeated-key handling both survive a real POST /route round trip together,
-// not just individually.
+// TestHandler_FormUrlencodedBody_HeavierNestedPayload_EndToEnd combines
+// two-deep nesting with a repeated key, proving both survive together.
 func TestHandler_FormUrlencodedBody_HeavierNestedPayload_EndToEnd(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/route/public/fn_echo1", strings.NewReader("a.b.c=1&tags=x&tags=y&user.prefs.theme=dark"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

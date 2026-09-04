@@ -24,10 +24,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// TestRun_AppliesFixtureMutations is an integration test against a real
-// postgres container : Run must actually apply testdata/mutations.yml
-// (create the "widgets" table), commit it, and forward dmut's own log
-// lines through the Output adapter into rel's logger.
+// TestRun_AppliesFixtureMutations : Run must apply testdata/mutations.yml,
+// commit it, and forward dmut's log lines through the Output adapter.
 func TestRun_AppliesFixtureMutations(t *testing.T) {
 	ctx := context.Background()
 
@@ -76,9 +74,8 @@ func TestRun_AppliesFixtureMutations(t *testing.T) {
 	}
 }
 
-// TestRun_NonexistentPrimaryURIFails covers err being surfaced (not
-// swallowed) when the directory exists but the run itself fails — here,
-// because there's nothing to connect to at all.
+// TestRun_NonexistentPrimaryURIFails : err surfaces, not swallowed, when
+// the directory exists but the run itself fails.
 func TestRun_NonexistentPrimaryURIFails(t *testing.T) {
 	var buf bytes.Buffer
 	logger := testLogger(&buf)

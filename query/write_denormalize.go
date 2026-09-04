@@ -23,22 +23,8 @@ type dataRow struct {
 	Data     []byte
 }
 
-// denormalize parses payload and walks it against root, producing every
-// writable node's flat "_data" rows. ids is assignNodeIDs' output — a node
-// absent from ids (READONLY, or nested under one) contributes no rows and
-// its own payload subtree is skipped entirely, even if present.
-//
-// The root itself is always an array of row objects, one per root-level row
-// being written : unlike a nested embed, whose cardinality (one object vs.
-// an array) comes from its outgoing/incoming classification against its
-// parent, the root has no parent to derive that from — a write request is
-// inherently "here are N rows to write", plural.
-//
-// startRowID is assignNodeIDs' startAt counterpart for __row_id (the
-// primary key) — a caller running several ExecuteWrite calls against the
-// same "_data" table must continue numbering rows where the previous call
-// left off, or two items' rows collide on __row_id. Returns the next free
-// row id alongside the produced rows.
+// denormalize parses payload against root, producing every writable node's
+// flat "_data" rows ; startRowID continues __row_id numbering across calls.
 func denormalize(root *QueryNode, ids map[*QueryNode]int, payload []byte, startRowID int) ([]dataRow, int, error) {
 	parsed, perr := ast.NewParser(string(payload)).Parse()
 	if perr != 0 {
@@ -65,10 +51,8 @@ type denormalizer struct {
 	rows   []dataRow
 }
 
-// walkNode processes one row of node (raw is that row's own JSON object),
-// appending it to d.rows and recursing into every child embed found via
-// selectFieldsFor. parentID is the just-appended row's own __parent_id
-// (nil for the root).
+// walkNode appends raw's row to d.rows and recurses into every child embed
+// found via selectFieldsFor. parentID is nil for the root.
 func (d *denormalizer) walkNode(node *QueryNode, raw *ast.Node, parentID *int) error {
 	nodeID, ok := d.ids[node]
 	if !ok {
@@ -117,29 +101,14 @@ func (d *denormalizer) walkNode(node *QueryNode, raw *ast.Node, parentID *int) e
 	return nil
 }
 
-// isIncoming reports whether child is one of node's IncomingNodes (to-many,
-// payload shaped as an array) as opposed to OutgoingNodes (to-one, payload
-// shaped as a single object). The canonical way to ask this anywhere in
-// this package — isOutgoingOf (sql.go) is its to-one counterpart ; reuse
-// one of the two rather than a fresh inline slices.Contains.
+// isIncoming reports to-many (array payload) vs OutgoingNodes' to-one
+// (object payload) ; isOutgoingOf (sql.go) is its counterpart.
 func isIncoming(node, child *QueryNode) bool {
 	return slices.Contains(node.IncomingNodes, child)
 }
 
-// extractRowData reshapes raw (one row, shaped per node.Select) into a flat
-// JSON object, keyed by columnPathFlatName — physical-column-name-keyed for
-// a plain column (unchanged from before composite writes existed), or the
-// "__"-joined synthetic key for a composite sub-field (e.g. "home__city") —
-// the "rehydrate the row" step ### Insertion/Updates assumes data already
-// looks like. A column absent from the payload is simply omitted from the
-// result (write_dml.go's default-value/composite-cast cases handle that),
-// not an error. The extracted VALUE itself is always the leaf's own raw
-// JSON scalar, regardless of Path length — a composite sub-field's value is
-// never itself an object here (query.ts's own get/get-set/set granular
-// selectors only ever target a plain column by name, never a path, so a
-// composite sub-field is only ever reached via a bare "." chain, whose
-// resolved value is the leaf field itself, per query-engine.md ##
-// Writability).
+// extractRowData reshapes raw into a flat JSON object keyed by
+// columnPathFlatName ; an absent column is omitted, not an error.
 func extractRowData(node *QueryNode, raw *ast.Node) ([]byte, error) {
 	flat := make(map[string]json.RawMessage, len(node.Shape.Extractors))
 	for _, ex := range node.Shape.Extractors {

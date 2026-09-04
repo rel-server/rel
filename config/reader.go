@@ -55,48 +55,27 @@ func (r *ConfigReader) join(sub string) string {
 	return r.path + "." + sub
 }
 
-// recordMalformed appends err to the shared errs slice (see ConfigReader's
-// doc comment) — called by every *OrDefault variant when GetX failed for a
-// reason other than "absent".
+// recordMalformed appends err to the shared errs slice (ConfigReader's doc
+// comment) ; called whenever GetX fails for a reason other than "absent".
 func (r *ConfigReader) recordMalformed(err error) {
 	if r.errs != nil {
 		*r.errs = append(*r.errs, err)
 	}
 }
 
-// errNotFound is the sentinel a merely-absent key's error wraps — see
-// notFoundErr and logErr's doc comments for why absent vs. malformed is
-// treated so differently (silent + "OrDefault, use the default" vs. logged
-// + "OrDefault still records this as a real error").
+// errNotFound is the sentinel a merely-absent key's error wraps — silent
+// (use the default), unlike logErr's malformed-value case (logged, recorded).
 var errNotFound = errors.New("not found")
 
-// logErr is a genuinely malformed value's single choke point : ## Accessing
-// configuration's "every retrieval error is logged... path only, never the
-// value" rule. Uses slog.Default() deliberately, NOT logging.For(...) —
-// config loading runs before the real logger (built FROM this config)
-// exists, matching logging.md's "code with no request context uses
-// slog.Default()" ; this is also structural, not just ordering : the
-// logging package itself imports config (for config.Logging), so config
-// importing logging back would be a direct import cycle. Every other
-// package uses logging.For for its own module-tagged logger — this
-// package is the one deliberate, permanent exception.
-//
-// err's message MUST NOT include the resolved value — ## Error handling and
-// secrets is explicit that this applies "for every option, not only ones
-// that are obviously secrets" (since $FILE$ can put a value at any path).
-// This is why GetInt/GetBool build their own plain "not a valid int/bool"
-// message here instead of %w-wrapping strconv's error : strconv.Atoi and
-// strconv.ParseBool both embed the rejected input verbatim in their own
-// Error() text (confirmed empirically — a $FILE$-sourced secret read via
-// GetInt would otherwise leak into this log line).
+// logErr logs path only, never the value (## Error handling and secrets).
+// slog.Default(), not logging.For(...) : logging imports config, so importing back would cycle.
 func logErr(path string, err error) error {
 	slog.Default().Error("config: retrieval error", "path", path, "error", err.Error())
 	return err
 }
 
-// notFoundErr is a plain "key absent" miss — see logErr's doc comment for
-// why this is silent rather than logged, and errNotFound for how an
-// *OrDefault caller tells this apart from a malformed value.
+// notFoundErr is a plain "key absent" miss — silent, unlike logErr's
+// logged malformed-value case ; errNotFound is what *OrDefault checks for.
 func notFoundErr(path string) error {
 	return fmt.Errorf("config: %q: %w", path, errNotFound)
 }

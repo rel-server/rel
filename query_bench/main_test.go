@@ -54,11 +54,8 @@ var (
 // a coincidence of two independent random choices.
 const fixedSeed = 42
 
-// TestMain builds the hotel schema (via dmut, per test/README.md) and seeds
-// it (via test/seed/seed.Run) ONCE for the whole package's benchmark run —
-// container start + dmut migrations + ~700 inserts is real, non-trivial
-// cost, and re-paying it per benchmark function would dominate the numbers
-// instead of the query compilation/execution actually being measured.
+// TestMain builds and seeds the hotel schema ONCE for the whole package's
+// benchmark run — re-paying that cost per function would dominate the numbers.
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -75,9 +72,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	// dmut.Run applies test/dmut's schema mutations — the same mechanism
-	// rel's own migrations use (specs/migrations.md), not a parallel SQL
-	// script that could drift from it.
+	// The same migration mechanism rel itself uses (specs/migrations.md),
+	// not a parallel SQL script that could drift from it.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	if _, err := dmut.Run(ctx, uri, config.Dmut{Path: "../test/dmut"}, logger); err != nil {
 		panic(err)

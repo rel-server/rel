@@ -6,10 +6,8 @@ import (
 	"github.com/ceymard/rel/config"
 )
 
-// sameSite maps jwt.samesite's string form to net/http's enum — an
-// unrecognized value falls back to Lax rather than erroring per-request ;
-// cfg.Jwt.SameSite is validated once at startup (config assembly), not
-// re-validated on every cookie write.
+// sameSite maps jwt.samesite's string form to net/http's enum ; an
+// unrecognized value falls back to Lax (cfg.Jwt.SameSite is validated once at startup).
 func sameSite(s string) http.SameSite {
 	switch s {
 	case "Strict":

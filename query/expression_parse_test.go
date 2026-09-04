@@ -33,10 +33,8 @@ func TestParseExpression_Atoms(t *testing.T) {
 }
 
 func TestParseExpression_OwnFullVsStringLiteralEscapeHatch(t *testing.T) {
-	// ["own"]/["full"] are the only zero-argument tags, so they collide
-	// syntactically with the [string] literal escape hatch — tag dispatch
-	// must win for exactly these two strings, or OwnExpr{}/FullExpr{}
-	// become unreachable through the JSON grammar.
+	// ["own"]/["full"] collide syntactically with the [string] literal
+	// escape hatch — tag dispatch must win, or OwnExpr{}/FullExpr{} become unreachable.
 	if _, ok := mustParse(t, `["own"]`).(OwnExpr); !ok {
 		t.Errorf(`["own"] did not parse as OwnExpr, got %#v`, mustParse(t, `["own"]`))
 	}
@@ -152,9 +150,8 @@ func TestParseExpression_GetSetDefaultKeyword(t *testing.T) {
 }
 
 func TestParseExpression_AggAndCall(t *testing.T) {
-	// Bare string : unqualified Name, never split on "." — a literal dot in
-	// the name (however unlikely) stays part of Name rather than being
-	// mistaken for a schema separator.
+	// Bare string : unqualified Name, never split on "." — a literal dot
+	// stays part of Name, never mistaken for a schema separator.
 	agg, ok := mustParse(t, `["agg", "array_agg", ["name"], [">=", "year", 1999]]`).(*AggExpr)
 	if !ok {
 		t.Fatalf("expected AggExpr, got %#v", agg)

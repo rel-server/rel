@@ -29,10 +29,9 @@
 // Every function in this package builds a plain Go value tree (string,
 // float64, bool, nil, []any, map[string]any) — never a second, parallel
 // Expression AST. The tree is handed to sonic.Marshal and then to the
-// EXISTING query.ParseQuery/query.ParseExpression pipeline, unchanged — see
-// specs/query-json.md's own "no new JSON shape is introduced" framing, and
-// this session's architecture decision (one JSON-consuming Expression
-// parser in the codebase, not two to keep in sync).
+// EXISTING query.ParseQuery/query.ParseExpression pipeline, unchanged —
+// specs/query-json.md's own "no new JSON shape is introduced" : one
+// JSON-consuming Expression parser in the codebase, not two to keep in sync.
 package querystring
 
 import (
@@ -42,17 +41,8 @@ import (
 	"github.com/samber/oops"
 )
 
-// parseRawPairs splits a raw query string (the part after '?', if any) into
-// ordered, percent-decoded key/value pairs. This deliberately does NOT use
-// net/url.ParseQuery : that function rejects (empty result, error) any raw
-// query string containing a literal ';' character at all, anywhere —
-// including inside an otherwise-ordinary value — which would make
-// specs/query-json.md's own `own_except_and(a,b; total:agg(sum,orders.amount))`
-// (the `;` is grammar-internal, inside one query key's VALUE, never a
-// query-string pair separator here) impossible to decode. Splitting on '&'
-// only, by hand, sidesteps that entirely : Go's own query strings still use
-// '&' as the only pair separator this package recognizes, exactly matching
-// every example in specs/query-json.md.
+// parseRawPairs splits on '&' only, by hand — not net/url.ParseQuery,
+// which rejects any raw ';' even grammar-internal to a value (query-json.md).
 func parseRawPairs(raw string) ([][2]string, error) {
 	raw = strings.TrimPrefix(raw, "?")
 	if raw == "" {
@@ -65,11 +55,8 @@ func parseRawPairs(raw string) ([][2]string, error) {
 			continue
 		}
 		k, v, _ := strings.Cut(p, "=")
-		// url.QueryUnescape, not url.PathUnescape : query-string convention
-		// decodes '+' as a literal space (form-encoding), which every
-		// example in specs/query-json.md relies on implicitly (nothing in
-		// this grammar's identifiers/literals needs a literal '+' outside a
-		// quoted string, and a quoted string wanting one spells it %2B).
+		// url.QueryUnescape, not url.PathUnescape : decodes '+' as a literal
+		// space, which specs/query-json.md's examples rely on implicitly.
 		kd, err := url.QueryUnescape(k)
 		if err != nil {
 			return nil, oops.Wrapf(err, "decoding query key %q", k)
@@ -85,13 +72,10 @@ func parseRawPairs(raw string) ([][2]string, error) {
 
 // DecodeStructural implements specs/query-json.md's ## Structural layer :
 // every query key is a dot-separated path into a nested JSON object,
-// repeating the exact same key builds an array. Values are plain strings —
-// callers needing something else (number/bool coercion, the filter
-// expression grammar) apply that on top, per key, since only they know
-// which keys need it (see relation.go). This is exactly what /route's `query`
-// field spec section calls "the structural layer only, generalized — not
-// scoped to Relation's own fixed keys" : usable standalone for that, or as
-// the first step of relation.go's Relation-aware compile.
+// repeating the exact same key builds an array. Values stay plain strings
+// — a caller needing number/bool coercion or the filter expression grammar
+// applies that on top, per key, since only the caller knows which keys
+// need it (see relation.go).
 func DecodeStructural(raw string) (map[string]any, error) {
 	pairs, err := parseRawPairs(raw)
 	if err != nil {
@@ -113,8 +97,7 @@ func DecodeStructural(raw string) (map[string]any, error) {
 }
 
 // setPath walks/creates node along path, setting the final segment to
-// value. Repeating the same leaf key builds an array — first repeat turns a
-// scalar into a 2-element []any, further repeats append.
+// value. Repeating a leaf key builds an array — first repeat makes a []any.
 func setPath(node map[string]any, path []string, value string) error {
 	key := path[0]
 	if len(path) == 1 {

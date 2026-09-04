@@ -82,10 +82,8 @@ func TestDecodeStructural_ConflictingLeafAndPathIsError(t *testing.T) {
 }
 
 func TestDecodeStructural_SemicolonInValueSurvives(t *testing.T) {
-	// Go's net/url.ParseQuery rejects any raw query string containing a
-	// literal ';' outright (empty result + error) — this package must not
-	// use it, since specs/query-json.md's own_except_and grammar relies on
-	// a literal ';' appearing inside one key's value.
+	// net/url.ParseQuery rejects any ';' outright ; this package can't use
+	// it, since own_except_and's grammar relies on ';' inside a value.
 	got, err := DecodeStructural("select=own_except_and(a,b;total:x)")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

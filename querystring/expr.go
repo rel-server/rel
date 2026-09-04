@@ -29,11 +29,8 @@ import (
 	"github.com/samber/oops"
 )
 
-// exprParser is a single left-to-right scanner over one query-string value
-// (already percent-decoded). Every list/call/alias production below walks
-// the SAME p.i cursor, so a literal or nested call's own commas/colons/
-// parens can never be mistaken for a delimiter at the wrong nesting level —
-// this is what "the same quote-and-paren-aware scanner" means in practice.
+// exprParser is a single left-to-right scanner over one query-string value ;
+// every production below walks the same p.i cursor.
 type exprParser struct {
 	s string
 	i int
@@ -41,15 +38,8 @@ type exprParser struct {
 
 func newExprParser(s string) *exprParser { return &exprParser{s: s} }
 
-// querystringOnlyKeywords covers call identifiers that specs/query-json.md
-// spells with the SAME word both here and in the underlying query.ts tag
-// (so they need no entry in query.OperatorWords — that table exists for
-// pass-1 JSON's word-form SYNONYM feature, and these tags never had a
-// second, symbolic spelling to be a synonym of) but that this grammar still
-// needs to dispatch on specially rather than let fall through to the
-// generic "unrecognized identifier -> plain function call" case : bigint/
-// numeric's argument is a raw string, not an Expression, and the six own/
-// full-family calls are select-only, rejected here as a sub-expression.
+// querystringOnlyKeywords are call identifiers with no query.OperatorWords
+// entry that still need special dispatch, not a plain function call.
 var querystringOnlyKeywords = map[string]string{
 	"bigint":          "bigint",
 	"numeric":         "numeric",
@@ -102,8 +92,7 @@ func (p *exprParser) parseIdentifier() (string, error) {
 }
 
 // parseStringLiteral consumes a 'quoted string' — ” is a literal single
-// quote (SQL-style doubling, per the spec's own quoting-rule rationale).
-// Returns the raw (already-unquoted/unescaped) string content.
+// quote (SQL-style doubling), returning the unquoted/unescaped content.
 func (p *exprParser) parseStringLiteral() (string, error) {
 	if p.i >= len(p.s) || p.s[p.i] != '\'' {
 		return "", oops.Errorf("expected a quoted string at position %d in %q", p.i, p.s)
@@ -156,14 +145,8 @@ func (p *exprParser) parseNumber() (float64, error) {
 	return v, nil
 }
 
-// parseExpr parses one `expr` (call | atom) per the grammar, returning the
-// query.ts JSON-shaped value it compiles to : a bare identifier compiles to
-// a plain string (column/alias reference), a quoted literal to a
-// one-element []any (StringLiteral form), a number/bool/null to the
-// matching JSON scalar, and a call to []any{tag, args...} — tag already
-// normalized to query.ts's own canonical operator spelling via
-// query.OperatorWords, or left as-is (an unrecognized identifier) to
-// compile as a plain function call below.
+// parseExpr parses one `expr` (call | atom), returning the query.ts
+// JSON-shaped value it compiles to — see parseCall for the call form.
 func (p *exprParser) parseExpr() (any, error) {
 	p.skipSpace()
 	if p.i >= len(p.s) {
@@ -179,10 +162,7 @@ func (p *exprParser) parseExpr() (any, error) {
 		return []any{lit}, nil
 
 	case c == '-' || isDigit(c):
-		// A leading '-' always opens a negative number here : identifiers
-		// never start with '-' or a digit (see the grammar's own note on
-		// why this is unambiguous), so there is no operator-name case to
-		// consider at this position.
+		// Unambiguous : an identifier never starts with '-' or a digit.
 		return p.parseNumber()
 
 	case isIdentStart(c):
@@ -209,13 +189,8 @@ func (p *exprParser) parseExpr() (any, error) {
 	}
 }
 
-// parseCall consumes "(" [expr ("," expr)*] ")" (the cursor is already
-// positioned right at "(") and compiles ident(args...) to its query.ts
-// array form. Special-cased tags whose JSON shape isn't a plain
-// [tag, ...compiledArgs] : between/not_between, bigint/numeric, in/not_in
-// (candidates are literals, not sub-expressions), agg/call (FunctionRef
-// first argument), own/full and family (rejected here — see relation.go's
-// doc comment on why they're select-only, not a sub-expression form).
+// parseCall consumes "(" [expr ("," expr)*] ")", cursor already at "(",
+// compiling ident(args...) to its query.ts array form.
 func (p *exprParser) parseCall(ident string) (any, error) {
 	p.i++ // consume '('
 	args, err := p.parseArgList()
@@ -228,13 +203,8 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 		canonical, known = querystringOnlyKeywords[ident], querystringOnlyKeywords[ident] != ""
 	}
 	if !known {
-		// Not a known operator/keyword word : per specs/query-json.md,
-		// `call`'s identifier "names an operator/function exactly as
-		// query.ts's ... aggregate or function name would" — an
-		// unrecognized name is a plain function call, query.ts's own
-		// ["call", identifier, ...arguments] form. The identifier itself
-		// (possibly dotted, e.g. "pg_catalog.lower") compiles the same way
-		// agg/call's own explicit FunctionIdentifier argument does.
+		// An unrecognized name is a plain function call — query.ts's own
+		// ["call", identifier, ...arguments] form (specs/query-json.md).
 		fnRef, err := functionRefFromName(ident)
 		if err != nil {
 			return nil, err
@@ -285,12 +255,8 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 		for _, a := range args[1:] {
 			lit, ok := a.(literalString)
 			if !ok {
-				// Numbers/bool/null already decode to their own bare JSON
-				// scalar via parseExpr, matching query.ts's own candidate
-				// type (string | Expression) — only a bare, unquoted
-				// IDENTIFIER candidate is rejected here (it decoded to a
-				// plain Go string, meaning "column reference", which the
-				// spec explicitly disallows for in/not_in candidates).
+				// Only a bare, unquoted identifier candidate is rejected —
+				// it decoded to "column reference", which the spec disallows here.
 				if pa, isPlain := a.(plainArg); isPlain {
 					if s, isIdent := pa.v.(string); isIdent {
 						return nil, oops.Errorf("%q candidate %q must be a quoted literal, not a bare identifier", ident, s)
@@ -304,10 +270,8 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 		return out, nil
 
 	case "format":
-		// query.ts's ["format", format: string, ...Expression[]] : unlike
-		// every other call form, the format string itself is a raw string
-		// field, not an Expression — so it must compile to a bare string,
-		// same special-casing as bigint/numeric's sole argument.
+		// query.ts's format string is a raw string field, not an Expression
+		// — same special-casing as bigint/numeric's sole argument.
 		if len(args) < 1 {
 			return nil, oops.Errorf("%q needs a format string", ident)
 		}
@@ -350,14 +314,8 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 		return out, nil
 
 	default:
-		// "-" and "~" each cover two query.ts operators of different arity
-		// (UnaryOperator vs. FoldedOperator/BinaryOperator) — see the word
-		// table's own note in specs/query-json.md : "each gets its own
-		// distinct word... so the collision doesn't carry over into this
-		// grammar at all." That guarantee only holds if the word chosen is
-		// actually checked against the arity it claims ; without this, e.g.
-		// neg(5,3) would silently compile to ["-",5,3] (subtraction) instead
-		// of rejecting the mismatched word.
+		// "-"/"~" each cover two operators of different arity ; the word
+		// chosen must be checked against the arity it claims (specs/query-json.md).
 		switch ident {
 		case "neg", "bnot":
 			if len(args) != 1 {
@@ -381,33 +339,24 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 	}
 }
 
-// literalString marks an argument that was written as a quoted string
-// literal, as opposed to a bare identifier that happens to also be a Go
-// string once compiled (parseExpr's identifier case) — callers needing to
-// tell "the user wrote 'x'" from "the user wrote x" (in/not_in candidates,
-// bigint/numeric's argument) switch on this wrapper type rather than on the
-// compiled value's own Go type, which is identical (string) in both cases.
+// literalString marks an argument written as a quoted literal — otherwise
+// indistinguishable from a bare identifier once both compile to a Go string.
 type literalString string
 
-// callArg is one already-parsed call argument, keeping enough of its own
-// syntactic shape (was it a quoted literal?) for the few call forms that
-// care, alongside its already-compiled query.ts JSON value.
+// callArg is one already-parsed call argument, keeping whether it was a
+// quoted literal alongside its compiled query.ts JSON value.
 type callArg interface{ value() any }
 
 func (s literalString) value() any { return []any{string(s)} }
 
-// identArg / plainArg wrap an ordinary compiled value (identifier,
-// call-result, number, bool, null) — value() is the value itself, no
-// literal-vs-identifier distinction needed by ordinary callers.
+// plainArg wraps an ordinary compiled value (identifier, call-result,
+// number, bool, null) — value() is just the value itself.
 type plainArg struct{ v any }
 
 func (a plainArg) value() any { return a.v }
 
-// parseArgList consumes [expr ("," expr)*] ")" — the cursor is positioned
-// right after the call's opening '('. Reuses parseExpr for each argument :
-// the exact same recursive-descent path parseExpr itself calls into for a
-// nested call, so there is only ever one comma-consuming loop in this
-// package.
+// parseArgList consumes [expr ("," expr)*] ")", cursor already past '(' ;
+// reuses parseExpr for each argument, so nested calls share one comma loop.
 func (p *exprParser) parseArgList() ([]callArg, error) {
 	var out []callArg
 	p.skipSpace()
@@ -449,10 +398,8 @@ func (p *exprParser) parseArgList() ([]callArg, error) {
 	}
 }
 
-// functionRefFromArg compiles agg/call's own first argument — a
-// FunctionIdentifier, written as a dotted identifier (schema-qualified,
-// -> {schema, name}) or a bare one (-> a plain string, resolved via the
-// search path), per query.ts's own two JSON forms.
+// functionRefFromArg compiles agg/call's own first argument into query.ts's
+// FunctionIdentifier — see functionRefFromName.
 func functionRefFromArg(a callArg) (any, error) {
 	pa, ok := a.(plainArg)
 	if !ok {
@@ -465,9 +412,8 @@ func functionRefFromArg(a callArg) (any, error) {
 	return functionRefFromName(name)
 }
 
-// functionRefFromName compiles a bare (possibly dotted) function-reference
-// identifier into query.ts's FunctionIdentifier JSON form : dotted ->
-// {schema, name}, bare -> the plain name string.
+// functionRefFromName compiles a bare (possibly dotted) identifier into
+// query.ts's FunctionIdentifier : dotted -> {schema, name}, bare -> itself.
 func functionRefFromName(name string) (any, error) {
 	if idx := strings.LastIndexByte(name, '.'); idx >= 0 {
 		return map[string]any{"schema": name[:idx], "name": name[idx+1:]}, nil
@@ -475,9 +421,7 @@ func functionRefFromName(name string) (any, error) {
 	return name, nil
 }
 
-// parseFullExpr parses s as exactly one expr, erroring if any trailing,
-// non-whitespace input remains — used for `where` and any other query key
-// whose whole value is one expression (not a comma-list).
+// parseFullExpr parses s as exactly one expr, erroring on trailing input.
 func parseFullExpr(s string) (any, error) {
 	p := newExprParser(s)
 	v, err := p.parseExpr()
@@ -490,12 +434,8 @@ func parseFullExpr(s string) (any, error) {
 	return v, nil
 }
 
-// parseTopLevelExprList parses s as a comma-separated list of `expr`
-// entries (specs/query-json.md's "## Comma lists share the expression
-// grammar's own tokenizer"), reusing the exact same parseExpr/comma loop
-// parseArgList uses for a call's own argument list — the top level of a
-// comma-list is syntactically identical to being "inside a call's
-// parentheses" minus the parentheses themselves.
+// parseTopLevelExprList parses a comma-separated list of `expr` entries —
+// parseArgList's own loop minus the enclosing parentheses (## Comma lists).
 func parseTopLevelExprList(s string) ([]any, error) {
 	p := newExprParser(s)
 	if p.atEnd() {

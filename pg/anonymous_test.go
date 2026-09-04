@@ -23,12 +23,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// TestNewInfosAdminQuery_AnonymousRoleExistence exercises
-// specs/authentication.md "# Roles ## Anonymous role existence"
-// directly against NewInfosAdminQuery's own new anonymousRole parameter :
-// a role that exists in pg_roles sets AnonymousRoleExists true, a name
-// that doesn't (a typo, or simply never created) sets it false — non-
-// fatal either way, never an error return.
+// Exercises authentication.md's Anonymous role existence check : pg_roles
+// existence sets AnonymousRoleExists, non-fatal either way.
 func TestNewInfosAdminQuery_AnonymousRoleExistence(t *testing.T) {
 	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 0, "plain_login_role_does_not_exist_xyz")
 	if err != nil {
@@ -55,14 +51,8 @@ func TestNewInfosAdminQuery_AnonymousRoleExistence(t *testing.T) {
 	}
 }
 
-// TestAnonymousAndPublicPrivilegeQuery_NonSuperuser runs the actual
-// has_schema_privilege/has_function_privilege two-conjunct query
-// route.BuildRegistry uses (specs/route.md "# HTTP ## Anonymous
-// route authorization") against testdata/anon_priv.sql's fixture, under a
-// non-superuser connecting role (plain_login_role) — both privilege
-// functions ask about ANOTHER role (probe_role, PUBLIC), never the
-// connecting role's own, so this must keep working the same way
-// nonsuperuser_test.go already proves for the rest of introspection.
+// Exercises route.BuildRegistry's has_schema_privilege/has_function_privilege
+// query (route.md Anonymous route authorization) under a non-superuser login.
 func TestAnonymousAndPublicPrivilegeQuery_NonSuperuser(t *testing.T) {
 	ctx := context.Background()
 	container, err := postgres.Run(ctx, "postgres:16-alpine",
@@ -85,12 +75,8 @@ func TestAnonymousAndPublicPrivilegeQuery_NonSuperuser(t *testing.T) {
 	uri := fmt.Sprintf("postgres://plain_login_role:test-password@%s:%s/postgres?sslmode=disable", host, port.Port())
 
 	t.Run("pg_roles existence check under a non-superuser introspection login", func(t *testing.T) {
-		// NewInfosAdminQuery itself, connecting AS plain_login_role (not the
-		// container's default superuser) — the actual code path
-		// TestNewInfosAdminQuery_AnonymousRoleExistence above exercises only
-		// under a superuser connection ; this proves the same query keeps
-		// working (and returns the CORRECT answer, not just "doesn't error")
-		// under the non-superuser constraint this file is about.
+		// Same query as the superuser test above, but connecting AS
+		// plain_login_role — proves the correct answer, not just "no error."
 		dbFound, err := NewInfosAdminQuery(uri, uri, 0, "probe_role")
 		if err != nil {
 			t.Fatalf("NewInfosAdminQuery as plain_login_role: %v", err)

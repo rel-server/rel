@@ -12,9 +12,8 @@ import (
 	"net/http"
 )
 
-// requestLoggerKey is unexported so no other package can collide with it by
-// constructing an equal-by-value context key — same convention jwt's own
-// contextKey and websec's WithNonce use.
+// requestLoggerKey is unexported so no other package can collide by
+// constructing an equal-by-value context key — same convention as jwt's contextKey.
 type requestLoggerKey struct{}
 
 // WithContext stashes logger on ctx, retrievable via FromContext.
@@ -40,16 +39,11 @@ func FromContext(ctx context.Context) *slog.Logger {
 // steps : read (or generate) a request ID, derive a child logger via
 // .With("request_id", id), store it on the request's context. Deliberately
 // does NOT echo the ID back as a response header — request_id's whole job
-// here is correlating log lines server-side ; a response header is a
-// separate, later concern (## Access logging's per-request summary line is
-// the natural place to decide that, not this middleware).
+// here is correlating log lines server-side ; a response header is
+// ## Access logging's own, separate concern.
 //
-// slog.Default() is resolved fresh inside the per-request closure below,
-// never captured once at RequestMiddleware construction time — the same
-// discipline logging.For's dynamicHandler applies, for the same reason :
-// BuildMux can run before logging.Install does in some call order, and a
-// logger captured too early would permanently miss the real configured
-// handler.
+// slog.Default() is resolved fresh per request, not captured once at
+// construction — same reasoning as dynamicHandler's (logging.go).
 func RequestMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-Id")
@@ -61,12 +55,8 @@ func RequestMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// newRequestID is a short random hex token — collision-safety only needs
-// to hold within one process's log retention window, not globally/
-// cryptographically, so 8 bytes (16 hex chars) is plenty ; same
-// crypto/rand + hex.EncodeToString shape as route/upload_handler.go's own
-// randomToken, reused here rather than pulling in a UUID dependency for
-// this alone.
+// newRequestID is a short random hex token ; 8 bytes is plenty since
+// collision-safety only needs to hold within one process's log retention window.
 func newRequestID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)

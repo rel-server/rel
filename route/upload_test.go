@@ -14,13 +14,8 @@ import (
 	"github.com/ceymard/rel/static"
 )
 
-// TestResolveUnderDir_RejectsTraversal regression-tests a real bug found by
-// adversarial review : filepath.Join(dir, filepath.Clean(sep+rel)) does NOT
-// reject a traversing rel — Clean roots ".." components at "/" before Join
-// ever runs, so "../../etc/passwd" (or an absolute "/etc/passwd") used to
-// silently resolve to a DIFFERENT, unintended path still under dir instead
-// of failing. ### Upload destinations' "Placement" paragraph requires a hard
-// rejection here, not a silent rewrite into some other location under dir.
+// TestResolveUnderDir_RejectsTraversal : a traversing or absolute rel is
+// rejected outright, never silently resolved elsewhere under dir.
 func TestResolveUnderDir_RejectsTraversal(t *testing.T) {
 	dir := "/srv/static"
 	for _, rel := range []string{
@@ -55,12 +50,8 @@ func TestResolveUnderDir_AllowsOrdinaryRelativePaths(t *testing.T) {
 	}
 }
 
-// newUploadTestHandler builds a fresh handler with http.static.path pointed
-// at a real, writable temp directory (config.Test()'s own default,
-// DefaultHttpStaticPath, doesn't exist in the test environment, so
-// static.New would return nil and every "path" upload would 500) — returns
-// the handler and the directory itself, for tests to assert on what
-// actually landed on disk.
+// newUploadTestHandler points http.static.path at a real, writable temp
+// dir ; config.Test()'s own default doesn't exist in the test environment.
 func newUploadTestHandler(t *testing.T) (http.Handler, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -96,8 +87,7 @@ func multipartUploadRequest(t *testing.T, target, fieldName, filename, contentTy
 }
 
 // TestUpload_HappyPath_Multipart covers the full ordering : __prepare
-// decides a path, bytes stream to a temp file, the mandatory function
-// commits, and the file appears at the final path only after that commit.
+// decides a path, bytes stream to temp, and the file lands only after commit.
 func TestUpload_HappyPath_Multipart(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
@@ -144,9 +134,8 @@ func TestUpload_HappyPath_Multipart(t *testing.T) {
 	}
 }
 
-// TestUpload_NoUpload_PrepareStillRuns covers "part is null" (no upload at
-// all) still invoking __prepare, with the mandatory function then running
-// with part/size null and nothing written to disk.
+// TestUpload_NoUpload_PrepareStillRuns : no upload still invokes
+// __prepare, then the mandatory function with part/size null.
 func TestUpload_NoUpload_PrepareStillRuns(t *testing.T) {
 	handler, _ := newUploadTestHandler(t)
 
@@ -170,8 +159,7 @@ func TestUpload_NoUpload_PrepareStillRuns(t *testing.T) {
 }
 
 // TestUpload_PrepareRejects_BeforeBytesRead proves an RSxxx from __prepare
-// ends the request before the mandatory function (and any byte streaming)
-// ever runs.
+// ends the request before the mandatory function or streaming ever runs.
 func TestUpload_PrepareRejects_BeforeBytesRead(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
@@ -221,9 +209,8 @@ func TestUpload_SecondMultipartPart_Is415(t *testing.T) {
 	}
 }
 
-// TestUpload_MandatoryRejects_TempFileDeleted proves that when the
-// mandatory function raises AFTER bytes are already on disk, the temp file
-// is removed and nothing ever appears at the final path.
+// TestUpload_MandatoryRejects_TempFileDeleted : when the mandatory
+// function raises after bytes are on disk, the temp file is removed.
 func TestUpload_MandatoryRejects_TempFileDeleted(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
@@ -281,14 +268,8 @@ func TestUpload_JsonBody_Is415(t *testing.T) {
 	}
 }
 
-// TestUpload_NoContentTypeHeader_StillStreams is a regression test for a
-// real bug found by hand : a non-multipart upload request with a real body
-// but NO Content-Type header at all used to be gated on
-// `contentTypeHeader != ""`, so it was silently treated as "no upload" and
-// never streamed. handleUploadRoute now gates on r.ContentLength != 0
-// instead — matching ## Request bodies' own "anything else... a single raw
-// binary POST" rule, where a missing Content-Type is treated the same as an
-// unrecognized one, not as "nothing to read."
+// TestUpload_NoContentTypeHeader_StillStreams : gated on r.ContentLength
+// != 0, not on a non-empty Content-Type header.
 func TestUpload_NoContentTypeHeader_StillStreams(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
@@ -311,9 +292,7 @@ func TestUpload_NoContentTypeHeader_StillStreams(t *testing.T) {
 		t.Errorf("unexpected file content: %q", got)
 	}
 
-	// Free extra assertion : synthesizedPseudoPart's own "content_type is
-	// nil, NOT the empty string, when the request had no Content-Type
-	// header" contract — echoed back as part.content_type == null.
+	// synthesizedPseudoPart's content_type is nil, not "", for no header.
 	var body struct {
 		Part struct {
 			ContentType *string `json:"content_type"`
@@ -328,8 +307,7 @@ func TestUpload_NoContentTypeHeader_StillStreams(t *testing.T) {
 }
 
 // TestUpload_OrphanFunctions_NotRoutable proves an orphan __prepare or
-// orphan mandatory function (no matching sibling) is never discovered as a
-// route at all.
+// mandatory function (no matching sibling) is never discovered as a route.
 func TestUpload_OrphanFunctions_NotRoutable(t *testing.T) {
 	if _, ok := testReg.Lookup("public", "fn_orphan_prepare", http.MethodGet); ok {
 		t.Errorf("expected fn_orphan_prepare__prepare's orphan base name not to be routable")
@@ -339,12 +317,8 @@ func TestUpload_OrphanFunctions_NotRoutable(t *testing.T) {
 	}
 }
 
-// TestUpload_Mkdir_CreatesMissingParentDirectory is a DEDICATED test for
-// mkdir:true actually creating a directory that did not exist beforehand —
-// TestUpload_HappyPath_Multipart also exercises mkdir:true, but only as a
-// side effect of a happy path that would ALSO pass if mkdir were silently a
-// no-op on an already-existing directory. This test explicitly asserts the
-// target subdirectory is absent before the request and present after.
+// TestUpload_Mkdir_CreatesMissingParentDirectory checks absent-before,
+// present-after — the happy-path test alone would pass even if mkdir no-op'd.
 func TestUpload_Mkdir_CreatesMissingParentDirectory(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 
@@ -366,10 +340,8 @@ func TestUpload_Mkdir_CreatesMissingParentDirectory(t *testing.T) {
 	}
 }
 
-// TestUpload_OverwriteAllow_RoundTrip proves overwrite:'allow' actually
-// replaces an existing file's content : write once, write again with
-// different content through the same route, confirm the final content on
-// disk is the SECOND write, not the first.
+// TestUpload_OverwriteAllow_RoundTrip : write twice through the same
+// route, confirm the disk content is the second write, not the first.
 func TestUpload_OverwriteAllow_RoundTrip(t *testing.T) {
 	handler, dir := newUploadTestHandler(t)
 	final := filepath.Join(dir, "roundtrip.txt")
@@ -400,13 +372,8 @@ func TestUpload_OverwriteAllow_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestUpload_AnonymousAuthorization_RequiresBothHalves closes an adversarial-
-// review-flagged gap : AnonymousAuthorized for an upload pair must be the
-// AND of both halves' own reachability, not just one. Two fixtures, each
-// restricting EXACTLY ONE half from PUBLIC/anonymous execute — both must
-// still 401 an anonymous caller, proving the combined check genuinely
-// requires both conjuncts rather than only checking the mandatory half (or
-// only the __prepare half).
+// TestUpload_AnonymousAuthorization_RequiresBothHalves : AnonymousAuthorized
+// is the AND of both halves — restricting either one still 401s.
 func TestUpload_AnonymousAuthorization_RequiresBothHalves(t *testing.T) {
 	for _, base := range []string{"fn_dest_anon_prepare_only", "fn_dest_anon_mandatory_only"} {
 		t.Run(base, func(t *testing.T) {
@@ -421,12 +388,8 @@ func TestUpload_AnonymousAuthorization_RequiresBothHalves(t *testing.T) {
 	}
 }
 
-// TestUpload_OrphanFunctions_HTTPLevel404 covers the same orphan-pair
-// discovery rule as TestUpload_OrphanFunctions_NotRoutable (registry-level),
-// but hitting the real handler over HTTP — a registry-level Lookup miss and
-// an HTTP 404 are two different code paths (handleRoute's own reg.Lookup call
-// vs a test calling Registry.Lookup directly), and only the HTTP path is
-// what an actual caller ever observes.
+// TestUpload_OrphanFunctions_HTTPLevel404 covers the same rule as
+// TestUpload_OrphanFunctions_NotRoutable, but over real HTTP.
 func TestUpload_OrphanFunctions_HTTPLevel404(t *testing.T) {
 	handler, _ := newUploadTestHandler(t)
 	for _, base := range []string{"fn_orphan_prepare", "fn_orphan_mandatory"} {

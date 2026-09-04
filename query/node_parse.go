@@ -43,26 +43,16 @@ type ParsedQuery struct {
 	Sequence  []ParsedQuery
 }
 
-// rawWriteQuery is query.ts's WriteQuery : `query: Relation | WellKnownQuery`
-// — exactly one of Query/WellKnown is set, mirroring the union. A
-// WellKnownQuery is written to the exact same way a Relation is : wrapped
-// in {query, data}, never carrying its own inline "data" (see rawWellKnown's
-// own doc comment). Data is query.ts's `data: any` — not interpreted here ;
-// kept as raw JSON for whichever later stage (writing algorithm) actually
-// walks it against the resolved tree.
+// rawWriteQuery is query.ts's WriteQuery ; exactly one of Query/WellKnown
+// is set. Data stays raw JSON, walked later by the writing algorithm.
 type rawWriteQuery struct {
 	Query     *rawRelation  // nil if WellKnown is set instead
 	WellKnown *rawWellKnown // nil if Query is set instead
 	Data      []byte
 }
 
-// rawWellKnown is query.ts's WellKnownQuery : `{wellknown, params?}`, no
-// "data" field of its own — a well-known query is invoked read-only when
-// it appears bare (ParsedQuery.WellKnown), or written to by wrapping it in
-// WriteQuery.query (rawWriteQuery.WellKnown) exactly like a Relation would
-// be, never by giving the bare form its own inline "data". Params is `any`
-// — not interpreted here, same "not this stage's job" reasoning as
-// rawWriteQuery.Data.
+// rawWellKnown is query.ts's WellKnownQuery, no "data" of its own — written
+// to only by wrapping it in WriteQuery.query, like a Relation.
 type rawWellKnown struct {
 	WellKnown string
 	Params    []byte
@@ -101,10 +91,7 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 			if err != nil {
 				return ParsedQuery{}, err
 			}
-			// A bare "wellknown" query, like a bare Relation, never carries
-			// its own "data" — write to it by wrapping it in
-			// {"query": {"wellknown": ...}, "data": ...} instead, exactly
-			// the same way a Relation is written to.
+			// Never its own "data" — wrap in {"query": {...}, "data": ...} instead.
 			if n.Get("data").Exists() {
 				return ParsedQuery{}, fmt.Errorf(`query: a bare "wellknown" query never takes "data" directly — wrap it in {"query": {...}, "data": ...} instead`)
 			}
@@ -149,12 +136,8 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 	}
 }
 
-// parseRawWellKnown decodes {wellknown, params?} off n (the object the
-// "wellknown" key was found on — either the top-level query object, for a
-// bare invocation, or a WriteQuery's own "query" object, for a written-to
-// one) given wk, n.Get("wellknown") already confirmed to exist by the
-// caller. Shared between both call sites in parseQueryNode so the two
-// don't drift on how params gets decoded.
+// parseRawWellKnown decodes {wellknown, params?} off n (wk already
+// confirmed to exist) ; shared so both call sites can't drift on params.
 func parseRawWellKnown(n *ast.Node, wk *ast.Node) (*rawWellKnown, error) {
 	name, err := wk.StrictString()
 	if err != nil {
@@ -169,17 +152,11 @@ func parseRawWellKnown(n *ast.Node, wk *ast.Node) (*rawWellKnown, error) {
 	return rawWK, nil
 }
 
-// rawRelation is query.ts's Relation, decoded one field at a time but not
-// yet resolved against pg — Relation/Function/Schema stay plain strings, On
-// stays a plain map, Join recurses. See node_resolve.go for what turns this
-// into a *QueryNode.
+// rawRelation is query.ts's Relation, decoded but not yet resolved against
+// pg ; node_resolve.go turns this into a *QueryNode.
 type rawRelation struct {
-	// Exactly one of Relation/Function is non-empty (IsFunction says which)
-	// — query.ts's "relation" and "function" keys are mutually exclusive, so
-	// a node names either a table/view or a function call, never both and
-	// never neither ; parseRawRelation rejects an empty string for whichever
-	// key was given, so this holds as a real invariant, not just "whichever
-	// key was present, however it decoded."
+	// Exactly one of Relation/Function is non-empty (IsFunction says which) ;
+	// parseRawRelation rejects an empty string for whichever key was given.
 	Relation   string
 	Function   string
 	IsFunction bool
@@ -189,10 +166,7 @@ type rawRelation struct {
 
 	On map[string]string // nil if absent
 
-	// Only meaningful when IsFunction. Absent entirely (both nil) for a
-	// function call taking no arguments — unlike the old "relation"+
-	// "arguments" scheme, there's no ambiguity to guard against here, since
-	// "function" alone already says this node is a call.
+	// Only meaningful when IsFunction ; both nil for a call with no arguments.
 	ArgumentsPositional []Expression
 	ArgumentsNamed      map[string]Expression
 
@@ -419,13 +393,8 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 	return raw, nil
 }
 
-// parseOrderByTerm disambiguates order_by's per-item union : a bare
-// Expression (default OrderAsc), or an explicit [direction, Expression]
-// pair. Only exactly one of the four known direction strings in the first
-// slot of a 2-element array counts as the tuple form — anything else falls
-// through to being parsed as a bare (2-element-array-shaped) Expression, no
-// different from how expression_parse.go's own tag dispatch avoids
-// collisions elsewhere.
+// parseOrderByTerm disambiguates a bare Expression from an explicit
+// [direction, Expression] pair — only a known direction string counts as the tuple form.
 func parseOrderByTerm(n *ast.Node) (OrderByTerm, error) {
 	if n.TypeSafe() == ast.V_ARRAY {
 		if items, err := n.ArrayUseNode(); err == nil && len(items) == 2 {

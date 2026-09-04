@@ -10,10 +10,8 @@ import (
 	"github.com/ceymard/rel/config"
 )
 
-// buildTo is Build, but writing to buf instead of os.Stdout — Build's own
-// handler construction is hardcoded to os.Stdout (matching ## Configuration
-// : "Output is always stdout"), so tests exercise the same handler-selection
-// logic directly against an in-memory writer instead.
+// buildTo is Build, but writing to buf instead of the hardcoded os.Stdout,
+// so tests can inspect the handler's output directly.
 func buildTo(buf *bytes.Buffer, cfg config.Logging) (*slog.Logger, error) {
 	level, err := parseLevel(cfg.Level)
 	if err != nil {
@@ -35,20 +33,14 @@ func buildTo(buf *bytes.Buffer, cfg config.Logging) (*slog.Logger, error) {
 	return slog.New(filtered), nil
 }
 
-// TestFor_ResolvesDefaultLazily is the regression test for For's own core
-// safety property : a logger built via For BEFORE slog.SetDefault ever runs
-// (exactly what happens when a package stores For's result in a package-
-// level var, since Go initializes those before main() gets to call
-// logging.Install) must still pick up whichever handler is installed later,
-// not freeze in whatever slog.Default() returned at construction time.
+// TestFor_ResolvesDefaultLazily : a logger built via For before
+// slog.SetDefault runs must still pick up the handler installed later.
 func TestFor_ResolvesDefaultLazily(t *testing.T) {
 	original := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(original) })
 
-	// Simulates a package-level `var log = logging.For("query")` : built
-	// against whatever slog.Default() is RIGHT NOW (the stdlib's own
-	// built-in default in a real init-order scenario), before the real
-	// handler exists.
+	// Simulates a package-level `var log = logging.For("query")`, built
+	// before the real handler exists (Go's actual init-order).
 	log := For("query")
 
 	var buf bytes.Buffer
@@ -68,9 +60,8 @@ func TestFor_ResolvesDefaultLazily(t *testing.T) {
 	}
 }
 
-// TestFor_WithAttrsAccumulates confirms a further .With(...) off a For(...)
-// logger keeps the module attribute rather than replacing it — dynamicHandler
-// merges attrs, it doesn't overwrite.
+// TestFor_WithAttrsAccumulates : a further .With(...) off a For(...) logger
+// keeps the module attribute — dynamicHandler merges, doesn't overwrite.
 func TestFor_WithAttrsAccumulates(t *testing.T) {
 	original := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(original) })

@@ -101,10 +101,8 @@ var binaryOperators = map[string]BinaryOperator{
 	string(BinaryFullTextSearch): BinaryFullTextSearch,
 }
 
-// foldedOperators maps every tag query.ts allows for a FoldedOperator,
-// including the JS-alias spellings ("!=", "!==", "==="), onto their
-// canonical FoldedOperator constant — see the Fold* const comments in
-// expression.go.
+// foldedOperators maps every query.ts tag, including JS-alias spellings
+// ("!=", "!==", "==="), onto its canonical FoldedOperator constant.
 var foldedOperators = map[string]FoldedOperator{
 	string(FoldAnd): FoldAnd, string(FoldOr): FoldOr,
 	string(FoldAdd): FoldAdd, string(FoldSub): FoldSub, string(FoldMul): FoldMul, string(FoldDiv): FoldDiv,
@@ -120,11 +118,8 @@ var foldedOperators = map[string]FoldedOperator{
 	string(FoldIsNotDistinctFrom): FoldIsNotDistinctFrom, "===": FoldIsNotDistinctFrom,
 }
 
-// comparisonFoldOps are the FoldedOperator members that fold into a chain of
-// pairwise comparisons ANDed together, per query.ts's own worked example
-// (["<", 1, 2, 3, 4] -> ["and", ["<",1,2], ["<",2,3], ["<",3,4]]). Everything
-// else folds the ordinary left-associative way
-// (["-", 4, 3, 2, 1] -> ["-", ["-", ["-", 4, 3], 2], 1]).
+// comparisonFoldOps fold into pairwise-ANDed comparisons
+// (["<",1,2,3] -> ["and",["<",1,2],["<",2,3]]) ; everything else is ordinary left-associative folding.
 var comparisonFoldOps = map[FoldedOperator]bool{
 	FoldLte: true, FoldGte: true, FoldLt: true, FoldGt: true, FoldEq: true,
 	FoldNeq: true, FoldIsDistinctFrom: true, FoldIsNotDistinctFrom: true,
@@ -139,15 +134,8 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return nil, fmt.Errorf("query: empty array is not a valid expression")
 	}
 
-	// [string] : a string literal, the one array form with no leading tag —
-	// tried first since every other form requires a leading string tag and
-	// this is the only one that doesn't dispatch on it. StrictString, not
-	// String : a single-element number/bool array must not be silently
-	// coerced into a string literal. Excludes "own"/"full" : those are also
-	// valid one-element-string-array tags (the only zero-argument ones —
-	// every other tag needs at least one more element), so without this
-	// exclusion ["own"]/["full"] would always parse as a StringLiteral and
-	// OwnExpr{}/FullExpr{} would be unreachable through the JSON grammar.
+	// [string] : the one tag-less array form, tried first. Excludes
+	// "own"/"full" — the only zero-argument tags, else unreachable.
 	if len(items) == 1 {
 		if s, err := items[0].StrictString(); err == nil && s != "own" && s != "full" {
 			return StringLiteral{Value: s}, nil
@@ -158,12 +146,8 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: expression array must start with a string tag, or contain exactly one string (a literal): %w", err)
 	}
-	// specs/query-json.md's word-form operator spelling is an accepted
-	// synonym here, normalized to its canonical query.ts tag immediately —
-	// before scope resolution or anything else downstream ever sees it. See
-	// operator_words.go's OperatorWords doc comment : same table the
-	// querystring package's filter-expression grammar uses, one source of
-	// truth for both.
+	// Word-form synonyms (specs/query-json.md) normalize to their canonical
+	// tag here, before anything downstream sees it — see OperatorWords.
 	if canonical, ok := OperatorWords[tag]; ok {
 		tag = canonical
 	}
@@ -427,12 +411,8 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return ParamExpr{Name: name, Cast: cast}, nil
 	}
 
-	// Not a fixed keyword form : try unary/binary/folded operators,
-	// disambiguated by arity. "-" (unary negate vs. folded subtract) and "~"
-	// (unary bitwise-not vs. binary regex match) are each members of two
-	// vocabularies at once ; checking unary before folded, at their
-	// respective fixed arities, resolves both without ambiguity (see
-	// expression.go's operator const comments).
+	// "-"/"~" are members of two vocabularies ; checking unary (fixed
+	// arity 1) before folded/binary resolves both without ambiguity.
 	if op, ok := unaryOperators[tag]; ok && len(rest) == 1 {
 		expr, err := parseNode(&rest[0])
 		if err != nil {
@@ -485,9 +465,8 @@ func foldExpression(op FoldedOperator, operands []Expression) (Expression, error
 	return result, nil
 }
 
-// parseDefaultPosition parses GetExpr/SetExpr/GetSetExpr's default-value
-// slots, where a bare "default" string means DefaultKeyword rather than an
-// Identifier — see DefaultKeyword's doc comment.
+// parseDefaultPosition parses a default-value slot, where a bare "default"
+// string means DefaultKeyword rather than an Identifier.
 func parseDefaultPosition(n *ast.Node) (Expression, error) {
 	if s, err := n.StrictString(); err == nil && s == "default" {
 		return DefaultKeyword{}, nil
@@ -600,11 +579,8 @@ func parseExpressionObjectArg(tag string, rest []ast.Node) (map[string]Expressio
 	return parseObjectFields(&rest[0])
 }
 
-// parseFunctionRef parses AggExpr/CallExpr's identifier position : either a
-// bare string (unqualified Name, resolved via search path at pass 2 — never
-// split on "."), or an explicit {schema, name} object. See FunctionRef's doc
-// comment for why a single "schema.name" string was deliberately not made
-// the way to spell a qualified name.
+// parseFunctionRef parses AggExpr/CallExpr's identifier : a bare string
+// (unqualified, never split on ".") or an explicit {schema, name} object.
 func parseFunctionRef(n *ast.Node) (FunctionRef, error) {
 	switch n.TypeSafe() {
 	case ast.V_STRING:
@@ -637,25 +613,15 @@ func parseFunctionRef(n *ast.Node) (FunctionRef, error) {
 	}
 }
 
-// validBigIntLiteral/validNumericLiteral gate ["bigint", v]/["numeric", v]'s
-// own v — query.ts's escape hatch for arbitrary-precision values a JSON
-// float64 can't carry losslessly. sql_expr.go's compileExpr binds v as a
-// $n parameter (text) with a ::bigint/::numeric cast, same as any other
-// literal — Postgres itself rejects a malformed cast target at execution
-// time regardless, so this gate isn't the only thing standing between a
-// malformed v and the database the way castTypeName (below) is for a
-// cast's type-name operand (which genuinely can't be bound, being SQL
-// syntax rather than a value). It exists so a malformed v is a clean 400
-// at parse time instead of a raw Postgres "invalid input syntax" error
-// surfacing through pgerr's unclassified tier.
+// validBigIntLiteral/validNumericLiteral gate v so a malformed value is a
+// clean 400 at parse time, not a raw Postgres "invalid input syntax" error.
 var (
 	validBigIntLiteral  = regexp.MustCompile(`^-?[0-9]+$`)
 	validNumericLiteral = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$`)
 )
 
 // parseValidatedStringArgLiteral is parseStringArgLiteral plus a format
-// gate on the string itself, for the two literal kinds whose value is
-// written straight into SQL text rather than bound as a parameter.
+// gate, for literal kinds written straight into SQL text, not bound.
 func parseValidatedStringArgLiteral(tag string, rest []ast.Node, valid *regexp.Regexp, build func(string) Expression) (Expression, error) {
 	if len(rest) != 1 {
 		return nil, fmt.Errorf("query: %q expects exactly one string argument, got %d", tag, len(rest))

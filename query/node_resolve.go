@@ -33,28 +33,12 @@ type ResolveContext struct {
 	Db     *pg.DbInfos
 	Config *config.Config
 
-	// shapeInProgress marks nodes whose selectShape (expression_resolve.go)
-	// is currently being computed — detects a select that hops into its own
-	// node's Shape via a self-reference (e.g. select: {"x": [".", "self",
-	// "id"]}), which would otherwise recurse : selectShape -> resolveChain
-	// (still unresolved) -> Identifier "self" -> *QueryNode landing on this
-	// same node -> resolveExternalHop -> selectShape again, forever. Lazily
-	// allocated ; nil is a valid, empty map to read from.
+	// Guards a select self-reference from recursing forever through
+	// selectShape -> resolveChain -> self -> selectShape. Nil reads as empty.
 	shapeInProgress map[*QueryNode]bool
 
-	// resolvingOwn marks nodes currently resolving their OWN where/select/
-	// distinct_on/order_by (set for that block's duration in
-	// ResolveExpressions) — resolveExternalHop consults this to refuse a
-	// self-alias hop into a node's own Shape from within its own
-	// expressions (only an *external* hop, from a parent, may see a target's
-	// computed select keys). Distinct from shapeInProgress : that one guards
-	// selectShape's own reentrancy (the "select" position specifically,
-	// e.g. nested inside a literal) ; this one enforces the broader
-	// no-self-shape-visibility rule across where/select/distinct_on/
-	// order_by alike, including the case where selectShape has ALREADY
-	// finished caching node.Shape by the time a later sibling field (e.g.
-	// where, resolved before select) reaches the same hop. Lazily
-	// allocated ; nil is a valid, empty map to read from.
+	// Marks a node resolving its own where/select/distinct_on/order_by, so
+	// resolveExternalHop can refuse a self-alias hop into its own Shape.
 	resolvingOwn map[*QueryNode]bool
 }
 
@@ -75,17 +59,8 @@ var writeModeByString = map[string]WriteMode{
 	"deleteonly":   DELETE_ONLY,
 }
 
-// resolveNode resolves one node. parent is nil for the root. outerAlias is
-// the key this node sits under in its parent's `join` map (irrelevant, left
-// "" for the root). depth counts the root as 1 ; config.Query.MaxDepth
-// bounds it (specs/query-engine.md ## Configuration's pg.query.max_depth).
-//
-// Order matters here — see specs/query-engine.md's Pass 1 description :
-// the node's own relation/function must resolve before `on` can be checked
-// against it ; cardinality (isToOne) must be known before write_mode can be
-// defaulted/validated ; on_conflict/insert_columns/update_columns need
-// node.Relation, which may be nil for a function node whose return type
-// isn't a known relation.
+// resolveNode resolves one node ; parent is nil for the root, depth counts
+// the root as 1 (bounded by pg.query.max_depth) ; see Pass 1's own ordering.
 func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, outerAlias string, depth int) (*QueryNode, error) {
 	name := raw.Relation
 	if raw.IsFunction {
@@ -111,20 +86,12 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 		node.Function = fn
 		node.FunctionArguments = raw.ArgumentsPositional
 		node.FunctionArgumentMap = raw.ArgumentsNamed
-		// A table-valued function is joinable/writable exactly like the type
-		// it returns (query.ts's own note) ; nil here just means this
-		// particular function's return type isn't a known relation, which
-		// only matters once something below tries to join/write through it.
+		// A table-valued function is joinable/writable like the type it
+		// returns (query.ts) ; nil just means it isn't a known relation yet.
 		node.Relation = ctx.Db.GetRelationByType(fn.PgReturnTypeOid)
 		if node.Relation == nil {
-			// RETURNS TABLE(...) / plain OUT-parameters : prorettype is the
-			// one generic, shared pg_catalog.record pseudo-type, which never
-			// resolves to a real relation via GetRelationByType above (see
-			// pg.Function.RecordRelation's own doc comment) — fn.RecordRelation
-			// is this function's OWN column list instead, built once at
-			// introspection time from its OUT-mode arguments. Still nil for a
-			// function with no OUT arguments at all (a bare scalar return),
-			// same as before.
+			// RETURNS TABLE(...)/OUT-params share one generic prorettype, so
+			// GetRelationByType can't resolve them — see RecordRelation's own doc.
 			node.Relation = fn.RecordRelation
 		}
 	} else {
@@ -154,9 +121,7 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 		}
 
 		// Built directly from raw.On against each side's ColumnsMap, not
-		// from the *pg.Constraint ResolveJoin returns : that constraint's
-		// Target is nil on the non-FK eligibility path, and even when set,
-		// "which side" isn't reliably the child's — see specs/query-engine.md.
+		// the *pg.Constraint ResolveJoin returns — its Target isn't reliably the child's.
 		localNames := make([]string, 0, len(raw.On))
 		for local := range raw.On {
 			localNames = append(localNames, local)
@@ -273,29 +238,15 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 	return node, nil
 }
 
-// resolveFunction picks the single *pg.Function candidate matching raw's
-// schema/name and call shape. Only plain functions (prokind 'f') are
-// eligible here — aggregates/window functions/procedures are a different
-// kind of call, not a relation/function-position root. Named-argument calls
-// disambiguate by matching every given name against the candidate's
-// IN/INOUT argument names ; positional calls disambiguate by arity via
-// AcceptsArity. More than one surviving candidate is an ambiguity error,
-// not a guess.
+// resolveFunction picks raw's candidate restricted to plain functions ; a
+// relation/function-position root is never an aggregate/window/procedure call.
 func (ctx *ResolveContext) resolveFunction(raw *rawRelation, oc oops.OopsErrorBuilder) (*pg.Function, error) {
 	return resolveFunctionCandidate(ctx.Db, ctx.Config.Blacklist, raw.Schema, raw.Function,
 		raw.ArgumentsPositional, raw.ArgumentsNamed, (*pg.Function).IsPlainFunction, oc)
 }
 
 // resolveFunctionCandidate picks the single *pg.Function candidate matching
-// schema/name and call shape, filtered by kindOK — (*pg.Function).
-// IsPlainFunction for a relation/function-position root or a "call"
-// expression, (*pg.Function).IsAggregate for an "agg" expression. Shared
-// core behind pass 1's resolveFunction (a node's own root) and pass 2's
-// AggExpr/CallExpr resolution (a function reference embedded inside an
-// expression) — same disambiguation rules either way : named-argument calls
-// match every given name against the candidate's IN/INOUT argument names
-// (functionAcceptsNames), positional calls match by arity (AcceptsArity).
-// More than one surviving candidate is an ambiguity error, not a guess.
+// schema/name/call shape, filtered by kindOK ; >1 survivor is an ambiguity error.
 func resolveFunctionCandidate(
 	db *pg.DbInfos, bl config.Blacklist,
 	schema, name string,
@@ -345,14 +296,8 @@ func resolveFunctionCandidate(
 	return fn, nil
 }
 
-// functionAcceptsNames reports whether a named-argument call matches f :
-// every given name must be one of f's input parameter names, AND every
-// *required* input parameter (Postgres only allows defaults on the trailing
-// PgNargsDefaults input parameters, so the first PgNargs-PgNargsDefaults, in
-// declared order, are the required ones) must be present among the given
-// names. Checking only the first half (every given name is valid) isn't
-// enough : {a: 1} against fn(a int, b int) — both required, no default —
-// would wrongly count as a match if b's absence went unchecked.
+// functionAcceptsNames requires every given name AND every required
+// (no-default) param present — {a: 1} against fn(a, b) must fail on b.
 func functionAcceptsNames(f *pg.Function, named map[string]Expression) bool {
 	inputNames := make([]string, 0, len(f.Arguments))
 	nameSet := make(map[string]bool, len(f.Arguments))

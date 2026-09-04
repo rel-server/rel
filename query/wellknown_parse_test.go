@@ -48,11 +48,8 @@ func TestParseWellKnownFile_ArrayOfDefinitions(t *testing.T) {
 	}
 }
 
-// TestParseWellKnownFile_DefaultPresenceStates pins the spec's three
-// distinct default states (## Definition) : the param's own HasDefault/
-// Default fields must tell "no default key" (required), "default: null"
-// (optional, defaults to SQL NULL), and "default: <value>" apart — a plain
-// map[string]any lookup on the decoded JSON can't distinguish the first two.
+// TestParseWellKnownFile_DefaultPresenceStates pins HasDefault/Default
+// distinguishing the spec's 3 default states — a plain map lookup can't tell them apart.
 func TestParseWellKnownFile_DefaultPresenceStates(t *testing.T) {
 	defs, err := ParseWellKnownFile([]byte(`{
 		"name": "three_states",

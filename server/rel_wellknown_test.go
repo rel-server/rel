@@ -19,10 +19,8 @@ import (
 	"github.com/ceymard/rel/wellknown"
 )
 
-// newWellKnownRelHandler writes files under a fresh temp directory, points
-// a throwaway config copy's WellKnownDirs at it, builds a
-// *wellknown.Registry against the shared testDb, and returns a /rel
-// handler wired to it.
+// newWellKnownRelHandler writes files to a temp dir, builds a
+// *wellknown.Registry over it, and returns a /rel handler wired to it.
 func newWellKnownRelHandler(t *testing.T, files map[string]string) http.Handler {
 	t.Helper()
 	dir := t.TempDir()
@@ -110,9 +108,8 @@ func TestRelHandler_WellKnown_POST_MissingRequiredParam(t *testing.T) {
 	}
 }
 
-// TestRelHandler_WellKnown_POST_Write pins the whole point of the fold-in :
-// a well-known query wrapped in WriteQuery.query, written to exactly like
-// a Relation would be.
+// TestRelHandler_WellKnown_POST_Write : a well-known query wrapped in
+// WriteQuery.query, written to exactly like a Relation would be.
 func TestRelHandler_WellKnown_POST_Write(t *testing.T) {
 	handler := newWellKnownRelHandler(t, map[string]string{
 		"q.json": `{
@@ -138,10 +135,8 @@ func TestRelHandler_WellKnown_POST_Write(t *testing.T) {
 	}
 }
 
-// TestRelHandler_WellKnown_Sequence pins the actual point of dropping the
-// separate endpoint : a well-known read composed alongside an ordinary
-// Relation read, in the same Sequence, same transaction — something the
-// old dedicated /wellknown endpoint could never do at all.
+// TestRelHandler_WellKnown_Sequence : a well-known read composed alongside
+// a plain Relation read, same Sequence, same transaction.
 func TestRelHandler_WellKnown_Sequence(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('WellKnown Sequence Director')`); err != nil {
@@ -174,10 +169,8 @@ func TestRelHandler_WellKnown_Sequence(t *testing.T) {
 	}
 }
 
-// TestRelHandler_WellKnown_Sequence_Write pins the case
-// well-known-queries.md ## Behaviour's node-ID-offset caveat is about : a
-// well-known write sharing a Sequence (and thus a WriteState) with a plain
-// write, so its __node_id assignment is no longer offset 0.
+// TestRelHandler_WellKnown_Sequence_Write : well-known-queries.md
+// ## Behaviour's node-ID-offset caveat — a well-known write sharing a Sequence/WriteState with a plain write.
 func TestRelHandler_WellKnown_Sequence_Write(t *testing.T) {
 	handler := newWellKnownRelHandler(t, map[string]string{
 		"q.json": `{
@@ -240,12 +233,8 @@ func TestRelHandler_WellKnown_GET_Read(t *testing.T) {
 	}
 }
 
-// TestRelHandler_WellKnown_GET_QuotedParamStaysString pins
-// coerceQueryStringLeaves' escape hatch : a text-typed param whose value
-// looks numeric must still be reachable via GET by URL-encoding explicit
-// JSON quotes around it, rather than being permanently rejected by the
-// type check (an unquoted "12345" would coerce to the number 12345 and
-// fail a text-typed param's check).
+// TestRelHandler_WellKnown_GET_QuotedParamStaysString : coerceQueryStringLeaves'
+// %22-quoted escape hatch for a text-typed param that looks numeric.
 func TestRelHandler_WellKnown_GET_QuotedParamStaysString(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('12345')`); err != nil {
@@ -273,10 +262,8 @@ func TestRelHandler_WellKnown_GET_QuotedParamStaysString(t *testing.T) {
 	}
 }
 
-// TestDecodeGETQuery_WellKnownArrayParamValue pins the query-json.md
-// grammar's array/object case : a whole-value JSON array, URL-encoded
-// into one params.<name>= key, round-trips through
-// querystring.DecodeQueryField + coerceQueryStringLeaves intact.
+// TestDecodeGETQuery_WellKnownArrayParamValue : a whole-value JSON array
+// URL-encoded into one params.<name>= key round-trips intact.
 func TestDecodeGETQuery_WellKnownArrayParamValue(t *testing.T) {
 	got, err := decodeGETQuery("wellknown=q&params.tags=%5B1%2C2%2C3%5D")
 	if err != nil {

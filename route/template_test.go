@@ -11,12 +11,8 @@ import (
 	"github.com/ceymard/rel/websec"
 )
 
-// newTemplateTestHandler builds a fresh handler with http.templates.path
-// pointed at a real temp directory containing greet.jet — config.Test()'s
-// own default (DefaultHttpTemplatesPath, "/template") doesn't exist in the
-// test environment, so NewTemplateSet would build a *jet.Set pointed at a
-// nonexistent directory (fine for GetTemplate to fail against, but not what
-// these tests want to exercise for the happy path).
+// newTemplateTestHandler points http.templates.path at a real temp dir ;
+// config.Test()'s own default path doesn't exist in the test environment.
 func newTemplateTestHandler(t *testing.T, templateBody string) (http.Handler, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -71,16 +67,8 @@ func TestTemplate_LoadFailure_Is500(t *testing.T) {
 	}
 }
 
-// TestTemplate_RuntimeError_Is500 proves a template referencing a field
-// that doesn't exist errors at execution time, also a 500 — and, critically,
-// that the failure produces a CLEAN 500 with no partially-written body, not
-// a 200 with a truncated/corrupted document. writeTemplateResponse buffers
-// the entire render before writing anything (bytes.Buffer, then one single
-// w.Write call) specifically so a mid-render failure can still be turned
-// into a proper error response instead of bytes already having reached the
-// client — this test writes some literal text BEFORE the failing
-// expression, so a regression back to a non-buffered, straight-to-w.Write
-// per-node renderer would leak that leading text into a 200 response.
+// TestTemplate_RuntimeError_Is500 : a clean 500, no partial body ; writes
+// leading text before the failure so unbuffered rendering would leak it.
 func TestTemplate_RuntimeError_Is500(t *testing.T) {
 	handler, _ := newTemplateTestHandler(t, `some leading output before the failure {{ Data.name.nonexistent.deeper }}`)
 
@@ -99,17 +87,13 @@ func TestTemplate_RuntimeError_Is500(t *testing.T) {
 	}
 }
 
-// TestTemplate_ReqReflectsNestedJwtClaims proves the "Req" VarMap's jwt
-// field is the exact RelHttpRequest.jwt the route function itself received
-// : an authenticated call sees nested claims (Req.jwt.role), an anonymous
-// call sees Req.jwt as a JSON null (an object key present, not absent).
+// TestTemplate_ReqReflectsNestedJwtClaims : Req.jwt is JSON null (present,
+// not absent) when anonymous, nested claims when authenticated.
 func TestTemplate_ReqReflectsNestedJwtClaims(t *testing.T) {
 	handler, _ := newTemplateTestHandler(t, `{{if isset(Req.jwt)}}role={{ Req.jwt.role }}{{else}}jwt-is-nil=true{{end}}`)
 
-	// Anonymous call : Req.jwt must be nil (JSON null), not merely absent —
-	// Jet's isset(nil) is false for a Go nil interface, same as an absent
-	// map key, so this specifically proves buildRelHttpRequest's own "jwt
-	// key always present, null when anonymous" contract survives into Req.
+	// Jet's isset(nil) is false for both a nil interface and an absent key,
+	// so this only proves "jwt always present, null when anonymous" holds.
 	anonReq := httptest.NewRequest(http.MethodGet, "/route/public/fn_template", nil)
 	anonRec := httptest.NewRecorder()
 	handler.ServeHTTP(anonRec, anonReq)
@@ -147,9 +131,8 @@ func TestTemplate_ReqReflectsNestedJwtClaims(t *testing.T) {
 	}
 }
 
-// TestTemplate_NoTemplatesConfigured_Is500 proves a route setting
-// "template" when no http.templates.path directory is configured/found is
-// a 500, not a panic or silent fallback.
+// TestTemplate_NoTemplatesConfigured_Is500 : no configured templates.path
+// is a 500, never a panic or silent fallback.
 func TestTemplate_NoTemplatesConfigured_Is500(t *testing.T) {
 	cfg := *testCfg
 	cfg.Http.Templates.Path = "" // NewTemplateSet returns nil for ""

@@ -124,31 +124,14 @@ func (ctx *ResolveContext) deriveNodeShape(node *QueryNode, oc oops.OopsErrorBui
 	return shape, nil
 }
 
-// identityIsWritable checks that every identity-target column (on_conflict's
-// columns if set, else the primary key's) came out writable — count exactly
-// 1, clean — in accum.
+// identityIsWritable checks every identity-target column came out writable
+// in accum — count exactly 1, clean.
 func identityIsWritable(node *QueryNode, accum *writeAccum) bool {
 	if node.Relation == nil {
 		return false
 	}
-	// A function-rooted (or function-embedded) node is NEVER writable,
-	// unconditionally — see specs/query-engine.md ## Reading Algorithm
-	// ### Function-rooted nodes for the full "why." In short : the Writing
-	// Algorithm always targets node.Relation's own underlying table
-	// directly (INSERT/UPDATE/DELETE by name), never "through" the
-	// function that was used to read it — so any filtering the function's
-	// own SQL body does (a WHERE clause, a soft-delete filter, anything)
-	// is silently bypassed for writes. A Postgres VIEW has a real,
-	// enforced equivalent of this problem (auto-updatable views, or an
-	// INSTEAD OF trigger, are the ONLY way to write through one) ; a
-	// function has no such mechanism, and rel can't inspect a function's
-	// body at introspection time to tell "this is a safe passthrough"
-	// from "this embeds real access control," so it can't safely allow
-	// writes for some functions and not others either. This check is
-	// deliberately unconditional (checked before PrimaryKey/OnConflict
-	// below, which would otherwise make a function returning a real
-	// composite/relation type look writable purely because its
-	// underlying table happens to have a primary key).
+	// A function-rooted node is never writable (### Function-rooted nodes) ;
+	// checked before PrimaryKey/OnConflict so its underlying table can't leak through.
 	if node.IsFunction() {
 		return false
 	}
@@ -176,11 +159,8 @@ func identityIsWritable(node *QueryNode, accum *writeAccum) bool {
 	return true
 }
 
-// writeAccum tracks, per ColumnPath (keyed by ColumnPath.Key(), since
-// composite sub-fields are independently writable and []*pg.Column isn't a
-// valid map key), how many times it was referenced in Select and whether
-// every reference so far was "clean" (bare, or wrapped only by coalescing
-// operators, or via set/get-set — never get, which is excluded entirely).
+// writeAccum tracks, per ColumnPath.Key(), reference count and whether
+// every reference so far was "clean" (bare, coalesced, or set/get-set).
 type writeAccum struct {
 	occurrences map[string]int
 	clean       map[string]bool
@@ -203,16 +183,8 @@ func (a *writeAccum) record(path ColumnPath, jsonPath []string, isClean bool) {
 	}
 }
 
-// walkSelectForWritability descends through expr, threading jsonPath (the
-// select-output key path so far) and coalesceOnly (whether every wrapper
-// seen since the start of the CURRENT field was a coalescing operator — see
-// specs/query-engine.md's ## Writability rule). get's Column is never recorded at
-// all (read-only, excluded entirely) ; get-set's/set's Column is recorded at
-// the CURRENT jsonPath (the output key this get-set/set sits at), which may
-// differ from Column's own name when nested under a renaming key. Default-
-// value sub-expressions (get's DefaultValue, get-set's DefaultGet/
-// DefaultSet) are never walked — a default expression supplies a fallback
-// value, it doesn't claim the columns it reads as its own write target.
+// walkSelectForWritability descends expr, threading jsonPath and
+// coalesceOnly (## Writability) ; get is never recorded, default-value sub-expressions are never walked.
 func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []string, coalesceOnly bool, accum *writeAccum) {
 	if expr == nil {
 		return
@@ -249,41 +221,8 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 			walkSelectForWritability(v.Left, node, jsonPath, coalesceOnly, accum)
 			walkSelectForWritability(v.Right, node, jsonPath, coalesceOnly, accum)
 		case FoldDot:
-			// A "." chain used bare as a select value (e.g. [".", "home",
-			// "city"]) is ONE reference to whatever it lands on — the
-			// terminal composite sub-field — not two : Left is only ever
-			// the static navigation prefix (another Identifier or nested
-			// "." FoldedExpr, never a value in its own right), so walking
-			// it as a separate occurrence (the pre-fix behavior) would
-			// spuriously record the containing composite column as touched
-			// too, permanently marking BOTH it and the sub-field dirty even
-			// on a single, otherwise-clean reference. Right is always an
-			// *Identifier (resolveHopInto's own invariant), whose Resolved
-			// already carries the FULL path (composite navigation is
-			// resolved eagerly, not lazily), so recording just Right,
-			// exactly like the bare *Identifier case above, would be
-			// complete IF the chain stayed within node's own relation — but
-			// a "." chain can also hop INTO A CHILD (e.g. [".", "movies",
-			// "title"]), landing on a ColumnPath whose Node is that CHILD,
-			// not node. That write target belongs to the child's own Shape
-			// derivation (walked separately, when DeriveShapes reaches that
-			// child), never smuggled into node's own accumulator — cp.Node
-			// == node is the guard that keeps this to genuine same-node
-			// composite navigation only.
-			//
-			// A chain that hops through an ["index", ...] anywhere along the
-			// way (e.g. [".", ["index", "addresses", 1], "city"]) is
-			// deliberately EXCLUDED here too, conservatively : ColumnPath
-			// carries no record of which array element was navigated
-			// through (only ElementType, cleared again the moment a further
-			// "." hop lands on the element's own field — see
-			// TestResolveExpressions_ArrayIndexThenDot), so two different
-			// indices collapse to the identical Key() and there is currently
-			// no way for a write-side extractor to know which array element
-			// a value belongs to. Whether an indexed element should be a
-			// legal write target at all is an open question for whoever
-			// designs the write extractor, not a default to silently opt
-			// into here.
+			// Record only Right ; cp.Node == node excludes a hop into a
+			// child's own column, and an index-hopping chain (see TestResolveExpressions_ArrayIndexThenDot).
 			if id, ok := v.Right.(*Identifier); ok && !chainHopsThroughIndex(v) {
 				if cp, ok := id.Resolved.(ColumnPath); ok && cp.Node == node {
 					accum.record(cp, jsonPath, coalesceOnly)
@@ -403,11 +342,8 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 	}
 }
 
-// chainHopsThroughIndex reports whether e (a "." FoldedExpr, or something
-// nested along its Left spine) passes through an ["index", ...] hop anywhere
-// along the way. Only Left is ever recursed into : Right, in a "." chain, is
-// always a plain *Identifier (resolveHopInto's own invariant), never another
-// hop-bearing sub-expression.
+// chainHopsThroughIndex reports whether e's Left spine passes through an
+// ["index", ...] hop ; only Left recurses, Right is always a plain *Identifier.
 func chainHopsThroughIndex(e Expression) bool {
 	switch v := e.(type) {
 	case IndexExpr:

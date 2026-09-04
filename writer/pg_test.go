@@ -15,9 +15,8 @@ func TestEscapeSQLId_ReservedKeyword(t *testing.T) {
 }
 
 func TestEscapeSQLId_MixedCaseRequiresQuoting(t *testing.T) {
-	// validUnquotedId only matches all-lowercase — Postgres folds unquoted
-	// identifiers to lowercase, so a mixed-case name must be quoted or it
-	// would silently refer to something else.
+	// Postgres folds unquoted identifiers to lowercase, so mixed-case must
+	// be quoted or it would silently refer to something else.
 	if got, want := EscapeSQLId("MixedCase"), `"MixedCase"`; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -65,10 +64,8 @@ func TestSQLWriter_Bind_SequentialPlaceholdersAndArgs(t *testing.T) {
 }
 
 func TestSQLWriter_Bind_FreshPerWriter(t *testing.T) {
-	// Each SQLWriter has its own $N sequence — a second, independent
-	// statement's Bind calls must start back at $1, not continue counting
-	// from an unrelated writer (see Bind's doc comment : one SQLWriter per
-	// statement).
+	// A second, independent writer's Bind calls must start back at $1 —
+	// see Bind's own doc comment.
 	w1 := NewSQL()
 	w1.Bind("x")
 	w1.Bind("y")

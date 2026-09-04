@@ -42,10 +42,8 @@ func TestMain(m *testing.M) {
 	testCfg = config.Test()
 	testCfg.Pg.Query.AnonymousRole = "~anonymous"
 
-	// NewInfosAdminQuery, threading through the real anonymous role name —
-	// this package's anonymous-access scenarios need
-	// DbInfos.AnonymousRoleExists true, same reasoning as route/route_test.go's
-	// TestMain.
+	// This package's anonymous-access scenarios need AnonymousRoleExists
+	// true, hence the real role name here.
 	testDb, err = pg.NewInfosAdminQuery(uri, uri, 0, testCfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		panic(err)
@@ -101,10 +99,8 @@ func TestRelHandler_ReadArray(t *testing.T) {
 }
 
 func TestRelHandler_ReadArray_EmptyResult(t *testing.T) {
-	// streamRows peeks the first row before writing "[" (server/response.go)
-	// — a genuinely empty result takes a different, untested-until-now
-	// write path ("[]" as one call) than "at least one row" does. Must
-	// produce the same "[]" a reader would get either way.
+	// streamRows takes a different write path for zero rows ("[]" as one
+	// call) than for one-or-more — both must produce the same "[]".
 	rec := postRel(t, `{
 		"relation": "director", "schema": "public",
 		"select": ["own"],
@@ -181,30 +177,19 @@ func TestRelHandler_Sequence_WriteThenReadWhatItWrote(t *testing.T) {
 	if len(writeRows) != 1 || len(readRows) != 1 {
 		t.Fatalf("expected 1 row from each item, got write=%v read=%v", writeRows, readRows)
 	}
-	// The plain read (second item) must see the first item's write — proves
-	// the shared-commit-before-any-streaming ordering, not just that both
-	// work in isolation.
+	// The plain read must see the first item's write — proves the shared
+	// commit-before-streaming ordering, not just that both work alone.
 	if readRows[0]["name"] != "Sequence Director" {
 		t.Errorf("expected the read to see the just-written row, got %v", readRows[0])
 	}
 }
 
-// TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite is the regression
-// test for specs/query-engine.md ## Transactions' current rule : the write
-// phase and every item's read-back now share ONE transaction, so a read
-// that fails during execution (not at compile/resolve time — this needs a
-// genuine runtime error, a division by zero, so it fails inside
-// streamItem's own conn.Query/rows.Next, after the first item has already
-// streamed real bytes to the client) rolls the whole request back,
-// including the first item's already-"streamed" write. Proven by checking
-// the database directly afterward, not just the HTTP response shape — a
-// truncated response alone wouldn't distinguish "rolled back" from "wrote
-// but failed to fully stream the read-back."
+// TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite : a read failing
+// mid-stream must roll back the whole transaction, write included.
 func TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite(t *testing.T) {
 	const name = "Rollback Regression Director"
-	// Clean slate : this test's own pass/fail signal is "does this name
-	// exist afterward," so a leftover row from a previous run must not be
-	// there already.
+	// This test's pass/fail signal is "does this name exist afterward" ;
+	// a leftover row from a previous run must not be there already.
 	if _, err := testDb.Pool.Exec(context.Background(), `delete from director where name = $1`, name); err != nil {
 		t.Fatalf("cleanup: %v", err)
 	}
@@ -219,11 +204,8 @@ func TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite(t *testing.T) {
 			"select": {"boom": ["/", 1, 0]}
 		}
 	]`)
-	// The first item already streamed real bytes (a "[" plus its own
-	// result) before the second item's division-by-zero fails at
-	// execution time — there is no clean error envelope left to produce at
-	// that point (see streamItem/cleanStreamError's own doc comments), so
-	// this asserts the response is genuinely incomplete, not a clean 4xx/5xx.
+	// The first item already streamed bytes before the second item's
+	// division-by-zero fails — no clean envelope is possible at that point.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected the response to already be mid-stream (200 sent on first byte), got %d : %s", rec.Code, rec.Body.String())
 	}
@@ -231,9 +213,8 @@ func TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite(t *testing.T) {
 		t.Fatalf("expected a truncated/invalid JSON body (streaming aborted mid-request), got complete JSON: %s", rec.Body.String())
 	}
 
-	// The real assertion : the first item's write must NOT be visible,
-	// proving the second item's later failure rolled back the whole
-	// transaction rather than leaving an already-committed write behind.
+	// The real assertion : the first item's write must not be visible,
+	// proving the rollback rather than an already-committed write.
 	var count int
 	if err := testDb.Pool.QueryRow(context.Background(), `select count(*) from director where name = $1`, name).Scan(&count); err != nil {
 		t.Fatalf("querying back: %v", err)
@@ -244,10 +225,8 @@ func TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite(t *testing.T) {
 }
 
 func TestRelHandler_TwoWriteItemsInOneSequence(t *testing.T) {
-	// Both write items share one "_data" table within the same request —
-	// without a shared WriteState, each ExecuteWriteState call would
-	// restart __row_id/__node_id at 0 and the second item's COPY would hit
-	// a primary-key collision against the first's still-present rows.
+	// Without a shared WriteState, both items' __row_id numbering would
+	// restart at 0 and the second item's COPY would collide on the PK.
 	rec := postRel(t, `[
 		{
 			"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"},
@@ -279,16 +258,8 @@ func TestRelHandler_TwoWriteItemsInOneSequence(t *testing.T) {
 }
 
 func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T) {
-	// Force the pool down to one connection, then plant a stale "_data" row
-	// directly (bypassing the handler entirely, simulating an earlier
-	// request whose own release-time truncate never ran — a killed process,
-	// a swallowed error) before issuing a real request through the handler.
-	// A back-to-back pair of clean handler requests can't catch this : the
-	// first request's own deferred truncate always runs before the second
-	// one starts, so the release-time truncate alone is enough to pass a
-	// same-process pair regardless of whether the acquire-time truncate
-	// exists — the failure mode this guards against is specifically a
-	// cleanup that DIDN'T run.
+	// Pool forced to one connection, then a stale "_data" row planted
+	// directly, simulating an earlier request whose truncate never ran.
 	container, err := postgres.Run(context.Background(), "postgres:16-alpine",
 		postgres.WithOrderedInitScripts("../pg/testdata/schema.sql", "testdata/roles.sql"),
 		postgres.BasicWaitStrategies(),
@@ -297,9 +268,8 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 		t.Fatalf("container: %v", err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
-	// pool_max_conns=1, not Pool.Config().MaxConns = 1 after the fact :
-	// Config() returns a COPY of the pool's config, mutating it post
-	// construction has no effect on the already-running pool.
+	// pool_max_conns=1 here, not Pool.Config().MaxConns after the fact :
+	// Config() returns a copy, mutating it post-construction is a no-op.
 	uri, err := container.ConnectionString(context.Background(), "sslmode=disable", "pool_max_conns=1")
 	if err != nil {
 		t.Fatalf("connection string: %v", err)
@@ -342,19 +312,8 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	}
 }
 
-// TestRelHandler_WriteOutgoingChildFK_HTTP reruns query package's
-// TestExecuteWrite_OutgoingChildFK (query/write_test.go) through the real
-// HTTP surface : "pure database/JSON query tests should be rerun through
-// http when testing to be sure" — a nested/outgoing-relationship write is
-// exactly the kind of payload prioritized for this rerun (it's also the
-// shape the benchmark suite separately exercises for performance ; this is
-// the correctness counterpart). movie (root, insert) with an outgoing
-// "director" child (default write_mode for an outgoing subquery is upsert)
-// : movie.director_id must be resolved from the director child's own
-// just-recovered key — proves the whole insert->resolve->link pipeline
-// survives a real JSON-over-HTTP round trip (marshaling, content-type
-// dispatch, status code), not just a direct ExecuteWrite call against a
-// pre-parsed Go value.
+// TestRelHandler_WriteOutgoingChildFK_HTTP reruns
+// TestExecuteWrite_OutgoingChildFK (query/write_test.go) over real HTTP.
 func TestRelHandler_WriteOutgoingChildFK_HTTP(t *testing.T) {
 	rec := postRel(t, `{
 		"query": {
@@ -392,14 +351,8 @@ func TestRelHandler_WriteOutgoingChildFK_HTTP(t *testing.T) {
 	}
 }
 
-// TestRelHandler_WhereWordFormOperatorSynonyms_HTTP reruns query package's
-// TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm (query/
-// operator_words_test.go, engine-level : proves the word form parses to an
-// identical AST) through the real HTTP surface : a POST /rel body using
-// specs/query-json.md's word-form operator spellings ("gte"/"lt" instead of
-// ">="/"<") must produce the SAME query results as the canonical symbolic
-// spelling, end to end through JSON decode -> resolve -> SQL -> response
-// encode.
+// TestRelHandler_WhereWordFormOperatorSynonyms_HTTP : a POST /rel body
+// using word-form operators ("gte" not ">=") must match the symbolic form.
 func TestRelHandler_WhereWordFormOperatorSynonyms_HTTP(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Word Form Operator Director')`); err != nil {
@@ -437,12 +390,8 @@ func TestRelHandler_WhereWordFormOperatorSynonyms_HTTP(t *testing.T) {
 }
 
 func TestRelHandler_UnwritableSelect_Rejected(t *testing.T) {
-	// specs/query-engine.md ## Configuration : a write whose select omits the
-	// identity column must be rejected outright (400, naming the offending
-	// relation), not silently accepted and return an empty/wrong reread —
-	// see query.findUnwritableNode's own doc comment for the failure mode
-	// this guards against (a phantom sequence-generated id matching zero
-	// real rows).
+	// ## Configuration : a write whose select omits the identity column
+	// must be rejected outright (400), not return an empty/wrong reread.
 	ctx := context.Background()
 	var directorID int
 	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Unwritable HTTP Director') returning id`).Scan(&directorID); err != nil {
@@ -484,12 +433,8 @@ func TestRelHandler_UnresolvableRelation_BadRequest(t *testing.T) {
 	}
 }
 
-// TestRelHandler_WellKnown_UnregisteredName_BarePosition exercises
-// testHandler's own nil *wellknown.Registry (no well-known files configured
-// for this package's shared test handler) — a bare well-known query
-// against it is exactly "unregistered name", not a special "unsupported"
-// case any more (see rel_wellknown_test.go for the full positive-path
-// coverage against a real registry).
+// TestRelHandler_WellKnown_UnregisteredName_BarePosition : testHandler's
+// nil *wellknown.Registry makes any bare well-known query "unregistered".
 func TestRelHandler_WellKnown_UnregisteredName_BarePosition(t *testing.T) {
 	rec := postRel(t, `{"wellknown": "some_query"}`)
 	if rec.Code != http.StatusBadRequest {
@@ -501,12 +446,7 @@ func TestRelHandler_WellKnown_UnregisteredName_BarePosition(t *testing.T) {
 }
 
 // TestRelHandler_WellKnown_UnregisteredName_WrappedWritePosition is the
-// bare case's counterpart for a well-known query wrapped in
-// WriteQuery.query (query.ts's `query: Relation | WellKnownQuery`) — the
-// other position a well-known query can appear in, and the one that would
-// nil-dereference item.Write.Query if handleRel's own WellKnown-position
-// checks (before the ResolveQuery(item.Write.Query) fallback) were ever
-// removed or reordered.
+// wrapped-write counterpart of the bare-position test above.
 func TestRelHandler_WellKnown_UnregisteredName_WrappedWritePosition(t *testing.T) {
 	rec := postRel(t, `{"query": {"wellknown": "some_query"}, "data": [{"a": 1}]}`)
 	if rec.Code != http.StatusBadRequest {

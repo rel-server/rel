@@ -26,16 +26,11 @@ type Relation struct {
 	// TypeScript export to surface as a doc comment ; empty string if unset.
 	Comment string
 
-	// IsSynthetic is true only for a Function's own RecordRelation (see
-	// info_function.go) : a column list built directly from a RETURNS
-	// TABLE/OUT-parameter function's own proargmodes/proargnames, not
-	// backed by any real pg_class row. Never appears in DbInfos.Relations
-	// or RelationMapByRelid — only reachable via the *Function it belongs
-	// to. Purely a documentation/diagnostic marker : the actual safety
-	// guarantee (never writable, never eligible as a join's indexed/
-	// covered side) falls out structurally from PrimaryKey/Indexes/every
-	// constraint lookup below being correctly left nil/empty on it, not
-	// from checking this flag anywhere.
+	// IsSynthetic is true only for a Function's own RecordRelation
+	// (info_function.go) — a column list built from a RETURNS TABLE/OUT-
+	// parameter function's own arguments, not backed by a real pg_class
+	// row. Never appears in DbInfos.Relations/RelationMapByRelid, only
+	// reachable via its owning *Function.
 	IsSynthetic bool
 
 	IsView             bool
@@ -50,14 +45,12 @@ type Relation struct {
 	IncomingForeignKeys []*Constraint
 	OutgoingForeignKeys []*Constraint
 
-	// Indexes is kept even though only IsIndexed below consumes it today —
-	// it's a distinct capability (query-plan safety) from constraints (data
-	// integrity), and useful on its own for future diagnostics/tooling.
+	// Indexes backs IsIndexed's query-plan-safety checks — a distinct
+	// capability from Constraints' data-integrity purpose.
 	Indexes []*Index
 
-	// Unexported : callers go through the lookup API (FindConstraintByName,
-	// FindUniqueConstraint, RelationshipsTo, ResolveJoin, IsIndexed) instead of
-	// building canonical keys themselves. See info_constraint.go / info_index.go.
+	// Unexported : callers use the lookup API (FindConstraintByName,
+	// FindUniqueConstraint, RelationshipsTo, ResolveJoin, IsIndexed) instead.
 	byName             map[string]*Constraint
 	uniqueColumnGroups map[string]*Constraint
 	byOtherRelation    map[int][]*Constraint

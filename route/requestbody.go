@@ -1,11 +1,7 @@
 package route
 
-// This file implements specs/route.md's "## Request bodies" :
-// the multipart/form-data and single-raw-binary-POST support for a route
-// function declaring the extra "files bytea[]" (and optionally
-// "parts_headers jsonb") parameter beyond "req RelHttpRequest". It also
-// implements the 415 mismatch rules between a route's declared shape and
-// the actual request, and http.max_body_size/http.max_part_count.
+// This file implements route.md ## Request bodies : multipart/form-data
+// and single-raw-binary-POST support, plus the 415 shape-mismatch rules.
 
 import (
 	"encoding/json"
@@ -21,32 +17,23 @@ import (
 	"github.com/ceymard/rel/errcode"
 )
 
-// requestPart is ## Request bodies' RequestPart TypeScript interface :
-// parts_headers[i] describes files[i].
+// requestPart is specs/route.md ## Request bodies' RequestPart : parts_
+// headers[i] describes files[i].
 type requestPart struct {
-	// Name is the Content-Disposition name= (the multipart form field
-	// key) ; nil for a real multipart part with no name= at all (rare,
-	// technically non-conforming multipart/form-data), and always nil for
-	// the synthesized pseudo-part a single raw binary POST produces.
+	// Name is Content-Disposition name= ; nil when absent, including for
+	// the synthesized pseudo-part a raw binary POST produces.
 	Name *string `json:"name"`
 	// Filename is Content-Disposition filename= ; nil when this part
-	// isn't a file (e.g. a plain form field), and always nil for the
-	// synthesized pseudo-part.
+	// isn't a file.
 	Filename *string `json:"filename"`
-	// ContentType is this part's own Content-Type header ; nil if the
-	// part had no Content-Type header at all — NOT the empty string.
+	// ContentType is nil, not "", when the part had no header at all.
 	ContentType *string `json:"content_type"`
-	// Headers is ALL of this part's own headers, verbatim — nil (JSON
-	// null) is never produced here ; an empty map marshals as "{}".
+	// Headers is never nil — an empty map marshals as "{}".
 	Headers map[string][]string `json:"headers"`
 }
 
-// requestBodyError is a request-body-shape error that resolves directly to
-// an HTTP status : 400 (malformed multipart envelope), 413
-// (http.max_body_size/http.max_part_count exceeded), or 415 (## Request
-// bodies' declared-shape-vs-actual-request mismatch). Kept distinct from
-// badQueryError/badBodyError (always 400) since this path can also produce
-// 413/415.
+// requestBodyError resolves directly to a status (400/413/415) ; kept
+// distinct from badQueryError/badBodyError, which are always 400.
 type requestBodyError struct {
 	status  int
 	code    errcode.Code
@@ -65,14 +52,8 @@ func unsupportedMediaType(msg string) error {
 	return &requestBodyError{http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, msg}
 }
 
-// tooLargeIfContentLengthExceeds is http.max_body_size's own "before any
-// part is buffered in memory, not after" rule : a declared Content-Length
-// already over the limit is rejected outright, without reading anything —
-// http.MaxBytesReader alone only catches this AFTER reading limit+1 bytes
-// (the chunked, no declared Content-Length case, or a lying Content-
-// Length), so both checks are needed together. resolveRequestBody and
-// upload_handler.go's own body-size enforcement both start with this exact
-// check, immediately before wrapping r.Body in http.MaxBytesReader.
+// tooLargeIfContentLengthExceeds rejects an over-limit Content-Length
+// before reading ; MaxBytesReader alone only catches it after limit+1 bytes.
 func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64) error {
 	if r.ContentLength > maxBodySize {
 		return tooLargeBody("request body exceeds http.max_body_size")
@@ -80,13 +61,8 @@ func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64) error {
 	return nil
 }
 
-// writeRequestBodyError renders any error resolveRequestBody (or
-// upload_handler.go's own body-size precheck, which reuses
-// tooLargeIfContentLengthExceeds above and so can return the same
-// *requestBodyError) can produce : a *requestBodyError carries its own
-// status/code/message ; a *badBodyError is always a 400 malformed body ;
-// anything else is a generic 500. The three-way dispatch handleRoute used to
-// restate inline at its own resolveRequestBody call site.
+// writeRequestBodyError : *requestBodyError carries its own status,
+// *badBodyError is always 400, anything else is a generic 500.
 func writeRequestBodyError(w http.ResponseWriter, err error) {
 	if rbe, ok := errors.AsType[*requestBodyError](err); ok {
 		writePlainError(w, rbe.status, rbe.code, rbe.message)
@@ -99,22 +75,16 @@ func writeRequestBodyError(w http.ResponseWriter, err error) {
 	writePlainError(w, http.StatusInternalServerError, errcode.Internal, "reading request body")
 }
 
-// resolvedRequestBody is everything handleRoute needs, both to build
-// RelHttpRequest.body and to invoke a files/parts_headers-aware route :
-// Files and PartsHeadersRaw are always non-nil (an empty array, never a SQL
-// NULL/JSON null, when there's nothing to report — ## Request bodies is
-// explicit that an empty upload is not the same as "no files parameter").
+// resolvedRequestBody is everything handleRoute needs to build
+// RelHttpRequest.body ; Files/PartsHeadersRaw are always non-nil.
 type resolvedRequestBody struct {
 	BodyJSON        json.RawMessage
 	Files           [][]byte
 	PartsHeadersRaw []byte
 }
 
-// resolveRequestBody reads r.Body (bounded by maxBodySize) and builds
-// everything ## Request / ## Request bodies describe, dispatching on
-// route.AcceptsFiles and the request's own Content-Type. w is passed only
-// because http.MaxBytesReader's signature requires a ResponseWriter (to set
-// Connection: close on overflow) — nothing here writes through it directly.
+// resolveRequestBody reads r.Body (bounded by maxBodySize), dispatching on
+// route.AcceptsFiles and Content-Type ; w is only for MaxBytesReader's signature.
 func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, maxBodySize int64, maxPartCount int) (resolvedRequestBody, error) {
 	contentTypeHeader := r.Header.Get("Content-Type")
 
@@ -126,9 +96,8 @@ func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, max
 
 	mt, params, mtErr := mime.ParseMediaType(contentTypeHeader)
 	if mtErr != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentTypeHeader)), "multipart/") {
-		// Looks like it was meant to be multipart (e.g. a missing/malformed
-		// boundary param) — a genuinely malformed request, same class as a
-		// malformed JSON/form body, not a shape mismatch.
+		// Looks meant to be multipart (bad boundary param, say) : a
+		// malformed request, not a shape mismatch.
 		return resolvedRequestBody{}, badRequestBody("malformed multipart Content-Type: " + mtErr.Error())
 	}
 	isMultipart := mtErr == nil && strings.HasPrefix(mt, "multipart/")
@@ -152,8 +121,8 @@ func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, max
 	return finishSingleBody(route, r, contentTypeHeader, body)
 }
 
-// finishMultipartBody applies ## Request bodies' multipart mismatch rules,
-// once files/parts have already been parsed (possibly empty).
+// finishMultipartBody applies specs/route.md ## Request bodies' multipart
+// mismatch rules to already-parsed (possibly empty) files/parts.
 func finishMultipartBody(route Route, files [][]byte, parts []requestPart) (resolvedRequestBody, error) {
 	if route.AcceptsFiles {
 		return resolvedRequestBody{
@@ -162,11 +131,8 @@ func finishMultipartBody(route Route, files [][]byte, parts []requestPart) (reso
 			PartsHeadersRaw: mustMarshalParts(parts),
 		}, nil
 	}
-	// A route NOT declaring files, receiving actual multipart data (>=1
-	// part), has nowhere to put it — 415 ; multipart is never silently
-	// base64-encoded whole into body as a fallback. Zero parts is treated
-	// the same as no body at all, on ANY route (## Request bodies' own
-	// explicit carve-out) — falls through to the empty-body return below.
+	// A route not declaring files has nowhere to put real multipart data —
+	// 415, never silently base64-encoded as a fallback.
 	if len(files) > 0 {
 		return resolvedRequestBody{}, unsupportedMediaType("route does not accept file uploads (no files bytea[] parameter declared)")
 	}
@@ -177,22 +143,19 @@ func finishMultipartBody(route Route, files [][]byte, parts []requestPart) (reso
 	}, nil
 }
 
-// finishSingleBody applies ## Request's body content-type dispatch (for a
-// route not declaring files) or ## Request bodies' single-raw-binary-POST
-// rule (for a route declaring files) to a non-multipart request body.
+// finishSingleBody applies specs/route.md's body content-type dispatch (no
+// files) or single-raw-binary-POST rule (files) to a non-multipart body.
 func finishSingleBody(route Route, r *http.Request, contentTypeHeader string, body []byte) (resolvedRequestBody, error) {
 	if !route.AcceptsFiles {
 		bodyJSON, err := encodeBody(contentTypeHeader, body, false)
 		if err != nil {
-			return resolvedRequestBody{}, err // *badBodyError -> handler maps to 400
+			return resolvedRequestBody{}, err
 		}
 		return resolvedRequestBody{BodyJSON: bodyJSON, Files: [][]byte{}, PartsHeadersRaw: []byte("[]")}, nil
 	}
 
-	// route.AcceptsFiles : body is ALWAYS null. A request with no body at
-	// all (any Content-Type, zero bytes) yields empty files/parts_headers
-	// — NOT a 415 ; a route requiring at least one file checks
-	// array_length itself.
+	// A zero-byte body yields empty files/parts_headers, not a 415 — a
+	// route requiring at least one file checks array_length itself.
 	if len(body) == 0 {
 		return resolvedRequestBody{BodyJSON: json.RawMessage("null"), Files: [][]byte{}, PartsHeadersRaw: []byte("[]")}, nil
 	}
@@ -200,14 +163,13 @@ func finishSingleBody(route Route, r *http.Request, contentTypeHeader string, bo
 	mt := mediaTypeOf(contentTypeHeader)
 	if mt == "application/json" || strings.HasSuffix(mt, "+json") ||
 		strings.HasPrefix(mt, "text/") || mt == "application/x-www-form-urlencoded" {
-		// "body would otherwise have been populated" — no byte payload left
-		// over to hand over separately as a file.
+		// This content-type would populate body, leaving no separate byte
+		// payload to deliver as a file.
 		return resolvedRequestBody{}, unsupportedMediaType("route only accepts file uploads, but content_type " + contentTypeHeader + " has no separate byte payload to deliver as files")
 	}
 
-	// Anything else : a single raw binary POST, treated as a ONE-ELEMENT
-	// files array holding the whole body — with a synthesized pseudo-part
-	// if parts_headers was declared.
+	// A single raw binary POST : one-element files array, synthesized
+	// pseudo-part if parts_headers was declared.
 	partsRaw := []byte("[]")
 	if route.AcceptsPartsHeaders {
 		partsRaw = mustMarshalParts([]requestPart{synthesizedPseudoPart(r, contentTypeHeader)})
@@ -219,14 +181,8 @@ func finishSingleBody(route Route, r *http.Request, contentTypeHeader string, bo
 	}, nil
 }
 
-// synthesizedPseudoPart is ## Request bodies' rule for a single,
-// non-multipart, raw binary POST : name/filename are always null (there's
-// no Content-Disposition to read them from), content_type/headers are the
-// REQUEST's own — there's no separate "part" envelope to have its own when
-// there was no multipart wrapper to begin with. content_type is nil (not
-// "") when the request itself had no Content-Type header, matching
-// RequestPart.content_type's own "null, NOT the empty string" contract for
-// an absent header.
+// synthesizedPseudoPart : name/filename are always null for a raw binary
+// POST ; content_type/headers are the request's own.
 func synthesizedPseudoPart(r *http.Request, contentTypeHeader string) requestPart {
 	var ct *string
 	if contentTypeHeader != "" {
@@ -240,12 +196,8 @@ func synthesizedPseudoPart(r *http.Request, contentTypeHeader string) requestPar
 	}
 }
 
-// parseMultipart reads every part of mr, enforcing maxPartCount
-// incrementally (rejected as soon as the count is exceeded, not after
-// fully parsing an oversized part set — ## Request bodies ### Limits).
-// Total byte size is already bounded by mr's own underlying reader, which
-// the caller wraps in http.MaxBytesReader before constructing mr. Returns
-// (always non-nil, possibly empty) files/parts on success.
+// parseMultipart enforces maxPartCount incrementally, not after fully
+// parsing an oversized set ; byte size is bounded by the caller's MaxBytesReader.
 func parseMultipart(mr *multipart.Reader, maxPartCount int) ([][]byte, []requestPart, error) {
 	files := [][]byte{}
 	parts := []requestPart{}
@@ -281,9 +233,8 @@ func parseMultipart(mr *multipart.Reader, maxPartCount int) ([][]byte, []request
 	return files, parts, nil
 }
 
-// requestPartFrom builds a requestPart from an already-fully-read
-// multipart.Part (p.Header stays populated after Close/EOF — only the body
-// reading itself is affected).
+// requestPartFrom builds a requestPart from an already-read multipart.Part
+// (p.Header stays populated after Close/EOF).
 func requestPartFrom(p *multipart.Part) requestPart {
 	var name, filename, ct *string
 	if fn := p.FormName(); fn != "" {
@@ -305,17 +256,14 @@ func requestPartFrom(p *multipart.Part) requestPart {
 }
 
 // mustMarshalParts marshals parts as a JSON array, always "[]" (never
-// "null") for an empty/nil slice — ## Request bodies' parts_headers is
-// always a JSON array, empty when there's nothing to report.
+// "null") for an empty/nil slice.
 func mustMarshalParts(parts []requestPart) []byte {
 	if len(parts) == 0 {
 		return []byte("[]")
 	}
 	b, err := sonic.Marshal(parts)
 	if err != nil {
-		// requestPart is a plain, fully JSON-marshalable struct — this
-		// cannot fail in practice ; fall back to an empty array rather than
-		// panicking on a response-shape guarantee.
+		// requestPart always marshals cleanly ; fall back rather than panic.
 		return []byte("[]")
 	}
 	return b
