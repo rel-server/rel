@@ -42,6 +42,38 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// TestGenerateSchema_NotNullSemantics is a regression for pg.Column's own
+// IsReallyNotNull (info_column.go) : the introspection query only ever
+// populated IsNullable, never the separate (dead) IsNotNull field
+// IsReallyNotNull actually checked, so every column generated as `T |
+// null` regardless of its real constraint.
+func TestGenerateSchema_NotNullSemantics(t *testing.T) {
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()})
+
+	tableIdx := strings.Index(out, "interface Table__Hotel__Properties {")
+	if tableIdx < 0 {
+		t.Fatalf("Table__Hotel__Properties not found in:\n%s", out)
+	}
+	blockEnd := strings.Index(out[tableIdx:], "\n}\n")
+	block := out[tableIdx : tableIdx+blockEnd]
+
+	if strings.Contains(block, "name: string | null") {
+		t.Errorf("name is NOT NULL (testdata/schema.sql) ; must not be nullable ; got:\n%s", block)
+	}
+	if !strings.Contains(block, "star_rating: number | null") {
+		t.Errorf("star_rating is genuinely nullable ; expected `| null` ; got:\n%s", block)
+	}
+	// slug is column-nullable but typed hotel.non_empty_text, a NOT NULL
+	// domain (testdata/schema.sql) : IsReallyNotNull's domain-propagation
+	// branch must still exclude `| null`.
+	if !strings.Contains(block, "slug: Type__Hotel__NonEmptyText\n") {
+		t.Errorf("slug should propagate its domain's own NOT NULL and NOT be nullable ; got:\n%s", block)
+	}
+	if strings.Contains(block, "slug: Type__Hotel__NonEmptyText | null") {
+		t.Errorf("slug's NOT NULL domain should have suppressed `| null` ; got:\n%s", block)
+	}
+}
+
 func TestGenerateSchema_HotelExample(t *testing.T) {
 	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()})
 

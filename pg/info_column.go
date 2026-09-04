@@ -39,14 +39,13 @@ type Column struct {
 	IsIdentity    bool
 	IsGenerated   bool
 	IsParOfUnique bool
-	IsNotNull     bool
 	IsNullable    bool
 	IsUpdatable   bool
 }
 
-// IsReallyNotNull reports IsNotNull OR a not-null constraint declared on
+// IsReallyNotNull reports !IsNullable OR a not-null constraint declared on
 // the column's own domain type — a domain-backed column/view can read as
-// nullable (IsNotNull false) while still never actually holding NULL.
+// nullable (IsNullable true) while still never actually holding NULL.
 func (c *Column) IsReallyNotNull() bool {
-	return c.IsNotNull || c.Type.PgDomainNotNull
+	return !c.IsNullable || c.Type.PgDomainNotNull
 }

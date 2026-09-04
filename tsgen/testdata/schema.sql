@@ -10,9 +10,17 @@ create type hotel.room_status as enum ('clean', 'dirty');
 
 create domain hotel.positive_int as integer check (value > 0);
 
+-- NOT NULL declared on the DOMAIN itself, not on any column that uses it —
+-- regression for IsReallyNotNull's domain-propagation branch (pg) : a
+-- column typed with this domain, with no NOT NULL of its own, must still
+-- generate without `| null` (information_schema.columns' own is_nullable
+-- only reports the COLUMN's direct constraint, never the domain's).
+create domain hotel.non_empty_text as text not null;
+
 create table hotel.properties (
 	id serial primary key,
 	name text not null,
+	slug hotel.non_empty_text,
 	star_rating int,
 	created_at timestamptz not null default now()
 );
