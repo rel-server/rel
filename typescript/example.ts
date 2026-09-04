@@ -46,3 +46,29 @@ const roomsAvailable = func("hotel.rooms_available", {
 })
 
 export type RoomsAvailableShape = Awaited<ReturnType<typeof roomsAvailable.get>>
+
+// get/set read-vs-write asymmetry (shapes.ts's WriteShapeFromQuery doc comment) : `audit_only` (`set`) must be
+// writable but never read back ; `display_only` (`get`) is the reverse. `write`'s overloaded signature means
+// `Parameters<...>` picks its last (single-arg) overload, giving WriteShape directly without a separate import.
+const propertyAudit = relation("hotel.properties", {
+  select: {
+    id: "id",
+    audit_only: ["set", "chain_id"],
+    display_only: ["get", "star_rating"],
+  },
+})
+
+export type PropertyReadShape = Awaited<ReturnType<typeof propertyAudit.get>>
+export type PropertyWriteShape = Parameters<typeof propertyAudit.write>[0]
+
+type Expect<T extends true> = T
+type HasKey<T, K extends string> = K extends keyof T ? true : false
+
+export type _AssertReadHasDisplayOnly = Expect<HasKey<PropertyReadShape, "display_only">>
+export type _AssertReadOmitsAuditOnly = Expect<
+  HasKey<PropertyReadShape, "audit_only"> extends false ? true : false
+>
+export type _AssertWriteHasAuditOnly = Expect<HasKey<PropertyWriteShape, "audit_only">>
+export type _AssertWriteOmitsDisplayOnly = Expect<
+  HasKey<PropertyWriteShape, "display_only"> extends false ? true : false
+>

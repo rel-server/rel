@@ -6,14 +6,20 @@ powers both (section 3, `query.ts`/`shapes.ts`).
 */
 import type { Query, RelationQuery } from "./query"
 import type { Relationships } from "./schema.example"
-import type { DefaultRow, Params, ResolveModel, ShapeFromQuery } from "./shapes"
+import type {
+  DefaultRow,
+  Params,
+  ResolveModel,
+  ShapeFromQuery,
+  WriteShapeFromQuery,
+} from "./shapes"
 
 // Build a Querier for this wellknown
 // This function will be overloaded with as many declare as there are well-known queries
 export function wellknown(
   wellknown: string,
   params: { [name: string]: unknown },
-): Querier<unknown, Params<typeof params>> {
+): Querier<unknown, unknown, Params<typeof params>> {
   return new Querier({
     wellknown,
     params,
@@ -30,7 +36,11 @@ type ResolveRelationModel<R extends string> = ResolveModel<{ relation: R }>
 export function relation<R extends string, const Q extends RelationQuery<ResolveRelationModel<R>>>(
   rel: R,
   request: Q,
-): Querier<ShapeFromQuery<Q, ResolveRelationModel<R>>, Params<Q>> {
+): Querier<
+  ShapeFromQuery<Q, ResolveRelationModel<R>>,
+  WriteShapeFromQuery<Q, ResolveRelationModel<R>>,
+  Params<Q>
+> {
   const [schema, relation] = rel.split(".")
   const query = {
     ...request,
@@ -53,7 +63,14 @@ type ResolveCalledFunctionModel<F extends string> =
 export function func<
   F extends string,
   const Q extends RelationQuery<ResolveCalledFunctionModel<F>>,
->(fn: F, request: Q): Querier<ShapeFromQuery<Q, ResolveCalledFunctionModel<F>>, Params<Q>> {
+>(
+  fn: F,
+  request: Q,
+): Querier<
+  ShapeFromQuery<Q, ResolveCalledFunctionModel<F>>,
+  WriteShapeFromQuery<Q, ResolveCalledFunctionModel<F>>,
+  Params<Q>
+> {
   const [schema, fn_name] = fn.split(".")
   const query = {
     ...request,
@@ -101,8 +118,10 @@ export function join<
   return { ...request, schema, relation, on, shortcut } as Q & { shortcut: S }
 }
 
-// Both wellknown() and relation() produce a Querier with its Shape/Params known through their own return types.
-export class Querier<Shape = unknown, Params = void> {
+// Both wellknown() and relation() produce a Querier with its Shape/WriteShape/Params known through their own
+// return types. WriteShape defaults to Shape so a hand-built Querier (or wellknown(), which doesn't compute one)
+// still works ; relation()/func() always supply the real, narrower WriteShapeFromQuery explicitly.
+export class Querier<Shape = unknown, WriteShape = Shape, Params = void> {
   public query: Query
 
   constructor(
@@ -173,12 +192,13 @@ export class Querier<Shape = unknown, Params = void> {
     return this._send(this.doQuery(_params))
   }
 
-  // send a write request to rel
-  write(_params: Params, data: Shape): Promise<Shape>
-  write(data: Shape): Promise<Shape>
-  write(_params: Params | Shape, _data?: Shape): Promise<Shape> {
+  // send a write request to rel. `data` is WriteShape, not Shape — get/set/get-set's read-vs-write asymmetry
+  // (shapes.ts's WriteShapeFromQuery doc comment) means these genuinely differ whenever a query uses them.
+  write(_params: Params, data: WriteShape): Promise<Shape>
+  write(data: WriteShape): Promise<Shape>
+  write(_params: Params | WriteShape, _data?: WriteShape): Promise<Shape> {
     const params = _data != null ? (_params as Params) : (void 0 as Params)
-    const data = _data != null ? _data : (_params as Shape)
+    const data = _data != null ? _data : (_params as WriteShape)
     return this._send({ query: this.doQuery(params), data })
   }
 

@@ -120,6 +120,13 @@ type FullShape<
   Depth extends number,
 > = OwnShape<Rel> & JoinShapes<Join, Depth>
 
+// A nominal marker meaning "this Expression's key doesn't exist on this side" — `get` on the write side, `set`
+// on the read side (query.ts's `get`/`get-set`/`set` doc comments ; specs/query-engine.md ## Writability : "get
+// doesn't count toward this at all"). A branded object rather than `never`, so a column that's legitimately typed
+// `never` isn't also silently dropped by the same key-remapping mechanism.
+declare const OmittedTag: unique symbol
+type Omitted = { [OmittedTag]: true }
+
 // ShapeFromExpression is split into one small type per GROUP of related Expression tags, rather than one long
 // chain checking all ~20 tags in sequence ; the dispatcher at the bottom just picks which group applies.
 
@@ -202,15 +209,21 @@ type ShapeFromOwnFullTag<
                     ShapeFromExpressionMap<And, Rel, Join, Depth>
                 : never
 
-// get/get-set : the referenced column's own type. Both produce the same read shape (get-set's default_set only matters on write).
+// get/get-set : the referenced column's own type, on the read side (get-set's default_set only matters on
+// write). `set` never appears in a read response at all (query.ts's own doc comment : "this column is not
+// fetched in query mode") — its key is dropped from the containing object entirely, not merely typed oddly ; see
+// `Omitted`, above, and ShapeFromExpressionMap's key remap, below.
 type ShapeFromFieldTag<
+  Tag extends "get" | "get-set" | "set",
   Rest extends readonly unknown[],
   Rel extends object,
-> = Rest extends readonly [infer Col extends string, ...unknown[]]
-  ? Col extends keyof Rel
-    ? Rel[Col]
+> = Tag extends "set"
+  ? Omitted
+  : Rest extends readonly [infer Col extends string, ...unknown[]]
+    ? Col extends keyof Rel
+      ? Rel[Col]
+      : unknown
     : unknown
-  : unknown
 
 // $param : resolved through the same TypeMap ParamUnion (above) uses, so a declared cast infers the real value
 // type. No cast defaults to ::jsonb server-side — genuinely unknown here.
@@ -233,12 +246,18 @@ type ShapeFromContainerTag<
   ? ShapeFromExpression<Items[number], Rel, Join, Depth>
   : { [I in keyof Items]: ShapeFromExpression<Items[I], Rel, Join, Depth> }
 
+// Key remapping (`as`) drops any entry whose value resolved to `Omitted` (a `set` tag, on the read side) instead
+// of keeping the key with a nonsensical type — the key genuinely isn't present in the response.
 type ShapeFromExpressionMap<
   Obj extends { [name: string]: unknown },
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
-> = { [K in keyof Obj]: ShapeFromExpression<Obj[K], Rel, Join, Depth> }
+> = {
+  [K in keyof Obj as ShapeFromExpression<Obj[K], Rel, Join, Depth> extends Omitted
+    ? never
+    : K]: ShapeFromExpression<Obj[K], Rel, Join, Depth>
+}
 
 // The JSON value one Expression node produces : routes to whichever group above matches E's own tag. Order
 // matters : `["own"]`/`["full"]` and their variants must be checked before the fallback [string] literal case,
@@ -256,8 +275,8 @@ type ShapeFromExpression<
   : E extends readonly [infer Tag extends string, ...infer Rest extends readonly unknown[]]
     ? Tag extends OwnFullTag
       ? ShapeFromOwnFullTag<Tag, Rest, Rel, Join, Digits[Depth]>
-      : Tag extends "get" | "get-set"
-        ? ShapeFromFieldTag<Rest, Rel>
+      : Tag extends "get" | "get-set" | "set"
+        ? ShapeFromFieldTag<Tag, Rest, Rel>
         : Tag extends "$param"
           ? ShapeFromParamTag<Rest>
           : Tag extends ContainerTag
@@ -271,6 +290,10 @@ type ShapeFromExpression<
 
 // The JSON result shape of one RelationQuery node : its own `select` (absent defaults to `["full"]`, per
 // query.ts's `select` doc comment), evaluated against Rel and its own `join` (resolved recursively above).
+//
+// A bare top-level `set` (e.g. `select: ["set", "col"]`, not inside a map) has nowhere to drop its own key — the
+// whole node's shape WOULD be `Omitted` itself. Falls back to `unknown` rather than leaking that internal marker ;
+// what a query that fetches nothing at all actually returns isn't modeled here.
 export type ShapeFromRelationQuery<
   Q,
   Rel extends object,
@@ -280,16 +303,168 @@ export type ShapeFromRelationQuery<
   : Q extends { select: infer Sel }
     ? [Sel] extends [undefined]
       ? FullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
-      : ShapeFromExpression<Sel, Rel, ExtractJoinMap<Q>, Digits[Depth]>
+      : ShapeFromExpression<Sel, Rel, ExtractJoinMap<Q>, Digits[Depth]> extends infer S
+        ? S extends Omitted
+          ? unknown
+          : S
+        : never
     : FullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
 
 // Public entry point. Rel defaults to RelationQuery's own permissive default so `ShapeFromQuery<Q>` alone still
 // typechecks without going through relation()'s R -> Rel resolution (which passes the real Rel explicitly).
 //
-// Read shape only : get/set's read-vs-write asymmetry (query.ts's `Expression` doc comments) means the `data`
-// shape for a write isn't always identical to a read's ; `write()` below still types `data` as this read Shape,
-// exact only when get/set are both absent.
+// Read shape only — see `WriteShapeFromQuery`, below, for the `data` shape `write()` actually needs.
 export type ShapeFromQuery<
   Q extends RelationQuery<Rel>,
   Rel extends object = { [name: string]: unknown },
 > = ShapeFromRelationQuery<Q, Rel>
+
+///////////////////////////////////////////////////////////////////////
+// WriteShapeFromQuery : the `data` shape a write actually expects, mirroring ShapeFromQuery above field-for-field
+// except at the `get`/`get-set`/`set` leaf, where read and write genuinely diverge (query.ts's own doc comments ;
+// specs/query-engine.md ## Writability). `get` is dropped (read-only) ; `set`/`get-set`/a bare column reference
+// are kept, matching "a physical column is writable iff referenced ... wrapped only by coalescing operators, or
+// by set/get-set ; get doesn't count toward this at all."
+//
+// NOT modeled, and left entirely to the server : the exactly-once occurrence rule, `insert_columns`/
+// `update_columns` allowlisting, identity-target writability, and write_mode-dependent required/optional columns
+// — specs/typescript.md ## Goals already calls out full expression/column type-checking as a separate, harder
+// (v2) concern, and this is the write-side instance of that same gap. This type is a best-effort narrowing, not
+// a validator ; the server remains the actual authority on what's writable.
+
+type WriteJoinShapes<Join extends { [name: string]: unknown }, Depth extends number> = {
+  [A in keyof Join]: JoinCardinality<Join[A]> extends true
+    ? WriteShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>
+    : WriteShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>[]
+}
+
+type WriteFullShape<
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = OwnShape<Rel> & WriteJoinShapes<Join, Depth>
+
+// get is dropped (read-only) ; get-set/set are writable, same underlying column type as the read side.
+type WriteShapeFromFieldTag<
+  Tag extends "get" | "get-set" | "set",
+  Rest extends readonly unknown[],
+  Rel extends object,
+> = Tag extends "get"
+  ? Omitted
+  : Rest extends readonly [infer Col extends string, ...unknown[]]
+    ? Col extends keyof Rel
+      ? Rel[Col]
+      : unknown
+    : unknown
+
+type WriteShapeFromOwnFullTag<
+  Tag extends OwnFullTag,
+  Rest extends readonly unknown[],
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = Tag extends "own"
+  ? OwnShape<Rel>
+  : Tag extends "full"
+    ? WriteFullShape<Rel, Join, Depth>
+    : Tag extends "own_except"
+      ? Rest extends readonly [infer Ex extends readonly string[]]
+        ? Omit<Rel, Ex[number]>
+        : never
+      : Tag extends "full_except"
+        ? Rest extends readonly [infer Ex extends readonly string[]]
+          ? Omit<WriteFullShape<Rel, Join, Depth>, Ex[number]>
+          : never
+        : Tag extends "own_and"
+          ? Rest extends readonly [infer And extends { [name: string]: unknown }]
+            ? OwnShape<Rel> & WriteShapeFromExpressionMap<And, Rel, Join, Depth>
+            : never
+          : Tag extends "full_and"
+            ? Rest extends readonly [infer And extends { [name: string]: unknown }]
+              ? WriteFullShape<Rel, Join, Depth> &
+                  WriteShapeFromExpressionMap<And, Rel, Join, Depth>
+              : never
+            : Tag extends "own_except_and"
+              ? Rest extends readonly [
+                  infer Ex extends readonly string[],
+                  infer And extends { [name: string]: unknown },
+                ]
+                ? Omit<Rel, Ex[number]> & WriteShapeFromExpressionMap<And, Rel, Join, Depth>
+                : never
+              : // "full_except_and", the only tag left once every branch above is excluded
+                Rest extends readonly [
+                    infer Ex extends readonly string[],
+                    infer And extends { [name: string]: unknown },
+                  ]
+                ? Omit<WriteFullShape<Rel, Join, Depth>, Ex[number]> &
+                    WriteShapeFromExpressionMap<And, Rel, Join, Depth>
+                : never
+
+type WriteShapeFromContainerTag<
+  Tag extends ContainerTag,
+  Items extends readonly unknown[],
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = Tag extends "coalesce"
+  ? WriteShapeFromExpression<Items[number], Rel, Join, Depth>
+  : { [I in keyof Items]: WriteShapeFromExpression<Items[I], Rel, Join, Depth> }
+
+// Same key-remap as ShapeFromExpressionMap, dropping `Omitted` entries — here that's a `get` tag instead of `set`.
+type WriteShapeFromExpressionMap<
+  Obj extends { [name: string]: unknown },
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = {
+  [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth> extends Omitted
+    ? never
+    : K]: WriteShapeFromExpression<Obj[K], Rel, Join, Depth>
+}
+
+type WriteShapeFromExpression<
+  E,
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number = 12,
+> = Depth extends 0
+  ? unknown
+  : E extends readonly [infer Tag extends string, ...infer Rest extends readonly unknown[]]
+    ? Tag extends OwnFullTag
+      ? WriteShapeFromOwnFullTag<Tag, Rest, Rel, Join, Digits[Depth]>
+      : Tag extends "get" | "get-set" | "set"
+        ? WriteShapeFromFieldTag<Tag, Rest, Rel>
+        : Tag extends "$param"
+          ? ShapeFromParamTag<Rest>
+          : Tag extends ContainerTag
+            ? WriteShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth]>
+            : Rest extends readonly []
+              ? Tag
+              : unknown
+    : E extends { [name: string]: unknown }
+      ? WriteShapeFromExpressionMap<E, Rel, Join, Digits[Depth]>
+      : ShapeFromLeaf<E, Rel, Join, Digits[Depth]>
+
+// A bare top-level `get` has nowhere to drop its own key, same edge case ShapeFromRelationQuery guards against
+// for a bare top-level `set` — falls back to `unknown` rather than leaking `Omitted`.
+export type WriteShapeFromRelationQuery<
+  Q,
+  Rel extends object,
+  Depth extends number = 12,
+> = Depth extends 0
+  ? unknown
+  : Q extends { select: infer Sel }
+    ? [Sel] extends [undefined]
+      ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
+      : WriteShapeFromExpression<Sel, Rel, ExtractJoinMap<Q>, Digits[Depth]> extends infer S
+        ? S extends Omitted
+          ? unknown
+          : S
+        : never
+    : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
+
+// Public entry point, mirroring ShapeFromQuery.
+export type WriteShapeFromQuery<
+  Q extends RelationQuery<Rel>,
+  Rel extends object = { [name: string]: unknown },
+> = WriteShapeFromRelationQuery<Q, Rel>
