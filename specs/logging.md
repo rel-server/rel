@@ -28,13 +28,9 @@ matching the package/directory name (`query`, `route`, `pg`, `dmut`, `boot`, `we
 `config`, `jwt`, `dbauth`, ...) — every log call in that package goes through `log`, not
 `slog.Default()`/the bare `slog` package functions directly.
 
-`For`'s own handler resolves `slog.Default()`'s CURRENT handler fresh on every log call,
-rather than capturing whatever it was at construction time — this is what makes a
-package-level `var` initializer safe to use for this : Go initializes every package-level var
-before `main()` ever runs, unconditionally before `## Logger construction`'s `Install` has
-had a chance to install the real, configured handler. A naive `slog.Default().With("module",
-name)` would instead permanently freeze in the stdlib's own built-in default handler, silently
-never picking up the real one.
+`For`'s own handler resolves `slog.Default()`'s CURRENT handler fresh on every log call, never a handler captured at construction time.
+
+> Why : Go initializes every package-level `var` before `main()` runs, before `## Logger construction`'s `Install` has installed the real, configured handler. A naive `slog.Default().With("module", name)` would permanently freeze on the stdlib's built-in default handler.
 
 Once `## Request-scoped logging`'s `logging.FromContext(ctx)` exists, request-scoped code
 layers its own package's module tag on top of the request-scoped logger rather than using the

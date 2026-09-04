@@ -14,13 +14,12 @@ transitional state where one is meant to replace the other.
 A plain SQL init script (`postgres.WithInitScripts`), applied directly by testcontainers with
 no migration engine involved. This is where most packages' fast, single-behavior regression
 tests live — `query/`, `pg/`, `route/`, `static/`, `server/`, `boot/` all build their own
-`TestMain` against it (or a package-local variant of it). Its own `director`/`movie`
-relations, plus a purpose-built fixture table/function added per test as new behavior needs
-covering, are individually small and easy to reason about — this is precisely why it stays
-useful : a new test can usually be satisfied by one or two added lines, not a schema redesign.
+`TestMain` against it (or a package-local variant of it). Its `director`/`movie` relations,
+plus a purpose-built fixture table/function added per test as new behavior needs covering,
+stay individually small. Cheap to stand up (no `dmut` apply, no seeding pass) — the default
+for a test that only needs a couple of known rows to exercise one specific code path.
 
-Cheap to stand up (no `dmut` apply, no seeding pass) — this is the right default for a test
-that only needs a couple of known rows to exercise one specific code path.
+> Why: keeping fixtures small means a new test is usually satisfied by one or two added lines, not a schema redesign.
 
 ### `test/dmut` + `test/seed` — realistic volume, dmut integration coverage
 
@@ -37,8 +36,9 @@ that :
   constraint, full-text search, a self-referencing table, hundreds of rows — deep/wide
   enough to stress the query engine in ways a handful of hand-picked rows can't.
 - Is what `query_bench/`'s read-path benchmarks and `query/write_bench_test.go`'s
-  write-path benchmarks both build on, specifically because a benchmark needs realistic
-  shape/volume to mean anything.
+  write-path benchmarks both build on.
+
+> Why a benchmark uses this tier: it needs realistic shape/volume to mean anything.
 
 ## When to reach for which
 

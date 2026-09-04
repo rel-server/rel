@@ -1,4 +1,3 @@
-
 # JWT
 
 A JWT is exchanged between the browser and rel in a `secure`, `httponly` cookie.
@@ -39,14 +38,17 @@ The JWT cookie's `Max-Age` always mirrors the token's own `exp - iat` — it is 
 1. **Mint.** A function establishes a session by setting the `jwt` field on its `RelHttpResponse` (see `route.md ## Responses`). This is always treated as a fresh session: `auth_time` and `iat` are set to now, `exp = iat + (jwt_attrs.maxage or jwt.max_age)`, and the cookie's `Max-Age` mirrors that same value.
 2. **Verify.** On every subsequent request, rel checks the cookie's signature, `jwt.algorithm`, `exp`, and `auth_time + jwt.max_session_age`. Failing any of these is equivalent to no session at all — the request proceeds under `pg.query.anonymous_role` (see Roles).
 3. **Check.** If the token verifies, and `http.functions.check_session` is configured, rel calls it (see Session invalidation below).
-4. **Renew.** If the token verifies and passes the check, and more than `jwt.renew_after` of its own lifespan has elapsed since its `iat`, rel re-mints it: fresh `iat`/`exp`, using the SAME width the current token's own `exp - iat` already has (so a `jwt_attrs.maxage` override from the original mint keeps applying across renewals without rel needing to remember it separately — the token's own claims are the only state involved), fresh `Set-Cookie`, `auth_time` and `role` unchanged, other claims carried over as-is. The renewed cookie's `SameSite` is always `jwt.same_site` — unlike `maxage`, a `jwt_attrs.samesite` override from the original mint does NOT persist across renewal (nothing about `SameSite` is a JWT claim for rel to carry forward, and adding a private claim just to remember one rarely-used cookie attribute wasn't worth it). Tokens under the `renew_after` threshold pass through unchanged — this bounds `Set-Cookie` churn to roughly once per `maxage × renewafter` of activity rather than once per request.
-5. **Apply role.** Only now does rel apply `"<role>"` (role name escaped as an identifier) for the rest of the request — `/route` runs `SET LOCAL ROLE`, transaction-scoped, since its whole request shares one transaction start-to-finish ; `/rel` runs session-scoped `SET ROLE`/`RESET ROLE` on its pinned connection instead, since it commits its write transaction and then runs every item's read query AFTER that commit, still on the same connection — see `specs/TODO.md`'s connection-pool/lifecycle entry for the full reasoning.
+4. **Renew.** If the token verifies and passes the check, and more than `jwt.renew_after` of its own lifespan has elapsed since its `iat`, rel re-mints it: fresh `iat`/`exp`, using the SAME width the current token's own `exp - iat` already has, fresh `Set-Cookie`, `auth_time` and `role` unchanged, other claims carried over as-is. The renewed cookie's `SameSite` is always `jwt.same_site` — a `jwt_attrs.samesite` override from the original mint does NOT persist across renewal. Tokens under the `renew_after` threshold pass through unchanged.
+   > Why: reusing the current token's own width means a `jwt_attrs.maxage` override from the original mint keeps applying across renewals without rel needing to remember it separately — the token's own claims are the only state involved. `SameSite` isn't reapplied because it isn't a JWT claim rel could carry forward without adding a private claim for one rarely-used cookie attribute. Passing unchanged tokens through bounds `Set-Cookie` churn to roughly once per `maxage × renewafter` of activity rather than once per request.
+5. **Apply role.** Only now does rel apply `"<role>"` (role name escaped as an identifier) for the rest of the request — `/route` runs `SET LOCAL ROLE`, transaction-scoped, since its whole request shares one transaction start-to-finish ; `/rel` runs session-scoped `SET ROLE`/`RESET ROLE` on its pinned connection instead, since it commits its write transaction and then runs every item's read query AFTER that commit, still on the same connection (`specs/TODO.md`'s connection-pool/lifecycle entry).
 
-A session's total lifetime is therefore bounded twice: `exp` bounds any single token (short, so a leaked/stolen cookie alone is only useful briefly), and `jwt.max_session_age` bounds how long renewal can keep extending it (so a continuously-replayed valid cookie still forces re-authentication eventually).
+A session's total lifetime is bounded twice: `exp` bounds any single token (short, so a leaked/stolen cookie alone is only useful briefly), and `jwt.max_session_age` bounds how long renewal can keep extending it (so a continuously-replayed valid cookie still forces re-authentication eventually).
 
-**Request handling order, and what it means for `RelHttpRequest.jwt`.** On `/route`, Verify (step 2 above) runs first — it's what makes "is this request anonymous" knowable at all, and needs no DB connection. Then the anonymous-access/route-authorization checks (`## Anonymous role existence` below, `route.md ## Anonymous route authorization`) run, then the request body is fully read and `RelHttpRequest` is built — all of this BEFORE a pool connection is acquired. Only then does the connection get acquired, `## Session invalidation`'s Check run, Renew (step 4 above) happen, and Apply role (step 5) apply — deliberately, so a request already known to be unauthorized, or that turns out to be malformed/oversized, never holds a pool connection open at all, and never costs a connection-acquire round trip in the first place. `/rel` already reads and resolves its own request body before acquiring a connection for exactly the same reason ; `/route`'s ordering here brings it in line with that, not a new pattern.
+**Request handling order, and what it means for `RelHttpRequest.jwt`.** On `/route`, Verify (step 2) runs first, needing no DB connection. Then the anonymous-access/route-authorization checks (`## Anonymous role existence` below, `route.md ## Anonymous route authorization`) run, then the request body is fully read and `RelHttpRequest` is built — all BEFORE a pool connection is acquired. Only then does the connection get acquired, `## Session invalidation`'s Check run, Renew (step 4) happen, and Apply role (step 5) apply.
 
-One real, visible consequence of this ordering : `RelHttpRequest.jwt`, embedded into the request BEFORE Renew runs, always reflects the token AS VERIFIED — the claims actually presented for this request — never a renewal this same request happens to trigger. Renewal only ever changes `iat`/`exp` (never `role` or any custom claim), so a route function reading `req.jwt.role` or its own custom claims sees the same values either way ; only `req.jwt.iat`/`req.jwt.exp` could in principle differ from what ends up on the (separately, later) renewed cookie sent back to the client.
+> Why: this ordering means a request already known to be unauthorized, or malformed/oversized, never holds a pool connection open and never costs a connection-acquire round trip. `/rel` already reads and resolves its own request body before acquiring a connection for the same reason.
+
+`RelHttpRequest.jwt`, embedded into the request BEFORE Renew runs, always reflects the token AS VERIFIED — the claims actually presented for this request — never a renewal this same request happens to trigger. Renewal only ever changes `iat`/`exp` (never `role` or any custom claim), so a route function reading `req.jwt.role` or its own custom claims sees the same values either way ; only `req.jwt.iat`/`req.jwt.exp` could in principle differ from what ends up on the (separately, later) renewed cookie sent back to the client.
 
 ## Session invalidation
 
@@ -67,9 +69,9 @@ end;
 $$;
 ```
 
-- Called once per request that carries a JWT which already passed verification (step 2 above) — never for anonymous requests, since there's nothing to check.
-- Runs in the same connection/transaction as the rest of the request's setup, immediately *before* `SET LOCAL ROLE` — it rides the DB round trip rel already makes to apply the role, so it adds no extra round trip. Running before the role switch (and being `security definer`) also lets it consult tables the eventual per-request role has no business reading directly (a revocation list, a `users.disabled` flag).
-- Takes the full claims object as `jsonb` — deliberately not the `RelHttpRequest` domain, so it can never be picked up by `route.md`'s own route auto-discovery rule regardless of its name.
+- Called once per request that carries a JWT which already passed verification (step 2 above) — never for anonymous requests.
+- Runs in the same connection/transaction as the rest of the request's setup, immediately *before* `SET LOCAL ROLE` — no extra round trip. Running before the role switch, and being `security definer`, lets it consult tables the eventual per-request role has no business reading directly (a revocation list, a `users.disabled` flag).
+- Takes the full claims object as `jsonb`, not the `RelHttpRequest` domain, so it is never picked up by `route.md`'s own route auto-discovery rule regardless of its name.
 - Signals rejection the same way HTTP route functions do: `raise exception ... using errcode = 'RSxxx'` aborts the request with that status and clears the JWT cookie, forcing re-authentication. Returning normally means the session stands.
 - Rel does not interpret or require any particular claim shape for revocation checks (e.g. a `jti`/session-id claim to look up) — that's an application convention on top of the generic `jsonb` payload.
 
@@ -77,33 +79,32 @@ $$;
 
 Much like PostgREST, rel sets a role on every request made to Postgres. Authenticating a user generally means assigning them a role in the JWT, which is then applied to every database request the session makes (escaped as an identifier, never interpolated raw).
 
-Anonymous access is opt-in, not ambient : it's either anonymous, or it's verboten — there is no third, implicit "public" state a deployment falls into by simply not thinking about it. See `## Anonymous role existence` below for what actually governs this.
+Anonymous access is opt-in, not ambient : it's either anonymous, or it's verboten — there is no third, implicit "public" state. See `## Anonymous role existence` below for what governs this.
 
 ## Configuration
 
-* `pg.query.anonymous_role` (default `~anonymous`) : the role rel applies when there is no JWT, or the one presented is missing, invalid, expired, session-checked out, or otherwise unusable. Same setting `query-engine.md ## Configuration` names — defined once, here, since this doc is where its behavior actually lives ; `query-engine.md`'s own entry should carry this same default rather than leaving it unstated (previously a genuine drift : this doc used to name the identical setting `jwt.anonrole`, a name that never matched `query-engine.md`'s `pg.query.anonymous_role` at all).
+* `pg.query.anonymous_role` (default `~anonymous`) : the role rel applies when there is no JWT, or the one presented is missing, invalid, expired, session-checked out, or otherwise unusable. The identical setting `query-engine.md ## Configuration` names ; this document is the authoritative source for its behavior.
 
 ## Anonymous role existence
 
-`pg.query.anonymous_role`'s default (`~anonymous`) is a naming convention, not itself a security posture. What actually governs whether anonymous access exists at all is whether a role by that name — or whatever the setting is explicitly configured to — is FOUND TO EXIST in the database, checked at introspection time (startup, and any future schema reload — see `specs/TODO.md`'s reload entry ; until reload exists, "checked at startup" is the same limitation every other piece of rel's introspected schema cache already has, not a new one).
+`pg.query.anonymous_role`'s default (`~anonymous`) is a naming convention, not itself a security posture. What governs whether anonymous access exists at all is whether a role by that name — or whatever the setting is explicitly configured to — is FOUND TO EXIST in the database, checked at introspection time (startup, and any future schema reload — see `specs/TODO.md`'s reload entry).
 
-This is deliberately a database-existence check, not a config-emptiness check : an operator who sets `pg.query.anonymous_role` to a custom name but forgets to `CREATE ROLE` it gets exactly the same protection, and the same diagnostic, as one who leaves the setting at its default and never creates `~anonymous` at all. Gating on "is the config value empty" instead would miss that first case entirely — the request would sail through to `SET ROLE` at request time and fail there instead, with a confusing runtime error rather than a clear one at startup.
+This is a database-existence check, not a config-emptiness check.
+
+> Why: an operator who sets `pg.query.anonymous_role` to a custom name but forgets to `CREATE ROLE` it gets the same protection, and the same diagnostic, as one who leaves the setting at its default and never creates `~anonymous` at all. A config-emptiness check would miss that first case, letting the request sail through to `SET ROLE` at request time and fail with a confusing runtime error instead of a clear one at startup.
 
 * **Found to exist** : anonymous access is enabled, unchanged from every other behavior this document already describes.
-* **Not found** : rel logs a warning at startup/reload (`configured anonymous role %q does not exist — all anonymous requests will be denied`) and proceeds with anonymous access disabled. NOT a fatal error — "no anonymous access at all" is a common, often deliberate, always-valid configuration, not a broken one. Same non-fatal-but-warn treatment `route.md`'s own route discovery already gives `http.response_domain_name` not resolving to anything — an established pattern for "a configured name that didn't resolve," reused here rather than inventing a new severity tier for this one case.
+* **Not found** : rel logs a warning at startup/reload (`configured anonymous role %q does not exist — all anonymous requests will be denied`) and proceeds with anonymous access disabled. NOT a fatal error — "no anonymous access at all" is a common, valid configuration. Same non-fatal-but-warn treatment `route.md`'s own route discovery gives `http.response_domain_name` not resolving to anything.
 
-With anonymous access disabled, every unauthenticated request — to `/rel` AND `/route` alike — is rejected with `401`, immediately : before `/route`'s route lookup, before any request body is read, before a pool connection is ever acquired. There is nothing for such a request to fall through to : `SET ROLE ""`/`SET LOCAL ROLE ""` is a Postgres syntax error, and skipping the role switch entirely would silently run the request as whatever role the pool connection already has — a privilege escalation for anonymous callers. This was already a hard-stop path before this check existed (previously reachable only via an empty `pg.query.anonymous_role` and surfaced as a `500`, treated as a misconfiguration) ; it's now recognized as a first-class, intentional policy instead, reachable by simply not creating the role, and surfaced as a clean `401`.
+With anonymous access disabled, every unauthenticated request — to `/rel` AND `/route` alike — is rejected with `401`, immediately : before `/route`'s route lookup, before any request body is read, before a pool connection is ever acquired.
+
+> Why: `SET ROLE ""`/`SET LOCAL ROLE ""` is a Postgres syntax error, and skipping the role switch entirely would silently run the request as whatever role the pool connection already has — a privilege escalation for anonymous callers.
 
 ## Deployment prerequisite : role membership
 
-`SET ROLE`/`SET LOCAL ROLE` only succeeds when the connecting role (`pg.query.user`, or
-`pg.user` when `pg.query.user` is unset) is a MEMBER of the role being switched to. This is
-ordinary Postgres privilege behavior, not something rel enforces or checks — but it is the
-deploying developer's own responsibility to satisfy, and getting it wrong fails at request
-time, not at startup.
+`SET ROLE`/`SET LOCAL ROLE` only succeeds when the connecting role (`pg.query.user`, or `pg.user` when `pg.query.user` is unset) is a MEMBER of the role being switched to. This is ordinary Postgres privilege behavior, not something rel enforces or checks — it is the deploying developer's own responsibility to satisfy, and getting it wrong fails at request time, not at startup.
 
-Grant membership in `pg.query.anonymous_role`, and in every role any JWT in the deployment
-may carry, to the connecting role :
+Grant membership in `pg.query.anonymous_role`, and in every role any JWT in the deployment may carry, to the connecting role :
 
 ```sql
 grant "~anonymous" to query_user;
@@ -112,19 +113,15 @@ grant "admin" to query_user;
 -- one grant per role the connecting role must be able to switch into
 ```
 
-Skipping a grant doesn't fail at startup — introspection and dmut migrations both run under
-the PRIMARY connection (`pg.user`, never `pg.query.user`), so a missing grant is invisible
-until the first real request tries to `SET ROLE` into the ungranted role, at which point it
-`500`s with "permission denied to set role". A local/testcontainer deployment connecting as
-a superuser never observes this at all — superusers can `SET ROLE` to anything — which is
-exactly what makes it easy to miss until a properly-locked-down production deployment hits
-it for the first time. PostgREST documents the identical prerequisite for its own
-`authenticator`/`web_anon` pattern.
+Skipping a grant doesn't fail at startup — introspection and dmut migrations both run under the PRIMARY connection (`pg.user`, never `pg.query.user`), so a missing grant is invisible until the first real request tries to `SET ROLE` into the ungranted role, at which point it `500`s with "permission denied to set role". A local/testcontainer deployment connecting as a superuser never observes this at all — superusers can `SET ROLE` to anything.
+
+PostgREST documents the identical prerequisite for its own `authenticator`/`web_anon` pattern.
 
 # Authentication
 
-- **SAML**: `github.com/crewjam/saml`, as in legacy — the de facto standard SP implementation in Go; no reason to replace it.
-- **OpenID Connect / OAuth**: `golang.org/x/oauth2` for token exchange, plus `github.com/coreos/go-oidc/v3` for discovery (`.well-known/openid-configuration`) and ID-token verification. This replaces legacy's `goth`/`gothic`: goth is a catalog of hand-maintained, named per-provider packages (google, salesforce, a bespoke in-repo yahoo one — see `legacy-docs/oauth.md`), which doesn't fit `index.md`'s requirement of an easily configurable, generic approach — `go-oidc` speaks to any standards-compliant IdP given just its issuer URL, no per-provider Go package needed.
+- **SAML**: `github.com/crewjam/saml`, as in legacy — the de facto standard SP implementation in Go.
+- **OpenID Connect / OAuth**: `golang.org/x/oauth2` for token exchange, plus `github.com/coreos/go-oidc/v3` for discovery (`.well-known/openid-configuration`) and ID-token verification. This replaces legacy's `goth`/`gothic`.
+  > Why: goth is a catalog of hand-maintained, named per-provider packages (google, salesforce, a bespoke in-repo yahoo one — see `legacy-docs/oauth.md`), which doesn't fit `index.md`'s requirement of an easily configurable, generic approach. `go-oidc` speaks to any standards-compliant IdP given just its issuer URL, no per-provider Go package needed.
 - **Username/password**: no library — credential verification is delegated to a Postgres function.
 
 Each configured endpoint (SAML IdP, OIDC issuer, ...) is a named entry under its own config namespace (`saml.<name>.*`, `openid.<name>.*`), not detailed further here.

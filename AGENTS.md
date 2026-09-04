@@ -32,6 +32,13 @@ Blockquote types :
 
 The redactor may also leave a question inline, outside any blockquote (e.g. a parenthetical) while redacting, for commodity. Address it like if it were `> Advise:`.
 
+Style constraints on spec text (outside blockquotes):
+
+- **No self-narration.** Never describe how the spec came to say what it says — "this session's own convention," "an earlier draft had X," "corrected here rather than left to drift," "not an oversight." State the current rule only; don't narrate its history, not even in a `> Why:`.
+- **One rule, one sentence.** If a bullet needs "not X, not Y either, but Z" hedging to land, the justification has leaked into the rule. Rewrite as a flat positive statement. Move the "why not X" reasoning to `> Why:`, or drop it if it isn't needed to resolve a real ambiguity.
+- **Rationale is opt-in reading, not load-bearing.** A rule must be fully implementable with every blockquote stripped from the doc. Test literally: if deleting all `>` blocks removes information needed to implement correctly, the split has failed — move that content out of the blockquote and into the rule, or accept it's optional context.
+- **Cross-references are citations, not sentences.** `` `specs/foo.md ## Bar` `` terminates a clause ; it doesn't spawn a subordinate clause explaining why that section is relevant.
+
 # When writing code
 
 Similarly to spec work ; leave questions/dialogue with a marker, like //> Question: so that I can find items to go back to more easily by grepping.

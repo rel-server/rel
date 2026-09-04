@@ -100,7 +100,9 @@ type OpenIDEndpoint struct {
 
 ## Development mode
 
-`dev` (top-level, bool, default `false`) : gates the extra detail `error-handling.md ## Postgres error detail` and `## Stack traces` add to error responses — full Postgres error text and a stack trace, both otherwise omitted. Off by default so a deployment that never explicitly opts in never risks leaking either. See those two sections for exactly what `dev: true` changes ; this key exists purely to gate them; it has no other effect (in particular it does NOT change the logging level — `logging.md ## Configuration`'s `logging.level` stays the one and only control for that, kept orthogonal deliberately, since a deployment might want dev-mode error detail without also wanting DEBUG-level log volume, or vice versa).
+`dev` (top-level, bool, default `false`) : gates the extra detail `error-handling.md ## Postgres error detail` and `## Stack traces` add to error responses — full Postgres error text and a stack trace, both otherwise omitted. It has no other effect. It does NOT change the logging level; `logging.md ## Configuration`'s `logging.level` is the only control for that.
+
+> Why: off by default so a deployment never leaks either kind of detail without opting in. Kept orthogonal from `logging.level` since a deployment may want dev-mode error detail without DEBUG-level log volume, or vice versa.
 
 ## Immutability
 

@@ -12,16 +12,15 @@ Especially for typescript ; provide a lightweight, ergonomic and minimalist clie
 - Type check column usage in expressions (might be hard and will use a lot of generics - probably a v2 concern)
 - Give a json schema of the database that could be introspected by a library
 
-## Musings
+Not an ORM — `.save()` is a non-goal. What matters is that a query's shape and result are known to TypeScript.
 
-- Footprint should be absolutely minimal and done almost entirely in typespace ; importing schemas will just augment a helper function that then shapes the result correctly
-- A separate mechanism should provide the querier with a json that lists whatever they can query (with a schema whitelist ; we don't want big things like pg_catalog in there, although if a type is referenced then this should trigger its inclusion) ; pretty much what was introspected in a "palatable" form with less pg-y naming (especially with function arguments and the likes.)
+A facility to `setPrototypeOf()` transparently, so a developer can add accessors/methods to returned types and their embedded sub-types, is a primary goal. It must be minimally intrusive enough to survive regeneration of the file, and must surface an error if a change no longer applies.
 
-This is not an ORM ; having .save() is a non-goal. What matters is ensuring a query has the right shape and its result is known by typescript.
+Generated code may output comments telling biome/prettier to deactivate checks it might not conform to.
 
-However ; providing a facility so that we can setPrototypeOf() transparently so that the developper might add accessors and methods to the returned types - and their embedded sub-types is a primary goal. The way they do so must be as minimally intrusive as possible so that it survives regenaration of the file, displays errors if the changes no longer work.
-
-Generated code may output comments telling biome/prettier to deactivate a few checks as it might not conform to all its settings.
+> Thoughts: footprint should be minimal, done almost entirely in typespace — importing a schema augments a helper function that shapes the result, rather than generating bulky per-schema code.
+>
+> A separate mechanism should give the querier a JSON listing of whatever they can query, schema-whitelisted (no `pg_catalog` by default, though a referenced type should still pull its definition in) — introspection output in a "palatable," less pg-flavored form (especially function arguments).
 
 ## Configuration
 

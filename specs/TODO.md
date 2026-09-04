@@ -39,8 +39,7 @@ Resolved items are not tracked here — this is a todo list, not a changelog ; c
 ## Needs your attention
 
 - **`typescript.md`** — actively being filled in by you directly, not blocked on anything
-  else. One dangling sentence as of this writing : line 87, "This file provides a simple
-  function that, given schema.json," with nothing after.
+  else.
 - **TypeScript/JS export vs. `index.md`.** `typescript.md` is the source of truth here ;
   `index.md`'s own `/js/query.js`-style mention is illustrative only, not authoritative.
   Once `typescript.md` settles on real paths, reconcile `index.md`'s Features list to match
