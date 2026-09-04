@@ -36,6 +36,14 @@ type Relation struct {
 	IsView             bool
 	IsMaterializedView bool
 
+	// IsStandaloneCompositeType is true for a bare `CREATE TYPE ... AS
+	// (...)` composite type's own pseudo-relation (relkind 'c') — reachable
+	// only via its owning *Type's own Relation field, never a real
+	// queryable table/view. Meant primarily for the TypeScript export
+	// (specs/typescript.md ## Schema interfaces) to tell a real Table__/
+	// View__ candidate apart from a composite type's backing row shape.
+	IsStandaloneCompositeType bool
+
 	Columns    []*Column
 	ColumnsMap map[string]*Column
 
@@ -91,6 +99,9 @@ SELECT json_agg(R) FROM (SELECT
 	) AS "Identifier",
 
 	obj_description(pg_class.oid, 'pg_class') AS "Comment",
+	pg_class.relkind = 'v' AS "IsView",
+	pg_class.relkind = 'm' AS "IsMaterializedView",
+	false AS "IsStandaloneCompositeType",
 
 	json_agg(json_build_object(
 		'Name', column_name,
@@ -139,6 +150,9 @@ SELECT
 		'Name', pg_class.relname
 	) AS "Identifier",
 	obj_description(pg_class.oid, 'pg_class') AS "Comment",
+	false AS "IsView",
+	false AS "IsMaterializedView",
+	true AS "IsStandaloneCompositeType",
 	json_agg(json_build_object(
 		'Name', a.attname,
 		'Index', a.attnum,

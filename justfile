@@ -8,6 +8,12 @@ db_password := "test"
 test:
     go test ./...
 
+# Type-check the hand-maintained typescript/ draft (specs/typescript.md ##
+# Testing) : querier.ts/query.ts/shapes.ts/schema.example.ts/example.ts as
+# one project, via the directory's own tsconfig.json/biome.json.
+check:
+    cd typescript && bunx tsc --noEmit
+
 # Launch the rel server against the dev database (just db-up first). Uses
 # pg.uri alone — REL_PG__QUERY__USER/PASSWORD are unset (there's only one
 # role in this dev fixture) ; a real deployment would set those separately,

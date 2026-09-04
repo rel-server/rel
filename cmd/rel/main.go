@@ -69,6 +69,10 @@ func main() {
 		logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", cfg.Pg.Query.AnonymousRole))
 	}
 
+	// specs/typescript.md ## Reloading `helper_path` : also written once at
+	// startup, not only on every SIGUSR1 reload.
+	boot.WriteTypeScriptHelperFile(db, cfg, logger.With("module", "boot"))
+
 	routeRegistry, err := route.BuildRegistry(db, cfg)
 	if err != nil {
 		logger.Error("building /route registry", "error", err.Error())

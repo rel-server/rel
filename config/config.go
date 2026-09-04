@@ -14,10 +14,24 @@ type Config struct {
 
 	Blacklist Blacklist
 
+	// TypeScript is specs/typescript.md ## Configuration's typescript.* :
+	// typescript.helper_path only, as of now — the endpoints themselves are
+	// gated by Http.TypeScript/Http.Json below.
+	TypeScript TypeScript
+
 	// Dev is specs/configuration.md ## Development mode's `dev` key,
 	// default false : gates the extra detail error-handling.md ##
 	// Postgres error detail and ## Stack traces add to error responses.
 	Dev bool
+}
+
+// TypeScript is specs/typescript.md ## Configuration's typescript.* namespace.
+type TypeScript struct {
+	// HelperPath is typescript.helper_path, default "" (disabled) : a
+	// filesystem path rel (re)writes database.ts's content to directly, at
+	// startup and on every SIGUSR1 reload (specs/typescript.md ## Reloading
+	// `helper_path`), on top of serving it over HTTP.
+	HelperPath string
 }
 
 // Dmut is specs/migrations.md ## Configuration : dmut.path/reload_drain_timeout.
@@ -132,11 +146,26 @@ type Http struct {
 	// ### Limits.
 	MaxPartCount int
 
-	Functions HttpFunctions
-	Static    HttpStatic
-	Templates HttpTemplates
-	Cors      HttpCors
-	Csp       HttpCsp
+	Functions  HttpFunctions
+	Static     HttpStatic
+	Templates  HttpTemplates
+	Cors       HttpCors
+	Csp        HttpCsp
+	TypeScript HttpTypeScript
+}
+
+// HttpTypeScript is http.typescript.* — specs/typescript.md ##
+// Configuration/## Endpoints : GET /rel/database.ts.
+type HttpTypeScript struct {
+	// Enable is http.typescript.enable, default false (true if Dev is
+	// enabled) : serves GET /rel/database.ts.
+	Enable bool
+	// Schemas is http.typescript.schemas, default "" (every schema found,
+	// aside from pg_catalog) : a comma-separated whitelist of schemas that
+	// may be exported, matching every other comma-separated list convention
+	// (e.g. http.cors.allowed_origins) since config can't hold arrays.
+	// Intersected with the endpoint's own `schemas` query param, when given.
+	Schemas string
 }
 
 // HttpTemplates is http.templates.* — specs/http-content.md ##

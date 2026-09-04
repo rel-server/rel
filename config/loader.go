@@ -391,6 +391,12 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Static.Access = readStaticAccess(root, "http.static.access")
 	cfg.Http.Templates.Path = root.GetStringOrDefault("http.templates.path", DefaultHttpTemplatesPath)
 
+	// http.typescript.enable defaults to Dev, same "true if dev enabled"
+	// rule as specs/typescript.md ## Configuration states — a computed
+	// default, not a plain constant, so it's read after cfg.Dev above.
+	cfg.Http.TypeScript.Enable = root.GetBoolOrDefault("http.typescript.enable", cfg.Dev)
+	cfg.Http.TypeScript.Schemas = root.GetStringOrDefault("http.typescript.schemas", "")
+
 	cfg.Http.Cors.AllowedOrigins = root.GetStringOrDefault("http.cors.allowed_origins", "")
 	cfg.Http.Cors.AllowedMethods = root.GetStringOrDefault("http.cors.allowed_methods", DefaultHttpCorsAllowedMethods)
 	cfg.Http.Cors.AllowedHeaders = root.GetStringOrDefault("http.cors.allowed_headers", DefaultHttpCorsAllowedHeaders)
@@ -426,6 +432,8 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Jwt.MaxAge = root.GetIntOrDefault("jwt.max_age", DefaultJwtMaxAge)
 	cfg.Jwt.RenewAfter = root.GetFloat64OrDefault("jwt.renew_after", DefaultJwtRenewAfter)
 	cfg.Jwt.MaxSessionAge = root.GetIntOrDefault("jwt.max_session_age", DefaultJwtMaxSessionAge)
+
+	cfg.TypeScript.HelperPath = root.GetStringOrDefault("typescript.helper_path", "")
 
 	cfg.Dmut.Path = root.GetStringOrDefault("dmut.path", DefaultDmutPath)
 	cfg.Dmut.ReloadDrainTimeout = root.GetIntOrDefault("dmut.reload_drain_timeout", DefaultDmutReloadDrainTimeout)

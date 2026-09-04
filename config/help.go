@@ -71,6 +71,8 @@ var Options = []Option{
 	{"http.functions.check_session", "(disabled)", "Function called on every authenticated request, letting the database reject a session early."},
 	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served at the fixed /static/ URL prefix, first match wins."},
 	{"http.templates.path", DefaultHttpTemplatesPath, "Filesystem directory Jet templates (RelHttpResponse.template) are loaded from."},
+	{"http.typescript.enable", "false (true if dev)", "Serve GET /rel/database.ts — the introspected schema as TypeScript types plus a few query-building helpers."},
+	{"http.typescript.schemas", "(every schema, aside from pg_catalog)", "Comma-separated whitelist of schemas GET /rel/database.ts may export ; intersected with the endpoint's own ?schemas= query param."},
 	{"http.cors.allowed_origins", "(empty — CORS closed)", "Comma-separated list of exact origins allowed to make cross-origin requests, or the literal \"*\"."},
 	{"http.cors.allowed_methods", DefaultHttpCorsAllowedMethods, "Methods a CORS preflight may approve."},
 	{"http.cors.allowed_headers", DefaultHttpCorsAllowedHeaders, "Request headers a CORS preflight may approve."},
@@ -103,6 +105,9 @@ var Options = []Option{
 	// ---- dmut.* ----
 	{"dmut.path", DefaultDmutPath, "Directory containing dmut mutation files, read recursively. A missing directory skips dmut entirely — not an error."},
 	{"dmut.reload_drain_timeout", fmt.Sprint(DefaultDmutReloadDrainTimeout) + " (seconds)", "How long a SIGUSR1 reload waits for in-flight requests to finish before cancelling their contexts and proceeding anyway."},
+
+	// ---- typescript.* ----
+	{"typescript.helper_path", "(disabled)", "Filesystem path rel (re)writes database.ts's content to directly, at startup and on every SIGUSR1 reload — for an editor/LSP watching a real file on disk, without a request round-trip."},
 }
 
 // sections groups Options for --help's rendering ; checked in order, first
@@ -116,6 +121,7 @@ var sections = []struct {
 	{"JWT sessions", "jwt."},
 	{"Logging", "logging."},
 	{"dmut migrations/mutations", "dmut."},
+	{"TypeScript export", "typescript."},
 }
 
 func sectionFor(key string) string {

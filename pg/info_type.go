@@ -39,6 +39,18 @@ type Type struct {
 	PgArrayOid      int // If IsArray, the oid of the array type
 	PgRelId         int // When this type is a composite type
 	PgRealTypeId    int // The oid of the real type, if this is a domain
+
+	// EnumLabels is pg_enum's own label list, in declaration order
+	// (enumsortorder) — nil unless this type is a CREATE TYPE ... AS ENUM,
+	// which IsEnum() below tests directly. Meant primarily for the
+	// TypeScript export (specs/typescript.md ## Schema interfaces : "an
+	// enum becomes a string-literal union").
+	EnumLabels []string
+}
+
+// IsEnum reports whether t is a CREATE TYPE ... AS ENUM.
+func (t *Type) IsEnum() bool {
+	return t != nil && len(t.EnumLabels) > 0
 }
 
 // This is the only true test for array types
@@ -95,9 +107,11 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 	}
 
 	var type_by_relid map[int]*Type = make(map[int]*Type)
+	typeByIdentifier := make(map[string]*Type, len(infos.Types))
 
 	for i := range infos.Types {
 		t := &infos.Types[i]
+		typeByIdentifier[t.PgIdentifier.String()] = t
 
 		if t.PgElemOid != 0 {
 			if t.ElementType, ok = infos.TypeMapByOid[t.PgElemOid]; !ok {
@@ -184,6 +198,18 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 			if c.Type, ok = infos.TypeMapByOid[c.PgTypeOid]; !ok {
 				return oops.With("relation", r.Identifier.String()).With("column", c.Name).With("typeOid", c.PgTypeOid).Errorf("failed to find type for column (this should not happen)")
 			}
+			// A domain-typed column's PgTypeOid/Type resolved above is its
+			// BASE type (information_schema.columns' own udt_name/udt_schema
+			// substitution) ; PgDomainIdentifier, when set, names the real
+			// domain type instead — swap it in so callers (the TypeScript
+			// export in particular) see the domain, not its underlying type.
+			if c.PgDomainIdentifier != nil {
+				dt, ok := typeByIdentifier[c.PgDomainIdentifier.String()]
+				if !ok {
+					return oops.With("relation", r.Identifier.String()).With("column", c.Name).With("domain", c.PgDomainIdentifier.String()).Errorf("failed to find domain type for column (this should not happen)")
+				}
+				c.Type = dt
+			}
 		}
 	}
 
@@ -203,7 +229,11 @@ SELECT json_agg(T) FROM (SELECT
 		'Schema', n.nspname,
 		'Name', t.typname
 	) as "PgIdentifier",
-	obj_description(t.oid, 'pg_type') AS "Comment"
+	obj_description(t.oid, 'pg_type') AS "Comment",
+	(
+		SELECT json_agg(e.enumlabel ORDER BY e.enumsortorder)
+		FROM pg_enum e WHERE e.enumtypid = t.oid
+	) AS "EnumLabels"
 FROM
   pg_type t
   INNER JOIN pg_namespace n ON n.oid = t.typnamespace
