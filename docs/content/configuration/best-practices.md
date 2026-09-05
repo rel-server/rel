@@ -9,6 +9,31 @@ covered in full elsewhere. This is the checklist for pulling them together into 
 production deployment, since defaults have to stay usable for a first `just test-db-fresh` run
 and can't assume every one of these choices for you.
 
+## Turn off Postgres' default PUBLIC execute grant on functions
+
+Postgres grants `EXECUTE` on every newly created function to `PUBLIC` by default — including
+functions your own migrations create. rel calls a function under whatever role a request's
+session switched to, and that role is typically a member of several application roles at once;
+an ungranted function is reachable by any of them the instant it exists, whether or not you
+meant to expose it as a route or through [`call`/`agg`](../query-language/computed-fields.md).
+Turn the default off, then grant `EXECUTE` explicitly, the way you already grant any other
+privilege:
+
+```sql
+-- affects functions created after this runs, in every schema `app_owner` creates one in
+alter default privileges for role app_owner revoke execute on functions from public;
+
+-- functions that already exist need revoking separately, per schema
+revoke execute on all functions in schema hotel from public;
+
+-- then grant explicitly, per function and role
+grant execute on function hotel.rooms_available(int, date) to editor;
+```
+
+Do this before anything else on this page — it's the single Postgres-level setting most likely
+to leave a function more reachable than you intended, independent of anything rel's own
+blacklist or role separation below catches.
+
 ## Give requests a narrower Postgres role than migrations get
 
 `pg.query.user` (see [Configuration](index.md)) is a separate, optional login for the
