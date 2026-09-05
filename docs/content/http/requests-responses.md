@@ -97,24 +97,7 @@ overrides the session's own lifetime for this login only, without changing
 
 ## Rendering HTML with a template
 
-Set `template` to a path relative to `http.templates.path` instead of building `content`
-yourself — rel renders it with [Jet](https://github.com/CloudyKit/jet), exposing
-`template_data` as `Data`, the request as `Req`, and the CSP nonce as `Nonce`:
-
-```html
-<!-- template/booking-confirmed.jet -->
-<h1>Booking confirmed for {{ Data.guest_name }}</h1>
-<script nonce="{{ Nonce }}">/* trusted inline code */</script>
-```
-
-Jet auto-escapes every `{{ value }}` for HTML; to embed dynamic data inside a `<script>`
-block safely, pass it through the built-in `json(...)` helper into a JSON island rather than
-interpolating it directly:
-
-```html
-<script type="application/json" id="data">{{ json(Data) | raw }}</script>
-```
-
-`content` is ignored whenever `template` is set — it isn't an error to also set both, just
-pointless. A template that fails to load or fails during execution is a `500`, logged with
-the template path, never a silent fallback to `content`.
+Set `template` (a path relative to `http.templates.path`) instead of building `content`
+yourself, and rel renders it server-side with [Jet](https://github.com/CloudyKit/jet) —
+including trusted inline `<script>`/`<style>` via the per-request CSP nonce, and layouts via
+`extends`/`block`. See [Rendering HTML with templates](templates.md) for the full mechanism.

@@ -54,6 +54,7 @@ a single page. "Source" is what to draw the content from; the page itself never 
 | Configuration | Configuration | `configuration.md` |
 | Configuration | Authentication | `authentication.md`, `oauth-saml.md` |
 | Configuration | HTTP routes | `route.md`, `http-content.md` |
+| Configuration | Rendering HTML with templates | `http-content.md ## Templates` |
 | Configuration | Operations | `logging.md`, `error-handling.md`, `migrations.md` |
 
 "Getting started" and "The query language" are reorganized around what a reader is trying to

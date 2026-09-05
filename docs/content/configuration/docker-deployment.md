@@ -54,7 +54,7 @@ services:
       - pgdata:/var/lib/postgresql/data
 
   rel:
-    image: ceymard/rel:latest
+    image: your-registry/your-app:latest
     restart: unless-stopped
     depends_on:
       - db
@@ -67,8 +67,6 @@ services:
       LETSENCRYPT_EMAIL: ops@example.com
     volumes:
       - rel_secrets:/secrets
-      - ./dmut:/dmut:ro
-      - ./wellknown:/wellknown:ro
 
 volumes:
   certs:
@@ -94,16 +92,64 @@ A few things worth getting right:
   `jwt.secret` (and the SAML SP certificate/key, if configured) into `/secrets` on first boot
   and reuses them after — losing that volume on a redeploy silently invalidates every session
   and, for SAML, every IdP trust relationship. See [Secrets and generated
-  values](index.md#secrets-and-generated-values).
-- **`/dmut` and `/wellknown` are read-only bind mounts of files from your own repo** — dmut
-  migration files and well-known query definitions aren't something the container generates,
-  they're deployed alongside it. `/static` and `/template` (not shown above) follow the same
-  pattern if you're serving static files or Jet templates.
+  values](index.md#secrets-and-generated-values). This is the *only* directory rel itself
+  writes runtime state to, and the only one that belongs on a volume — see below.
 - `nginx-proxy` and `acme-companion` need to see the Docker socket to discover containers and
   their `VIRTUAL_HOST`/`LETSENCRYPT_*` labels — that's what the `docker.sock` mount is for,
   not something rel itself needs or sees.
 
-The compose file above assumes `ceymard/rel:latest` is already sitting in a registry
-`docker-compose pull`/`docker-compose up` can reach. Build it yourself with `just image`
-(tags it `ceymard/rel:<version>` and `:latest`, `<version>` from `git describe`), and
-`just upload` to push both tags once you've logged in to your registry of choice.
+## `/dmut`, `/wellknown`, `/static`, `/template`: build them into your own image
+
+dmut migration files, well-known query definitions, static assets, and Jet templates aren't
+runtime state — they're part of what version of your app is running, exactly like the schema
+they query against. Bind-mounting them from the host (`./dmut:/dmut:ro`) works for local
+development, but for a real deployment, build your own image `FROM ceymard/rel` and `COPY`
+them in instead:
+
+```dockerfile
+FROM ceymard/rel:latest
+COPY dmut /dmut
+COPY wellknown /wellknown
+COPY static /static
+COPY template /template
+```
+
+Tag and deploy that image (`your-registry/your-app:<version>`) the same way you would any other
+build artifact — a redeploy rolls forward and back by changing one tag, and there's no separate
+"did the host's bind-mounted files actually match the image that's running" question to answer
+during an incident. The compose file above deploys this way: `image: your-registry/your-app`,
+not `ceymard/rel` directly, and no `/dmut`/`/wellknown`/`/static`/`/template` volumes at all.
+
+## Combining baked-in static assets with writable uploads
+
+`http.static.path` accepts several colon-separated directories and serves them as one merged
+`/static/*` tree (see [Static files](../http/static-files.md)); a [file
+upload](../http/uploads.md) landing on disk without routing through Postgres always writes
+under the *first* one specifically. That ordering is also the tool for combining assets baked
+into your image with a writable upload directory, without any dedicated upload configuration:
+put the writable volume first, your `COPY`'d assets second.
+
+```dockerfile
+# in your app's Dockerfile
+COPY static /static/assets
+```
+
+```yaml
+# in your compose file
+environment:
+  REL_HTTP__STATIC__PATH: /uploads:/static/assets
+volumes:
+  - rel_uploads:/uploads
+```
+
+Uploads land in `/uploads`, on a volume that survives a redeploy; `/static/assets` is whatever
+version of your app's own static files the currently-running image was built with. There's
+deliberately no separate `http.uploads.path` setting or default `/uploads` volume in the base
+image — which directory in the list is writable, if any, is a decision about your app's own
+deployment, not something rel's base image should assume for you.
+
+The compose file above assumes `your-registry/your-app:latest` is already sitting in a registry
+`docker-compose pull`/`docker-compose up` can reach. `just image` builds the plain
+`ceymard/rel` base image (tags it `ceymard/rel:<version>` and `:latest`, `<version>` from `git
+describe`) and `just upload` pushes it — useful as the `FROM` your own app's image builds on
+top of, not something you deploy directly once you have app-specific assets to bake in.

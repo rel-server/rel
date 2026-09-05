@@ -90,7 +90,9 @@ obvious HTTP status (a permission-denied error becomes `401`, for instance).
 ## In this section
 
 - **[Requests and responses](requests-responses.md)** — the `RelHttpRequest`/`RelHttpResponse`
-  domains, and rendering HTML via a Jet template.
+  domains.
+- **[Rendering HTML with templates](templates.md)** — server-side Jet templates, the CSP
+  nonce for trusted inline scripts, and `extends`/`block` layouts.
 - **[File uploads](uploads.md)** — receiving raw bytes, or choosing where an upload lands on
   disk without routing its bytes through Postgres.
 - **[Static files](static-files.md)** — serving a directory at `/static/*`, gating part of it

@@ -31,6 +31,7 @@ nav = [
   { "HTTP layer" = [
       { "Overview" = "http/index.md" },
       { "Requests and responses" = "http/requests-responses.md" },
+      { "Rendering HTML with templates" = "http/templates.md" },
       { "File uploads" = "http/uploads.md" },
       { "Static files" = "http/static-files.md" },
       { "CORS and CSP" = "http/cors-csp.md" },
