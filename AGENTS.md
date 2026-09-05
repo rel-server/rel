@@ -15,8 +15,6 @@
 # When authoring
 
 
-In specs and docs, create links between files with [[wiki]] syntax.
-
 The redactor(s) write specs with you as a mirror, to help shape them as best as possible for a prompt implementation by a low/medium thinking agent.
 
 
