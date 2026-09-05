@@ -7,10 +7,14 @@ that object — there's no separate "read" and "write" grammar; the same tree do
 Examples throughout use the hotel-booking schema from [Getting started](../getting-started.md):
 `hotel.chains` → `hotel.properties` → `hotel.room_types` → `hotel.rooms`, and `hotel.guests` →
 `hotel.bookings` → `hotel.payments`. [Database reference](database-reference.md) has the full
-diagram if you want the whole shape at a glance before diving in.
+diagram if you want the whole shape at a glance before diving in. [Query shape
+reference](reference.md) does the same for the query language itself — the whole thing in one
+page — before the rest of this section walks through it by example.
 
 ## In this section
 
+- **[Query shape reference](reference.md)** — every field and every `Expression` form, in one
+  place, each linked back to the page that explains it.
 - **[Database reference](database-reference.md)** — the hotel-booking schema every example on
   these pages queries against.
 - **[Shaping a query](shaping.md)** — roots, schema resolution, aliases.
