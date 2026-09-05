@@ -13,47 +13,91 @@ come back to it once you know roughly what you're looking for and just need the 
 
 `POST /rel`'s body is one of these, at the top level:
 
+```ts
+type Query = Relation | WriteQuery | WellKnownQuery | Query[]
+```
+
 | Form | Meaning |
 |---|---|
 | A `Relation` | A read (see [Shaping a query](shaping.md)), or, wrapped in a `WriteQuery`, a write. |
-| A `WellKnownQuery` (`{wellknown, params?}`) | A call to a named, pre-parsed query — see [Well-known queries](well-known-queries.md). |
-| A `WriteQuery` (`{query, data}`) | Write `data` back through `query` (a `Relation` or a `WellKnownQuery`) — see [Writing data back](writing.md). |
-| An array of any of the above | Several queries in one request, one transaction — see [Batching queries](batching.md). |
+| A `WellKnownQuery` | A call to a named, pre-parsed query — see [Well-known queries](well-known-queries.md). |
+| A `WriteQuery` | Write `data` back through `query` (a `Relation` or a `WellKnownQuery`) — see [Writing data back](writing.md). |
+| `Query[]` | Several queries in one request, one transaction — see [Batching queries](batching.md). |
 
 ## `Relation`
 
 Every field a query node can carry. `schema` through `limit` all apply the same way whether
 the node is the query's root or a `join` target nested arbitrarily deep.
 
-| Field | Type | Covered in |
-|---|---|---|
-| `relation` | `string` | [Shaping a query](shaping.md) — exactly one of `relation`/`function`. |
-| `function` | `string` | [Calling functions](functions.md). |
-| `schema` | `string` | [Shaping a query](shaping.md) — defaults to the search path. |
-| `alias` | `string` | [Shaping a query](shaping.md) — self-references and self-joins. |
-| `on` | `{[local_column]: string}` | [Joining and embedding relations](joining.md) — required on a `join` target. |
-| `arguments` | `Expression[]` or `{[name]: Expression}` | [Calling functions](functions.md) — positional or named, only with `function`. |
-| `where` | `Expression` | [Filtering with `where`](filtering.md). |
-| `write_mode` | one of `insert`/`upsert`/`merge`/`merge-new`/`merge-update`/`update`/`deleteonly`/`readonly` | [Writing data back](writing.md). |
-| `on_conflict` | `string` or `string[]` | [Writing data back](writing.md) — defaults to the primary key. |
-| `insert_columns` | `string[]` | [Writing data back](writing.md). |
-| `update_columns` | `string[]` | [Writing data back](writing.md). |
-| `join` | `{[alias]: Relation}` | [Joining and embedding relations](joining.md). |
-| `select` | `Expression` | [Selecting fields](selecting.md) — defaults to `["full"]`. |
-| `distinct` | `boolean` | [Ordering, distinctness, and pagination](ordering-pagination.md). |
-| `distinct_on` | `Expression[]` | [Ordering, distinctness, and pagination](ordering-pagination.md). |
-| `order_by` | <code>(Expression &#124; [direction, Expression])[]</code> | [Ordering, distinctness, and pagination](ordering-pagination.md). |
-| `offset` | `number` | [Ordering, distinctness, and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
-| `limit` | `number` | [Ordering, distinctness, and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
+```ts
+interface Relation {
+  relation?: string
+  function?: string
+  schema?: string
+  alias?: string
+  on?: { [local_column: string]: string }
+  arguments?: Expression[] | { [name: string]: Expression }
+  where?: Expression
+  write_mode?:
+    | "insert" | "upsert" | "merge" | "merge-new" | "merge-update"
+    | "update" | "deleteonly" | "readonly"
+  on_conflict?: string | string[]
+  insert_columns?: string[]
+  update_columns?: string[]
+  join?: { [alias: string]: Relation }
+  select?: Expression
+  distinct?: boolean
+  distinct_on?: Expression[]
+  order_by?: (
+    | Expression
+    | [direction: "asc" | "desc" | "asc-nulls-first" | "desc-nulls-last", Expression]
+  )[]
+  offset?: number
+  limit?: number
+}
+```
+
+| Field | Covered in |
+|---|---|
+| `relation` | [Shaping a query](shaping.md) — exactly one of `relation`/`function`. |
+| `function` | [Calling functions](functions.md). |
+| `schema` | [Shaping a query](shaping.md) — defaults to the search path. |
+| `alias` | [Shaping a query](shaping.md) — self-references and self-joins. |
+| `on` | [Joining and embedding relations](joining.md) — required on a `join` target. |
+| `arguments` | [Calling functions](functions.md) — positional or named, only with `function`. |
+| `where` | [Filtering with `where`](filtering.md). |
+| `write_mode` | [Writing data back](writing.md). |
+| `on_conflict` | [Writing data back](writing.md) — defaults to the primary key. |
+| `insert_columns` | [Writing data back](writing.md). |
+| `update_columns` | [Writing data back](writing.md). |
+| `join` | [Joining and embedding relations](joining.md). |
+| `select` | [Selecting fields](selecting.md) — defaults to `["full"]`. |
+| `distinct` | [Ordering, distinctness, and pagination](ordering-pagination.md). |
+| `distinct_on` | [Ordering, distinctness, and pagination](ordering-pagination.md). |
+| `order_by` | [Ordering, distinctness, and pagination](ordering-pagination.md). |
+| `offset` | [Ordering, distinctness, and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
+| `limit` | [Ordering, distinctness, and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
 
 ## `WellKnownQuery` and `WriteQuery`
 
-| Type | Field | Type | Covered in |
-|---|---|---|---|
-| `WellKnownQuery` | `wellknown` | `string` | [Well-known queries](well-known-queries.md). |
-| `WellKnownQuery` | `params` | `any` | [Well-known queries ## Declaring and using parameters](well-known-queries.md#declaring-and-using-parameters). |
-| `WriteQuery` | `query` | <code>Relation &#124; WellKnownQuery</code> | [Writing data back](writing.md). |
-| `WriteQuery` | `data` | `any`, shaped like `query`'s own `select` | [Writing data back](writing.md). |
+```ts
+interface WellKnownQuery {
+  wellknown: string
+  params?: any
+}
+
+interface WriteQuery {
+  query: Relation | WellKnownQuery
+  data: any // shaped like `query`'s own `select`
+}
+```
+
+| Type | Field | Covered in |
+|---|---|---|
+| `WellKnownQuery` | `wellknown` | [Well-known queries](well-known-queries.md). |
+| `WellKnownQuery` | `params` | [Well-known queries ## Declaring and using parameters](well-known-queries.md#declaring-and-using-parameters). |
+| `WriteQuery` | `query` | [Writing data back](writing.md). |
+| `WriteQuery` | `data` | [Writing data back](writing.md). |
 
 ## `Expression`
 
@@ -95,5 +139,10 @@ take.
 | `["$param", name, cast?]` | A well-known query's own declared parameter. | [Well-known queries](well-known-queries.md#declaring-and-using-parameters). |
 
 `FunctionIdentifier` — `call`'s and `agg`'s first argument — is either a bare, unqualified
-string (resolved via the search path) or `{schema, name}` (a schema-qualified reference); see
-[Computed fields](computed-fields.md) and [Aggregates](aggregates.md).
+string (resolved via the search path) or a schema-qualified reference:
+
+```ts
+type FunctionIdentifier = string | { schema: string, name: string }
+```
+
+See [Computed fields](computed-fields.md) and [Aggregates](aggregates.md).

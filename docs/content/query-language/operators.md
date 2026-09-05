@@ -13,6 +13,18 @@ its operands. Most have a symbolic form and a word form — `["=", "a", "b"]` an
 These accept two or more operands and fold left-to-right: `["+", 1, 2, 3]` is `1 + 2 + 3`;
 `["<", "a", "b", "c"]` is `a < b and b < c`, not a three-way comparison.
 
+```ts
+type FoldedOperator =
+  | "and" | "or"
+  | "+" | "add" | "-" | "sub" | "*" | "mul" | "/" | "div" | "^" | "pow" | "%" | "mod"
+  | "|" | "bor" | "&" | "band"
+  | "=" | "eq" | "<>" | "!=" | "ne" | "<" | "lt" | ">" | "gt" | "<=" | "lte" | ">=" | "gte"
+  | "is_distinct_from" | "!==" | "is_not_distinct_from" | "==="
+  | "->" | "json_get" | "->>" | "json_get_text" | "#>" | "json_path" | "#>>" | "json_path_text"
+  | "." | "dot"
+  | "||" | "concat" | "||?" | "concat_coalesce" | "??" | "ifnull"
+```
+
 | Symbol | Word form | Meaning |
 |---|---|---|
 | `and` | | boolean AND |
@@ -44,6 +56,14 @@ These accept two or more operands and fold left-to-right: `["+", 1, 2, 3]` is `1
 
 ## Unary operators
 
+```ts
+type UnaryOperator =
+  | "-" | "neg" | "~" | "bnot"
+  | "not"
+  | "is_null" | "is_not_null" | "is_true" | "is_not_true" | "is_false" | "is_not_false"
+  | "|/" | "sqrt" | "||/" | "cbrt"
+```
+
 | Symbol | Word form | Meaning |
 |---|---|---|
 | `-` | `neg` | numeric negation |
@@ -58,6 +78,19 @@ These accept two or more operands and fold left-to-right: `["+", 1, 2, 3]` is `1
 ## Other binary operators
 
 These take exactly two operands — folding across more than two doesn't make sense for them.
+
+```ts
+type BinaryOperator =
+  | "like" | "ilike"
+  | "~" | "match" | "~*" | "imatch" | "@@" | "matches_ts"
+  | "::" | "cast"
+  | "&&" | "overlap" | "<->" | "distance" | "-|-" | "adjacent"
+  | "<<" | "shl" | ">>" | "shr"
+  | "@>" | "contains" | "<@" | "contained_by"
+  | "?" | "has_key" | "?|" | "has_any_key" | "?&" | "has_all_keys"
+  | "&<" | "overlaps_or_left" | "&>" | "overlaps_or_right"
+  | "?:" | "op_qcolon"
+```
 
 | Symbol | Word form | Meaning |
 |---|---|---|
