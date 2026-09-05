@@ -89,6 +89,23 @@ Well-known query codes (`WELL_KNOWN_*`) are their own family, listed in full in 
 | `UPLOAD_TOO_LARGE` | 413 |
 | `UPLOAD_WRONG_TYPE` | 415 |
 
+**SSO (`oauth-saml.md`)** — protocol-level failures Go itself detects on `/auth/oidc/*`/
+`/auth/saml/*`, distinct from the SSO callback function's own `RSxxx` rejection
+(`oauth-saml.md ## Callback function`) :
+
+| code | status | where |
+|---|---|---|
+| `SSO_NOT_READY` | 503 | discovery/IdP metadata hasn't resolved yet (`oauth-saml.md ## Metadata fetch is lazy`) |
+| `SSO_BAD_REQUEST` | 400 | malformed callback request (missing `code`, unparseable form) |
+| `SSO_BAD_STATE` | 400 | missing/mismatched OAuth2 state |
+| `SSO_BAD_NONCE` | 400 | ID token nonce doesn't match the one this login minted |
+| `SSO_TOKEN_EXCHANGE_FAILED` | 502 | the issuer's token endpoint rejected the exchange |
+| `SSO_NO_ID_TOKEN` | 502 | token response carried no `id_token` |
+| `SSO_INVALID_ID_TOKEN` | 502 | `id_token` failed signature/issuer/audience verification |
+| `SSO_USERINFO_FAILED` | 502 | `fetch_userinfo`'s own call to the issuer failed |
+| `SSO_SAML_INVALID_RESPONSE` | 400 | SAML response/assertion failed to parse or verify |
+| `SSO_INTERNAL` | 500 | rel's own logic failed (state/nonce generation, encoding) |
+
 ## Postgres error detail
 
 `RelErrorResponse.pg_error` (present only when the failure came from a Postgres error) is always logged in full, server-side, regardless of mode. This section governs only what a client response may contain.

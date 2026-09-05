@@ -318,7 +318,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 	}
 
-	writeRelHttpResponse(w, r, cfg, route, respRaw, templates)
+	WriteRelHttpResponse(w, r, cfg, route.Function.Identifier.String(), respRaw, templates)
 }
 
 // resolveUnderDir rejects a path escaping dir outright ; plain

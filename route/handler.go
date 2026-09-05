@@ -138,7 +138,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		return
 	}
 
-	writeRelHttpResponse(w, r, cfg, route, raw, templates)
+	WriteRelHttpResponse(w, r, cfg, route.Function.Identifier.String(), raw, templates)
 }
 
 // invokeRoute calls route.Function with the discovered ## Request bodies

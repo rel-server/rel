@@ -59,6 +59,7 @@ var Options = []Option{
 
 	// ---- http.* : HTTP server + /route function discovery ----
 	{"http.host", "(all interfaces)", "HTTP listen address."},
+	{"http.public_host", "(disabled)", "This deployment's own externally-reachable domain (a bare host, e.g. app.example.com — no scheme/port/path ; rel always builds https://<host>/... from it). An openid.<name>/saml.<name> entry with no effective host (its own public_host override, or this one) is skipped — see specs/oauth-saml.md ## Configuration — HTTP."},
 	{"http.port", fmt.Sprint(DefaultHttpPort), "HTTP listen port."},
 	{"http.request_domain_name", DefaultHttpRequestDomainName, "Name of the JSON domain identifying a route function's request argument type."},
 	{"http.response_domain_name", DefaultHttpResponseDomainName, "Name of the JSON domain identifying a route function's response type."},
@@ -69,6 +70,7 @@ var Options = []Option{
 	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route functions may mint or clear a session."},
 	{"http.functions.allowed_routes", "(unrestricted)", "Regexp restricting which route functions are exposed on /route."},
 	{"http.functions.check_session", "(disabled)", "Function called on every authenticated request, letting the database reject a session early."},
+	{"http.functions.sso_callback", "(disabled)", "Fallback Postgres function an openid.<name>/saml.<name> entry's own callback_function calls when it doesn't set one itself (specs/oauth-saml.md)."},
 	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served at the fixed /static/ URL prefix, first match wins."},
 	{"http.templates.path", DefaultHttpTemplatesPath, "Filesystem directory Jet templates (RelHttpResponse.template) are loaded from."},
 	{"http.typescript.enable", "false (true if dev)", "Serve GET /rel/database.ts — the introspected schema as TypeScript types plus a few query-building helpers."},
@@ -97,6 +99,13 @@ var Options = []Option{
 	{"jwt.max_age", fmt.Sprint(DefaultJwtMaxAge) + " (seconds)", "How long a freshly-minted token stays valid."},
 	{"jwt.renew_after", fmt.Sprint(DefaultJwtRenewAfter), "Fraction of a token's lifespan after which it's renewed on next use."},
 	{"jwt.max_session_age", fmt.Sprint(DefaultJwtMaxSessionAge) + " (seconds)", "Hard ceiling on a session's total lifetime, from first auth — survives renewal."},
+
+	// ---- saml.* : the shared SP identity across every saml.<name> IdP ;
+	// per-name saml.<name>.*/openid.<name>.* entries are prose-documented
+	// below (## Dynamic namespaces), not table rows, same as
+	// http.static.access.<name>.* ----
+	{"saml.certificate_path", DefaultSamlCertificatePath, "Colon-separated search list for this deployment's SAML SP certificate. Loaded if found ; generated and persisted to the first candidate whose parent directory exists, otherwise."},
+	{"saml.private_key_path", DefaultSamlPrivateKeyPath, "Colon-separated search list for the SP certificate's private key — see saml.certificate_path."},
 
 	// ---- logging.* ----
 	{"logging.handler", DefaultLoggingHandler, "Log output format : pretty or JSON."},
@@ -218,6 +227,18 @@ Dynamic namespaces (not enumerated above — "*" matches an entire schema) :
   blacklist.functions.<schema>.<name|*>=y|n    blacklist a function from being called
   http.static.access.<name>.prefix=<subpath>   gate a static-file subpath prefix behind a DB check
   http.static.access.<name>.function=<fqname>  the check_static_access-shaped function for that rule
+  openid.<name>.issuer=<url>                   OIDC issuer URL ; /.well-known/openid-configuration is discovered from it
+  openid.<name>.client_id=<id>                 default $FILE$/secrets/openid-<name>.id:./openid-<name>.id
+  openid.<name>.client_secret=<secret>         default $FILE$/secrets/openid-<name>.secret:./openid-<name>.secret
+  openid.<name>.scopes=<comma-separated>       default openid,email,profile
+  openid.<name>.fetch_userinfo=y|n             also call the userinfo endpoint, merging its claims over the ID token's
+  openid.<name>.callback_function=<fqname>     falls back to http.functions.sso_callback when unset
+  openid.<name>.public_host=<host>             overrides http.public_host for this entry alone
+  saml.<name>.idp_metadata_url=<url>           fetched once at startup, retried lazily on the next login attempt if it fails
+  saml.<name>.force_signed_requests=y|n        default y : sign the outgoing AuthnRequest with the SP key
+  saml.<name>.callback_function=<fqname>       falls back to http.functions.sso_callback when unset
+  saml.<name>.public_host=<host>               overrides http.public_host for this entry alone
+  See specs/oauth-saml.md for the full /auth/oidc/<name>/*, /auth/saml/<name>/* contract.
   Both blacklists only ever ADD to the built-in defaults ; neither ever removes from them.
   As flags/config file keys these are dotted directly ; as environment variables, the
   same REL_/"__" rule as every other key applies to the placeholders too, e.g.

@@ -91,3 +91,19 @@ const (
 	UploadTooLarge  Code = "UPLOAD_TOO_LARGE"
 	UploadWrongType Code = "UPLOAD_WRONG_TYPE"
 )
+
+// SSO (specs/oauth-saml.md) — protocol-level failures Go itself detects,
+// distinct from the callback function's own RSxxx convention
+// (## Callback function), which never reaches this package.
+const (
+	SsoNotReady            Code = "SSO_NOT_READY"             // 503 : discovery/IdP metadata hasn't resolved yet
+	SsoInternal            Code = "SSO_INTERNAL"              // 500 : rel's own logic failed (state/nonce generation, encoding)
+	SsoBadRequest          Code = "SSO_BAD_REQUEST"           // 400 : malformed callback request (missing code, unparseable form)
+	SsoBadState            Code = "SSO_BAD_STATE"             // 400 : missing/mismatched OAuth2 state
+	SsoBadNonce            Code = "SSO_BAD_NONCE"             // 400 : ID token nonce doesn't match the one this login minted
+	SsoTokenExchangeFailed Code = "SSO_TOKEN_EXCHANGE_FAILED" // 502 : the issuer's token endpoint rejected the exchange
+	SsoNoIdToken           Code = "SSO_NO_ID_TOKEN"           // 502 : token response carried no id_token
+	SsoInvalidIdToken      Code = "SSO_INVALID_ID_TOKEN"      // 502 : id_token failed signature/issuer/audience verification
+	SsoUserinfoFailed      Code = "SSO_USERINFO_FAILED"       // 502 : fetch_userinfo's own call to the issuer failed
+	SsoSamlInvalidResponse Code = "SSO_SAML_INVALID_RESPONSE" // 400 : SAML response/assertion failed to parse or verify
+)

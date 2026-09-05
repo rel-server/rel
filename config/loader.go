@@ -490,6 +490,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Logging.Exclude = readStringMap(root, "logging.exclude")
 
 	cfg.Http.Host = root.GetStringOrDefault("http.host", "")
+	cfg.Http.PublicHost = root.GetStringOrDefault("http.public_host", "")
 	cfg.Http.Port = root.GetIntOrDefault("http.port", DefaultHttpPort)
 	cfg.Http.RequestDomainName = root.GetStringOrDefault("http.request_domain_name", DefaultHttpRequestDomainName)
 	cfg.Http.ResponseDomainName = root.GetStringOrDefault("http.response_domain_name", DefaultHttpResponseDomainName)
@@ -546,6 +547,15 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Jwt.RenewAfter = root.GetFloat64OrDefault("jwt.renew_after", DefaultJwtRenewAfter)
 	cfg.Jwt.MaxSessionAge = root.GetIntOrDefault("jwt.max_session_age", DefaultJwtMaxSessionAge)
 
+	// specs/oauth-saml.md : openid.<name>.*/saml.* — see readOpenidProviders'
+	// own doc comment for why client_id/client_secret need the same manual
+	// $FILE$-resolve-of-an-absent-key treatment jwt.secret does above.
+	cfg.Http.Functions.SsoCallback = root.GetStringOrDefault("http.functions.sso_callback", "")
+	cfg.Openid = readOpenidProviders(root, &errs)
+	cfg.Saml.CertificatePath = root.GetStringOrDefault("saml.certificate_path", DefaultSamlCertificatePath)
+	cfg.Saml.PrivateKeyPath = root.GetStringOrDefault("saml.private_key_path", DefaultSamlPrivateKeyPath)
+	cfg.Saml.Providers = readSamlProviders(root)
+
 	cfg.TypeScript.HelperPath = root.GetStringOrDefault("typescript.helper_path", "")
 
 	cfg.Dmut.Path = root.GetStringOrDefault("dmut.path", DefaultDmutPath)
@@ -594,6 +604,107 @@ func readStaticAccess(root *ConfigReader, path string) map[string]StaticAccessRu
 			rule.Function = s
 		}
 		out[name] = rule
+	}
+	return out
+}
+
+// readOpenidProviders reads openid.<name>.* — named sub-keys, same shape
+// readStaticAccess uses. client_id/client_secret's default is itself
+// "$FILE$..." with "<name>" substituted for this entry's own name (unlike
+// jwt.secret, a single fixed default) : resolveFileIndirection (loader.go's
+// own pass over the merged tree, run before assemble) only resolves a
+// $FILE$ value that's actually PRESENT in the tree, so an entry that
+// doesn't set client_id/client_secret explicitly needs that computed
+// default resolved here, by hand, same as jwt.secret's own absent-key case.
+// Deliberately plain GetString/GetBool/GetStrings, not the *OrDefault
+// variants readStaticAccess also avoids for its own two fields — help_test.go's
+// TestOptions_MatchAssembleKeys scans loader.go for every literal
+// Get\w+OrDefault("...") call and demands a matching config/help.go entry ;
+// "issuer"/"client_id"/... are per-name fields, not real top-level dotted
+// keys, so using *OrDefault here would produce bogus required Options rows.
+func readOpenidProviders(root *ConfigReader, errs *[]error) map[string]OpenidProvider {
+	out := map[string]OpenidProvider{}
+	it, err := root.GetIterator("openid")
+	if err != nil {
+		return out
+	}
+	for name, providerReader := range it {
+		var p OpenidProvider
+		if s, err := providerReader.GetString("issuer"); err == nil {
+			p.Issuer = s
+		}
+		p.ClientID = resolveOpenidSecretField(providerReader, "client_id", name, DefaultOpenidClientIDPath, errs)
+		p.ClientSecret = resolveOpenidSecretField(providerReader, "client_secret", name, DefaultOpenidClientSecretPath, errs)
+		p.Scopes = splitStrings(DefaultOpenidScopes)
+		if ss, err := providerReader.GetStrings("scopes"); err == nil {
+			p.Scopes = ss
+		}
+		if b, err := providerReader.GetBool("fetch_userinfo"); err == nil {
+			p.FetchUserinfo = b
+		}
+		if s, err := providerReader.GetString("callback_function"); err == nil {
+			p.CallbackFunction = s
+		}
+		if s, err := providerReader.GetString("public_host"); err == nil {
+			p.PublicHost = s
+		}
+		out[name] = p
+	}
+	return out
+}
+
+// resolveOpenidSecretField reads openid.<name>.<field>, defaulting to
+// defaultPathTemplate with "<name>" substituted for name, resolving the
+// result through resolveFileValue when it's shaped like $FILE$ — whether
+// that's the substituted default or a value the deployment set explicitly
+// (resolveFileIndirection already resolved an explicitly-set value once,
+// so this is a no-op re-resolve for that case, not a second file read with
+// different semantics).
+func resolveOpenidSecretField(providerReader *ConfigReader, field, name, defaultPathTemplate string, errs *[]error) string {
+	def := strings.ReplaceAll(defaultPathTemplate, "<name>", name)
+	v := providerReader.GetStringOrDefault(field, def)
+	if !strings.HasPrefix(v, "$FILE$") {
+		return v
+	}
+	resolved, ferr := resolveFileValue(v)
+	if ferr != nil {
+		*errs = append(*errs, fmt.Errorf("config: openid.%s.%s: %w", name, field, ferr))
+		return ""
+	}
+	return resolved
+}
+
+// readSamlProviders reads saml.<name>.* the same named-sub-key way
+// readOpenidProviders reads openid.<name>.* ; saml.certificate_path/
+// saml.private_key_path are NOT nested under here (they're the shared SP
+// identity across every entry, not per-name — see Saml's own doc comment),
+// so unlike openid's iterator this one skips them by simply never
+// descending into a key holding a scalar itself (GetIterator only
+// succeeds on an object).
+func readSamlProviders(root *ConfigReader) map[string]SamlProvider {
+	out := map[string]SamlProvider{}
+	it, err := root.GetIterator("saml")
+	if err != nil {
+		return out
+	}
+	for name, providerReader := range it {
+		if name == "certificate_path" || name == "private_key_path" {
+			continue
+		}
+		p := SamlProvider{ForceSignedRequests: DefaultSamlForceSignedRequests}
+		if s, err := providerReader.GetString("idp_metadata_url"); err == nil {
+			p.IdpMetadataUrl = s
+		}
+		if b, err := providerReader.GetBool("force_signed_requests"); err == nil {
+			p.ForceSignedRequests = b
+		}
+		if s, err := providerReader.GetString("callback_function"); err == nil {
+			p.CallbackFunction = s
+		}
+		if s, err := providerReader.GetString("public_host"); err == nil {
+			p.PublicHost = s
+		}
+		out[name] = p
 	}
 	return out
 }

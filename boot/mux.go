@@ -25,6 +25,7 @@ import (
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/route"
 	"github.com/ceymard/rel/server"
+	"github.com/ceymard/rel/sso"
 	"github.com/ceymard/rel/static"
 	"github.com/ceymard/rel/websec"
 	"github.com/ceymard/rel/wellknown"
@@ -56,6 +57,13 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	} else if logger != nil {
 		logger.Debug("boot: no http.static.path directory found, /static/ is not mounted")
 	}
+
+	// specs/oauth-saml.md : /auth/oidc/* and /auth/saml/* — a no-op when
+	// neither openid.* nor saml.* has any entry configured. Mount resolves
+	// each entry's own host (http.public_host or its own public_host
+	// override) and logs/skips individually, rather than an all-or-nothing
+	// gate here.
+	sso.Mount(mux, db, cfg)
 
 	return logging.RequestMiddleware(websec.Middleware(cfg)(mux)), nil
 }

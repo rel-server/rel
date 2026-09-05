@@ -145,9 +145,15 @@ type jwtAttrsPayload struct {
 	MaxAge   *int   `json:"maxage"`
 }
 
-// writeRelHttpResponse decodes raw and writes the response ; headers/
+// WriteRelHttpResponse decodes raw and writes the response ; headers/
 // cookies are set before status/body, since WriteHeader freezes headers.
-func writeRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, route Route, raw []byte, templates *TemplateSet) {
+// functionIdent is the fully qualified, escaped identifier of the
+// Postgres function that produced raw — only used to gate
+// http.functions.allowed_auth (authFunctionAllowed) — so any caller
+// invoking an arbitrary function this way (route/upload_handler.go's own
+// route dispatch, or sso's SSO-callback dispatch) can reuse this
+// unchanged, not just a discovered Route.
+func WriteRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, raw []byte, templates *TemplateSet) {
 	var resp relHttpResponsePayload
 	if err := sonic.Unmarshal(raw, &resp); err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding function response")
@@ -162,7 +168,7 @@ func writeRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Co
 	for name, rawVal := range resp.Cookies {
 		http.SetCookie(w, decodeOutboundCookie(cfg, name, rawVal))
 	}
-	handleResponseJwt(w, cfg, route, resp)
+	handleResponseJwt(w, cfg, functionIdent, resp)
 
 	if resp.Csp != "" {
 		nonce := websec.NonceFromContext(r.Context())
@@ -273,7 +279,7 @@ func contentBytes(content json.RawMessage, contentType string) []byte {
 }
 
 // authFunctionAllowed is http.functions.auth's gate ; empty regexp = unrestricted.
-func authFunctionAllowed(cfg *config.Config, route Route) bool {
+func authFunctionAllowed(cfg *config.Config, functionIdent string) bool {
 	if cfg.Http.Functions.AllowedAuth == "" {
 		return true
 	}
@@ -281,16 +287,16 @@ func authFunctionAllowed(cfg *config.Config, route Route) bool {
 	if err != nil {
 		return false
 	}
-	return re.MatchString(route.Function.Identifier.String())
+	return re.MatchString(functionIdent)
 }
 
 // handleResponseJwt is Lifecycle step 1 (Mint)/logout : JSON null clears
 // the session, {role, ...} mints one ; ignored outside http.functions.auth.
-func handleResponseJwt(w http.ResponseWriter, cfg *config.Config, route Route, resp relHttpResponsePayload) {
+func handleResponseJwt(w http.ResponseWriter, cfg *config.Config, functionIdent string, resp relHttpResponsePayload) {
 	if len(resp.Jwt) == 0 {
 		return
 	}
-	if !authFunctionAllowed(cfg, route) {
+	if !authFunctionAllowed(cfg, functionIdent) {
 		return
 	}
 	if string(bytes.TrimSpace(resp.Jwt)) == "null" {

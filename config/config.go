@@ -12,6 +12,11 @@ type Config struct {
 	Jwt     Jwt
 	Dmut    Dmut
 
+	// Openid/Saml are specs/oauth-saml.md's openid.<name>.*/saml.* :
+	// the /auth/oidc/{name}/* and /auth/saml/{name}/* endpoints.
+	Openid map[string]OpenidProvider
+	Saml   Saml
+
 	Blacklist Blacklist
 
 	// TypeScript is specs/typescript.md ## Configuration's typescript.* :
@@ -123,6 +128,21 @@ type Logging struct {
 type Http struct {
 	Host string
 	Port int
+
+	// PublicHost is http.public_host, default "" : this deployment's own
+	// externally-reachable domain (a bare host, e.g. "app.example.com" —
+	// NO scheme, port, or path). rel always builds "https://<host>/..."
+	// from it — see specs/oauth-saml.md ## Configuration — HTTP for why a
+	// bare host, not a full URL, and why the scheme is never configurable.
+	// Needed because both OIDC's redirect_uri and SAML's metadata/ACS URLs
+	// require a STABLE, exactly-registered-with-the-IdP value, not one
+	// derived per-request from the incoming Host header (most IdPs require
+	// an exact, pre-registered redirect_uri, so a value that could vary by
+	// request is a non-starter). An openid.<name>/saml.<name> entry with
+	// no effective host (neither its own OpenidProvider.PublicHost/
+	// SamlProvider.PublicHost override nor this one set) is skipped, not
+	// fatal — see sso.Mount's own doc comment.
+	PublicHost string
 
 	// RequestDomainName is http.request_domain_name, default
 	// "RelHttpRequest" : the fully qualified, unquoted name of the JSON
@@ -255,6 +275,80 @@ type HttpFunctions struct {
 	// : unquoted, fully qualified name of a Postgres function that lets the
 	// database reject a session before exp/max_session_age would otherwise.
 	CheckSession string
+	// SsoCallback is http.functions.sso_callback, default "" (disabled) :
+	// unquoted, fully qualified name of the Postgres function an
+	// openid.<name>/saml.<name> entry's own callback_function falls back
+	// to when unset — specs/oauth-saml.md ## Configuration — OIDC/##
+	// Configuration — SAML.
+	SsoCallback string
+}
+
+// OpenidProvider is one openid.<name>.* entry — specs/oauth-saml.md
+// ## Configuration — OIDC.
+type OpenidProvider struct {
+	// Issuer is openid.<name>.issuer (required) : /.well-known/openid-
+	// configuration is fetched from it for discovery.
+	Issuer string
+	// ClientID/ClientSecret are openid.<name>.client_id/client_secret,
+	// default DefaultOpenidClientIDPath/DefaultOpenidClientSecretPath with
+	// "<name>" substituted — see those constants' own doc comment for why
+	// there's no $GEN$ fallback the way jwt.secret/Saml's cert have one.
+	ClientID     string
+	ClientSecret string
+	// Scopes is openid.<name>.scopes, default DefaultOpenidScopes —
+	// comma-separated per configuration.md ## No arrays.
+	Scopes []string
+	// FetchUserinfo is openid.<name>.fetch_userinfo, default false : also
+	// call the discovered userinfo endpoint after token exchange, merging
+	// its claims over the ID token's own (userinfo wins on collision).
+	FetchUserinfo bool
+	// CallbackFunction is openid.<name>.callback_function, default "" :
+	// falls back to HttpFunctions.SsoCallback when unset.
+	CallbackFunction string
+	// PublicHost is openid.<name>.public_host, default "" (empty) : an
+	// optional override of Http.PublicHost for this entry alone — see
+	// specs/oauth-saml.md ## Configuration — HTTP. Empty means "use
+	// Http.PublicHost."
+	PublicHost string
+}
+
+// Saml is saml.* : the shared SP certificate/key (one SP identity across
+// every configured saml.<name> IdP) plus the named saml.<name>.* entries
+// themselves — specs/oauth-saml.md ## Configuration — SAML/## Certificate.
+type Saml struct {
+	// CertificatePath/PrivateKeyPath are saml.certificate_path/
+	// saml.private_key_path, default DefaultSamlCertificatePath/
+	// DefaultSamlPrivateKeyPath : colon-separated candidate search lists,
+	// same shape jwt.secret's own default uses. Loaded if found (bring-
+	// your-own-certificate) ; generated and persisted to the first
+	// candidate whose parent directory exists, otherwise — see
+	// ## Certificate.
+	CertificatePath string
+	PrivateKeyPath  string
+	// Providers is saml.<name>.* — named entries, same map-of-named-
+	// sub-config shape as HttpStatic.Access.
+	Providers map[string]SamlProvider
+}
+
+// SamlProvider is one saml.<name>.* entry.
+type SamlProvider struct {
+	// IdpMetadataUrl is saml.<name>.idp_metadata_url (required) : fetched
+	// once at startup, lazily retried per ## Metadata fetch is lazy on
+	// failure.
+	IdpMetadataUrl string
+	// ForceSignedRequests is saml.<name>.force_signed_requests, default
+	// true : sign the outgoing AuthnRequest with the SP key. Defaults true
+	// (not false) since the SP always has a key available and signing is
+	// strictly more secure — the rare IdP that can't accept signed
+	// requests is the actual exception case, and that's the one that
+	// should opt out.
+	ForceSignedRequests bool
+	// CallbackFunction is saml.<name>.callback_function, default "" :
+	// same fallback rule as OpenidProvider.CallbackFunction.
+	CallbackFunction string
+	// PublicHost is saml.<name>.public_host, default "" (empty) : same
+	// per-entry override as OpenidProvider.PublicHost.
+	PublicHost string
 }
 
 // HttpStatic is http.static.* — static file serving, per
@@ -311,6 +405,30 @@ const (
 	// ### Configuration's stated default : only default-src has a value by
 	// default, every other directive is unset.
 	DefaultHttpCspDefaultSrc = "'self'"
+)
+
+// DefaultOpenidScopes/DefaultOpenidClientIDPath/DefaultOpenidClientSecretPath
+// are specs/oauth-saml.md ## Configuration — OIDC's stated defaults.
+// ClientID/ClientSecret have NO $GEN$ fallback the way jwt.secret does —
+// unlike a JWT secret or the SAML SP certificate, a client id/secret is
+// issued by the IdP when the app is registered there, so rel has no
+// business fabricating one ; these are read-only $FILE$ paths, plain
+// "required value missing" errors if absent everywhere. "<name>" is
+// substituted for the configured openid.<name> entry at resolve time.
+const (
+	DefaultOpenidScopes            = "openid,email,profile"
+	DefaultOpenidClientIDPath      = "$FILE$/secrets/openid-<name>.id:./openid-<name>.id"
+	DefaultOpenidClientSecretPath  = "$FILE$/secrets/openid-<name>.secret:./openid-<name>.secret"
+	DefaultSamlForceSignedRequests = true
+)
+
+// DefaultSamlCertificatePath/DefaultSamlPrivateKeyPath are specs/oauth-saml.md
+// ## Configuration — SAML's stated defaults : flat filenames directly
+// under /secrets/, not a subdirectory — see jwt.secret's own doc comment
+// for why rel deliberately never needs to create a directory for these.
+const (
+	DefaultSamlCertificatePath = "/secrets/saml-cert.pem:./saml-cert.pem"
+	DefaultSamlPrivateKeyPath  = "/secrets/saml-cert.key:./saml-cert.key"
 )
 
 // DefaultPgHost/DefaultPgPort/DefaultPgQueryAnonymousRole/

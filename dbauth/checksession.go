@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	jwtpkg "github.com/ceymard/rel/jwt"
@@ -22,6 +23,14 @@ import (
 // value satisfies it without an adapter.
 type Execer interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+// Querier is Execer's counterpart for a single-jsonb-in, single-jsonb-out
+// call — e.g. specs/oauth-saml.md ## Callback function, which (unlike
+// CheckSession/CallJSONBFunction below) returns a RelHttpResponse the
+// caller must actually read.
+type Querier interface {
+	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
 }
 
 // CheckSession invokes http.functions.check_session — a void-returning
@@ -70,13 +79,37 @@ const NoRoleConfiguredMessage = "no role configured (query.anonymous_role is uns
 // result), but works identically for any single-jsonb-argument function
 // regardless of its own declared return type — Exec doesn't parse rows.
 func CallJSONBFunction(ctx context.Context, exec Execer, qualifiedName string, payload []byte) error {
-	schema, name, ok := strings.Cut(qualifiedName, ".")
-	if !ok {
-		schema, name = "public", qualifiedName
-	}
+	schema, name := QualifiedIdentifier(qualifiedName)
 	sql := "select " + EscapeIdentifier(schema) + "." + EscapeIdentifier(name) + "($1::jsonb)"
 	_, err := exec.Exec(ctx, sql, payload)
 	return err
+}
+
+// QualifiedIdentifier splits qualifiedName on its first "." into
+// (schema, name), defaulting schema to "public" when unqualified — the
+// same convention CallJSONBFunction below already applies inline, factored
+// out so CallJSONBFunctionReturningJSON can share it.
+func QualifiedIdentifier(qualifiedName string) (schema, name string) {
+	schema, name, ok := strings.Cut(qualifiedName, ".")
+	if !ok {
+		return "public", qualifiedName
+	}
+	return schema, name
+}
+
+// CallJSONBFunctionReturningJSON invokes qualifiedName(payload::jsonb) and
+// returns its own jsonb result raw — specs/oauth-saml.md ## Callback
+// function's calling convention : unlike CallJSONBFunction (Exec, result
+// discarded by convention), the SSO callback's whole point is its
+// RelHttpResponse return value.
+func CallJSONBFunctionReturningJSON(ctx context.Context, q Querier, qualifiedName string, payload []byte) ([]byte, error) {
+	schema, name := QualifiedIdentifier(qualifiedName)
+	sql := "select " + EscapeIdentifier(schema) + "." + EscapeIdentifier(name) + "($1::jsonb)"
+	var raw []byte
+	if err := q.QueryRow(ctx, sql, payload).Scan(&raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
 }
 
 // EscapeIdentifier doubles embedded double-quotes and wraps in "..." — the

@@ -9,11 +9,6 @@ claims, its lifecycle — is `authentication.md`'s job, not this document's; bot
 SAML end by producing an ordinary `RelHttpResponse`, at which point everything
 `authentication.md ## Lifecycle` already specifies applies unchanged.
 
-> The router/mechanism these paths are registered on (`route.md` currently states plain
-> `net/http.ServeMux`, but that choice is being revisited) is unsettled and irrelevant here
-> — this document specifies the paths, their request/response shapes, and their behavior,
-> not what dispatches to them.
-
 ## Design
 
 Both protocols reduce to the same shape: redirect the user to a foreign identity
@@ -54,6 +49,38 @@ For every configured `saml.<name>`:
   see `## Certificate` below for why this independence matters.
 
 A request to any `{name}` not present in configuration is a plain `404`.
+
+## Configuration — HTTP
+
+* `http.public_host` (default empty) — this deployment's own externally-reachable domain :
+  a bare host (`app.example.com`), never a full URL — no scheme, port, or path. rel always
+  builds `https://<host>/...` from it for OIDC's `redirect_uri` and SAML's metadata/ACS
+  URLs.
+  > Why a bare host, not a full URL : a full URL invites the misconfigurations a domain
+  > can't have — a stray trailing slash, an accidental path segment, `http://` typo'd for
+  > `https://`. The scheme specifically isn't a real choice here : the JWT cookie this
+  > whole system mints is already `Secure`-only (`authentication.md`), so rel is already
+  > assumed to be reached over HTTPS in any real deployment — via a TLS-terminating
+  > reverse proxy/ingress in front of it, the same relationship `http.host`/`http.port`
+  > (rel's own, internal bind address) already has to the outside world. rel has no native
+  > HTTPS/TLS termination of its own ; that's a distinct, unbuilt feature; a real
+  > certificate for a real public domain needs ACME-style issuance (port 80/443 ownership,
+  > a domain challenge, ongoing renewal), which is orthogonal to OIDC/SAML specifically and
+  > out of scope here.
+* `openid.<name>.public_host` / `saml.<name>.public_host` (default empty, meaning "use
+  `http.public_host`") — per-entry override of `http.public_host`, for a deployment
+  reachable at more than one domain. Each named entry still answers to exactly one host —
+  matching OIDC/SAML's own requirement of one exact, pre-registered redirect/ACS URL per
+  registration — so serving the same logical IdP connection from two domains is two named
+  entries (e.g. `openid.google_www` and `openid.google_apex`), each with its own
+  `public_host`, optionally sharing the same `client_id`/`client_secret` if the IdP
+  registration allows more than one redirect URI on one client.
+
+An `openid.<name>`/`saml.<name>` entry that resolves to no effective host at all (neither
+its own `public_host` nor `http.public_host` is set) is skipped — logged, not fatal to any
+other configured entry — the same non-blocking treatment `## Certificate`'s
+bring-your-own-cert case and `## Metadata fetch is lazy` already give a not-yet-working
+endpoint.
 
 ## Configuration — OIDC
 
@@ -140,6 +167,26 @@ if the startup fetch had succeeded, no further retries) ; failure responds `503`
 request and leaves the mark in place for the next attempt. Latency on that one blocked
 request is an accepted cost of self-healing without a restart.
 
+## Errors
+
+Two distinct error sources exist on these endpoints, using the two separate code spaces
+`error-handling.md ## Error codes` already defines :
+
+* **Protocol-level failures Go itself detects** — discovery/IdP metadata not ready yet, a
+  missing/mismatched OAuth2 state or nonce, a failed token exchange, an invalid ID token,
+  an unparseable SAML response — never reach Postgres at all, and get their own
+  `SSO_*` rel-internal codes (`error-handling.md ## Rel-internal codes`), not the
+  callback function's `RSxxx` family.
+* **The callback function's own rejection** — `## Callback function`'s `raise exception
+  ... using errcode = 'RSxxx'` convention, unchanged, once a request has actually reached
+  the database.
+
+A client distinguishes the two the same way it already distinguishes any other
+`RSxxx`/rel-internal pair : by the `code` field/`X-Rel-Errorcode` header
+(`error-handling.md ## Delivery`), not by inspecting HTTP status alone — `SSO_NOT_READY`
+and a callback-rejected login can both plausibly render as a 4xx/5xx status a client-side
+switch still needs to tell apart.
+
 ## Claims shape
 
 Both protocols converge on the same JSON object, passed as the callback function's
@@ -153,8 +200,8 @@ type SsoClaims = {
   // over them (userinfo wins on key collision) when fetch_userinfo is true.
   // SAML: every assertion attribute, keyed by its attribute name.
   claims: { [key: string]: unknown },
-  // OIDC only, present only when fetch_userinfo is false and neither
-  // an access nor refresh token is otherwise needed by the caller.
+  // OIDC only : present whenever the token exchange returned one,
+  // regardless of fetch_userinfo. SAML has no equivalent — never present.
   access_token?: string,
   refresh_token?: string,
 }
