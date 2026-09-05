@@ -18,6 +18,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
@@ -41,16 +43,16 @@ import (
 func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) (http.Handler, error) {
 	staticSrv := static.New(cfg.Http)
 
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	mux.Handle("/rel", server.NewRelHandler(db, cfg, wkReg))
-	mux.Handle("/route/", route.NewHandler(db, cfg, reg, staticSrv))
+	mux.Handle("/route/*", route.NewHandler(db, cfg, reg, staticSrv))
 	// specs/typescript.md ## Endpoints : gated by http.typescript.enable,
 	// not mounted at all otherwise (no 404 handler needed for the disabled case).
 	if cfg.Http.TypeScript.Enable {
 		mux.Handle("/rel/database.ts", server.NewTypeScriptHandler(db, cfg, wkReg))
 	}
 	if staticSrv != nil {
-		mux.Handle("/static/", http.StripPrefix("/static/", staticSrv.Handler(db, cfg)))
+		mux.Handle("/static/*", http.StripPrefix("/static/", staticSrv.Handler(db, cfg)))
 	} else if logger != nil {
 		logger.Debug("boot: no http.static.path directory found, /static/ is not mounted")
 	}

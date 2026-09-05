@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ceymard/rel/config"
@@ -22,7 +23,7 @@ import (
 // destinations) ; nil means an upload route resolving a "path" is a 500.
 func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server) http.Handler {
 	templates := templatesForConfig(cfg)
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	mux.HandleFunc("/route/{schema}/{function}", func(w http.ResponseWriter, r *http.Request) {
 		handleRoute(w, r, db, cfg, reg, templates, staticSrv)
 	})
@@ -31,8 +32,8 @@ func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *st
 
 func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, templates *TemplateSet, staticSrv *static.Server) {
 	ctx := r.Context()
-	schema := r.PathValue("schema")
-	function := r.PathValue("function")
+	schema := chi.URLParam(r, "schema")
+	function := chi.URLParam(r, "function")
 
 	route, ok := reg.Lookup(schema, function, r.Method)
 	if !ok {

@@ -7,6 +7,7 @@ require (
 	github.com/brianvoe/gofakeit/v7 v7.15.0
 	github.com/bytedance/sonic v1.15.3
 	github.com/ceymard/dmut/v2 v2.0.5
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/goccy/go-yaml v1.19.2
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/samber/oops v1.23.0
