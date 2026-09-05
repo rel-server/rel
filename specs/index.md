@@ -24,9 +24,9 @@ instead. Each entry covers roughly what the previous ones assume.
 12. [[http-content.md]] — static file serving, Jet templates, CORS, CSP.
 13. [[realtime.md]] — WebSockets + Postgres `LISTEN`/`NOTIFY` (reserved, not yet specified).
 14. [[typescript.md]] — the generated TS/JS client export.
-15. [[oauth-saml.md]] — SAML/OIDC callback endpoints specifically (reserved, not yet
-    specified — `authentication.md` already covers username/password and the session/JWT
-    side of SAML/OIDC).
+15. [[oauth-saml.md]] — the SAML/OIDC `/auth/*` endpoints specifically : redirect/callback
+    routes, claims shape, and the callback function contract — `authentication.md` already
+    covers username/password and the session/JWT side of SAML/OIDC.
 16. [[testing.md]] — fixture/testcontainers conventions ; a developer-process doc, not part
     of understanding the running system, but referenced from the sections above wherever
     their own tests build on one of the two fixtures it describes.
@@ -49,9 +49,7 @@ below — not a topic of its own, consult it for what's still open in any of the
 - Static file serving
   - Possibility to configure file access control based on path and database queries
   
-- Typescript/Javascript support (`typescript.md` is the authoritative spec for this, actively
-  being filled in — the paths below are illustrative only, not settled)
-  - The web server provides /js/query.js and /js/query.ts that house a simple querying library to interact with the API
-  - The exported schemas /js/schemas/schema1.js (and .ts) give a definition of the schema that can be consumed by typescript/javascript to write queries more easily
-  - Intended workflow ; the developper downloads these files and puts them in his code and then imports them to interact with the database
-  - In production, these can be turned off (or kept if they want to leave the query engine open)
+- Typescript/Javascript support (`typescript.md` is the authoritative spec for this)
+  - The web server provides `/rel/database.ts` and `/rel/database.json`, each describing the introspected database — `database.ts` as a self-sufficient TypeScript file with a query-building library and type-safe schema helpers, `database.json` as the same structure in plain JSON
+  - Intended workflow ; the developper downloads `database.ts`, drops it into their code, and imports it to interact with the database
+  - Serving is gated behind `http.typescript.enable` (default false, true if dev enabled), so it can be turned off in production (or kept if they want to leave the query engine open)
