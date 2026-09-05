@@ -1,9 +1,10 @@
+# test idents
 db_container := "rel-dev-db"
 db_name := "hotel"
 db_user := "hotel"
 db_password := "test"
 
-image_registry := "ghcr.io/ceymard/rel"
+image_registry := "ceymard/rel"
 version := `git describe --tags --always --dirty`
 
 # Run the full test suite (testcontainers spins up its own throwaway Postgres
@@ -11,11 +12,9 @@ version := `git describe --tags --always --dirty`
 test:
     go test ./...
 
-# Type-check the hand-maintained typescript/ draft (specs/typescript.md ##
-# Testing) : querier.ts/query.ts/shapes.ts/schema.example.ts/example.ts as
-# one project, via the directory's own tsconfig.json/biome.json.
+# typecheck and biome check
 check:
-    cd typescript && bunx tsc --noEmit
+    cd typescript && bunx tsc --noEmit && biome check
 
 # Launch the rel server against the dev database (just db-up first). Uses
 # pg.uri alone — REL_PG__QUERY__USER/PASSWORD are unset (there's only one
