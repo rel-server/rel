@@ -74,7 +74,7 @@ arguments alike — it's referenced from all of them rather than owned by one.
 
 1. Read every source spec listed for the page in `## Site structure`.
 2. Write the page for a reader who wants to accomplish something, with runnable examples
-   against the `just db-fresh` dev fixture (`test/dmut`, `test/seed`) wherever practical.
+   against the `just test-db-fresh` dev fixture (`test/dmut`, `test/seed`) wherever practical.
 3. Translate implementation-only language (Go types, internal pass names, file paths) out
    entirely — none of it belongs in a user-facing page.
 

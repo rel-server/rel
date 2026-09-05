@@ -7,7 +7,7 @@ icon: material/database
 Every example in this section queries the same schema: a small hotel-booking database, deep
 enough in relationships to show what joins, aggregates, and nested writes actually look like
 against something more real than a couple of flat tables. It ships as this repo's own dev
-fixture — `just db-fresh` brings it up locally (see [Getting started](../getting-started.md)).
+fixture — `just test-db-fresh` brings it up locally (see [Getting started](../getting-started.md)).
 
 ```mermaid
 erDiagram

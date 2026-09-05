@@ -127,14 +127,15 @@ see [The query language ## Writing data back](query-language/writing.md).
 
 ## Try it against the dev fixture
 
-The repo ships this exact schema as a throwaway dev database:
+The repo ships this exact schema as a throwaway test database. This needs Docker (running, to
+host the database container) and Go (to build and run rel and the seeder) installed locally:
 
 ```sh
-just db-fresh   # tear down, bring up Postgres, migrate, seed — leaves it running
-just run        # starts rel against it, on :8080
+just test-db-fresh   # tear down, bring up Postgres, migrate, seed — leaves it running
+just test-run         # starts rel against it, on :8080
 ```
 
-`just db-psql` opens a `psql` shell into the same database if you want to look at the schema
+`just test-db-psql` opens a `psql` shell into the same database if you want to look at the schema
 or the seeded rows directly.
 
 ## Where to go next

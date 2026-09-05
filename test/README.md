@@ -56,15 +56,15 @@ root instead : it manages a **long-lived** dev database, separate from the ephem
 containers `go test`/`dmut test` create and tear down for themselves.
 
 ```sh
-just db-fresh   # tear down, bring up a fresh container, migrate, seed — left running
-just db-uri     # print its connection string (port is assigned by docker, looked up on demand)
-just db-psql    # open a psql shell into it
-just db-down    # stop and remove it ; safe to call even if it isn't up
+just test-db-fresh   # tear down, bring up a fresh container, migrate, seed — left running
+just test-db-uri     # print its connection string (port is assigned by docker, looked up on demand)
+just test-db-psql    # open a psql shell into it
+just test-db-down    # stop and remove it ; safe to call even if it isn't up
 ```
 
-`db-up`/`db-migrate`/`db-seed` also exist individually if you want to seed without a full
-reset. There is deliberately no fixed port : `db-up` lets docker assign one, so this never
-collides with anything else already running — everything else looks it up via `db-uri`
+`test-db-up`/`test-db-migrate`/`test-db-seed` also exist individually if you want to seed without a full
+reset. There is deliberately no fixed port : `test-db-up` lets docker assign one, so this never
+collides with anything else already running — everything else looks it up via `test-db-uri`
 rather than assuming one.
 
 ## Tables

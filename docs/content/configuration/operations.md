@@ -95,8 +95,8 @@ mutation files with `dmut.path` (default `/dmut`); this repo's own fixture lives
 `test/dmut`, applied with:
 
 ```sh
-just db-migrate   # dmut apply against the dev database
-just db-fresh      # tear down, bring up Postgres, migrate, and seed in one shot
+just test-db-migrate   # dmut apply against the dev database
+just test-db-fresh      # tear down, bring up Postgres, migrate, and seed in one shot
 ```
 
 dmut runs once, automatically, at every startup — before rel introspects the schema, so
