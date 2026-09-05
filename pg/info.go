@@ -201,6 +201,10 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 		return err
 	}
 
+	// Needs every Function's argument types and every Relation's own
+	// composite Type already resolved — must run after FillTypeInformations.
+	FillComputedFields(db)
+
 	buildLookupIndices(db)
 
 	return nil

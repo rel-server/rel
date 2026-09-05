@@ -27,7 +27,9 @@ page — before the rest of this section walks through it by example.
   `get`/`set`/`get-set`.
 - **[Joining and embedding relations](joining.md)** — `join`/`on`, incoming vs. outgoing.
 - **[Calling functions](functions.md)** — function-rooted and function-embedded nodes.
-- **[Computed fields and aggregates](aggregates.md)** — `call`, `agg`/`aggregate`.
+- **[Computed fields](computed-fields.md)** — `call`, the Postgres functional-column
+  convention.
+- **[Aggregates](aggregates.md)** — `agg`/`aggregate`.
 - **[Operators reference](operators.md)** — every operator, JSON/array access, casts.
 - **[Ordering, distinctness, and pagination](ordering-pagination.md)** — `order_by`,
   `distinct`/`distinct_on`, `limit`/`offset`.

@@ -22,5 +22,5 @@ read-only, even when its return type is an ordinary writable table: a write alwa
 underlying table directly, never "through" a function, since the function's own body might
 filter or transform rows in ways a write should never silently bypass.
 
-This is a different mechanism from [`call`](aggregates.md), which invokes a function as part of
+This is a different mechanism from [`call`](computed-fields.md), which invokes a function as part of
 an expression inside `select`/`where`, not as a query's root or a `join` target.

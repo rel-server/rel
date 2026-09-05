@@ -79,7 +79,7 @@ func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) str
 	relInterfaces := renderRelationInterfaces(relations, tc)
 	relationsMap := renderRelationsMap(relations)
 	relationships := renderRelationships(relations, allowed, tc)
-	computedProperties := renderComputedProperties(fns, allowed, tc)
+	computedProperties := renderComputedProperties(relations, opts.Blacklist, tc)
 	functions := renderFunctions(fns, allowed, tc)
 	functionsByName := renderFunctionsByName(fns, db.SearchPath)
 
@@ -421,80 +421,36 @@ func renderFunctionsByName(fns []*pg.Function, searchPath []string) string {
 	return b.String()
 }
 
-// firstInputArg returns f's first IN/INOUT/VARIADIC argument — the one a
-// Postgres computed-column call (`t.func()`) always binds the row to,
-// regardless of how many further arguments f declares.
-func firstInputArg(f *pg.Function) *pg.FunctionArgument {
-	for i := range f.Arguments {
-		a := &f.Arguments[i]
-		if a.IsIn() || a.IsInOut() || a.IsVariadic() {
-			return a
-		}
-	}
-	return nil
-}
-
 // renderComputedProperties is specs/typescript.md's discoverability half of
-// computed columns — query-engine.md ## Reading Algorithm's own definition :
-// "a function taking the relation's row type as its argument, callable via
-// alias.func_name or func_name(alias)". Kept alongside, never merged into,
-// Table__/View__ (own/full deliberately never include a computed column) ;
-// purely a "what's callable here, and what does it return" discovery aid
-// for authoring `select` — the ACTUAL type of a `["call", ...]` expression
-// still resolves through FunctionsByName/Functions (shapes.ts's
-// ShapeFromCallTag), independently. Deliberately redundant with
-// FunctionsByName rather than derived from it at the type level : the two
-// answer different questions ("what can I call here" vs "what does this
-// specific call produce").
-//
-// Deliberately NOT filtered through bareNameWinners/search_path, unlike
-// FunctionsByName : this session's own testing against a real deployment
-// found search_path frequently doesn't cover the schema a project's own
-// tables/functions live in (rel's own convention, everywhere else, is to
-// never rely on it — relation()/func() always take a fully-qualified
-// "schema.relation" name) — gating discoverability on a search_path race
-// made it silently vanish even though the QUALIFIED call form
-// (["call", {schema,name}, ...], resolved through Functions directly)
-// always works regardless of search_path. Eligibility is structural :
-// first argument must be this relation's own composite row type, the
-// function must live in the SAME schema as the relation, AND be callable
-// with exactly that one argument (pg.Function.AcceptsArity(1) — every
-// argument after the first has a default) ; a function needing further
-// required arguments isn't callable as a bare property. The same-schema
-// restriction rules out any naming collision by construction — Postgres
-// itself refuses to register two functions in one schema sharing both a
-// name AND an identical first-argument type — rather than presenting a
-// misleading union of two functions that only coincidentally share a bare
-// name (a real risk once cross-schema functions were allowed in : the
-// union would suggest "one property, either shape," when an actual bare
-// call only ever reaches whichever schema wins FunctionsByName's own
-// search_path race, a third, possibly different answer). A cross-schema
-// computed function remains fully usable — just not advertised here — via
-// the explicit qualified `["call", {schema,name}, ...]` form.
-func renderComputedProperties(fns []*pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) string {
+// computed fields — pg.Relation.ComputedFields (pg/info_computed.go) is the
+// one place eligibility is decided (same schema as the relation, callable
+// with exactly one argument, first argument typed as the relation's own row
+// type) ; this only renders whatever that introspection step already found,
+// filtered down to the relations/functions this export is actually allowed
+// to expose. Kept alongside, never merged into, Table__/View__ (own/full
+// deliberately never include a computed field) ; purely a "what's callable
+// here, and what does it return" discovery aid for authoring `select` — the
+// ACTUAL type of a `["call", ...]` expression still resolves through
+// FunctionsByName/Functions (shapes.ts's ShapeFromCallTag), independently.
+// Deliberately redundant with FunctionsByName rather than derived from it at
+// the type level : the two answer different questions ("what can I call
+// here" vs "what does this specific call produce").
+func renderComputedProperties(relations []*pg.Relation, bl config.Blacklist, tc *typeCollector) string {
 	byRelation := map[*pg.Relation]map[string]string{}
-	for _, f := range fns {
-		first := firstInputArg(f)
-		if first == nil || !f.AcceptsArity(1) {
-			continue
+	for _, rel := range relations {
+		for name, f := range rel.ComputedFields {
+			if bl.IsFunctionBlacklisted(f.Identifier.Schema, f.Identifier.Name) {
+				continue
+			}
+			ts := tsTypeExpr(f.ReturnType, tc)
+			if f.ReturnsSet {
+				ts += "[]"
+			}
+			if byRelation[rel] == nil {
+				byRelation[rel] = map[string]string{}
+			}
+			byRelation[rel][name] = ts
 		}
-		rel := first.Type.CompositeRelation()
-		if rel == nil || !allowed[rel] || rel.Identifier.Schema != f.Identifier.Schema {
-			continue
-		}
-		name := f.Identifier.Name
-		ts := tsTypeExpr(f.ReturnType, tc)
-		if f.ReturnsSet {
-			ts += "[]"
-		}
-		if byRelation[rel] == nil {
-			byRelation[rel] = map[string]string{}
-		}
-		// Never a collision : the same-schema restriction above already
-		// rules out two functions sharing both this name and this exact
-		// first-argument type (Postgres itself would refuse to register
-		// the second one).
-		byRelation[rel][name] = ts
 	}
 
 	if len(byRelation) == 0 {

@@ -18,7 +18,7 @@ database, or anonymous access is disabled outright and every unauthenticated req
 
 ## Minting a session
 
-Any function called through [`/route`](../http-routes.md) can start a session by setting a `jwt`
+Any function called through [`/route`](index.md) can start a session by setting a `jwt`
 field on its response:
 
 ```sql
@@ -166,6 +166,15 @@ not the query role — so it surfaces as a `500` ("permission denied to set role
 real request that needs it. A local superuser connection never hits this at all, which is why
 it's easy to miss until deploying somewhere with a properly scoped role.
 
+When anonymous access is enabled, rel also caches, once per discovered route at
+introspection/reload time, whether the anonymous role can actually reach it —
+`has_schema_privilege(anonymous_role, schema, 'USAGE') AND has_function_privilege(anonymous_role,
+function, 'EXECUTE')`. An anonymous request to a route the anonymous role can't reach is
+rejected with `401` before the request body is even read. Independently of that check, rel
+also warns (non-fatally) at introspection/reload for every route reachable by `PUBLIC` —
+Postgres grants `EXECUTE` to `PUBLIC` by default on `create function` unless default
+privileges were changed, a common footgun worth catching before it's a surprise in production.
+
 ## Configuration reference
 
 | Key | Default | Purpose |
@@ -189,7 +198,7 @@ it's easy to miss until deploying somewhere with a properly scoped role.
 | `saml.<name>.force_signed_requests` | `true` | sign outgoing `AuthnRequest`s |
 | `saml.certificate_path` / `saml.private_key_path` | generated on first boot | this deployment's SP certificate/key, shared across every `saml.<name>` entry |
 
-See [Configuration](index.md) for how these values, secrets included, get supplied across
-environment variables, config files, and generated files — including a couple of keys not
-repeated here (`openid.<name>.client_id`/`client_secret`, `openid.<name>.public_host`/
-`saml.<name>.public_host`) and every other key rel understands.
+See [Configuration](../configuration/index.md) for how these values, secrets included, get
+supplied across environment variables, config files, and generated files — including a couple
+of keys not repeated here (`openid.<name>.client_id`/`client_secret`,
+`openid.<name>.public_host`/`saml.<name>.public_host`) and every other key rel understands.

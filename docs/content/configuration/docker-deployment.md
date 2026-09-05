@@ -84,7 +84,7 @@ A few things worth getting right:
 - **`VIRTUAL_HOST` and `REL_HTTP__PUBLIC_HOST` should match.** `nginx-proxy` uses
   `VIRTUAL_HOST` to route incoming requests to the container; rel uses `http.public_host` to
   build its own redirect/callback URLs for OpenID Connect and SAML (see
-  [Authentication](authentication.md)). Set both to the same externally-visible domain, or
+  [Authentication](../http/authentication.md)). Set both to the same externally-visible domain, or
   OIDC/SAML logins will redirect somewhere wrong even though plain `/rel`/`/route` traffic
   works fine.
 - **`VIRTUAL_PORT` is optional here** — the image only `EXPOSE`s `8080`, so `nginx-proxy`

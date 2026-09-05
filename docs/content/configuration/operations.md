@@ -119,7 +119,7 @@ New requests get `503` for as long as the reload is in flight; in-flight request
 so a straggler can't hold a Postgres lock indefinitely against the migration's own DDL. Once
 dmut has run again, rel reintrospects the schema — including re-checking that the configured
 anonymous role exists, in case this migration is what created it — rebuilds the `/route`
-registry and the [Jet template](../http-routes.md#rendering-html-with-a-template) cache, and
+registry and the [Jet template](../http/requests-responses.md#rendering-html-with-a-template) cache, and
 resumes serving, all against the existing connection pool. A reload that fails leaves the
 previous schema, route registry, and templates running untouched, the same "log and continue"
 behavior as at startup.

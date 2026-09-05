@@ -203,9 +203,57 @@ func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) er
 		return c.compileChildRowValue(r, n)
 	case Shape:
 		return fmt.Errorf("sql: a literal-object landing reached as a bare expression value is not yet supported")
+	case ComputedFieldRef:
+		return c.compileComputedFieldRef(r, n)
 	default:
 		return fmt.Errorf("sql: identifier resolved to nothing (opaque), cannot compile as a value")
 	}
+}
+
+// compileComputedFieldRef emits r as a plain function call over whatever
+// row it's bound to : "schema.fn(alias)" for a same-node reference,
+// delegating to compileScalarHopComputed for one reached by hopping into a
+// to-one child (r.Node != n) — the same split compileColumnPath makes
+// between a same-node column and one reached via compileScalarHop.
+func (c *sqlCompiler) compileComputedFieldRef(r ComputedFieldRef, n *QueryNode) error {
+	if r.Node != n {
+		return c.compileScalarHopComputed(r, n)
+	}
+	alias, ok := c.alias[r.Node]
+	if !ok {
+		return fmt.Errorf("sql: no alias assigned for node owning computed field %q — compiled out of order", r.Function.Identifier.Name)
+	}
+	c.w.Write(r.Function.Identifier.EscapedString())
+	c.w.Paren(func() { c.w.Write(alias) })
+	return nil
+}
+
+// compileScalarHopComputed is compileScalarHop's counterpart for a "."
+// hop landing on a to-one child's own computed field — same correlated
+// scalar-subquery shape, selecting a function call over the child's row
+// instead of a column.
+func (c *sqlCompiler) compileScalarHopComputed(r ComputedFieldRef, n *QueryNode) error {
+	child := r.Node
+	if !isOutgoingOf(child.Parent, child) {
+		return fmt.Errorf("sql: %q is a to-many relation — a \".\" hop can only be compiled as a value when it reaches a to-one relation, since there is no single row to pick a field from otherwise (aggregate it with \"agg\" instead)", child.OuterAlias)
+	}
+	alias := c.allocAlias()
+
+	var innerErr error
+	c.w.Paren(func() {
+		c.w.Write("select ")
+		c.w.Write(r.Function.Identifier.EscapedString())
+		c.w.Paren(func() { c.w.Write(alias) })
+		c.w.Write(" from ")
+		if err := c.compileFrom(child, alias); err != nil {
+			innerErr = err
+			return
+		}
+		if err := c.compileScalarHopWhere(child, alias, n); err != nil {
+			innerErr = err
+		}
+	})
+	return innerErr
 }
 
 // compileColumnPath emits a qualified column, or "(t.a).b" for a composite

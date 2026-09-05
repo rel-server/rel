@@ -60,7 +60,7 @@ A few columns worth knowing about because they show up in examples across this s
 (`hotel.address`, `hotel.card_summary`), not joins to another table — a guest only ever has one
 current billing address. `hotel.rooms.features` is a plain `text[]`. `hotel.properties` and
 `hotel.reviews` each carry a generated `tsvector` column for full-text search. Several tables
-also expose computed columns — `hotel.booking_nights(booking)`,
+also expose [computed fields](computed-fields.md) — `hotel.booking_nights(booking)`,
 `hotel.booking_total_paid(booking)`, `hotel.guest_full_name(guest)`,
 `hotel.property_average_rating(property)` — ordinary Postgres functions taking the row type as
-their argument, selectable via [`call`](aggregates.md).
+their argument, selectable by bare name (`"booking_nights"`) exactly like a real column.

@@ -34,5 +34,5 @@ A column is writable only if it appears exactly once in `select` (see [Selecting
 fields](selecting.md)), untransformed except by a coalescing operator (`??`, `||?`,
 `coalesce`) or `set`/`get-set`; a relation is writable only if its identity columns (the
 primary key, or whatever `on_conflict` names) are present and writable that same way. A
-computed column (anything reached through [`call`](aggregates.md)) is never a write target —
-it isn't a real column to begin with.
+[computed field](computed-fields.md) — whether reached by bare name or through `call` — is
+never a write target: it isn't a real column to begin with.

@@ -105,7 +105,7 @@ the binary itself, if you want it without leaving a terminal.
 | `pg.host` / `pg.port` / `pg.database` / `pg.user` / `pg.password` | `localhost` / `5432` / — / — / — | Granular connection fields, used only when `pg.uri` is unset. |
 | `pg.pool_size` | `10` | Max connections in the pool serving requests. Startup introspection and migrations each use one short-lived connection regardless. |
 | `pg.query.user` / `pg.query.password` | = `pg.user`/`pg.password` | An optional, narrower-scoped login for serving requests specifically — introspection and migrations still use `pg.user`. |
-| `pg.query.anonymous_role` | `~anonymous` | The role a request with no valid session runs as. See [Authentication](authentication.md). |
+| `pg.query.anonymous_role` | `~anonymous` | The role a request with no valid session runs as. See [Authentication](../http/authentication.md). |
 | `pg.query.max_depth` | `6` | Maximum join nesting a query may specify. |
 | `pg.query.wellknown_path` | `/wellknown` | Colon-separated directories, searched recursively for well-known query files. See [Well-known queries](../query-language/well-known-queries.md). |
 
@@ -114,12 +114,12 @@ the binary itself, if you want it without leaving a terminal.
 | Key | Default | What it does |
 |---|---|---|
 | `http.host` / `http.port` | all interfaces / `8080` | Listen address. |
-| `http.public_host` | disabled | This deployment's externally-reachable domain (bare host, no scheme/port) — required for OpenID/SAML redirect URLs to resolve. See [Authentication](authentication.md). |
+| `http.public_host` | disabled | This deployment's externally-reachable domain (bare host, no scheme/port) — required for OpenID/SAML redirect URLs to resolve. See [Authentication](../http/authentication.md). |
 | `http.cookies_max_age` | `86400` (seconds) | Default max-age for a cookie set via a route response, when the response doesn't specify one. Doesn't apply to the JWT cookie — see `jwt.max_age` below. |
 | `http.max_body_size` | 10 MiB | Hard cap on a `/route` request's entire body (multipart envelope included). Rejected with `413` before any of it is buffered. |
 | `http.max_part_count` | `100` | Max number of `multipart/form-data` parts a single `/route` request may contain. |
-| `http.static.path` | — | Colon-separated directories served under `/static/`. See [HTTP routes](../http-routes.md). |
-| `http.templates.path` | `/template` | Directory Jet templates are loaded from, for a route's `RelHttpResponse.template`. See [HTTP routes](../http-routes.md#rendering-html-with-a-template). |
+| `http.static.path` | — | Colon-separated directories served under `/static/`. See [HTTP layer](../http/index.md). |
+| `http.templates.path` | `/template` | Directory Jet templates are loaded from, for a route's `RelHttpResponse.template`. See [Requests and responses](../http/requests-responses.md#rendering-html-with-a-template). |
 | `http.typescript.enable` | `false` (`true` in dev) | Serve `GET /rel/database.ts`. See [TypeScript client](../typescript-client.md). |
 | `http.typescript.schemas` | every schema but `pg_catalog` | Comma-separated whitelist of schemas `GET /rel/database.ts` may export; intersected with that request's own `?schemas=` param. |
 | `http.request_domain_name` / `http.response_domain_name` / `http.upload_domain_name` | `RelHttpRequest` / `RelHttpResponse` / `RelUpload` | Name of the JSON domain identifying a route function's request/response/upload-destination argument type. Only worth changing if those names collide with something already in your schema. |
@@ -128,10 +128,10 @@ the binary itself, if you want it without leaving a terminal.
 
 | Key | Default | What it does |
 |---|---|---|
-| `http.functions.allowed_routes` | unrestricted | Regexp restricting which functions are discovered on `/route` at all. See [HTTP routes](../http-routes.md). |
-| `http.functions.allowed_auth` | unrestricted | Regexp restricting which route functions may mint or clear a session (set `jwt` on their response). See [Authentication](authentication.md). |
-| `http.functions.check_session` | disabled | Function called on every authenticated request, letting the database reject a session early. See [Authentication](authentication.md). |
-| `http.functions.sso_callback` | disabled | Fallback callback function an `openid.<name>`/`saml.<name>` entry uses when it doesn't set its own `callback_function`. See [Authentication](authentication.md). |
+| `http.functions.allowed_routes` | unrestricted | Regexp restricting which functions are discovered on `/route` at all. See [HTTP layer](../http/index.md). |
+| `http.functions.allowed_auth` | unrestricted | Regexp restricting which route functions may mint or clear a session (set `jwt` on their response). See [Authentication](../http/authentication.md). |
+| `http.functions.check_session` | disabled | Function called on every authenticated request, letting the database reject a session early. See [Authentication](../http/authentication.md). |
+| `http.functions.sso_callback` | disabled | Fallback callback function an `openid.<name>`/`saml.<name>` entry uses when it doesn't set its own `callback_function`. See [Authentication](../http/authentication.md). |
 
 ### CORS
 
@@ -150,7 +150,7 @@ the binary itself, if you want it without leaving a terminal.
 | `http.csp.<directive>`, one of `script_src`/`style_src`/`img_src`/`font_src`/`connect_src`/`object_src`/`frame_ancestors`/`base_uri`/`form_action` | falls back to `default_src` | Overrides that one directive specifically. |
 | `http.csp.policy` | unset | The full, raw `Content-Security-Policy` header value — replaces every individual `http.csp.*` directive above entirely when set. |
 
-See [HTTP routes ## CORS and CSP](../http-routes.md#cors-and-csp) for how these compose with a
+See [CORS and CSP](../http/cors-csp.md) for how these compose with a
 per-response nonce and a route's own `RelHttpResponse.csp` override.
 
 ### Sessions (JWT)
@@ -165,7 +165,7 @@ per-response nonce and a route's own `RelHttpResponse.csp` override.
 | `jwt.renew_after` | `0.5` | Fraction of a token's own lifespan elapsed before it's renewed on next use. |
 | `jwt.max_session_age` | `604800` (7 days) | Hard ceiling on a session's total lifetime, regardless of renewal. |
 
-Full session lifecycle — minting, renewal, `check_session` — is [Authentication](authentication.md).
+Full session lifecycle — minting, renewal, `check_session` — is [Authentication](../http/authentication.md).
 
 ### SAML (shared SP identity)
 
@@ -177,7 +177,7 @@ Full session lifecycle — minting, renewal, `check_session` — is [Authenticat
 ### OpenID Connect and SAML providers
 
 One named entry per provider — `<name>` is yours to choose, unrelated to the provider's brand.
-See [Authentication](authentication.md) for the full picture (routes, callback function
+See [Authentication](../http/authentication.md) for the full picture (routes, callback function
 contract, worked examples); this is the exhaustive key list.
 
 | Key pattern | Default | What it does |
@@ -200,7 +200,7 @@ One named rule per gated subpath, layered on top of `http.static.path`:
 | Key pattern | Default | What it does |
 |---|---|---|
 | `http.static.access.<name>.prefix` | — (required) | The subpath, under `/static/`, this rule gates. |
-| `http.static.access.<name>.function` | — (required) | A Postgres function called before serving a matching path; raising rejects the request. See [HTTP routes](../http-routes.md). |
+| `http.static.access.<name>.function` | — (required) | A Postgres function called before serving a matching path; raising rejects the request. See [HTTP layer](../http/index.md). |
 
 ### Logging
 

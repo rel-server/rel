@@ -137,6 +137,24 @@ create function fn_one_director(p_id int) returns director language sql as $$ se
 -- (query/sql_expr.go), not a plain column.
 create function director_display_name(d director) returns text language sql as $$ select d.name || ' (director)' $$;
 
+-- computed field returning SETOF another relation — a computed field's
+-- return type is independent of its eligibility, which only constrains its
+-- (first) argument type.
+create function director_movies(d director) returns setof movie
+language sql as $$ select * from movie where movie.director_id = d.id $$;
+
+-- computed-field / real-column name collision (a schema-authoring problem,
+-- not a query-time concern) : eligible by every other rule, but movie
+-- already has its own "title" column. The column must win — this function
+-- must never be registered as movie's computed field.
+create function title(m movie) returns text language sql as $$ select upper(m.title) $$;
+
+-- cross-schema function taking director's own row type : eligible by every
+-- other rule, but declared in alt_schema, not director's own schema
+-- (public). Must never be registered as a computed field.
+create function alt_schema.director_tagline(d director) returns text
+language sql as $$ select d.name || ' - cross schema' $$;
+
 -- parameterized table-valued function, embeddable as a JOIN child : exercises
 -- pass 2's correlated function-argument resolution (a function node's own
 -- "arguments" resolve against its PARENT's scope, since node.Parent != nil

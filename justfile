@@ -90,6 +90,10 @@ docs-install:
 docs-serve: docs-install
     {{docs_venv}}/bin/zensical serve -f {{docs_config}}
 
+# Serve the docs locally with live reload at http://0.0.0.0:8000
+docs-serve-all: docs-install
+    {{docs_venv}}/bin/zensical serve -f {{docs_config}} -a 0.0.0.0:8000
+    
 # Build the static site into docs/site
 docs-build: docs-install
     {{docs_venv}}/bin/zensical build -f {{docs_config}}

@@ -47,6 +47,22 @@ type Relation struct {
 	Columns    []*Column
 	ColumnsMap map[string]*Column
 
+	// ComputedFields holds every function eligible to be used as a computed
+	// field on this relation — a function living in this relation's own
+	// schema, callable with exactly one argument (Function.AcceptsArity(1) —
+	// every argument after the first has a default), whose first argument's
+	// type is this relation's own composite row type. Populated by
+	// FillComputedFields, once Functions/Relations/Types are all resolved.
+	//
+	// Deliberately separate from Columns/ColumnsMap, never merged into
+	// either : a computed field is never a physical column, must never be
+	// included by own/full (query-engine's own writability rule), and is
+	// never itself writable. A function whose name collides with a real
+	// column of this relation is never registered here at all — the real
+	// column wins by construction, a schema-authoring problem to fix at the
+	// source, not something query-time ambiguity handling should resolve.
+	ComputedFields map[string]*Function
+
 	Type *Type // The related type
 
 	PrimaryKey          *Constraint

@@ -143,9 +143,9 @@ or the seeded rows directly.
   sizing, well-known-query directories.
 - [The query language](query-language/index.md) — the full shape of `where`/`select`/`join`,
   operators, aggregates, and every write mode.
-- [HTTP routes](http-routes.md) — arbitrary server-side logic as a Postgres function: login
+- [HTTP layer](http/index.md) — arbitrary server-side logic as a Postgres function: login
   flows, server-rendered HTML via Jet templates, file uploads, static files.
-- [Authentication](configuration/authentication.md) — username/password, OpenID Connect, and SAML, and how a
+- [Authentication](http/authentication.md) — username/password, OpenID Connect, and SAML, and how a
   request ends up running as a particular Postgres role.
 - [Docker deployment](configuration/docker-deployment.md) — running the published image behind
   `jwilder/nginx-proxy`, with automatic TLS.

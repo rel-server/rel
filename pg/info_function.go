@@ -118,6 +118,20 @@ func (f *Function) ReturnsSingleRow() bool {
 	return !f.ReturnsSet
 }
 
+// FirstInputArg returns f's first IN/INOUT/VARIADIC argument — the argument
+// Postgres's own computed-column call syntax (`t.func_name()`/`func_name(t)`)
+// always binds the row to, regardless of how many further arguments f
+// declares. Returns nil for a function with no input argument at all.
+func (f *Function) FirstInputArg() *FunctionArgument {
+	for i := range f.Arguments {
+		a := &f.Arguments[i]
+		if a.IsIn() || a.IsInOut() || a.IsVariadic() {
+			return a
+		}
+	}
+	return nil
+}
+
 func (f *Function) IsPlainFunction() bool  { return f.PgKind == "f" }
 func (f *Function) IsAggregate() bool      { return f.PgKind == "a" }
 func (f *Function) IsProcedure() bool      { return f.PgKind == "p" }

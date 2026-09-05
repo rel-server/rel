@@ -1,19 +1,17 @@
 ---
-icon: material/layers
+icon: material/sigma
 ---
 
-# Computed fields and aggregates
+# Aggregates
 
-`call` invokes an allowed function directly as part of an expression:
+`agg`/`aggregate` aggregates a joined, incoming relation's column into the parent — necessary
+conditions:
 
-```json
-{ "nights": ["call", "booking_nights", "$self"] }
-```
-
-`agg`/`aggregate` aggregates a joined, incoming relation's column into the parent — the target
-column must belong to a relation joined as incoming (see [Joining and embedding
-relations](joining.md)), since aggregating only makes sense over rows the current row actually
-owns:
+- the target column must belong to a relation joined as **incoming** (see
+  [Joining and embedding relations](joining.md)), since aggregating only makes sense over rows
+  the current row actually owns;
+- the aggregate function name is checked against the same function allowlist `call` is — see
+  [Computed fields](computed-fields.md) and [Configuration](../configuration/index.md).
 
 ```json
 {
@@ -32,11 +30,17 @@ owns:
 }
 ```
 
-The fourth, optional element of `agg` filters which rows get aggregated, independent of the
-query's own `where`. Both `call` and `agg` take a function name that's either a bare,
-unqualified string (resolved via the search path) or an explicit `{"schema": ..., "name":
-...}` object — and both are checked against the configured function allowlist before they're
-allowed to run at all; see [Configuration](../configuration/index.md).
+## Filtering which rows get aggregated
 
-A computed column is never a write target — see [Writing data back](writing.md) for what makes
-a column writable.
+The fourth, optional element of `agg` filters which rows get aggregated, independent of the
+query's own `where` — `five_star_count` above counts only reviews with `rating = 5`, while
+`review_count` still counts every review, regardless of what the query's own `where` (if any)
+does at the `properties` level.
+
+## The function name
+
+Both `call` and `agg` take a function name in the same form: either a bare, unqualified
+string (resolved via the search path) or an explicit `{"schema": ..., "name": ...}` object.
+
+A computed field (see [Computed fields](computed-fields.md)) is never a write target — see
+[Writing data back](writing.md) for what makes a column writable.

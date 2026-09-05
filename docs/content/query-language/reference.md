@@ -66,7 +66,7 @@ take.
 |---|---|---|
 | `null` / `true` / `false` / a number | A literal value. | [Filtering with `where`](filtering.md). |
 | `"*"` | Every field of the current relation, plus every join alias. | [Selecting fields](selecting.md). |
-| a bare string | A column or alias reference. | [Filtering with `where`](filtering.md). |
+| a bare string | A column, alias, or computed field reference. | [Filtering with `where`](filtering.md), [Computed fields](computed-fields.md). |
 | `[string]` | A one-element array — a string *literal*, not a reference. | [Filtering with `where`](filtering.md). |
 | `[UnaryOperator, Expression]` | A unary operator call. | [Operators reference](operators.md). |
 | `[BinaryOperator, left, right]` | A two-operand operator call. | [Operators reference](operators.md). |
@@ -78,8 +78,8 @@ take.
 | `["concat_ws", separator, ...Expression[]]` | Join strings with a separator. | [Operators reference](operators.md). |
 | `["coalesce", ...Expression[]]` | First non-null operand. | [Operators reference](operators.md). |
 | `["format", format: string, ...Expression[]]` | `printf`-style string building. | [Operators reference](operators.md). |
-| <code>["agg"&#124;"aggregate", identifier, arguments, filter?]</code> | Aggregate an incoming relation's column. | [Computed fields and aggregates](aggregates.md). |
-| `["call", identifier, ...arguments]` | Call an allowed function. | [Computed fields and aggregates](aggregates.md). |
+| <code>["agg"&#124;"aggregate", identifier, arguments, filter?]</code> | Aggregate an incoming relation's column. | [Aggregates](aggregates.md). |
+| `["call", identifier, ...arguments]` | Call an allowed function explicitly — needed for a cross-schema computed field, or any other function call. | [Computed fields](computed-fields.md). |
 | `{[name]: Expression}` | An object literal — a select shape. | [Selecting fields](selecting.md). |
 | `["own"]` / `["full"]` | All columns / all columns plus joins. | [Selecting fields](selecting.md). |
 | <code>["own_except"&#124;"full_except", except]</code> | All columns except the ones named. | [Selecting fields](selecting.md). |
@@ -96,4 +96,4 @@ take.
 
 `FunctionIdentifier` — `call`'s and `agg`'s first argument — is either a bare, unqualified
 string (resolved via the search path) or `{schema, name}` (a schema-qualified reference); see
-[Computed fields and aggregates](aggregates.md).
+[Computed fields](computed-fields.md) and [Aggregates](aggregates.md).

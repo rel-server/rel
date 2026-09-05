@@ -97,6 +97,21 @@ func columnPathFlatName(cp ColumnPath) string {
 	return strings.Join(names, "__")
 }
 
+// ComputedFieldRef is the computed-field-backed ResolvedField variant — a
+// function eligible on Node's own relation (pg.Relation.ComputedFields),
+// reached by its bare name exactly like a real column. Unlike ColumnPath, a
+// ComputedFieldRef is opaque : never a write target (it isn't a real column
+// to begin with), never chainable further via "." (same as any other
+// function call's result), and never itself select/join-customizable even
+// when Function's return type matches another relation or SETOF one — a
+// relation-shaped computed field always compiles as the bare full row(s)
+// value, exactly like ["call", fn, alias] does today. Compiled by
+// compileComputedFieldRef (sql_expr.go).
+type ComputedFieldRef struct {
+	Node     *QueryNode
+	Function *pg.Function
+}
+
 // Shape is the "produces a map of named fields" ResolvedField variant — the
 // landing of ANY select-shape-producing expression, uniformly : own/full
 // (and their -except/-and variants), an inline object literal, or one
@@ -112,8 +127,8 @@ type Shape map[string]ResolvedField
 
 // ResolvedField is what resolving an Identifier (or a later hop in a
 // ./->/->>/#>/#>> chain) produces — see specs/query-engine.md's
-// "## Scoping ### Identifier resolution" section for the full reasoning. Three concrete
-// variants :
+// "## Scoping ### Identifier resolution" section for the full reasoning. Four
+// concrete variants :
 //   - ColumnPath : a physical column, or a composite sub-field reached by
 //     walking *pg.Type.Relation.ColumnsMap off one. Already fully
 //     introspected by pg ; no new DB-side work needed for the composite
@@ -125,11 +140,14 @@ type Shape map[string]ResolvedField
 //     itself," not "into a sibling," so it doesn't violate the
 //     no-sibling-access rule.
 //   - Shape : a key into a select-shape-producing expression, as above.
+//   - ComputedFieldRef : a computed field (pg.Relation.ComputedFields),
+//     resolved by bare name exactly like a physical column, but opaque like
+//     a plain function call — see ComputedFieldRef's own doc comment.
 //
 // nil means "opaque" — the landing spot of a ->/->>/#>/#>> hop (jsonb
 // field/path extraction, or composite-row dot access via those operators is
 // not how "." itself works here), or of any expression that isn't one of
-// the three shapes above (arithmetic, a plain function call, ...). An
+// the four shapes above (arithmetic, an explicit ["call", ...], ...). An
 // opaque landing contributes nothing to shape/writability and can only be
 // chained further via more of the same JSON operators, never a "." hop.
 //

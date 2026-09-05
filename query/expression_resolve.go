@@ -653,6 +653,9 @@ func resolvedFieldsEqual(a, b ResolvedField) bool {
 	case *QueryNode:
 		bv, ok := b.(*QueryNode)
 		return ok && av == bv
+	case ComputedFieldRef:
+		bv, ok := b.(ComputedFieldRef)
+		return ok && av.Node == bv.Node && av.Function == bv.Function
 	default:
 		return false
 	}
