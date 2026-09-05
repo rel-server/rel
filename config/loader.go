@@ -285,7 +285,7 @@ func readFirstExisting(paths []string) (data []byte, path string, err error) {
 // resolveGenValue is $GEN$'s own branch, split out so resolveFileValue's
 // "isn't shaped like $GEN$" fallthrough stays a plain early return.
 // pathList is SplitPathList's colon-separated search list — e.g. jwt.secret's
-// own default, "/secrets/jwt/jwt-secret:./jwt-secret", tries the deployment's
+// own default, "/secrets/jwt-secret:./jwt-secret", tries the deployment's
 // intended mount point first and falls back to a plain cwd-relative file for
 // an unconfigured dev run, per specs/configuration.md ## $GEN$ multi-path
 // resolution.

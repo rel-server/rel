@@ -23,7 +23,7 @@ type JWT = {
 
 ## Configuration
 
-* `jwt.secret` (default `$FILE$/secrets/jwt/jwt-secret:./jwt-secret$GEN$32`) : the JWT signing secret. See `specs/configuration.md ## $GEN$ multi-path resolution` for what the colon-separated path list means.
+* `jwt.secret` (default `$FILE$/secrets/jwt-secret:./jwt-secret$GEN$32`) : the JWT signing secret. Flat filename directly under `/secrets/`, not a subdirectory — rel never creates directories, only files, when a candidate path's parent already exists, and a flat path only requires `/secrets/` itself (the mounted volume) to exist. See `specs/configuration.md ## $GEN$ multi-path resolution` for what the colon-separated path list means.
 * `jwt.cookie_name` (default `accesstoken`) : the cookie scanned and set by rel to carry the JWT.
 * `jwt.algorithm` (default `HS256`, one of `HS256` | `HS384` | `HS512`) : the algorithm used to sign the JWT. rel enforces this exact algorithm on verification and rejects any token whose header claims a different one — including `none` — as an invalid signature.
 * `jwt.same_site` (default `Lax`) : `SameSite` attribute of the JWT cookie.

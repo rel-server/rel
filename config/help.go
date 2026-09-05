@@ -90,7 +90,7 @@ var Options = []Option{
 	{"http.csp.policy", "(unset)", "Full, raw Content-Security-Policy header value ; replaces every individual http.csp.* directive above entirely when set."},
 
 	// ---- jwt.* : session lifecycle ----
-	{"jwt.secret", "(auto-generated)", "HMAC signing secret for JWTs. Auto-generates a 32-character secret into /secrets/jwt/jwt-secret (falling back to ./jwt-secret) on first run and reuses it after — see $FILE$/$GEN$ below."},
+	{"jwt.secret", "(auto-generated)", "HMAC signing secret for JWTs. Auto-generates a 32-character secret into /secrets/jwt-secret (falling back to ./jwt-secret) on first run and reuses it after — see $FILE$/$GEN$ below."},
 	{"jwt.cookie_name", DefaultJwtCookieName, "Name of the cookie carrying the JWT."},
 	{"jwt.algorithm", DefaultJwtAlgorithm, "Signing algorithm : HS256, HS384, or HS512."},
 	{"jwt.same_site", DefaultJwtSameSite, "SameSite attribute of the JWT cookie : Strict, Lax, or None."},

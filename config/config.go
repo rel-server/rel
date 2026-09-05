@@ -59,11 +59,13 @@ const (
 type Jwt struct {
 	// Secret is jwt.secret, default DefaultJwtSecret — the JWT signing
 	// secret. Its $GEN$ path is a colon-separated search list (##
-	// $GEN$ multi-path resolution) : /secrets/jwt/jwt-secret, a fixed
-	// location a deployment can mount a volume/secret at, falling back to
-	// ./jwt-secret (relative to the process's cwd) when that isn't wired
-	// up — the previous, single-path default, still exactly what a plain
-	// `go run`/`just run` dev loop gets.
+	// $GEN$ multi-path resolution) : /secrets/jwt-secret, a flat filename
+	// directly under a deployment's mounted /secrets/ volume — rel never
+	// creates directories, only files, so a flat path only requires
+	// /secrets/ itself to exist — falling back to ./jwt-secret (relative
+	// to the process's cwd) when that isn't wired up — the previous,
+	// single-path default, still exactly what a plain `go run`/`just run`
+	// dev loop gets.
 	Secret string
 	// CookieName is jwt.cookie_name, default "accesstoken" : the cookie
 	// scanned/set by rel to carry the JWT.
@@ -90,7 +92,7 @@ const (
 	// DefaultJwtSecret's $GEN$ path is a colon-separated search list, resolved
 	// per specs/configuration.md ## $GEN$ multi-path resolution : a fixed
 	// deployment mount point first, falling back to the process's own cwd.
-	DefaultJwtSecret        = "$FILE$/secrets/jwt/jwt-secret:./jwt-secret$GEN$32"
+	DefaultJwtSecret        = "$FILE$/secrets/jwt-secret:./jwt-secret$GEN$32"
 	DefaultJwtCookieName    = "accesstoken"
 	DefaultJwtAlgorithm     = "HS256"
 	DefaultJwtSameSite      = "Lax"

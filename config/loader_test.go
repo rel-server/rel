@@ -371,7 +371,7 @@ policy = "default-src 'self'; script-src 'self' 'unsafe-inline'"
 // Covers a caught bug : a Go-level fallback default applied after
 // resolveFileIndirection was never itself resolved. t.Chdir isolates the
 // $GEN$ file write to a temp dir. The default's first candidate,
-// /secrets/jwt/jwt-secret, is assumed absent on the machine running this
+// /secrets/jwt-secret, is assumed absent on the machine running this
 // test — same assumption TestResolveFileValue_PlainMissingIsFatal already
 // makes about /nonexistent/secret.txt — so resolution falls through to the
 // second candidate, ./jwt-secret, relative to the isolated cwd.
