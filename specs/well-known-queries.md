@@ -6,7 +6,7 @@ They're basically what views achieve in SQL, but in rel, with the write operatio
 
 ## Configuration
 
-* `pg.query.wellknown_path` (default `'/wellknown'`) : a colon `:` separated list of directories containing well-known queries in json or yaml format.
+* `pg.query.wellknown_path` (default `'/wellknown'`) : a colon `:` separated list of directories containing well-known queries in json, yaml, or huml format.
 
 >: What other configuration options would be relevant ?
 
@@ -14,7 +14,7 @@ Consumed the same way `http.static.path` already is : the config field itself (`
 
 ## Behaviour
 
-Rel reads the directories of `pg.query.wellknown_path` recursively and considers every `.json`, `.yml`, `.yaml` file whose name doesn't start with `_`. Every format is converted to a plain JSON value tree before parsing — `sonic/ast`'s existing JSON-specific parser (`query.ParseExpression`/`ParseQuery`) is reused unchanged for both.
+Rel reads the directories of `pg.query.wellknown_path` recursively and considers every `.json`, `.yml`, `.yaml`, `.huml` file whose name doesn't start with `_`. Every format is converted to a plain JSON value tree before parsing — `sonic/ast`'s existing JSON-specific parser (`query.ParseExpression`/`ParseQuery`) is reused unchanged for all of them.
 
 If a query has an error, a warning is logged and the query is deactivated — never queryable. If a query introduces a name that collides with an already-loaded one, rel logs a warning and deactivates *every* well-known query registered under that name, not just the newest one. A request naming a deactivated (or never-validly-defined) query is rejected the same way a genuinely unknown name would be.
 

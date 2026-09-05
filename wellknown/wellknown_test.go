@@ -90,6 +90,15 @@ func TestBuildRegistry_LoadsYAML(t *testing.T) {
 	}
 }
 
+func TestBuildRegistry_LoadsHUML(t *testing.T) {
+	reg := buildRegistry(t, map[string]string{
+		"directors.huml": "name: \"huml_directors\"\nquery::\n  relation: \"director\"\n  schema: \"public\"\n  select:: \"own\"\n",
+	})
+	if _, ok := reg.Lookup("huml_directors"); !ok {
+		t.Fatalf("expected huml_directors to be registered")
+	}
+}
+
 func TestBuildRegistry_SkipsUnderscorePrefixedFiles(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{
 		"_ignored.json": `{"name": "ignored", "query": {"relation": "director", "schema": "public", "select": ["own"]}}`,

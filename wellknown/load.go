@@ -1,6 +1,7 @@
 package wellknown
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/query"
 	goccyyaml "github.com/goccy/go-yaml"
+	"github.com/huml-lang/go-huml"
 	"github.com/samber/oops"
 )
 
@@ -56,7 +58,7 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 				return nil
 			}
 			ext := strings.ToLower(filepath.Ext(d.Name()))
-			if ext != ".json" && ext != ".yml" && ext != ".yaml" {
+			if ext != ".json" && ext != ".yml" && ext != ".yaml" && ext != ".huml" {
 				return nil
 			}
 			loadFile(rctx, path, ext, byName)
@@ -89,8 +91,8 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	return reg, nil
 }
 
-// loadFile reads, YAML-normalizes if needed, parses, and resolves every
-// definition in one file, appending each success onto byName.
+// loadFile reads, normalizes YAML/HUML to JSON if needed, parses, and
+// resolves every definition in one file, appending each success onto byName.
 func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]candidate) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -99,10 +101,21 @@ func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]
 	}
 
 	jsonBytes := raw
-	if ext == ".yml" || ext == ".yaml" {
+	switch ext {
+	case ".yml", ".yaml":
 		jsonBytes, err = goccyyaml.YAMLToJSON(raw)
 		if err != nil {
 			log.Warn("invalid YAML, file skipped", "path", path, "error", err.Error())
+			return
+		}
+	case ".huml":
+		var v any
+		if err = huml.Unmarshal(raw, &v); err != nil {
+			log.Warn("invalid HUML, file skipped", "path", path, "error", err.Error())
+			return
+		}
+		if jsonBytes, err = json.Marshal(v); err != nil {
+			log.Warn("invalid HUML, file skipped", "path", path, "error", err.Error())
 			return
 		}
 	}
