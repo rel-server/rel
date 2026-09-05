@@ -34,6 +34,17 @@ Do this before anything else on this page — it's the single Postgres-level set
 to leave a function more reachable than you intended, independent of anything rel's own
 blacklist or role separation below catches.
 
+rel's own [anonymous route authorization](../http/authentication.md#deployment-checklist)
+already refuses to treat a route as anonymously reachable on the strength of a `PUBLIC` grant
+alone — an unauthenticated request still needs an explicit `EXECUTE` grant to the anonymous
+role. That only covers the literal "no login at all" case, though: an *authenticated* caller,
+and any function reached through [`call`/`agg`](../query-language/computed-fields.md) rather
+than as a route, both fall back to Postgres's own live privilege check — which still credits
+`PUBLIC` the same as it always has. Revoking the default above is what actually closes those,
+and it's especially worth doing for a `SECURITY DEFINER` function: one of those left on the
+`PUBLIC` default is callable by anyone with any authenticated role, running with the
+privileges of whoever owns it, not the caller's own.
+
 ## Give requests a narrower Postgres role than migrations get
 
 `pg.query.user` (see [Configuration](index.md)) is a separate, optional login for the

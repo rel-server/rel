@@ -30,3 +30,16 @@ create schema open_schema;
 grant usage on schema open_schema to probe_role;
 create function open_schema.fn_open() returns int language sql as $$ select 1 $$;
 grant execute on function open_schema.fn_open() to probe_role;
+
+-- default_only_schema.fn_default_only : USAGE is granted to PUBLIC
+-- explicitly (unlike a schema's own creation, which grants PUBLIC nothing
+-- by default), and EXECUTE is left exactly where Postgres's own CREATE
+-- FUNCTION default puts it — PUBLIC, never explicitly granted to
+-- probe_role. probe_role genuinely CAN call this function in practice (it
+-- inherits both grants via PUBLIC, the same as any other role would) ; the
+-- explicit-grant-only anonymous check must still reject it as an
+-- anonymous route, precisely because that reachability was never a
+-- deliberate decision about the anonymous role specifically.
+create schema default_only_schema;
+grant usage on schema default_only_schema to public;
+create function default_only_schema.fn_default_only() returns int language sql as $$ select 1 $$;

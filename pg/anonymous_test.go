@@ -111,10 +111,24 @@ func TestAnonymousAndPublicPrivilegeQuery_NonSuperuser(t *testing.T) {
 		return oid
 	}
 
+	// Mirrors route.applyAnonymousAuthorization's actual query : anonOK
+	// requires an EXPLICIT EXECUTE grant (never one credited only via
+	// PUBLIC), while publicOK keeps using has_function_privilege, which
+	// does credit PUBLIC — see specs/route.md ## Anonymous route
+	// authorization.
 	check := func(t *testing.T, role string, oid int) (anonOK, publicOK bool) {
 		t.Helper()
 		err := pool.QueryRow(ctx, `
-			select has_schema_privilege($1, f.pronamespace, 'USAGE') and has_function_privilege($1, f.oid, 'EXECUTE'),
+			select has_schema_privilege($1, f.pronamespace, 'USAGE')
+			         and exists (
+			           select 1
+			           from pg_roles r,
+			                aclexplode(coalesce(f.proacl, acldefault('f', f.proowner))) as a(grantor, grantee, privilege_type, is_grantable)
+			           where r.rolname = $1
+			             and a.privilege_type = 'EXECUTE'
+			             and a.grantee <> 0
+			             and pg_has_role(r.oid, a.grantee, 'USAGE')
+			         ),
 			       has_schema_privilege('public', f.pronamespace, 'USAGE') and has_function_privilege('public', f.oid, 'EXECUTE')
 			from pg_proc f where f.oid = $2
 		`, role, oid).Scan(&anonOK, &publicOK)
@@ -140,6 +154,17 @@ func TestAnonymousAndPublicPrivilegeQuery_NonSuperuser(t *testing.T) {
 		anonOK, _ := check(t, "probe_role", oid)
 		if !anonOK {
 			t.Errorf("expected probe_role reachable (explicit USAGE+EXECUTE grants), got unreachable")
+		}
+	})
+
+	t.Run("genuinely PUBLIC-reachable via defaults : probe_role can really call it, but anon check must still reject it", func(t *testing.T) {
+		oid := oidOf(t, "default_only_schema", "fn_default_only")
+		anonOK, publicOK := check(t, "probe_role", oid)
+		if anonOK {
+			t.Errorf("expected probe_role NOT reachable (EXECUTE never explicitly granted to probe_role, only inherited via PUBLIC), got reachable")
+		}
+		if !publicOK {
+			t.Errorf("expected PUBLIC reachable (schema USAGE granted to PUBLIC, EXECUTE left at CREATE FUNCTION's own default), got unreachable")
 		}
 	})
 

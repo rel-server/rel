@@ -161,19 +161,33 @@ grant "editor" to query_user;
 grant "admin" to query_user;
 ```
 
+That grants `query_user` *membership* — the ability to `SET ROLE` into `~anonymous` at all. A
+route function still needs its own `EXECUTE` grant, directly to `~anonymous` (or to a role it
+belongs to), before an anonymous request can reach it:
+
+```sql
+grant execute on function guest_login("RelHttpRequest") to "~anonymous";
+```
+
 Skipping a grant doesn't fail at startup — introspection runs under the primary connection,
 not the query role — so it surfaces as a `500` ("permission denied to set role") on the first
 real request that needs it. A local superuser connection never hits this at all, which is why
 it's easy to miss until deploying somewhere with a properly scoped role.
 
 When anonymous access is enabled, rel also caches, once per discovered route at
-introspection/reload time, whether the anonymous role can actually reach it —
-`has_schema_privilege(anonymous_role, schema, 'USAGE') AND has_function_privilege(anonymous_role,
-function, 'EXECUTE')`. An anonymous request to a route the anonymous role can't reach is
-rejected with `401` before the request body is even read. Independently of that check, rel
-also warns (non-fatally) at introspection/reload for every route reachable by `PUBLIC` —
-Postgres grants `EXECUTE` to `PUBLIC` by default on `create function` unless default
-privileges were changed, a common footgun worth catching before it's a surprise in production.
+introspection/reload time, whether the anonymous role can actually reach it — schema `USAGE`
+plus an **explicit** `EXECUTE` grant, to the anonymous role itself or to a role it belongs to.
+An anonymous request to a route the anonymous role can't reach this way is rejected with `401`
+before the request body is even read.
+
+This check deliberately doesn't credit `EXECUTE` the moment it's merely inherited from a grant
+to `PUBLIC` — Postgres grants `EXECUTE` to `PUBLIC` by default on `create function` unless
+default privileges were changed, so crediting it here would silently authorize anonymous
+access to any route function nobody explicitly decided the anonymous role should reach. Grant
+`EXECUTE` on any route function you actually want the anonymous role to call, the same way you
+grant it any other role. Independently of this check, rel also warns (non-fatally) at
+introspection/reload for every route reachable by `PUBLIC` at all, regardless of caller — see
+[Best practices](../configuration/best-practices.md) for turning that default off entirely.
 
 ## Configuration reference
 

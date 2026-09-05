@@ -37,10 +37,13 @@ type Route struct {
 
 	// AnonymousAuthorized reports whether the anonymous role could reach
 	// this route at the time the registry was built (specs/route.md
-	// ## Anonymous route authorization). Meaningless when anonymous access
-	// is disabled (db.AnonymousRoleExists false) — callers must check that
-	// first. For an upload route (IsUpload), this is true only when BOTH
-	// halves are reachable (specs/http-content.md ### Upload destinations).
+	// ## Anonymous route authorization) via an EXPLICIT grant — a grant
+	// the function only carries because PUBLIC still holds Postgres's own
+	// CREATE FUNCTION default doesn't count. Meaningless when anonymous
+	// access is disabled (db.AnonymousRoleExists false) — callers must
+	// check that first. For an upload route (IsUpload), this is true only
+	// when BOTH halves are reachable (specs/http-content.md ### Upload
+	// destinations).
 	AnonymousAuthorized bool
 
 	// IsUpload is true for a specs/http-content.md ### Upload destinations
@@ -190,8 +193,9 @@ type anonPublicPriv struct {
 	publicOK bool
 }
 
-// applyAnonymousAuthorization sets each Route's AnonymousAuthorized and
-// warns for every PUBLIC-reachable route ; mutates reg.routes in place.
+// applyAnonymousAuthorization sets each Route's AnonymousAuthorized (an
+// explicit grant only — see AnonymousAuthorized's doc comment) and warns
+// for every PUBLIC-reachable route ; mutates reg.routes in place.
 func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, reg *Registry) error {
 	var oids []int
 	for _, byFunc := range reg.routes {
@@ -210,9 +214,30 @@ func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, reg *Regist
 
 	// has_*_privilege errors on a role absent from pg_roles, so the
 	// anon-role half is skipped (hardcoded) when AnonymousRoleExists is false.
+	//
+	// anon_ok deliberately does NOT use has_function_privilege for the
+	// EXECUTE half : that built-in credits a PUBLIC grant to every role,
+	// anonymous included, so it would authorize anonymous access to any
+	// function still sitting on Postgres's own CREATE FUNCTION default
+	// (EXECUTE to PUBLIC) even though no one ever explicitly decided the
+	// anonymous role should reach it. aclexplode walks the function's own
+	// ACL (or the implicit default ACL, via acldefault, when proacl is
+	// still NULL) and only counts a grantee that isn't PUBLIC (grantee 0),
+	// checked via pg_has_role so a grant to a group role the anonymous
+	// role belongs to still counts. See specs/route.md ## Anonymous route
+	// authorization.
 	query := `
 		select f.oid::integer as fn_oid,
-		       has_schema_privilege($1, f.pronamespace, 'USAGE') and has_function_privilege($1, f.oid, 'EXECUTE') as anon_ok,
+		       has_schema_privilege($1, f.pronamespace, 'USAGE')
+		         and exists (
+		           select 1
+		           from pg_roles r,
+		                aclexplode(coalesce(f.proacl, acldefault('f', f.proowner))) as a(grantor, grantee, privilege_type, is_grantable)
+		           where r.rolname = $1
+		             and a.privilege_type = 'EXECUTE'
+		             and a.grantee <> 0
+		             and pg_has_role(r.oid, a.grantee, 'USAGE')
+		         ) as anon_ok,
 		       has_schema_privilege('public', f.pronamespace, 'USAGE') and has_function_privilege('public', f.oid, 'EXECUTE') as public_ok
 		from pg_proc f
 		where f.oid = any($2::oid[])

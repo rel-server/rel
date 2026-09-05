@@ -8,3 +8,11 @@ fn_created_by_migration:
       create function fn_created_by_migration() returns "RelHttpResponse" language sql as $$
         select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'from migration');
       $$;
+    - |
+      -- route.applyAnonymousAuthorization requires an explicit grant, never
+      -- one credited only via PUBLIC's own CREATE FUNCTION default (specs/
+      -- route.md ## Anonymous route authorization). No parens on the
+      -- function name : dmut's auto-down parser for "grant ... on function"
+      -- expects a bare identifier, and Postgres accepts that unqualified
+      -- form when the name isn't overloaded.
+      grant execute on function fn_created_by_migration to "~anonymous";

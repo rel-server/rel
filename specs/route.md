@@ -133,26 +133,47 @@ active at once isn't served by any of these three settings.
 When anonymous access is enabled (`authentication.md ## Anonymous role existence`), rel
 caches — at introspection/reload time, once per discovered route function, never per
 request — whether the anonymous role can actually call it :
-`has_schema_privilege(anonymous_role, schema, 'USAGE') AND
-has_function_privilege(anonymous_role, function, 'EXECUTE')`, both conjuncts, matching
-exactly what Postgres itself checks at call time. An anonymous request to a route the
-anonymous role can't reach is rejected with `401`, before the request body is read and
-before a pool connection is acquired.
+`has_schema_privilege(anonymous_role, schema, 'USAGE')` AND an EXPLICIT `EXECUTE` grant on
+the function, to the anonymous role or to a role it's a member of. An anonymous request to a
+route the anonymous role can't reach this way is rejected with `401`, before the request body
+is read and before a pool connection is acquired.
 
 > Why both conjuncts : `USAGE` on the schema is required to even reach the function,
 > independent of `EXECUTE` on the function itself. Checking `EXECUTE` alone would go
 > optimistic on any schema that gates access via `USAGE`, letting the cache say "allowed"
 > for a request that dies at the real check anyway.
 
+The `EXECUTE` half deliberately does NOT use `has_function_privilege`, unlike the schema
+check : that built-in credits a `PUBLIC` grant to every role, anonymous included, which would
+make this check say "reachable" for any function still sitting on Postgres's own `CREATE
+FUNCTION` default (`### PUBLIC-reachable routes` below) regardless of whether the anonymous
+role was ever meant to reach it. Instead : walk the
+function's ACL via `aclexplode(coalesce(proacl, acldefault('f', proowner)))` (the `acldefault`
+fallback covers a function whose `proacl` is still `NULL`, i.e. never touched by an explicit
+`GRANT`/`REVOKE`), keep only rows whose `grantee` isn't `0` (aclexplode's marker for a `PUBLIC`
+grant) and whose `privilege_type` is `EXECUTE`, and check `pg_has_role(anonymous_role, grantee,
+'USAGE')` on what's left — a direct grant to the anonymous role, or a grant to a group role it
+belongs to, either counts ; a grant that exists only because nobody revoked the default does
+not.
+
+> Why: the anonymous role is the literal "no login at all" case — the cheapest, highest-volume
+> way to reach a route, and the one rel already claims to gate here. A `PUBLIC` grant nobody
+> meant to leave in place authorizing that gate silently is exactly the failure this check
+> exists to prevent, not an acceptable edge case of it.
+
 This check is scoped to the anonymous role only ; one cached boolean per route, nothing
 precomputed for any other role. Authenticated requests are not covered by this cache — the
-existing live check at `SET LOCAL ROLE` + invocation time applies to them as before.
+existing live check at `SET LOCAL ROLE` + invocation time applies to them as before, and DOES
+credit a `PUBLIC` grant the same way Postgres itself always has (`### PUBLIC-reachable routes`
+below is the only defense against that for an authenticated caller).
 
 > Why : unauthenticated requests are the cheap, high-volume attack surface, so a fail-fast
 > cache pays for itself there. A deployment where each user has their own Postgres role
 > ("1 user = 1 role") could have thousands to millions of distinct roles ; caching a full
 > function × role matrix at that scale is a real memory and introspection-time cost for a
 > case (authenticated abuse) this mechanism doesn't address.
+
+### PUBLIC-reachable routes
 
 Independent of the anonymous-role check, rel also warns — at introspection/reload — for
 every discovered route function reachable by `PUBLIC` :

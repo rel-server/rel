@@ -268,8 +268,9 @@ create function fn_dest_anon_prepare_only(req "RelHttpRequest", upload "RelUploa
 $$;
 revoke execute on function fn_dest_anon_prepare_only("RelHttpRequest", "RelUpload") from public;
 grant execute on function fn_dest_anon_prepare_only("RelHttpRequest", "RelUpload") to app_user;
--- fn_dest_anon_prepare_only__prepare keeps its default PUBLIC execute grant
--- (anon-reachable) ; only the mandatory half is restricted.
+-- fn_dest_anon_prepare_only__prepare is explicitly anon-granted below
+-- (the blanket grant at the end of this file) ; only the mandatory half
+-- is restricted.
 
 create function fn_dest_anon_mandatory_only__prepare(req "RelHttpRequest", part jsonb) returns "RelUpload" language sql as $$
   select jsonb_build_object('overwrite', 'allow');
@@ -279,8 +280,9 @@ create function fn_dest_anon_mandatory_only(req "RelHttpRequest", upload "RelUpl
 $$;
 revoke execute on function fn_dest_anon_mandatory_only__prepare("RelHttpRequest", jsonb) from public;
 grant execute on function fn_dest_anon_mandatory_only__prepare("RelHttpRequest", jsonb) to app_user;
--- fn_dest_anon_mandatory_only keeps its default PUBLIC execute grant
--- (anon-reachable) ; only the __prepare half is restricted.
+-- fn_dest_anon_mandatory_only is explicitly anon-granted below (the
+-- blanket grant at the end of this file) ; only the __prepare half is
+-- restricted.
 
 -- specs/rpc.md's ambiguous-route bug regression fixture :
 -- three overloads of fn_dupe sharing the same (schema, base, verb="") key
@@ -297,3 +299,14 @@ $$;
 create function fn_dupe(req "RelHttpRequest", files bytea[]) returns "RelHttpResponse" language sql as $$
   select jsonb_build_object('status', 200, 'content_type', 'text/plain', 'content', 'two-arg overload');
 $$;
+
+-- route.applyAnonymousAuthorization no longer credits a function's
+-- reachability to "~anonymous" via a PUBLIC-only grant (specs/route.md
+-- ## Anonymous route authorization) — every route these tests exercise
+-- anonymously needs an EXPLICIT grant now, same as a real deployment
+-- would give it. Grant broadly, then re-revoke from "~anonymous"
+-- specifically for the functions deliberately locked to app_user above.
+grant execute on all functions in schema public to "~anonymous";
+revoke execute on function fn_app_only() from "~anonymous";
+revoke execute on function fn_dest_anon_prepare_only("RelHttpRequest", "RelUpload") from "~anonymous";
+revoke execute on function fn_dest_anon_mandatory_only__prepare("RelHttpRequest", jsonb) from "~anonymous";

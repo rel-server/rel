@@ -60,3 +60,8 @@ begin
   );
 end;
 $$;
+
+-- Created after schema.sql's own blanket "~anonymous" grant, so it needs
+-- its own explicit grant the same way (route.applyAnonymousAuthorization
+-- no longer credits PUBLIC's default — see schema.sql's matching comment).
+grant execute on function fn_login_with_credentials("RelHttpRequest") to "~anonymous";
