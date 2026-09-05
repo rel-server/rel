@@ -70,3 +70,33 @@ image:
 upload: image
     docker push {{image_registry}}:{{version}}
     docker push {{image_registry}}:latest
+
+# --- Documentation (zensical, versioned with the Zensical fork of mike) ---
+
+docs_venv := ".venv-docs"
+
+# Create/refresh the docs tooling virtualenv (zensical + squidfunk/mike, the
+# Zensical-compatible fork — not published on PyPI, installed from GitHub)
+docs-install:
+    uv venv {{docs_venv}} 2>/dev/null || true
+    uv pip install --python {{docs_venv}}/bin/python zensical
+    uv pip install --python {{docs_venv}}/bin/python "git+https://github.com/squidfunk/mike.git"
+
+# Serve the docs locally with live reload at http://127.0.0.1:8000
+docs-serve: docs-install
+    {{docs_venv}}/bin/zensical serve
+
+# Build the static site into ./site
+docs-build: docs-install
+    {{docs_venv}}/bin/zensical build
+
+# Build and serve one version (e.g. "0.1" or "dev") locally through mike, the
+# way it will actually be served once deployed to gh-pages
+# (mike shells out to `zensical`, so the venv must be on PATH)
+docs-serve-version VERSION ALIAS="": docs-install
+    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike deploy {{VERSION}} {{ALIAS}}
+    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike serve
+
+# Deploy VERSION (aliased ALIAS, e.g. "latest") to the gh-pages branch and push it
+docs-deploy VERSION ALIAS="latest": docs-install
+    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike deploy --push --update-aliases {{VERSION}} {{ALIAS}}

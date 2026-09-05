@@ -1,3 +1,7 @@
 jwt-secret
 /rel
 /cmd/rel/rel
+
+# Docs (zensical/mike)
+/.venv-docs
+/site

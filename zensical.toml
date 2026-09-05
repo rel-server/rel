@@ -1,0 +1,100 @@
+[project]
+site_url = "https://ceymard.github.io/rel/"
+site_name = "Rel"
+site_description = "The Rel server documentation"
+repo_url = "https://github.com/ceymard/rel"
+repo_name = "ceymard/rel"
+edit_uri = "edit/main/docs/"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = "getting-started.md" },
+  { "The query language" = [
+      { "Overview" = "query-language/index.md" },
+      { "Database reference" = "query-language/database-reference.md" },
+      { "Shaping a query" = "query-language/shaping.md" },
+      { "Filtering" = "query-language/filtering.md" },
+      { "Selecting fields" = "query-language/selecting.md" },
+      { "Joining and embedding relations" = "query-language/joining.md" },
+      { "Calling functions" = "query-language/functions.md" },
+      { "Computed fields and aggregates" = "query-language/aggregates.md" },
+      { "Operators reference" = "query-language/operators.md" },
+      { "Ordering, distinctness, and pagination" = "query-language/ordering-pagination.md" },
+      { "Writing data back" = "query-language/writing.md" },
+      { "Batching queries" = "query-language/batching.md" },
+      { "Querying with GET" = "query-language/get-requests.md" },
+      { "Well-known queries" = "query-language/well-known-queries.md" },
+  ] },
+  { "HTTP routes" = "http-routes.md" },
+  { "TypeScript client" = "typescript-client.md" },
+  { "Configuration" = [
+      { "Configuration" = "configuration/index.md" },
+      { "Docker deployment" = "configuration/docker-deployment.md" },
+      { "Authentication" = "configuration/authentication.md" },
+      { "Operations" = "configuration/operations.md" },
+  ] },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.extra.version]
+provider = "mike"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.mark = {}
+pymdownx.snippets = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+tables = {}
+pymdownx.tabbed.alternate_style = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.tilde = {}

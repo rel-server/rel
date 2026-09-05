@@ -1,0 +1,46 @@
+name: Deploy docs
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: extractions/setup-just@v2
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Configure git identity for mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # Tags (vX.Y.Z) deploy a real, immutable version and move the
+      # "latest" alias + the site's default version to it.
+      - name: Deploy a tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          just docs-deploy "$VERSION" latest
+          PATH="$PWD/.venv-docs/bin:$PATH" .venv-docs/bin/mike set-default --push latest
+
+      # main deploys to a mutable "dev" version, no alias — never
+      # overwrites "latest".
+      - name: Deploy in-development docs
+        if: github.ref == 'refs/heads/main'
+        run: just docs-deploy dev ""
