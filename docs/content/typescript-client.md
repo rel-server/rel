@@ -1,5 +1,5 @@
 ---
-icon: simple/typescript
+icon: material/language-typescript
 ---
 
 # TypeScript client

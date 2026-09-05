@@ -1,5 +1,5 @@
 ---
-icon: lucide/list-tree
+icon: material/file-tree
 ---
 
 # Query shape reference

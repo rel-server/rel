@@ -1,5 +1,5 @@
 ---
-icon: lucide/activity
+icon: material/pulse
 ---
 
 # Operations

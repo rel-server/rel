@@ -1,5 +1,5 @@
 ---
-icon: simple/docker
+icon: material/docker
 ---
 
 # Docker deployment

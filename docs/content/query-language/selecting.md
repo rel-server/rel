@@ -1,5 +1,5 @@
 ---
-icon: lucide/mouse-pointer-click
+icon: material/cursor-default-click
 ---
 
 # Selecting fields

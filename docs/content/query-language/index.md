@@ -1,5 +1,5 @@
 ---
-icon: lucide/compass
+icon: material/compass
 ---
 
 # The query language

@@ -1,5 +1,5 @@
 ---
-icon: lucide/git-merge
+icon: material/source-merge
 ---
 
 # Joining and embedding relations

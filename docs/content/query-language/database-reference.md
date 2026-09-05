@@ -1,5 +1,5 @@
 ---
-icon: lucide/database
+icon: material/database
 ---
 
 # Database reference

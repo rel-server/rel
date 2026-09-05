@@ -1,5 +1,5 @@
 ---
-icon: lucide/filter
+icon: material/filter
 ---
 
 # Filtering with `where`

@@ -1,5 +1,5 @@
 ---
-icon: lucide/arrow-up-down
+icon: material/arrow-up-down
 ---
 
 # Ordering, distinctness, and pagination

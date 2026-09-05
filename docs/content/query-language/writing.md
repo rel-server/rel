@@ -1,5 +1,5 @@
 ---
-icon: lucide/pencil
+icon: material/pencil
 ---
 
 # Writing data back

@@ -1,5 +1,5 @@
 ---
-icon: lucide/package
+icon: material/package-variant
 ---
 
 # Batching queries in one request

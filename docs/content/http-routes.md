@@ -1,5 +1,5 @@
 ---
-icon: lucide/route
+icon: material/routes
 ---
 
 # HTTP routes

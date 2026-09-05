@@ -1,5 +1,5 @@
 ---
-icon: lucide/bookmark
+icon: material/bookmark
 ---
 
 # Well-known queries

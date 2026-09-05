@@ -1,5 +1,5 @@
 ---
-icon: lucide/settings
+icon: material/cog
 ---
 
 # Configuration

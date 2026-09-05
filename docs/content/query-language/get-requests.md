@@ -1,5 +1,5 @@
 ---
-icon: lucide/link-2
+icon: material/link-variant
 ---
 
 # Querying with `GET`

@@ -1,5 +1,5 @@
 ---
-icon: lucide/layers
+icon: material/layers
 ---
 
 # Computed fields and aggregates
