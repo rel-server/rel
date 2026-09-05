@@ -5,3 +5,6 @@ jwt-secret
 # Docs (zensical/mike)
 /.venv-docs
 /site
+
+# GoReleaser local build output
+/dist

@@ -1,0 +1,65 @@
+version: 2
+
+project_name: rel
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: rel
+    main: ./cmd/rel
+    binary: rel
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - id: rel
+    ids: [rel]
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+dockers_v2:
+  - id: rel
+    ids: [rel]
+    dockerfile: Dockerfile.goreleaser
+    images:
+      - ceymard/rel
+    tags:
+      - "{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    build_args:
+      VERSION: "{{ .Version }}"
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.source: "https://github.com/ceymard/rel"
+
+release:
+  github:
+    owner: ceymard
+    name: rel

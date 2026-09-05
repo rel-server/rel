@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+#
+# Used by GoReleaser only (.goreleaser.yaml's `dockers:` section) — the
+# `rel` binary is already cross-compiled and handed to us as build context,
+# so this only assembles the runtime image around it. Mirrors ./Dockerfile's
+# own scratch stage by hand (volumes, non-root uid, pre-created
+# /secrets/jwt) ; keep the two in sync when one changes.
+
+FROM alpine:3 AS prep
+RUN apk add --no-cache ca-certificates && \
+    mkdir -p /vol/static /vol/template /vol/dmut /vol/wellknown /vol/secrets/jwt && \
+    chown -R 1000:1000 /vol
+
+FROM scratch
+
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="rel" \
+    org.opencontainers.image.version="${VERSION}" \
+    org.opencontainers.image.source="https://github.com/ceymard/rel"
+
+# GoReleaser's dockers_v2 lays the platform-specific binary out under
+# <os>/<arch>/rel in the build context (one Dockerfile, many platforms) ;
+# buildx auto-populates TARGETOS/TARGETARCH per platform for exactly this.
+ARG TARGETOS
+ARG TARGETARCH
+
+COPY --from=prep /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY ${TARGETOS}/${TARGETARCH}/rel /rel
+COPY --chown=1000:1000 --from=prep /vol/static /static
+COPY --chown=1000:1000 --from=prep /vol/template /template
+COPY --chown=1000:1000 --from=prep /vol/dmut /dmut
+COPY --chown=1000:1000 --from=prep /vol/wellknown /wellknown
+COPY --chown=1000:1000 --from=prep /vol/secrets /secrets
+
+VOLUME ["/static"]
+VOLUME ["/template"]
+VOLUME ["/dmut"]
+VOLUME ["/wellknown"]
+VOLUME ["/secrets"]
+
+EXPOSE 8080
+
+USER 1000:1000
+
+ENTRYPOINT ["/rel"]
