@@ -40,6 +40,7 @@ nav = [
   { "Typescript" = "typescript-client.md" },
   { "Configuration" = [
       { "Configuration" = "configuration/index.md" },
+      { "Best practices" = "configuration/best-practices.md" },
       { "Docker deployment" = "configuration/docker-deployment.md" },
       { "Operations" = "configuration/operations.md" },
   ] },

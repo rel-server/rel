@@ -52,6 +52,7 @@ a single page. "Source" is what to draw the content from; the page itself never 
 | The query language | Well-known queries | `well-known-queries.md`, `query-json.md ## Well-known queries on GET /rel` |
 | TypeScript client | — | `typescript.md` |
 | Configuration | Configuration | `configuration.md` |
+| Configuration | Best practices | `query-engine.md ## Scoping` (role separation, blacklist), `http-content.md ## CSP` (nonce/CORS), the docker deployment page (packaging) — a synthesis page, not a section-by-section port |
 | Configuration | Authentication | `authentication.md`, `oauth-saml.md` |
 | Configuration | HTTP routes | `route.md`, `http-content.md` |
 | Configuration | Rendering HTML with templates | `http-content.md ## Templates` |

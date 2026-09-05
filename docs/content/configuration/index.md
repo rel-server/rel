@@ -35,6 +35,9 @@ Mix and match freely — the common pattern is a config file for anything that d
 between environments, environment variables for anything that does (secrets, connection
 strings), and flags for one-off overrides.
 
+See [Best practices](best-practices.md) for a hardening checklist once you're past a first
+local run and setting these for a real deployment.
+
 ## Config file discovery
 
 Point rel at a file explicitly with `--config <path>` (or `REL_CONFIG=<path>`); an unreadable
