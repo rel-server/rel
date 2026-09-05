@@ -24,7 +24,7 @@ Spec language MUST be specification-only : no musing, rationale, or back-and-for
 
 Blockquote types :
 
-- `> Why:` — rationale/justification for the rule immediately above it.
+- `> Why:` — rationale/justification for the rule immediately above it, only for rules that appear intentional or non-trivial that clearly raise eyebrows.
 - `> Question:` — a lingering question you need answered. Remove it once answered (in the text, or during conversation) ; amend it in place if the answer isn't sufficient yet.
 - `> Thoughts:` — your own scratch reasoning. The redactor deletes these by default ; delete one yourself only once it's gone obsolete (superseded, or its question already resolved elsewhere).
 - `> Advise:` — an explicit question from the redactor to you, however they label it (`Advise`, or whatever they happen to reach for in the moment — treat any clearly question-directed custom blockquote the same way). When you reply, delete the block itself, leaving the updated spec text in its place, plus any `> Thoughts:`/`> Question:` you want to leave behind.
