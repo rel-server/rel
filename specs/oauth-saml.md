@@ -56,17 +56,6 @@ A request to any `{name}` not present in configuration is a plain `404`.
   a bare host (`app.example.com`), never a full URL — no scheme, port, or path. rel always
   builds `https://<host>/...` from it for OIDC's `redirect_uri` and SAML's metadata/ACS
   URLs.
-  > Why a bare host, not a full URL : a full URL invites the misconfigurations a domain
-  > can't have — a stray trailing slash, an accidental path segment, `http://` typo'd for
-  > `https://`. The scheme specifically isn't a real choice here : the JWT cookie this
-  > whole system mints is already `Secure`-only (`authentication.md`), so rel is already
-  > assumed to be reached over HTTPS in any real deployment — via a TLS-terminating
-  > reverse proxy/ingress in front of it, the same relationship `http.host`/`http.port`
-  > (rel's own, internal bind address) already has to the outside world. rel has no native
-  > HTTPS/TLS termination of its own ; that's a distinct, unbuilt feature; a real
-  > certificate for a real public domain needs ACME-style issuance (port 80/443 ownership,
-  > a domain challenge, ongoing renewal), which is orthogonal to OIDC/SAML specifically and
-  > out of scope here.
 * `openid.<name>.public_host` / `saml.<name>.public_host` (default empty, meaning "use
   `http.public_host`") — per-entry override of `http.public_host`, for a deployment
   reachable at more than one domain. Each named entry still answers to exactly one host —
