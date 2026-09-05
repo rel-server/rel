@@ -72,8 +72,12 @@ upload: image
     docker push {{image_registry}}:latest
 
 # --- Documentation (zensical, versioned with the Zensical fork of mike) ---
+# The whole doc site — config, content, template overrides — lives under
+# ./docs ; docs/zensical.toml is the project root `-f`/`-F` points at, never
+# the repo root itself.
 
 docs_venv := ".venv-docs"
+docs_config := "docs/zensical.toml"
 
 # Create/refresh the docs tooling virtualenv (zensical + squidfunk/mike, the
 # Zensical-compatible fork — not published on PyPI, installed from GitHub)
@@ -84,19 +88,19 @@ docs-install:
 
 # Serve the docs locally with live reload at http://127.0.0.1:8000
 docs-serve: docs-install
-    {{docs_venv}}/bin/zensical serve
+    {{docs_venv}}/bin/zensical serve -f {{docs_config}}
 
-# Build the static site into ./site
+# Build the static site into docs/site
 docs-build: docs-install
-    {{docs_venv}}/bin/zensical build
+    {{docs_venv}}/bin/zensical build -f {{docs_config}}
 
 # Build and serve one version (e.g. "0.1" or "dev") locally through mike, the
 # way it will actually be served once deployed to gh-pages
 # (mike shells out to `zensical`, so the venv must be on PATH)
 docs-serve-version VERSION ALIAS="": docs-install
-    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike deploy {{VERSION}} {{ALIAS}}
-    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike serve
+    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike deploy -F {{docs_config}} {{VERSION}} {{ALIAS}}
+    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike serve -F {{docs_config}}
 
 # Deploy VERSION (aliased ALIAS, e.g. "latest") to the gh-pages branch and push it
 docs-deploy VERSION ALIAS="latest": docs-install
-    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike deploy --push --update-aliases {{VERSION}} {{ALIAS}}
+    PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike deploy -F {{docs_config}} --push --update-aliases {{VERSION}} {{ALIAS}}

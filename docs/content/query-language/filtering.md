@@ -1,3 +1,7 @@
+---
+icon: lucide/filter
+---
+
 # Filtering with `where`
 
 `where` takes an expression that must evaluate to a boolean. Comparisons, boolean logic, and

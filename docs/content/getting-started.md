@@ -1,3 +1,7 @@
+---
+icon: lucide/rocket
+---
+
 # Getting started
 
 This walks through running rel against a real schema, then making a read and a write request.

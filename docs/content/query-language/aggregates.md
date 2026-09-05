@@ -1,3 +1,7 @@
+---
+icon: lucide/layers
+---
+
 # Computed fields and aggregates
 
 `call` invokes an allowed function directly as part of an expression:

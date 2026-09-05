@@ -1,3 +1,7 @@
+---
+icon: simple/docker
+---
+
 # Docker deployment
 
 rel ships as a small, non-root, scratch-based image (`ceymard/rel`), listening on `8080` and

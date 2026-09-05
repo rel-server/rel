@@ -1,3 +1,7 @@
+---
+icon: lucide/arrow-up-down
+---
+
 # Ordering, distinctness, and pagination
 
 ```json

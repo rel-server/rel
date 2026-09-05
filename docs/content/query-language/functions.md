@@ -1,3 +1,7 @@
+---
+icon: material/function
+---
+
 # Calling functions
 
 A query can root on a function instead of a table, or join into one — `hotel.rooms_available`

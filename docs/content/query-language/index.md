@@ -1,3 +1,7 @@
+---
+icon: lucide/compass
+---
+
 # The query language
 
 A query is one JSON object, sent as `POST /rel`. Every page in this section covers one part of

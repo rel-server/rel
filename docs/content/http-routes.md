@@ -1,3 +1,7 @@
+---
+icon: lucide/route
+---
+
 # HTTP routes
 
 `/rel` answers one shape: a query tree, read or written back. Anything that doesn't fit that

@@ -1,3 +1,7 @@
+---
+icon: lucide/git-merge
+---
+
 # Joining and embedding relations
 
 `join` adds a related relation under an alias, using `on` to say how it connects — the on

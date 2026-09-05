@@ -37,7 +37,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           just docs-deploy "$VERSION" latest
-          PATH="$PWD/.venv-docs/bin:$PATH" .venv-docs/bin/mike set-default --push latest
+          PATH="$PWD/.venv-docs/bin:$PATH" .venv-docs/bin/mike set-default -F docs/zensical.toml --push latest
 
       # main deploys to a mutable "dev" version, no alias — never
       # overwrites "latest".

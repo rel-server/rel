@@ -1,3 +1,7 @@
+---
+icon: lucide/database
+---
+
 # Database reference
 
 Every example in this section queries the same schema: a small hotel-booking database, deep

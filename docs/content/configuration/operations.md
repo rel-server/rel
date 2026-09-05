@@ -1,3 +1,7 @@
+---
+icon: lucide/activity
+---
+
 # Operations
 
 This covers what changes once rel is running somewhere real: how to read its logs, what an

@@ -1,3 +1,7 @@
+---
+icon: lucide/mouse-pointer-click
+---
+
 # Selecting fields
 
 `select` shapes the response. Left unset, it defaults to `["full"]` — every column of the

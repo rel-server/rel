@@ -1,3 +1,7 @@
+---
+icon: lucide/pencil
+---
+
 # Writing data back
 
 Send `{"query": <Relation>, "data": <payload>}` instead of a bare `Relation` to write. `data`

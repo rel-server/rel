@@ -1,3 +1,7 @@
+---
+icon: lucide/link-2
+---
+
 # Querying with `GET`
 
 Every query on the preceding pages was a JSON body on `POST /rel`. The same read-only queries

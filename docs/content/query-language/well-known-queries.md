@@ -1,3 +1,7 @@
+---
+icon: lucide/bookmark
+---
+
 # Well-known queries
 
 A well-known query is a named, parameterized query saved to disk and registered under its own

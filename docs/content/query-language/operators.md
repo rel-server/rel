@@ -1,3 +1,7 @@
+---
+icon: material/math-integral
+---
+
 # Operators reference
 
 Every operator below is written the same way: a tag as the first array element, followed by

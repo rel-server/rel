@@ -1,7 +1,12 @@
 # Documentation site
 
-The documentation site is rel's user-facing reference, published from `docs/` with Zensical
-and versioned with the Zensical-compatible fork of `mike`, to GitHub Pages.
+The documentation site is rel's user-facing reference, built with Zensical and versioned with
+the Zensical-compatible fork of `mike`, published to GitHub Pages. Everything it needs —
+`docs/zensical.toml`, its markdown source under `docs/content/`, and its template overrides
+under `docs/overrides/` — lives under `docs/`, so nothing it produces (`docs/site/`, the
+`.venv-docs/` tool environment) ends up published as site content itself; every `zensical`/
+`mike` invocation points `-f`/`-F` at `docs/zensical.toml` explicitly rather than assuming it
+sits in the working directory.
 
 ## Scope and lifecycle
 
@@ -15,7 +20,7 @@ and versioned with the Zensical-compatible fork of `mike`, to GitHub Pages.
 
 ## Landing page
 
-`docs/index.md` opens with rel's core mechanic — a query's result shape is also its write
+`docs/content/index.md` opens with rel's core mechanic — a query's result shape is also its write
 shape — then covers nested writes into not-yet-existing parents, atomic multi-query batches,
 Postgres-native access control (roles + RLS, no separate authorization DSL), constant-memory
 streamed responses, built-in username/password + OIDC + SAML authentication, and the generated
@@ -30,7 +35,7 @@ a single page. "Source" is what to draw the content from; the page itself never 
 
 | Tab | Page(s) | Source spec(s) |
 |---|---|---|
-| — | Home (`index.md`) | — (landing page, see `## Landing page`) |
+| — | Home (`content/index.md`) | — (landing page, see `## Landing page`) |
 | — | Getting started | `configuration.md` (minimal config), `migrations.md` (boot), `query-engine.md` (first query) — a walkthrough, not a section-by-section port |
 | The query language | Overview, Database reference | `test/dmut` (the hotel-booking dev fixture schema itself, not a spec) |
 | The query language | Shaping a query | `query-engine.md ## Scoping` |

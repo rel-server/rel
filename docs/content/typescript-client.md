@@ -1,3 +1,7 @@
+---
+icon: simple/typescript
+---
+
 # TypeScript client
 
 `GET /rel/database.ts` serves a single, self-sufficient TypeScript file, generated fresh from

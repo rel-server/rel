@@ -1,3 +1,7 @@
+---
+icon: material/home
+---
+
 # Rel
 
 A Postgres-native API server. You send it a query shaped like the data you want; it reads

@@ -1,3 +1,7 @@
+---
+icon: lucide/shield-check
+---
+
 # Authentication
 
 A session is a signed JWT, sitting in a `secure`, `httponly` cookie. Its only field rel

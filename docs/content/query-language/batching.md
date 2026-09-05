@@ -1,3 +1,7 @@
+---
+icon: lucide/package
+---
+
 # Batching queries in one request
 
 The request body can be a single query or an array of them — different shapes, different

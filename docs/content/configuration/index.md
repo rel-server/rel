@@ -1,3 +1,7 @@
+---
+icon: lucide/settings
+---
+
 # Configuration
 
 Every setting has a dotted name — `jwt.max_age`, `http.cors.allowed_origins` — and can come

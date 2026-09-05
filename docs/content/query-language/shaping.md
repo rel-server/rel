@@ -1,3 +1,7 @@
+---
+icon: material/shape-outline
+---
+
 # Shaping a query
 
 Every query names exactly one root — a table/view (`relation`) or a function (`function`),

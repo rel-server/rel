@@ -1,3 +1,7 @@
+---
+icon: lucide/list-tree
+---
+
 # Query shape reference
 
 Every other page in this section teaches one piece of the query language by example. This page
