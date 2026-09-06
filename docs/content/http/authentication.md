@@ -19,10 +19,12 @@ database, or anonymous access is disabled outright and every unauthenticated req
 ## Minting a session
 
 Any function called through [`/route`](index.md) can start a session by setting a `jwt`
-field on its response:
+field on its response. Like any other route, it takes a single `RelHttpRequest` argument (see
+[Requests and responses](requests-responses.md)) — there's no separate, credentials-shaped
+signature for a login function:
 
 ```sql
-create function auth.login(username text, password text) returns "RelHttpResponse"
+create function auth.login(req "RelHttpRequest") returns "RelHttpResponse"
 language plpgsql
 security definer
 as $$
@@ -30,8 +32,8 @@ declare
   matched_role text;
 begin
   select role into matched_role from auth.users
-  where auth.users.username = login.username
-    and auth.users.password_hash = crypt(login.password, auth.users.password_hash);
+  where auth.users.username = (req->'body')->>'username'
+    and auth.users.password_hash = crypt((req->'body')->>'password', auth.users.password_hash);
 
   if matched_role is null then
     raise exception 'Invalid credentials' using errcode = 'RS401';
@@ -41,6 +43,9 @@ begin
 end;
 $$;
 ```
+
+Called as `POST /route/auth/login` with `{"username": "...", "password": "..."}` as the JSON
+body.
 
 rel fills in `iat`, `exp`, and `auth_time` itself — a function can only set `role` and any
 custom claims it wants to carry alongside it. Setting `jwt: null` on a response clears the

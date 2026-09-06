@@ -136,6 +136,32 @@ A `Content-Security-Policy` header is sent on every response by default, EXCEPT 
 
 ### Nonce
 
+**Scope : `/route` and `/auth` only, never `/rel` or `/static`.** `websec.Middleware` sets the
+base CSP header (no nonce) uniformly across every path ; `websec.NonceMiddleware`, mounted only
+around `/route/*` and the SSO mount (`boot.BuildMux`'s `chi.Group`, since `sso.Mount`'s own
+route patterns are already absolute and can't be nested under a path-prefixed sub-router),
+generates the nonce and overwrites that header again with it appended. `/rel` only ever answers
+JSON and `/static` serves files as-is with no per-request templating to inject a nonce into —
+neither can ever consume one, so neither gets `NonceMiddleware` in its chain, and neither pays
+for the `crypto/rand` read. `docs/content/http/cors-csp.md ## CSP ### Nonce` covers the
+user-facing version of this rule.
+
+> Why `/auth` needs it too : `sso/claims.go`'s `invokeCallback` (the SSO callback function's
+> response) goes through the exact same `route.WriteRelHttpResponse`/Jet-template path a
+> `/route` function's response does, so a callback rendering an HTML landing page (a common
+> OIDC/SAML popup-flow pattern — a small page that closes itself or `postMessage`s back to the
+> opener) needs the nonce exactly the way a `/route` template does. The callback function itself
+> never reads the nonce directly, though — it only ever receives `claims jsonb`, never
+> `RelHttpRequest` (`oauth-saml.md ## Callback function`), so `{{ Nonce }}` inside its own Jet
+> template is the only path it has to it ; the value still has to exist in context for that
+> template render to work.
+
+`InjectNonce` treats an EMPTY nonce as "no nonce facility active," not a degenerate nonce value
+to inject — directives pass through completely untouched rather than gaining a hollow
+`'nonce-'` token. This is what lets `websec.Middleware`'s own baseline call
+(`Policy(cfg.Http.Csp, "", "")`) produce a genuinely nonce-less policy for `/rel`/`/static`,
+rather than a fake one.
+
 **Synthesis when the directive is absent.** Under the default config (`default-src 'self'` only, no explicit `script-src`/`style-src`), rel synthesizes `script-src`/`style-src` as a copy of the effective `default-src` value plus the nonce (`script-src 'self' 'nonce-<value>'`) before appending, WHENEVER `default-src` itself is present to synthesize from — never as the nonce alone.
 
 > Why: CSP's fallback rule (an unset directive inherits `default-src`) stops applying the instant `script-src` exists at all. Injecting a bare `script-src 'nonce-x'` with no `default-src` copied in would silently block same-origin file scripts a `'self'` `default-src` was otherwise allowing.

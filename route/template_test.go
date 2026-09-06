@@ -23,7 +23,7 @@ func newTemplateTestHandler(t *testing.T, templateBody string) (http.Handler, st
 	cfg.Http.Templates.Path = dir
 	mux := http.NewServeMux()
 	mux.Handle("/route/", NewHandler(testDb, &cfg, testReg, nil))
-	return websec.Middleware(&cfg)(mux), dir
+	return websec.Middleware(&cfg)(websec.NonceMiddleware(&cfg)(mux)), dir
 }
 
 // TestTemplate_RendersDataReqNonce proves all three VarMap variables

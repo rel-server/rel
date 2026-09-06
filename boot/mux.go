@@ -35,18 +35,21 @@ import (
 // at least one http.static.path directory exists) /static/ — wrapped
 // uniformly in logging.RequestMiddleware (specs/logging.md ## Request-
 // scoped logging) and websec.Middleware (specs/http-content.md's "CORS and
-// CSP apply to /rel, /route, AND /static uniformly"). A well-known query is
-// invoked through /rel, not a separate route ; wkReg is handed to
-// server.NewRelHandler directly. Both cmd/rel/main.go (startup) and
-// boot/reload.go's Reload (every SIGUSR1) call this with a freshly built
-// *route.Registry and *wellknown.Registry — registry-building itself stays
-// each call site's own responsibility.
+// CSP apply to /rel, /route, AND /static uniformly"). /route and /auth
+// (the SSO mount) additionally sit behind websec.NonceMiddleware, scoped
+// via a chi.Group rather than a path-prefixed sub-router since sso.Mount's
+// own route patterns are already absolute (docs/content/http/cors-csp.md
+// ## CSP ### Nonce explains why /rel and /static don't get one). A
+// well-known query is invoked through /rel, not a separate route ; wkReg
+// is handed to server.NewRelHandler directly. Both cmd/rel/main.go
+// (startup) and boot/reload.go's Reload (every SIGUSR1) call this with a
+// freshly built *route.Registry and *wellknown.Registry —
+// registry-building itself stays each call site's own responsibility.
 func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) (http.Handler, error) {
 	staticSrv := static.New(cfg.Http)
 
 	mux := chi.NewRouter()
 	mux.Handle("/rel", server.NewRelHandler(db, cfg, wkReg))
-	mux.Handle("/route/*", route.NewHandler(db, cfg, reg, staticSrv))
 	// specs/typescript.md ## Configuration : gated by http.typescript.enable,
 	// not mounted at all otherwise (no 404 handler needed for the disabled case).
 	if cfg.Http.TypeScript.Enable {
@@ -58,12 +61,18 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 		logger.Debug("boot: no http.static.path directory found, /static/ is not mounted")
 	}
 
-	// specs/oauth-saml.md : /auth/oidc/* and /auth/saml/* — a no-op when
-	// neither openid.* nor saml.* has any entry configured. Mount resolves
-	// each entry's own host (http.public_host or its own public_host
-	// override) and logs/skips individually, rather than an all-or-nothing
-	// gate here.
-	sso.Mount(mux, db, cfg)
+	mux.Group(func(r chi.Router) {
+		r.Use(websec.NonceMiddleware(cfg))
+
+		r.Handle("/route/*", route.NewHandler(db, cfg, reg, staticSrv))
+
+		// specs/oauth-saml.md : /auth/oidc/* and /auth/saml/* — a no-op when
+		// neither openid.* nor saml.* has any entry configured. Mount resolves
+		// each entry's own host (http.public_host or its own public_host
+		// override) and logs/skips individually, rather than an all-or-nothing
+		// gate here.
+		sso.Mount(r, db, cfg)
+	})
 
 	return logging.RequestMiddleware(websec.Middleware(cfg)(mux)), nil
 }

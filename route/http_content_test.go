@@ -11,8 +11,9 @@ import (
 	"github.com/ceymard/rel/websec"
 )
 
-// wrapWithWebsec builds boot.BuildMux's same chain (websec.Middleware
-// around a mux) since CORS/CSP only engage at that outer layer.
+// wrapWithWebsec builds boot.BuildMux's same chain for /route : websec.Middleware
+// (CORS/CSP baseline) around websec.NonceMiddleware (CSP nonce, /route-scoped
+// in production via a chi.Group — see boot.BuildMux) around the mux.
 func wrapWithWebsec(t *testing.T, mutate func(cfg *config.Config)) http.Handler {
 	t.Helper()
 	cfg := *testCfg
@@ -21,7 +22,7 @@ func wrapWithWebsec(t *testing.T, mutate func(cfg *config.Config)) http.Handler 
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/route/", NewHandler(testDb, &cfg, testReg, nil))
-	return websec.Middleware(&cfg)(mux)
+	return websec.Middleware(&cfg)(websec.NonceMiddleware(&cfg)(mux))
 }
 
 func decodeJSON(raw []byte, v any) error {

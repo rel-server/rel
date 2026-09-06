@@ -53,9 +53,30 @@ http.csp.img_src = "'self' data:"
 
 ### Nonce
 
-Every request gets a fresh nonce (`req.csp_nonce`), automatically appended to that response's
-`script-src`/`style-src`, for trusted inline `<script>`/`<style>` blocks without loosening the
-policy for everything else.
+Every `/route` request — and every SSO callback (`/auth/oidc/{name}/callback`,
+`/auth/saml/{name}/acs`; see [Authentication](authentication.md)) — gets a fresh, random nonce,
+automatically appended to that response's `script-src`/`style-src` as `'nonce-<value>'`: for
+trusted inline `<script>`/`<style>` blocks without loosening the policy for everything else. To
+use it, put the exact same value in that tag's own `nonce` attribute:
+`<script nonce="<value>">...</script>`. A `<script>`/`<style>` tag without a matching `nonce`
+(and without `'unsafe-inline'` explicitly configured) simply doesn't run, browser-enforced.
+
+A `/route` function reaches the value two ways, both equally valid: `req.csp_nonce` on the
+`RelHttpRequest` it received (see [Requests and responses](requests-responses.md)) — usable in
+any hand-built HTML the route returns itself, no template involved — or `{{ Nonce }}` inside a
+Jet template (see [Rendering HTML with templates](templates.md) for the full mechanics and
+worked examples, including why dynamic data belongs in a JSON island rather than a direct
+interpolation). Either way it's the same nonce, so a value copied out of `req.csp_nonce` and one
+read from `{{ Nonce }}` always agree. An SSO callback function only has the template path: it
+never receives a `RelHttpRequest` argument at all (just the verified claims, as `jsonb`), so
+`{{ Nonce }}` inside a template its response points at is the only way it ever touches the
+nonce — the callback function doesn't need to read the value itself for this to work, since the
+template renderer resolves it from the request automatically.
+
+`/rel` and `/static` never get a nonce at all — not merely one that goes unused. `/rel` always
+answers JSON, never HTML, and `/static` serves files as-is with no per-request templating to
+inject a nonce into, so neither can ever have a use for one; their `Content-Security-Policy`
+header carries the configured policy with no nonce token appended.
 
 ### Per-response override
 

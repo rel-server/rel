@@ -98,8 +98,15 @@ func SerializePolicy(directives []Directive) string {
 // directive is otherwise present — never a bare "script-src 'nonce-x'" on
 // its own, which would silently narrow CSP's own default-src fallback.
 // Directives are matched by whole-token NAME (script-src-elem/
-// script-src-attr are distinct directives, never touched by this).
+// script-src-attr are distinct directives, never touched by this). An
+// empty nonce is not a degenerate nonce value to inject — it means "no
+// nonce facility active for this response" (## CSP ### Nonce's /rel and
+// /static case, which never reach a NonceMiddleware), so directives pass
+// through completely untouched rather than gaining a hollow "'nonce-'".
 func InjectNonce(directives []Directive, nonce string) []Directive {
+	if nonce == "" {
+		return directives
+	}
 	nonceToken := "'nonce-" + nonce + "'"
 	defaultSrc, haveDefault := "", false
 	for _, d := range directives {
