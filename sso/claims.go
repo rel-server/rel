@@ -1,7 +1,7 @@
 // Package sso implements specs/oauth-saml.md : the /auth/oidc/{name}/*
 // and /auth/saml/{name}/* endpoints. This file is the part both protocols
-// converge on — ## Claims shape's SsoClaims JSON, ## Callback function's
-// invocation, and writing the RelHttpResponse it returns.
+// converge on — ## Callback function's payload shape and invocation, and
+// writing the RelHttpResponse it returns.
 package sso
 
 import (
@@ -11,6 +11,7 @@ import (
 	"github.com/ceymard/rel/config"
 	"github.com/ceymard/rel/dbauth"
 	"github.com/ceymard/rel/errcode"
+	jwtpkg "github.com/ceymard/rel/jwt"
 	"github.com/ceymard/rel/logging"
 	"github.com/ceymard/rel/pg"
 	"github.com/ceymard/rel/pgerr"
@@ -19,14 +20,42 @@ import (
 
 var log = logging.For("sso")
 
-// ssoClaims is specs/oauth-saml.md ## Claims shape's SsoClaims, passed as
-// the callback function's own jsonb argument verbatim.
-type ssoClaims struct {
+// ssoIdentity is specs/oauth-saml.md ## Callback payload shape's per-protocol
+// answer — what the SSO round trip itself actually verified — nested
+// under the callback payload's "identity" key, never flattened into it
+// directly : keeping "claims" meaning exactly one thing (the protocol-
+// supplied identity claims) regardless of nesting depth is worth the
+// extra level, rather than a payload.claims.claims stutter.
+type ssoIdentity struct {
 	Protocol     string         `json:"protocol"`
 	Name         string         `json:"name"`
 	Claims       map[string]any `json:"claims"`
 	AccessToken  string         `json:"access_token,omitempty"`
 	RefreshToken string         `json:"refresh_token,omitempty"`
+}
+
+// ssoCallbackPayload is the jsonb argument handed to the configured
+// callback function, docs/content/http/authentication.md ## OpenID
+// Connect and SAML's SsoCallback shape :
+//
+//   - Jwt is the browser's OWN current session, read directly off the
+//     callback request the same way jwt.VerifyRequest reads any other
+//     request's — NEVER threaded through the IdP (that would leak a live
+//     session credential to a third party). nil (encodes as JSON null)
+//     for no session, which is the expected case for SAML's callback
+//     under rel's default jwt.same_site=Lax : that cookie isn't sent on a
+//     cross-site POST, which /acs always is, so a callback function can't
+//     assume Jwt reflects reality there unless the deployment has set
+//     jwt.same_site=None.
+//   - Identity is what the SSO round trip verified — see ssoIdentity.
+//   - State is whatever /login's own query string decoded to (see
+//     state.go) — attacker-influenceable and IdP-visible, same trust
+//     level as any other query string ; never something rel itself
+//     trusts or acts on.
+type ssoCallbackPayload struct {
+	Jwt      jwtpkg.Claims `json:"jwt"`
+	Identity ssoIdentity   `json:"identity"`
+	State    any           `json:"state"`
 }
 
 // resolveCallbackFunction is ## Callback function's fallback rule :
@@ -38,23 +67,26 @@ func resolveCallbackFunction(perEntry string, cfg *config.Config) string {
 	return cfg.Http.Functions.SsoCallback
 }
 
-// invokeCallback calls the resolved function with claims, writing the
-// resulting RelHttpResponse (mint/cookies/headers, exactly like an
-// ordinary /route function's own response — WriteRelHttpResponse is
-// route's shared implementation, see route/encode.go's own doc comment on
-// why it no longer needs a discovered Route to do this). No function
-// configured at all is a 500, per ## Callback function's own "always 500s
-// until a function is configured".
-func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, db *pg.DbInfos, templates *route.TemplateSet, functionName string, claims ssoClaims) {
+// invokeCallback calls the resolved function with the assembled
+// ssoCallbackPayload (Jwt filled in here, from r itself — callers only
+// ever supply identity/state), writing the resulting RelHttpResponse
+// (mint/cookies/headers, exactly like an ordinary /route function's own
+// response — WriteRelHttpResponse is route's shared implementation, see
+// route/encode.go's own doc comment on why it no longer needs a
+// discovered Route to do this). No function configured at all is a 500,
+// per ## Callback function's own "always 500s until a function is
+// configured".
+func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, db *pg.DbInfos, templates *route.TemplateSet, functionName string, identity ssoIdentity, state any) {
 	if functionName == "" {
-		log.Error("sso: no callback function configured for this endpoint, and http.functions.sso_callback is also unset", "protocol", claims.Protocol, "name", claims.Name)
+		log.Error("sso: no callback function configured for this endpoint, and http.functions.sso_callback is also unset", "protocol", identity.Protocol, "name", identity.Name)
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "no SSO callback function configured")
 		return
 	}
 
-	payload, err := json.Marshal(claims)
+	claims, _ := jwtpkg.VerifyRequest(cfg.Jwt, r)
+	payload, err := json.Marshal(ssoCallbackPayload{Jwt: claims, Identity: identity, State: state})
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding SSO claims")
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding SSO callback payload")
 		return
 	}
 

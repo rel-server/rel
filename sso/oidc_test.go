@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	jwtlib "github.com/golang-jwt/jwt/v5"
 
 	"github.com/ceymard/rel/config"
+	jwtpkg "github.com/ceymard/rel/jwt"
 )
 
 // fakeOidcIssuer is a minimal, in-process OIDC issuer : discovery, JWKS,
@@ -257,7 +259,7 @@ func TestOidc_CallbackRejectsUnknownIdentity(t *testing.T) {
 
 // TestOidc_FetchUserinfoMergesOverIdToken proves the fetch_userinfo path
 // actually calls the userinfo endpoint and that its claims win over the ID
-// token's own on collision, per ## Claims shape.
+// token's own on collision, per ## Callback payload shape.
 func TestOidc_FetchUserinfoMergesOverIdToken(t *testing.T) {
 	issuer := newFakeOidcIssuer(t)
 	issuer.tokenIDTokenExtra = map[string]any{"email": "from-id-token@example.com"}
@@ -289,5 +291,114 @@ func TestOidc_FetchUserinfoMergesOverIdToken(t *testing.T) {
 	// callback function.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 (userinfo's email should have won), got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestOidc_CallbackForwardsLoginStateAndSession drives a REAL /login ->
+// /callback round trip (unlike the other callback tests above, which
+// fabricate a fixed state/nonce directly) : /login gets a query string, and
+// the test asserts the callback function's payload actually carries it back
+// as "state", alongside the browser's own current session as "jwt" —
+// docs/content/http/authentication.md ## Passing state through login.
+func TestOidc_CallbackForwardsLoginStateAndSession(t *testing.T) {
+	issuer := newFakeOidcIssuer(t)
+	issuer.tokenIDTokenExtra = map[string]any{"email": "alice@example.com"}
+	redirectURL := "https://app.example.com/auth/oidc/test/callback"
+	e := newTestOidcEndpoint(t, issuer, redirectURL)
+	e.cfg.CallbackFunction = "auth.echo_payload"
+
+	loginReq := httptest.NewRequest(http.MethodGet, "/auth/oidc/test/login?return_to=%2Fdashboard", nil)
+	loginRec := httptest.NewRecorder()
+	oidcLoginHandler(e, redirectURL)(loginRec, loginReq)
+	if loginRec.Code != http.StatusFound {
+		t.Fatalf("expected 302 from /login, got %d: %s", loginRec.Code, loginRec.Body.String())
+	}
+	loc, err := url.Parse(loginRec.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parsing /login redirect: %v", err)
+	}
+	issuer.tokenIDTokenNonce = loc.Query().Get("nonce")
+	var stateCookie *http.Cookie
+	for _, c := range loginRec.Result().Cookies() {
+		if c.Name == oidcStateCookiePrefix+"test" {
+			stateCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatalf("expected /login to set a state cookie")
+	}
+
+	sessionClaims := jwtpkg.Mint(testCfg.Jwt, "app_user", time.Now(), testCfg.Jwt.MaxAge, nil)
+	token, err := jwtpkg.Sign(testCfg.Jwt, sessionClaims)
+	if err != nil {
+		t.Fatalf("signing test session: %v", err)
+	}
+	sessionCookie := jwtpkg.CookieValue(testCfg.Jwt, token, sessionClaims, "")
+
+	callbackReq := httptest.NewRequest(http.MethodGet, "/auth/oidc/test/callback?state="+loc.Query().Get("state")+"&code=the-code", nil)
+	callbackReq.AddCookie(stateCookie)
+	callbackReq.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+
+	oidcCallbackHandler(e, testDb, testCfg, nil)(rec, callbackReq)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Jwt   map[string]any `json:"jwt"`
+		State map[string]any `json:"state"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decoding echoed payload: %v", err)
+	}
+	if payload.State["return_to"] != "/dashboard" {
+		t.Errorf("state.return_to = %#v, want \"/dashboard\" — got payload %s", payload.State["return_to"], rec.Body.String())
+	}
+	if payload.Jwt["role"] != "app_user" {
+		t.Errorf("jwt.role = %#v, want \"app_user\" (the current session, forwarded — never threaded through the IdP) — got payload %s", payload.Jwt["role"], rec.Body.String())
+	}
+}
+
+// TestOidc_CallbackNoLoginQueryStateIsNil : /login with no query string at
+// all forwards state: null, not an empty object.
+func TestOidc_CallbackNoLoginQueryStateIsNil(t *testing.T) {
+	issuer := newFakeOidcIssuer(t)
+	issuer.tokenIDTokenExtra = map[string]any{"email": "alice@example.com"}
+	redirectURL := "https://app.example.com/auth/oidc/test/callback"
+	e := newTestOidcEndpoint(t, issuer, redirectURL)
+	e.cfg.CallbackFunction = "auth.echo_payload"
+
+	loginRec := httptest.NewRecorder()
+	oidcLoginHandler(e, redirectURL)(loginRec, httptest.NewRequest(http.MethodGet, "/auth/oidc/test/login", nil))
+	loc, _ := url.Parse(loginRec.Header().Get("Location"))
+	issuer.tokenIDTokenNonce = loc.Query().Get("nonce")
+	var stateCookie *http.Cookie
+	for _, c := range loginRec.Result().Cookies() {
+		if c.Name == oidcStateCookiePrefix+"test" {
+			stateCookie = c
+		}
+	}
+
+	callbackReq := httptest.NewRequest(http.MethodGet, "/auth/oidc/test/callback?state="+loc.Query().Get("state")+"&code=the-code", nil)
+	callbackReq.AddCookie(stateCookie)
+	rec := httptest.NewRecorder()
+	oidcCallbackHandler(e, testDb, testCfg, nil)(rec, callbackReq)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Jwt   any `json:"jwt"`
+		State any `json:"state"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decoding echoed payload: %v", err)
+	}
+	if payload.State != nil {
+		t.Errorf("state = %#v, want nil (no query string was ever given to /login)", payload.State)
+	}
+	if payload.Jwt != nil {
+		t.Errorf("jwt = %#v, want nil (no session cookie on this request)", payload.Jwt)
 	}
 }

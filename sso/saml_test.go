@@ -1,6 +1,7 @@
 package sso
 
 import (
+	"encoding/json"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -8,11 +9,13 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/crewjam/saml"
 	dsig "github.com/russellhaering/goxmldsig"
 
 	"github.com/ceymard/rel/config"
+	jwtpkg "github.com/ceymard/rel/jwt"
 )
 
 // staticSessionProvider/staticSPProvider are the minimal saml.IdentityProvider
@@ -120,6 +123,42 @@ func idpInitiatedPost(t *testing.T, f *samlTestFixture, session *saml.Session, a
 	acsReq := httptest.NewRequest(http.MethodPost, acsPath, strings.NewReader(form.Encode()))
 	acsReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return acsReq
+}
+
+// idpInitiatedPostWithRelayState is idpInitiatedPost plus a RelayState form
+// field — AllowIDPInitiated:true means samlAcsHandler doesn't correlate
+// against a real prior AuthnRequest, so this is enough to exercise the ACS
+// side of state passthrough without simulating a full SP-initiated
+// InResponseTo round trip.
+func idpInitiatedPostWithRelayState(t *testing.T, f *samlTestFixture, session *saml.Session, acsPath, relayState string) *http.Request {
+	t.Helper()
+	req := idpInitiatedPost(t, f, session, acsPath)
+	if err := req.ParseForm(); err != nil {
+		t.Fatalf("ParseForm: %v", err)
+	}
+	form := url.Values{"SAMLResponse": {req.PostForm.Get("SAMLResponse")}, "RelayState": {relayState}}
+	out := httptest.NewRequest(http.MethodPost, acsPath, strings.NewReader(form.Encode()))
+	out.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return out
+}
+
+// loginRelayState drives f.endpoint's own /login handler for real and
+// extracts the RelayState it put on the redirect to the IdP — proving
+// samlLoginHandler's own encodeRelayState call, not just decodeRelayState
+// in isolation.
+func loginRelayState(t *testing.T, f *samlTestFixture, rawQuery string) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/auth/saml/test/login?"+rawQuery, nil)
+	rec := httptest.NewRecorder()
+	samlLoginHandler(f.endpoint)(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302 from /login, got %d: %s", rec.Code, rec.Body.String())
+	}
+	loc, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parsing /login redirect: %v", err)
+	}
+	return loc.Query().Get("RelayState")
 }
 
 // TestSaml_MetadataAlwaysServed proves /metadata is servable regardless of
@@ -250,4 +289,92 @@ func tamperBase64(s string) string {
 		b[mid] = 'A'
 	}
 	return string(b)
+}
+
+// TestSaml_AcsForwardsLoginStateAndSession is TestOidc_CallbackForwardsLoginStateAndSession's
+// SAML counterpart : /login's query string round-trips through RelayState
+// (previously hardcoded empty), and the browser's own current session
+// reaches the callback payload as "jwt" — docs/content/http/authentication.md
+// ## Passing state through login. httptest.NewRequest doesn't model a
+// browser's SameSite cookie policy, so attaching the session cookie here
+// proves the Go-side wiring works ; it does NOT prove a real browser would
+// deliver this cookie on /acs's cross-site POST under jwt.same_site=Lax
+// (the default) — see that same doc section for why it wouldn't.
+func TestSaml_AcsForwardsLoginStateAndSession(t *testing.T) {
+	f := newSamlTestFixture(t, "https://app.example.com", true)
+	f.endpoint.cfg.CallbackFunction = "auth.echo_payload"
+
+	relayState := loginRelayState(t, f, "return_to=%2Fdashboard")
+	if relayState == "" {
+		t.Fatalf("expected /login to set a non-empty RelayState")
+	}
+
+	session := &saml.Session{
+		ID:     "session-4",
+		NameID: "alice@example.com",
+		CustomAttributes: []saml.Attribute{
+			{Name: "email", Values: []saml.AttributeValue{{Value: "alice@example.com"}}},
+		},
+	}
+	acsReq := idpInitiatedPostWithRelayState(t, f, session, "/auth/saml/test/acs", relayState)
+
+	sessionClaims := jwtpkg.Mint(testCfg.Jwt, "app_user", time.Now(), testCfg.Jwt.MaxAge, nil)
+	token, err := jwtpkg.Sign(testCfg.Jwt, sessionClaims)
+	if err != nil {
+		t.Fatalf("signing test session: %v", err)
+	}
+	acsReq.AddCookie(jwtpkg.CookieValue(testCfg.Jwt, token, sessionClaims, ""))
+
+	rec := httptest.NewRecorder()
+	samlAcsHandler(f.endpoint, testDb, testCfg, nil)(rec, acsReq)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Jwt   map[string]any `json:"jwt"`
+		State map[string]any `json:"state"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decoding echoed payload: %v", err)
+	}
+	if payload.State["return_to"] != "/dashboard" {
+		t.Errorf("state.return_to = %#v, want \"/dashboard\" — got payload %s", payload.State["return_to"], rec.Body.String())
+	}
+	if payload.Jwt["role"] != "app_user" {
+		t.Errorf("jwt.role = %#v, want \"app_user\" — got payload %s", payload.Jwt["role"], rec.Body.String())
+	}
+}
+
+// TestSaml_AcsIdpInitiatedHasNilState : an IdP-initiated login never went
+// through /login, so there's no RelayState rel itself issued — the
+// callback payload's state must be nil, not an error.
+func TestSaml_AcsIdpInitiatedHasNilState(t *testing.T) {
+	f := newSamlTestFixture(t, "https://app.example.com", true)
+	f.endpoint.cfg.CallbackFunction = "auth.echo_payload"
+
+	session := &saml.Session{
+		ID:     "session-5",
+		NameID: "alice@example.com",
+		CustomAttributes: []saml.Attribute{
+			{Name: "email", Values: []saml.AttributeValue{{Value: "alice@example.com"}}},
+		},
+	}
+	acsReq := idpInitiatedPost(t, f, session, "/auth/saml/test/acs")
+
+	rec := httptest.NewRecorder()
+	samlAcsHandler(f.endpoint, testDb, testCfg, nil)(rec, acsReq)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		State any `json:"state"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decoding echoed payload: %v", err)
+	}
+	if payload.State != nil {
+		t.Errorf("state = %#v, want nil for an IdP-initiated login", payload.State)
+	}
 }

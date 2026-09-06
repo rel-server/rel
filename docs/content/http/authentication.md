@@ -78,23 +78,23 @@ just two differently-named entries. Each one gets its own routes:
 - `GET /auth/saml/{name}/login` / `POST /auth/saml/{name}/acs`
 - `GET /auth/saml/{name}/metadata` — this deployment's SP metadata, to hand to the IdP admin
 
-Both protocols converge on the same callback function signature — one `claims` argument, one
+Both protocols converge on the same callback function signature — one `payload` argument, one
 `RelHttpResponse` return — regardless of which protocol produced it:
 
 ```sql
-create function auth.sso_callback(claims jsonb) returns "RelHttpResponse"
+create function auth.sso_callback(payload jsonb) returns "RelHttpResponse"
 language plpgsql
 security definer
 as $$
 declare
   matched_role text;
 begin
-  -- claims->>'protocol' is 'oidc' or 'saml'; claims->'claims' holds the ID
-  -- token's claims (OIDC) or every assertion attribute (SAML, each value a
-  -- string[] even when single-valued). Look up whatever identifies this
-  -- user in your own schema and decide a role from it.
+  -- payload.identity.protocol is 'oidc' or 'saml'; payload.identity.claims
+  -- holds the ID token's claims (OIDC) or every assertion attribute (SAML,
+  -- each value a string[] even when single-valued). Look up whatever
+  -- identifies this user in your own schema and decide a role from it.
   select role into matched_role
-  from auth.users where auth.users.email = claims->'claims'->>'email';
+  from auth.users where auth.users.email = payload->'identity'->'claims'->>'email';
 
   if matched_role is null then
     raise exception 'No account for this identity' using errcode = 'RS401';
@@ -105,11 +105,68 @@ end;
 $$;
 ```
 
+`payload` is shaped:
+
+```typescript
+interface SsoCallback {
+  jwt: JWT | null      // the browser's OWN current session, if any — see below
+  identity: {
+    protocol: "oidc" | "saml"
+    name: string        // the configured openid.<name>/saml.<name> entry
+    claims: { [key: string]: unknown }
+    access_token?: string   // OIDC only, when the token exchange returned one
+    refresh_token?: string
+  }
+  state: unknown        // /login's own query string, decoded — see below
+}
+```
+
 rel doesn't interpret an email, a `groups` claim, or a SAML attribute for you — mapping
 identity to a role is entirely your call, which is what keeps rel from assuming any particular
 user-table shape. `openid.<name>.callback_function`/`saml.<name>.callback_function` each fall
 back to `http.functions.sso_callback` when unset, so one function can serve every provider if
 your role-mapping logic doesn't need to vary per provider.
+
+### The browser's own current session : `jwt`
+
+`payload.jwt` is whatever session the browser already had *before* this SSO round trip started
+— read directly off the callback request itself, the exact same way any other authenticated
+request's session is, never sent to or through the identity provider. This is what makes
+account linking possible: a callback function can tell "this browser is already logged in as
+user X, and just finished SSO as identity Y" (`payload.jwt` non-null) apart from a fresh,
+anonymous login (`payload.jwt` null), and decide to link the two rather than always minting a
+brand-new session.
+
+One thing worth knowing before relying on it: `payload.jwt` reliably arrives for OIDC's
+callback (a `GET`, and rel's JWT cookie is `SameSite=Lax` by default — which *does* survive a
+cross-site top-level `GET` navigation), but **not** for SAML's `/acs` under the same default —
+`/acs` is always a `POST`, and `SameSite=Lax` cookies aren't sent on a cross-site `POST`. A
+callback function driven by SAML will see `payload.jwt: null` even for an actually-logged-in
+browser, unless the deployment sets `jwt.same_site = None`.
+
+### Passing state through login
+
+`/login` accepts a plain query string, decoded the same structural way [`GET
+/rel`](../query-language/get-requests.md)'s own query string is (dotted keys nest), and handed
+back to the callback function verbatim as `payload.state` — `null` if `/login` got no query
+string at all. A link to `/auth/oidc/google/login?return_to=/dashboard` becomes
+`payload.state = {"return_to": "/dashboard"}` by the time the callback function runs, round-tripped
+through whichever mechanism the protocol itself provides for exactly this (OIDC's `state`
+parameter, alongside rel's own CSRF token ; SAML's RelayState, otherwise unused).
+
+**Treat `state` as untrusted input, the same as any query string a client controls.** Nothing
+stops a third party from linking a victim straight to `/login?...` with a query string of their
+own choosing — this endpoint is unauthenticated and was never meant to be secret. Two
+consequences:
+
+- **Never redirect to a `state`-supplied URL without validating it first.** A `return_to`-style
+  value is the obvious thing to put in `state`, and blindly redirecting to whatever it says is a
+  textbook open redirect — restrict it to a relative path, or an allowlist of known hosts,
+  before using it.
+- **Never put a secret in `state`.** Both OIDC's `state` and SAML's RelayState round-trip
+  through the identity provider itself, and are visible in redirect URLs, browser history, and
+  IdP-side logs along the way — treat it exactly as visible as anything else the browser's
+  address bar shows.
 
 A few things worth knowing before wiring this up in production:
 

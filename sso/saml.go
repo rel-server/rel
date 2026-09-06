@@ -134,14 +134,28 @@ func mountSaml(router chi.Router, db *pg.DbInfos, cfg *config.Config, kp *spKeyP
 }
 
 // samlLoginHandler is the SP-initiated flow : redirect to the IdP with a
-// signed or unsigned AuthnRequest per force_signed_requests.
+// signed or unsigned AuthnRequest per force_signed_requests. Any query
+// string /login itself received travels as RelayState (## Passing state
+// through login) — previously hardcoded empty, since SAML's own CSRF/
+// replay protection comes from the signed assertion and InResponseTo
+// correlation, never from RelayState, so it's free to carry this.
 func samlLoginHandler(e *samlEndpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !e.ensureReady(r.Context()) {
 			writePlainError(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this SAML IdP's metadata has not resolved yet — try again shortly")
 			return
 		}
-		redirectURL, err := e.sp.MakeRedirectAuthenticationRequest("")
+		loginState, err := decodeLoginState(r.URL.RawQuery)
+		if err != nil {
+			writePlainError(w, http.StatusBadRequest, errcode.SsoBadRequest, "decoding login state")
+			return
+		}
+		relayState, err := encodeRelayState(loginState)
+		if err != nil {
+			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "encoding login state")
+			return
+		}
+		redirectURL, err := e.sp.MakeRedirectAuthenticationRequest(relayState)
 		if err != nil {
 			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "building SAML AuthnRequest")
 			return
@@ -173,16 +187,17 @@ func samlAcsHandler(e *samlEndpoint, db *pg.DbInfos, cfg *config.Config, templat
 		}
 
 		claims := extractSamlClaims(assertion)
+		loginState := decodeRelayState(r.FormValue("RelayState"))
 
-		invokeCallback(w, r, cfg, db, templates, resolveCallbackFunction(e.cfg.CallbackFunction, cfg), ssoClaims{
+		invokeCallback(w, r, cfg, db, templates, resolveCallbackFunction(e.cfg.CallbackFunction, cfg), ssoIdentity{
 			Protocol: "saml",
 			Name:     e.name,
 			Claims:   claims,
-		})
+		}, loginState)
 	}
 }
 
-// extractSamlClaims is specs/oauth-saml.md ## Claims shape's SAML half :
+// extractSamlClaims is specs/oauth-saml.md ## Callback payload shape's SAML half :
 // "every assertion attribute, keyed by its attribute name", each value
 // ALWAYS a string[] even for a single-valued attribute — SAML attributes
 // are multi-valued by the spec, and rel does not guess at collapsing a

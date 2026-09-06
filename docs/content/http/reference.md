@@ -48,7 +48,7 @@ by the exact name configured for its own purpose.
 | Signature | Configured via | What it does |
 |---|---|---|
 | `fn(jwt jsonb) returns void` | `http.functions.check_session` | Called once per authenticated request, before the role switch; raise to revoke the session early. See [Authentication ## Session lifecycle](authentication.md#session-lifecycle). |
-| `fn(claims jsonb) returns RelHttpResponse` | `http.functions.sso_callback`, or per-provider `openid.<name>.callback_function`/`saml.<name>.callback_function` | Turns a verified OIDC/SAML identity assertion into a role, the same way a login route mints a session. See [Authentication ## OpenID Connect and SAML](authentication.md#openid-connect-and-saml). |
+| `fn(payload jsonb) returns RelHttpResponse` | `http.functions.sso_callback`, or per-provider `openid.<name>.callback_function`/`saml.<name>.callback_function` | Turns a verified OIDC/SAML identity assertion into a role, the same way a login route mints a session. `payload` is `{jwt, identity, state}`. See [Authentication ## OpenID Connect and SAML](authentication.md#openid-connect-and-saml). |
 | `fn(payload jsonb) returns void` | `http.static.access.<name>.function` | Gates a subpath of `/static/*`; raise to reject. `payload` is `{path, jwt}`. See [Static files ## Restricting access to part of the tree](static-files.md#restricting-access-to-part-of-the-tree). |
 
 ## Configuration

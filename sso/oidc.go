@@ -112,7 +112,7 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// mergeUserinfoClaims implements ## Claims shape's merge precedence :
+// mergeUserinfoClaims implements ## Callback payload shape's merge precedence :
 // "the userinfo endpoint's claims are merged over the ID token's own
 // (userinfo wins on key collision)" — idTokenClaims is never mutated in
 // place, since it may still be logged/inspected by the caller on error.
@@ -156,8 +156,12 @@ func mountOidc(router chi.Router, db *pg.DbInfos, cfg *config.Config, templates 
 }
 
 // oidcLoginHandler is specs/oauth-saml.md's "redirects to the issuer's
-// authorization endpoint" — state+nonce are generated fresh per request
-// and carried in a short-lived cookie, never server-side session state.
+// authorization endpoint" — csrfToken+nonce are generated fresh per
+// request and carried in a short-lived cookie, never server-side session
+// state. Any query string /login itself received travels ALONGSIDE
+// csrfToken in the outgoing state param (## Passing state through login)
+// — a distinct concern from csrfToken/nonce, composed rather than
+// conflated with them, since only csrfToken is ever validated on return.
 func oidcLoginHandler(e *oidcEndpoint, redirectURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !e.ensureReady(r.Context(), redirectURL) {
@@ -166,7 +170,18 @@ func oidcLoginHandler(e *oidcEndpoint, redirectURL string) http.HandlerFunc {
 		}
 		oauthCfg, _, _ := e.snapshot()
 
-		state, err := randomHex(16)
+		loginState, err := decodeLoginState(r.URL.RawQuery)
+		if err != nil {
+			writePlainError(w, http.StatusBadRequest, errcode.SsoBadRequest, "decoding login state")
+			return
+		}
+		encodedState, err := encodeStateForTransit(loginState)
+		if err != nil {
+			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "encoding login state")
+			return
+		}
+
+		csrfToken, err := randomHex(16)
 		if err != nil {
 			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "generating state")
 			return
@@ -179,7 +194,7 @@ func oidcLoginHandler(e *oidcEndpoint, redirectURL string) http.HandlerFunc {
 
 		http.SetCookie(w, &http.Cookie{
 			Name:     oidcStateCookiePrefix + e.name,
-			Value:    state + "." + nonce,
+			Value:    csrfToken + "." + nonce,
 			Path:     callbackPath(e.name),
 			MaxAge:   300,
 			HttpOnly: true,
@@ -187,7 +202,12 @@ func oidcLoginHandler(e *oidcEndpoint, redirectURL string) http.HandlerFunc {
 			SameSite: http.SameSiteLaxMode,
 		})
 
-		http.Redirect(w, r, oauthCfg.AuthCodeURL(state, oidc.Nonce(nonce)), http.StatusFound)
+		outgoingState := csrfToken
+		if encodedState != "" {
+			outgoingState = csrfToken + "." + encodedState
+		}
+
+		http.Redirect(w, r, oauthCfg.AuthCodeURL(outgoingState, oidc.Nonce(nonce)), http.StatusFound)
 	}
 }
 
@@ -209,9 +229,20 @@ func oidcCallbackHandler(e *oidcEndpoint, db *pg.DbInfos, cfg *config.Config, te
 			return
 		}
 		http.SetCookie(w, &http.Cookie{Name: oidcStateCookiePrefix + e.name, Value: "", Path: callbackPath(e.name), MaxAge: -1})
-		wantState, wantNonce, ok := strings.Cut(cookie.Value, ".")
-		if !ok || r.URL.Query().Get("state") != wantState {
+		wantCsrf, wantNonce, ok := strings.Cut(cookie.Value, ".")
+		// The returned state param is csrfToken alone, or csrfToken+"."+
+		// encodedAppState when /login received a query string (## Passing
+		// state through login) — only the csrfToken half is ever validated;
+		// strings.Cut's own no-separator case (encodedAppState == "") means
+		// "no app state was ever appended," same as before this feature existed.
+		gotCsrf, encodedAppState, _ := strings.Cut(r.URL.Query().Get("state"), ".")
+		if !ok || gotCsrf != wantCsrf {
 			writePlainError(w, http.StatusBadRequest, errcode.SsoBadState, "state mismatch")
+			return
+		}
+		loginState, err := decodeStateFromTransit(encodedAppState)
+		if err != nil {
+			writePlainError(w, http.StatusBadRequest, errcode.SsoBadState, "decoding returned state")
 			return
 		}
 
@@ -263,12 +294,12 @@ func oidcCallbackHandler(e *oidcEndpoint, db *pg.DbInfos, cfg *config.Config, te
 			}
 		}
 
-		invokeCallback(w, r, cfg, db, templates, resolveCallbackFunction(e.cfg.CallbackFunction, cfg), ssoClaims{
+		invokeCallback(w, r, cfg, db, templates, resolveCallbackFunction(e.cfg.CallbackFunction, cfg), ssoIdentity{
 			Protocol:     "oidc",
 			Name:         e.name,
 			Claims:       claims,
 			AccessToken:  token.AccessToken,
 			RefreshToken: token.RefreshToken,
-		})
+		}, loginState)
 	}
 }
