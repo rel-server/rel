@@ -61,18 +61,13 @@ var Options = []Option{
 	{"http.host", "(all interfaces)", "HTTP listen address."},
 	{"http.public_host", "(disabled)", "This deployment's own externally-reachable domain (a bare host, e.g. app.example.com — no scheme/port/path ; rel always builds https://<host>/... from it). An openid.<name>/saml.<name> entry with no effective host (its own public_host override, or this one) is skipped — see docs/content/http/authentication.md ## OpenID Connect and SAML."},
 	{"http.port", fmt.Sprint(DefaultHttpPort), "HTTP listen port."},
-	{"http.request_domain_name", DefaultHttpRequestDomainName, "Name of the JSON domain identifying a route function's request argument type."},
-	{"http.response_domain_name", DefaultHttpResponseDomainName, "Name of the JSON domain identifying a route function's response type."},
-	{"http.upload_domain_name", DefaultHttpUploadDomainName, "Name of the JSON domain used by the two-function upload-destinations mechanism (see specs/http-content.md)."},
 	{"http.cookies_max_age", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route response, when unspecified. Doesn't apply to the JWT cookie — see jwt.max_age."},
 	{"http.max_body_size", fmt.Sprint(DefaultHttpMaxBodySize) + " (bytes)", "Hard cap on a /route request's entire body (for multipart, the whole envelope — boundaries and part headers included, not just part payload bytes). Rejected with 413 before any of it is buffered in memory."},
 	{"http.max_upload_size", "= http.max_body_size", "Hard cap, in bytes, on a single-upload /route request's streamed payload (see specs/http-content.md ## Upload destinations). Since that payload streams to a temp file rather than being buffered in memory, this can be set much higher than http.max_body_size. A route's __prepare function may return a smaller RelUpload.max_size to tighten this per-request ; it can never raise it."},
 	{"http.max_part_count", fmt.Sprint(DefaultHttpMaxPartCount), "Max number of multipart/form-data parts a single /route request may contain, independent of their total byte size."},
-	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route functions may mint or clear a session."},
-	{"http.functions.allowed_routes", "(unrestricted)", "Regexp restricting which route functions are exposed on /route."},
-	{"http.functions.check_session", "(disabled)", "Function called on every authenticated request, letting the database reject a session early."},
+	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route/middleware functions may mint or clear a session."},
 	{"http.functions.sso_callback", "(disabled)", "Fallback Postgres function an openid.<name>/saml.<name> entry's own callback_function calls when it doesn't set one itself (docs/content/http/authentication.md ## OpenID Connect and SAML)."},
-	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served at the fixed /static/ URL prefix, first match wins."},
+	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served as the root-level static fallback for any path no declared route claims."},
 	{"http.templates.path", DefaultHttpTemplatesPath, "Filesystem directory Jet templates (RelHttpResponse.template) are loaded from."},
 	{"http.typescript.enable", "false (true if dev)", "Serve GET /rel/database.ts — the introspected schema as TypeScript types plus a few query-building helpers."},
 	{"http.typescript.schemas", "(every schema, aside from pg_catalog)", "Comma-separated whitelist of schemas GET /rel/database.ts may export ; intersected with the endpoint's own ?schemas= query param."},
@@ -104,7 +99,7 @@ var Options = []Option{
 	// ---- saml.* : the shared SP identity across every saml.<name> IdP ;
 	// per-name saml.<name>.*/openid.<name>.* entries are prose-documented
 	// below (## Dynamic namespaces), not table rows, same as
-	// http.static.access.<name>.* ----
+	// route.<schema>.<function>.* ----
 	{"saml.certificate_path", DefaultSamlCertificatePath, "Colon-separated search list for this deployment's SAML SP certificate. Loaded if found ; generated and persisted to the first candidate whose parent directory exists, otherwise."},
 	{"saml.private_key_path", DefaultSamlPrivateKeyPath, "Colon-separated search list for the SP certificate's private key — see saml.certificate_path."},
 
@@ -156,8 +151,10 @@ Usage:
   rel [flags]
 
 rel has no subcommands. It loads configuration (below), connects to
-Postgres, and serves POST /rel and /route/{schema}/{function} until an
-interrupt/terminate signal requests a graceful shutdown.
+Postgres, and serves POST /rel plus every declared route (route.<schema>.
+<function>.path, or a "route::"/"route:{...}" comment on the function
+itself — see specs/new-routes.md) until an interrupt/terminate signal
+requests a graceful shutdown.
 
 Flags:
   -c, --config <path>          Load exactly this config file (same as REL_CONFIG).
@@ -226,10 +223,11 @@ Dynamic namespaces (not enumerated above — "*" matches an entire schema) :
   logging.exclude.<attr>=<regexp>              suppress records whose <attr> matches <regexp> (applied after filter)
   blacklist.relations.<schema>.<name|*>=y|n    blacklist a relation, or a whole schema, from being queried
   blacklist.functions.<schema>.<name|*>=y|n    blacklist a function from being called
-  http.static.access.<name>.prefix=<subpath>   gate a static-file subpath prefix behind a DB check
-  http.static.access.<name>.function=<fqname>  the check_static_access-shaped function for that rule
   route.<schema>.<function>.path=<chi-path>    declare <schema>.<function> routable at <chi-path>
   route.<schema>.<function>.method=<verbs>     comma-separated accepted methods ; inferred if unset
+  route.<schema>.<function>.template=<path>    default Jet template, used when the response doesn't set its own
+  route.<schema>.<function>.stream_upload=y|n  disk-streamed single-upload flow, called twice (see specs/new-routes.md)
+  route.<schema>.<function>.middleware=y|n     runs ahead of every route/static file//rel under its own path prefix
   openid.<name>.issuer=<url>                   OIDC issuer URL ; /.well-known/openid-configuration is discovered from it
   openid.<name>.client_id=<id>                 default $FILE$/secrets/openid-<name>.id:./openid-<name>.id
   openid.<name>.client_secret=<secret>         default $FILE$/secrets/openid-<name>.secret:./openid-<name>.secret

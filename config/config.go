@@ -152,21 +152,6 @@ type Http struct {
 	// fatal — see sso.Mount's own doc comment.
 	PublicHost string
 
-	// RequestDomainName is http.request_domain_name, default
-	// "RelHttpRequest" : the fully qualified, unquoted name of the JSON
-	// domain identifying a route function's single request-typed argument.
-	RequestDomainName string
-	// ResponseDomainName is http.response_domain_name, default
-	// "RelHttpResponse" : the fully qualified, unquoted name of the JSON
-	// domain identifying a route function's response return type.
-	ResponseDomainName string
-	// UploadDomainName is http.upload_domain_name, default "RelUpload" :
-	// the unquoted name of the JSON domain used by
-	// specs/http-content.md ## Static files ### Upload destinations'
-	// two-function upload mechanism. Not an error if it doesn't resolve —
-	// that mechanism simply isn't discovered, same non-fatal treatment as
-	// RequestDomainName/ResponseDomainName above.
-	UploadDomainName string
 	// CookiesMaxAge is http.cookies_max_age, default 86400 : default max-age
 	// for cookies set via the generic "cookies" field, when the response
 	// doesn't specify one. Does not apply to the JWT cookie (see Jwt.MaxAge).
@@ -286,35 +271,13 @@ type RouteDecl struct {
 	Middleware bool
 }
 
-// StaticAccessRule is one http.static.access.<name>.* entry —
-// specs/http-content.md ## Static files ### Access control.
-type StaticAccessRule struct {
-	// Prefix is http.static.access.<name>.prefix : the subpath prefix this
-	// rule gates.
-	Prefix string
-	// Function is http.static.access.<name>.function : unquoted, fully
-	// qualified name of the Postgres function called for any request whose
-	// path falls under Prefix.
-	Function string
-}
-
 // HttpFunctions is route.md's http.functions.* namespace.
 type HttpFunctions struct {
 	// AllowedAuth is http.functions.allowed_auth, default "" (unrestricted)
 	// : regexp restricting which functions' responses rel will honor a
 	// "jwt" field from, matched against the fully qualified, unquoted
-	// function name. Named to match AllowedRoutes below — both are
-	// restriction regexps over "which functions may do X" ; CheckSession
-	// deliberately isn't (it names a function, not a restriction).
+	// function name.
 	AllowedAuth string
-	// AllowedRoutes is http.functions.allowed_routes, default ""
-	// (unrestricted) : regexp a function's fully qualified, unquoted name
-	// must additionally match to become a public /route function.
-	AllowedRoutes string
-	// CheckSession is http.functions.check_session, default "" (disabled)
-	// : unquoted, fully qualified name of a Postgres function that lets the
-	// database reject a session before exp/max_session_age would otherwise.
-	CheckSession string
 	// SsoCallback is http.functions.sso_callback, default "" (disabled) :
 	// unquoted, fully qualified name of the Postgres function an
 	// openid.<name>/saml.<name> entry's own callback_function falls back
@@ -402,46 +365,36 @@ type SamlProvider struct {
 }
 
 // HttpStatic is http.static.* — static file serving, per
-// specs/http-content.md ## Static files/### Access control : Path names
-// a colon-separated list of FILESYSTEM directories (never the URL prefix,
-// which is always the fixed "/static/"), Access is the named, prefix-scoped
-// access-control rule set.
+// specs/new-routes.md ## Static path masking : Path names a colon-
+// separated list of FILESYSTEM directories, served at the router ROOT as a
+// fallback for any path no declared route claims (NOT a fixed /static/
+// prefix). Access control moved to ## Middleware — a database-backed gate
+// over a subtree is now an ordinary middleware function declared at that
+// prefix.
 type HttpStatic struct {
 	// Path is http.static.path, default "/static" : a COLON-SEPARATED list
-	// of filesystem directories served at the fixed /static/ URL prefix
-	// (search list, first match wins — see specs/http-content.md
-	// ## Static files). NOT the URL prefix itself, which is always the
-	// fixed, unconfigurable "/static/".
+	// of filesystem directories served at the router root as the static
+	// fallback (search list, first match wins).
 	Path string
-	// Access is http.static.access.<name>.* — named, prefix-scoped access
-	// control rules (specs/http-content.md ### Access control).
-	Access map[string]StaticAccessRule
 }
 
 // DefaultLoggingHandler/DefaultLoggingLevel/DefaultHttpPort are
 // docs/content/configuration/operations.md's own stated defaults
 // (Handler/Level) and this package's own invented default (Port — see
-// Http's doc comment). DefaultHttpRequestDomainName/
-// DefaultHttpResponseDomainName are docs/content/http/requests-responses.md's
-// stated defaults ; DefaultHttpCookiesMaxAge is route.md's own stated
+// Http's doc comment). DefaultHttpCookiesMaxAge is route.md's own stated
 // default. DefaultHttpStaticPath is this package's own invented default,
 // matching HttpStatic's doc comment.
 const (
-	DefaultLoggingHandler         = "pretty"
-	DefaultLoggingLevel           = "info"
-	DefaultHttpPort               = 8080
-	DefaultHttpRequestDomainName  = "RelHttpRequest"
-	DefaultHttpResponseDomainName = "RelHttpResponse"
-	DefaultHttpCookiesMaxAge      = 86400
-	DefaultHttpStaticPath         = "/static"
+	DefaultLoggingHandler    = "pretty"
+	DefaultLoggingLevel      = "info"
+	DefaultHttpPort          = 8080
+	DefaultHttpCookiesMaxAge = 86400
+	DefaultHttpStaticPath    = "/static"
 	// DefaultHttpMaxBodySize/DefaultHttpMaxPartCount are jwt-roles-and-
 	// http.md's own stated defaults for http.max_body_size (10 MiB) and
 	// http.max_part_count (100).
 	DefaultHttpMaxBodySize  = 10485760
 	DefaultHttpMaxPartCount = 100
-	// DefaultHttpUploadDomainName is docs/content/http/uploads.md's stated
-	// default for http.upload_domain_name.
-	DefaultHttpUploadDomainName = "RelUpload"
 	// DefaultHttpTemplatesPath is specs/http-content.md ## Templates'
 	// stated default for http.templates.path.
 	DefaultHttpTemplatesPath = "/template"

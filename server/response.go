@@ -11,9 +11,9 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/pgerr"
-	"github.com/jackc/pgx/v5"
 	"github.com/samber/oops"
 )
 

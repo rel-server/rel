@@ -167,6 +167,22 @@ func TestMiddleware_StreamUploadRunsOnceBeforeFirstCallOnly(t *testing.T) {
 	}
 }
 
+// TestMiddleware_MissingGrantIsPermissionDenied is the Impacts-section
+// regression test: a covering middleware missing an EXECUTE grant for the
+// request's resolved role is an ordinary Postgres permission-denied error
+// (42501), classified 403 like any other route call's — never a silent
+// skip, and never the 500 an earlier spec draft claimed (fixed alongside
+// this test).
+func TestMiddleware_MissingGrantIsPermissionDenied(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/ungranted/target", nil)
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (permission denied on the ungranted middleware), got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestMiddleware_OrderingShortestPrefixFirst proves three overlapping
 // middleware run shortest-prefix-first.
 func TestMiddleware_OrderingShortestPrefixFirst(t *testing.T) {

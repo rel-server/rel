@@ -64,8 +64,7 @@ func TestRelHandler_ClaimsSetting_AnonymousIsJSONNull(t *testing.T) {
 // TestRelHandler_ClaimsSetting_AuthenticatedMatchesJWT proves an
 // authenticated /rel request's rel.jwt.claims setting carries the
 // session's own role, readable from an ordinary query-language function
-// call — and, via check_session's own self-check (testdata/roles.sql),
-// from check_session too.
+// call.
 func TestRelHandler_ClaimsSetting_AuthenticatedMatchesJWT(t *testing.T) {
 	cookie := mintCookie(t, testCfg, "authenticated_user")
 	rec := postRelWithCookie(t, testHandler, `{"function": "current_claims_setting", "schema": "public"}`, cookie)

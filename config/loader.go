@@ -495,18 +495,12 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Host = root.GetStringOrDefault("http.host", "")
 	cfg.Http.PublicHost = root.GetStringOrDefault("http.public_host", "")
 	cfg.Http.Port = root.GetIntOrDefault("http.port", DefaultHttpPort)
-	cfg.Http.RequestDomainName = root.GetStringOrDefault("http.request_domain_name", DefaultHttpRequestDomainName)
-	cfg.Http.ResponseDomainName = root.GetStringOrDefault("http.response_domain_name", DefaultHttpResponseDomainName)
-	cfg.Http.UploadDomainName = root.GetStringOrDefault("http.upload_domain_name", DefaultHttpUploadDomainName)
 	cfg.Http.CookiesMaxAge = root.GetIntOrDefault("http.cookies_max_age", DefaultHttpCookiesMaxAge)
 	cfg.Http.MaxBodySize = root.GetIntOrDefault("http.max_body_size", DefaultHttpMaxBodySize)
 	cfg.Http.MaxUploadSize = root.GetIntOrDefault("http.max_upload_size", cfg.Http.MaxBodySize)
 	cfg.Http.MaxPartCount = root.GetIntOrDefault("http.max_part_count", DefaultHttpMaxPartCount)
 	cfg.Http.Functions.AllowedAuth = root.GetStringOrDefault("http.functions.allowed_auth", "")
-	cfg.Http.Functions.AllowedRoutes = root.GetStringOrDefault("http.functions.allowed_routes", "")
-	cfg.Http.Functions.CheckSession = root.GetStringOrDefault("http.functions.check_session", "")
 	cfg.Http.Static.Path = root.GetStringOrDefault("http.static.path", DefaultHttpStaticPath)
-	cfg.Http.Static.Access = readStaticAccess(root, "http.static.access")
 	cfg.Route = readRoutes(root, "route")
 	cfg.Http.Templates.Path = root.GetStringOrDefault("http.templates.path", DefaultHttpTemplatesPath)
 
@@ -594,29 +588,9 @@ func readStringMap(root *ConfigReader, path string) map[string]string {
 
 // readStaticAccess reads http.static.access.<name>.{prefix,function} —
 // named sub-keys, not an array (config can't hold arrays).
-func readStaticAccess(root *ConfigReader, path string) map[string]StaticAccessRule {
-	out := map[string]StaticAccessRule{}
-	it, err := root.GetIterator(path)
-	if err != nil {
-		return out
-	}
-	for name, ruleReader := range it {
-		var rule StaticAccessRule
-		if s, err := ruleReader.GetString("prefix"); err == nil {
-			rule.Prefix = s
-		}
-		if s, err := ruleReader.GetString("function"); err == nil {
-			rule.Function = s
-		}
-		out[name] = rule
-	}
-	return out
-}
-
 // readRoutes reads route.<schema>.<function>.{path,method} —
-// specs/new-routes.md ## In the configuration : one level deeper than
-// readStaticAccess's named sub-keys, since a route is identified by TWO
-// levels (schema, then function name), not one.
+// specs/new-routes.md ## In the configuration : two levels deep, since a
+// route is identified by TWO levels (schema, then function name), not one.
 func readRoutes(root *ConfigReader, path string) map[string]map[string]RouteDecl {
 	out := map[string]map[string]RouteDecl{}
 	schemas, err := root.GetIterator(path)

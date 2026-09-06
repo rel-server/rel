@@ -29,9 +29,9 @@ type Execer interface {
 }
 
 // Querier is Execer's counterpart for a single-jsonb-in, single-jsonb-out
-// call — e.g. specs/oauth-saml.md ## Callback function, which (unlike
-// CheckSession/CallJSONBFunction below) returns a RelHttpResponse the
-// caller must actually read.
+// call — e.g. specs/oauth-saml.md ## Callback function, whose whole point
+// is the RelHttpResponse it returns (see CallJSONBFunctionReturningJSON
+// below).
 type Querier interface {
 	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
 }
@@ -51,11 +51,11 @@ func SetLocalRole(ctx context.Context, exec Execer, role string) error {
 // established as safe (Postgres has no fixed-depth restriction on a
 // placeholder GUC's name, only that it contain at least one dot). Readable
 // from any function running inside the same transaction as SetLocalClaims
-// — check_session, a static access gate, or a query/route function's own
-// nested calls — via current_setting('rel.jwt.claims', true)::jsonb ; the
-// missing_ok second argument is defensive, for a connection outside rel's
-// own pool (a superuser's direct psql session) rather than anything rel
-// itself ever leaves unset.
+// — a middleware function or a query/route function's own nested calls —
+// via current_setting('rel.jwt.claims', true)::jsonb ; the missing_ok
+// second argument is defensive, for a connection outside rel's own pool
+// (a superuser's direct psql session) rather than anything rel itself ever
+// leaves unset.
 const ClaimsSettingName = "rel.jwt.claims"
 
 // SetLocalClaims exposes claims under ClaimsSettingName, transaction-

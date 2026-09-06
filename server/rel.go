@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
@@ -26,7 +27,6 @@ import (
 	"github.com/rel-server/rel/querystring"
 	"github.com/rel-server/rel/wellknown"
 	"github.com/rel-server/rel/writer"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/samber/oops"
 )
 

@@ -46,8 +46,6 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	testCfg.Http.Functions.CheckSession = "public.fn_check_session"
-
 	// specs/new-routes.md fixtures : config-declared routes, exercised by
 	// routeset_test.go's BuildRouteSet tests.
 	testCfg.Route = map[string]map[string]config.RouteDecl{

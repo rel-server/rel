@@ -214,9 +214,6 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Pg.PoolSize != DefaultPgPoolSize {
 		t.Errorf("expected default pg.pool_size=%d, got %d", DefaultPgPoolSize, cfg.Pg.PoolSize)
 	}
-	if cfg.Http.RequestDomainName != "RelHttpRequest" || cfg.Http.ResponseDomainName != "RelHttpResponse" {
-		t.Errorf("expected default http domain names, got %+v", cfg.Http)
-	}
 	if cfg.Http.CookiesMaxAge != DefaultHttpCookiesMaxAge {
 		t.Errorf("expected default http.cookies_max_age=%d, got %d", DefaultHttpCookiesMaxAge, cfg.Http.CookiesMaxAge)
 	}
@@ -228,9 +225,6 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	}
 	if cfg.Http.MaxPartCount != DefaultHttpMaxPartCount {
 		t.Errorf("expected default http.max_part_count=%d, got %d", DefaultHttpMaxPartCount, cfg.Http.MaxPartCount)
-	}
-	if cfg.Http.UploadDomainName != DefaultHttpUploadDomainName {
-		t.Errorf("expected default http.upload_domain_name=%q, got %q", DefaultHttpUploadDomainName, cfg.Http.UploadDomainName)
 	}
 	if cfg.Http.Templates.Path != DefaultHttpTemplatesPath {
 		t.Errorf("expected default http.templates.path=%q, got %q", DefaultHttpTemplatesPath, cfg.Http.Templates.Path)
@@ -253,9 +247,6 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Http.Csp.ScriptSrc != "" || cfg.Http.Csp.Policy != "" {
 		t.Errorf("expected every other http.csp.* directive unset by default, got %+v", cfg.Http.Csp)
 	}
-	if len(cfg.Http.Static.Access) != 0 {
-		t.Errorf("expected no http.static.access rules by default, got %+v", cfg.Http.Static.Access)
-	}
 	if cfg.Jwt.Secret != "fixed-test-secret" {
 		t.Errorf("expected the explicitly-set jwt.secret, got %q", cfg.Jwt.Secret)
 	}
@@ -277,8 +268,7 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	}
 }
 
-// Covers http-content.md's CORS/CSP scalars and the named
-// http.static.access.<name>.{prefix,function} map.
+// Covers http-content.md's CORS/CSP scalars.
 func TestLoad_HttpContentKeys(t *testing.T) {
 	dir := t.TempDir()
 	p := writeFile(t, dir, "rel.toml", `
@@ -298,17 +288,6 @@ policy = ""
 
 [http.templates]
 path = "/my/templates"
-
-[http]
-upload_domain_name = "MyUpload"
-
-[http.static.access.private]
-prefix = "private/"
-function = "auth.check_static_access"
-
-[http.static.access.admin]
-prefix = "admin/"
-function = "auth.check_admin_access"
 `)
 	cfg, err := Load([]string{"--config=" + p})
 	if err != nil {
@@ -332,19 +311,49 @@ function = "auth.check_admin_access"
 	if cfg.Http.Templates.Path != "/my/templates" {
 		t.Errorf("unexpected http.templates.path: %q", cfg.Http.Templates.Path)
 	}
-	if cfg.Http.UploadDomainName != "MyUpload" {
-		t.Errorf("unexpected http.upload_domain_name: %q", cfg.Http.UploadDomainName)
+}
+
+// TestLoad_RouteDeclarations proves route.<schema>.<function>.* — the
+// entire routing config surface added in Stage 5 — actually parses through
+// the real Load() -> assemble() -> readRoutes() pipeline, not just via a
+// hand-built RouteDecl injected directly into cfg.Route by route package
+// tests (route_test.go's TestMain does that, but never exercises the TOML
+// loader path for this namespace).
+func TestLoad_RouteDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "rel.toml", `
+[jwt]
+secret = "fixed-test-secret"
+
+[route.public.fn_export]
+path = "/export/{id}"
+method = "GET"
+template = "export.jet"
+stream_upload = true
+middleware = true
+`)
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-	if len(cfg.Http.Static.Access) != 2 {
-		t.Fatalf("expected 2 static access rules, got %d: %+v", len(cfg.Http.Static.Access), cfg.Http.Static.Access)
+	decl, ok := cfg.Route["public"]["fn_export"]
+	if !ok {
+		t.Fatalf("expected route.public.fn_export to be declared, got %#v", cfg.Route)
 	}
-	priv, ok := cfg.Http.Static.Access["private"]
-	if !ok || priv.Prefix != "private/" || priv.Function != "auth.check_static_access" {
-		t.Errorf("unexpected private static access rule: %+v", priv)
+	if decl.Path != "/export/{id}" {
+		t.Errorf("unexpected path: %q", decl.Path)
 	}
-	admin, ok := cfg.Http.Static.Access["admin"]
-	if !ok || admin.Prefix != "admin/" || admin.Function != "auth.check_admin_access" {
-		t.Errorf("unexpected admin static access rule: %+v", admin)
+	if decl.Method != "GET" {
+		t.Errorf("unexpected method: %q", decl.Method)
+	}
+	if decl.Template != "export.jet" {
+		t.Errorf("unexpected template: %q", decl.Template)
+	}
+	if !decl.StreamUpload {
+		t.Error("expected stream_upload to be true")
+	}
+	if !decl.Middleware {
+		t.Error("expected middleware to be true")
 	}
 }
 
