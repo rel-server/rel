@@ -15,7 +15,7 @@ import (
 
 	jwtlib "github.com/golang-jwt/jwt/v5"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 // Claims is specs/authentication.md ## Claims, extended with any free-form

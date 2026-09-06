@@ -17,7 +17,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ceymard/rel/wellknown"
+	"github.com/rel-server/rel/wellknown"
 )
 
 // newWellKnownRelHandler writes files to a temp dir, builds a

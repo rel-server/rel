@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 

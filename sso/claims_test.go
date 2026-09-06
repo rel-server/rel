@@ -6,7 +6,7 @@ import (
 
 	"github.com/crewjam/saml"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 func TestMergeUserinfoClaims_UserinfoWinsOnCollision(t *testing.T) {

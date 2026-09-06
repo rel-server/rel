@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 // TestOidc_LazyRetry_DiscoveryFailsThenSucceeds covers specs/oauth-saml.md

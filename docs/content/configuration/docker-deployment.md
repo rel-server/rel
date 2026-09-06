@@ -4,7 +4,7 @@ icon: material/docker
 
 # Docker deployment
 
-rel ships as a small, non-root, scratch-based image (`ceymard/rel`), listening on `8080` and
+rel ships as a small, non-root, scratch-based image (`rel-server/rel`), listening on `8080` and
 reading every setting from the environment the way [Configuration](index.md) describes. This
 walks through a realistic deployment: rel and Postgres in Docker, fronted by
 `jwilder/nginx-proxy` — a reverse proxy that watches the Docker socket and routes by a
@@ -103,11 +103,11 @@ A few things worth getting right:
 dmut migration files, well-known query definitions, static assets, and Jet templates aren't
 runtime state — they're part of what version of your app is running, exactly like the schema
 they query against. Bind-mounting them from the host (`./dmut:/dmut:ro`) works for local
-development, but for a real deployment, build your own image `FROM ceymard/rel` and `COPY`
+development, but for a real deployment, build your own image `FROM rel-server/rel` and `COPY`
 them in instead:
 
 ```dockerfile
-FROM ceymard/rel:latest
+FROM rel-server/rel:latest
 COPY dmut /dmut
 COPY wellknown /wellknown
 COPY static /static
@@ -118,7 +118,7 @@ Tag and deploy that image (`your-registry/your-app:<version>`) the same way you 
 build artifact — a redeploy rolls forward and back by changing one tag, and there's no separate
 "did the host's bind-mounted files actually match the image that's running" question to answer
 during an incident. The compose file above deploys this way: `image: your-registry/your-app`,
-not `ceymard/rel` directly, and no `/dmut`/`/wellknown`/`/static`/`/template` volumes at all.
+not `rel-server/rel` directly, and no `/dmut`/`/wellknown`/`/static`/`/template` volumes at all.
 
 ## Combining baked-in static assets with writable uploads
 
@@ -150,6 +150,6 @@ deployment, not something rel's base image should assume for you.
 
 The compose file above assumes `your-registry/your-app:latest` is already sitting in a registry
 `docker-compose pull`/`docker-compose up` can reach. `just image` builds the plain
-`ceymard/rel` base image (tags it `ceymard/rel:<version>` and `:latest`, `<version>` from `git
+`rel-server/rel` base image (tags it `rel-server/rel:<version>` and `:latest`, `<version>` from `git
 describe`) and `just upload` pushes it — useful as the `FROM` your own app's image builds on
 top of, not something you deploy directly once you have app-specific assets to bake in.

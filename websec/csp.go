@@ -14,7 +14,7 @@ package websec
 import (
 	"strings"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 // Directive is one CSP directive name/value pair, kept in an ordered slice

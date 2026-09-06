@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ceymard/rel/query"
+	"github.com/rel-server/rel/query"
 	"github.com/samber/oops"
 )
 

@@ -1,6 +1,6 @@
 package query
 
-import "github.com/ceymard/rel/pg"
+import "github.com/rel-server/rel/pg"
 
 // Expression is implemented by every node produced by parsing query.ts's
 // `Expression` grammar (see ParseExpression in expression_parse.go). This is

@@ -18,7 +18,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ceymard/rel/errcode"
+	"github.com/rel-server/rel/errcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/samber/oops"
 )

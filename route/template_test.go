@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ceymard/rel/websec"
+	"github.com/rel-server/rel/websec"
 )
 
 // newTemplateTestHandler points http.templates.path at a real temp dir ;

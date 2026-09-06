@@ -3,7 +3,7 @@ package jwt
 import (
 	"net/http"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 // sameSite maps jwt.samesite's string form to net/http's enum ; an

@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/writer"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/writer"
 )
 
 // compileExpr writes e's SQL text into c.w. n is the node e was resolved

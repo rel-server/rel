@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ceymard/rel/query"
+	"github.com/rel-server/rel/query"
 )
 
 // TestDecodeRelation_SpecWorkedExample reproduces query-json.md's own

@@ -130,7 +130,7 @@ environment. See [Configuration ## Development mode](index.md#development-mode).
 
 ## Package your own app as an image built `FROM` rel
 
-`ceymard/rel` ships as a generic, non-root, scratch-based binary — dmut migrations, well-known
+`rel-server/rel` ships as a generic, non-root, scratch-based binary — dmut migrations, well-known
 queries, static assets, and Jet templates are all *your* app's own versioned files, not
 something the base image carries. Build them into your own image rather than bind-mounting
 them from a host directory at deploy time, and keep `/secrets` as the one directory that lives

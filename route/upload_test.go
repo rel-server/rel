@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ceymard/rel/static"
+	"github.com/rel-server/rel/static"
 )
 
 // TestResolveUnderDir_RejectsTraversal : a traversing or absolute rel is

@@ -3,9 +3,9 @@ package sso
 import (
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/route"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/route"
 )
 
 // resolveHost is specs/oauth-saml.md ## Configuration — HTTP's per-entry

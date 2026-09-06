@@ -10,8 +10,8 @@ import (
 
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/pg"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/pg"
 )
 
 // TestDeploymentShapedRoleSwitch connects as a non-superuser LOGIN role

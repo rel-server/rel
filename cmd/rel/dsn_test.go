@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 func TestPostgresURI(t *testing.T) {

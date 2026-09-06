@@ -18,8 +18,8 @@
 package wellknown
 
 import (
-	"github.com/ceymard/rel/query"
-	"github.com/ceymard/rel/writer"
+	"github.com/rel-server/rel/query"
+	"github.com/rel-server/rel/writer"
 )
 
 // ParamDef is one declared WellKnownParam{type?, default?} — see

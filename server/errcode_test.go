@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/errcode"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
 )
 
 // TestRelHandler_UniqueViolation_AlwaysClassified : ## Postgres error

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ceymard/rel/pg"
+	"github.com/rel-server/rel/pg"
 )
 
 // baseScalarTypes maps a built-in pg_catalog type name to its TS

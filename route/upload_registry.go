@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ceymard/rel/pg"
+	"github.com/rel-server/rel/pg"
 )
 
 const prepareSuffix = "__prepare"

@@ -1,6 +1,6 @@
 package query
 
-import "github.com/ceymard/rel/pg"
+import "github.com/rel-server/rel/pg"
 
 type WriteMode int
 

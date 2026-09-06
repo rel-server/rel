@@ -10,8 +10,8 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/writer"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/writer"
 )
 
 // sqlCompiler carries state for one CompileSelect call : the writer, a

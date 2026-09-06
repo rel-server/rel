@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 func TestPolicy_DefaultSynthesizesScriptAndStyleSrc(t *testing.T) {

@@ -11,9 +11,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/logging"
-	"github.com/ceymard/rel/pg"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/logging"
+	"github.com/rel-server/rel/pg"
 	"github.com/jackc/pgx/v5"
 )
 

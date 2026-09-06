@@ -1,6 +1,6 @@
 // GET /rel/database.ts — docs/content/typescript-client.md ## Fetching it / specs/typescript.md ## database.ts :
 // the introspected, schema-whitelisted database exported as a single,
-// self-sufficient TypeScript file (github.com/ceymard/rel/tsgen does the
+// self-sufficient TypeScript file (github.com/rel-server/rel/tsgen does the
 // actual generation ; this file is only the HTTP wiring).
 package server
 
@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/errcode"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/tsgen"
-	"github.com/ceymard/rel/wellknown"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/tsgen"
+	"github.com/rel-server/rel/wellknown"
 )
 
 // NewTypeScriptHandler serves GET /rel/database.ts. Mounting is conditional

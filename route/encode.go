@@ -12,11 +12,11 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/errcode"
-	jwtpkg "github.com/ceymard/rel/jwt"
-	"github.com/ceymard/rel/querystring"
-	"github.com/ceymard/rel/websec"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
+	jwtpkg "github.com/rel-server/rel/jwt"
+	"github.com/rel-server/rel/querystring"
+	"github.com/rel-server/rel/websec"
 	"github.com/samber/oops"
 )
 

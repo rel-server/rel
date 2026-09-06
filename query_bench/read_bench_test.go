@@ -82,7 +82,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ceymard/rel/query"
+	"github.com/rel-server/rel/query"
 )
 
 // mustResolveQuery runs the full pass-1/pass-2 pipeline ; duplicated from

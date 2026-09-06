@@ -3,7 +3,7 @@ package websec
 import (
 	"testing"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 func TestIsPreflight(t *testing.T) {

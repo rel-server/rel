@@ -1,4 +1,4 @@
-module github.com/ceymard/rel
+module github.com/rel-server/rel
 
 go 1.26.5
 

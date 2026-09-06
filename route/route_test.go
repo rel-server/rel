@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/pg"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/pg"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 

@@ -9,12 +9,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/dbauth"
-	"github.com/ceymard/rel/errcode"
-	jwtpkg "github.com/ceymard/rel/jwt"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/static"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/dbauth"
+	"github.com/rel-server/rel/errcode"
+	jwtpkg "github.com/rel-server/rel/jwt"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/static"
 )
 
 // NewHandler serves /route/{schema}/{function} as one dynamic dispatch

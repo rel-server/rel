@@ -3,8 +3,8 @@ package route
 import (
 	"net/http"
 
-	"github.com/ceymard/rel/errcode"
-	"github.com/ceymard/rel/pgerr"
+	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/pgerr"
 )
 
 // writePlainError writes a plain-text error body (## Postgres Exceptions),

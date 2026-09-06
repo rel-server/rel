@@ -15,8 +15,8 @@ import (
 	"github.com/crewjam/saml"
 	dsig "github.com/russellhaering/goxmldsig"
 
-	"github.com/ceymard/rel/config"
-	jwtpkg "github.com/ceymard/rel/jwt"
+	"github.com/rel-server/rel/config"
+	jwtpkg "github.com/rel-server/rel/jwt"
 )
 
 // staticSessionProvider/staticSPProvider are the minimal saml.IdentityProvider

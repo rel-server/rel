@@ -3,7 +3,7 @@
 // (querier.ts, query.ts, shapes.ts — schema.example.ts and example.ts are
 // deliberately NOT embedded, see that spec section's own file listing).
 // The embed directive can't reach outside its own package directory, which
-// is why this lives here rather than in tsgen (github.com/ceymard/rel/
+// is why this lives here rather than in tsgen (github.com/rel-server/rel/
 // tsgen), the package that actually does the concatenation.
 package typescript
 

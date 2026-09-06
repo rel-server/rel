@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/logging"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/logging"
 )
 
 // log is this package's own module-tagged logger — specs/logging.md

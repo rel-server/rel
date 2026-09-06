@@ -4,7 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ceymard/rel/errcode"
+	"github.com/rel-server/rel/errcode"
 )
 
 // TestHandler_SecretRoute_PermissionDenied_IsClassified : PG_PERMISSION_DENIED/403,

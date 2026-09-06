@@ -18,14 +18,14 @@ import (
 
 	"strings"
 
-	"github.com/ceymard/rel/boot"
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/dmut"
-	"github.com/ceymard/rel/logging"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/route"
-	"github.com/ceymard/rel/tsgen"
-	"github.com/ceymard/rel/wellknown"
+	"github.com/rel-server/rel/boot"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/dmut"
+	"github.com/rel-server/rel/logging"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/route"
+	"github.com/rel-server/rel/tsgen"
+	"github.com/rel-server/rel/wellknown"
 )
 
 func main() {

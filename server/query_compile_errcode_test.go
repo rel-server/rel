@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/ceymard/rel/errcode"
+	"github.com/rel-server/rel/errcode"
 )
 
 // TestRelHandler_QueryCompileErrors_AttachSpecificCodes : ## Rel-internal

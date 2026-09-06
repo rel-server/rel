@@ -1,10 +1,10 @@
 [project]
 docs_dir = "content"
-site_url = "https://ceymard.github.io/rel/"
+site_url = "https://rel-server.github.io/rel/"
 site_name = "Rel"
 site_description = "The Rel server documentation"
-repo_url = "https://github.com/ceymard/rel"
-repo_name = "ceymard/rel"
+repo_url = "https://github.com/rel-server/rel"
+repo_name = "rel-server/rel"
 edit_uri = "edit/main/docs/content/"
 
 extra_css = ["stylesheets/extra.css"]

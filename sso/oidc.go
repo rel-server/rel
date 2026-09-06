@@ -17,10 +17,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/oauth2"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/errcode"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/route"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/route"
 )
 
 // oidcStateCookiePrefix names the short-lived cookie /login sets and

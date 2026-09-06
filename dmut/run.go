@@ -27,7 +27,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 	"github.com/samber/oops"
 
 	dmutlib "github.com/ceymard/dmut/v2/mutations"

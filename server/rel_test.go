@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/query"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/query"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 

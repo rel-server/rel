@@ -18,13 +18,13 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/dbauth"
-	"github.com/ceymard/rel/errcode"
-	jwtpkg "github.com/ceymard/rel/jwt"
-	"github.com/ceymard/rel/logging"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/pgerr"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/dbauth"
+	"github.com/rel-server/rel/errcode"
+	jwtpkg "github.com/rel-server/rel/jwt"
+	"github.com/rel-server/rel/logging"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/pgerr"
 )
 
 // Server is a built, ready-to-mount static file server : Dirs is the

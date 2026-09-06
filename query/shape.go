@@ -19,7 +19,7 @@
 package query
 
 import (
-	"github.com/ceymard/rel/pg"
+	"github.com/rel-server/rel/pg"
 	"github.com/samber/oops"
 )
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/websec"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/websec"
 )
 
 // wrapWithWebsec builds boot.BuildMux's same chain for /route : websec.Middleware

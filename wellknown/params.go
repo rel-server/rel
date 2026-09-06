@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ceymard/rel/errcode"
+	"github.com/rel-server/rel/errcode"
 	"github.com/samber/oops"
 )
 

@@ -26,7 +26,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ceymard/rel/test/seed/seed"
+	"github.com/rel-server/rel/test/seed/seed"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

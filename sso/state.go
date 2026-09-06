@@ -10,7 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
-	"github.com/ceymard/rel/querystring"
+	"github.com/rel-server/rel/querystring"
 )
 
 // decodeLoginState decodes /login's raw query string (r.URL.RawQuery) the

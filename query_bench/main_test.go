@@ -38,10 +38,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/dmut"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/test/seed/seed"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/dmut"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/test/seed/seed"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 

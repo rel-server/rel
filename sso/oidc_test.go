@@ -14,8 +14,8 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	jwtlib "github.com/golang-jwt/jwt/v5"
 
-	"github.com/ceymard/rel/config"
-	jwtpkg "github.com/ceymard/rel/jwt"
+	"github.com/rel-server/rel/config"
+	jwtpkg "github.com/rel-server/rel/jwt"
 )
 
 // fakeOidcIssuer is a minimal, in-process OIDC issuer : discovery, JWKS,

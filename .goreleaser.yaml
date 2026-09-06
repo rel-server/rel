@@ -45,7 +45,7 @@ dockers_v2:
     ids: [rel]
     dockerfile: Dockerfile.goreleaser
     images:
-      - ceymard/rel
+      - rel-server/rel
     tags:
       - "{{ .Version }}"
       - latest
@@ -57,9 +57,9 @@ dockers_v2:
     labels:
       org.opencontainers.image.title: "{{ .ProjectName }}"
       org.opencontainers.image.version: "{{ .Version }}"
-      org.opencontainers.image.source: "https://github.com/ceymard/rel"
+      org.opencontainers.image.source: "https://github.com/rel-server/rel"
 
 release:
   github:
-    owner: ceymard
+    owner: rel-server
     name: rel

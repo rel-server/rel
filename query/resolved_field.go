@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/writer"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/writer"
 )
 
 // ColumnPath is the column-backed ResolvedField variant : a plain column of

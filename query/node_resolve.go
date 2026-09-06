@@ -22,9 +22,9 @@ package query
 import (
 	"sort"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/errcode"
-	"github.com/ceymard/rel/pg"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/pg"
 	"github.com/samber/oops"
 )
 

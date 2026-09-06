@@ -14,7 +14,7 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/ceymard/rel/errcode"
+	"github.com/rel-server/rel/errcode"
 )
 
 // requestPart is specs/route.md ## Request bodies' RequestPart : parts_

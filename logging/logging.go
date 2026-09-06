@@ -19,7 +19,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 	"github.com/lmittmann/tint"
 )
 

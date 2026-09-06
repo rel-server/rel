@@ -19,10 +19,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	dsig "github.com/russellhaering/goxmldsig"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/errcode"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/route"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/route"
 )
 
 // samlEndpoint is one configured saml.<name> entry's runtime state — same

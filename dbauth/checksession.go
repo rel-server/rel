@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	jwtpkg "github.com/ceymard/rel/jwt"
+	jwtpkg "github.com/rel-server/rel/jwt"
 )
 
 // Execer is the common subset of pgx.Tx and *pgxpool.Conn this package

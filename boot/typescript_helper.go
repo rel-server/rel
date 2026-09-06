@@ -4,10 +4,10 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/tsgen"
-	"github.com/ceymard/rel/wellknown"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/tsgen"
+	"github.com/rel-server/rel/wellknown"
 )
 
 // WriteTypeScriptHelperFile is specs/typescript.md ## Reloading

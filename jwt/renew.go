@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 // ShouldRenew is Lifecycle step 4's own condition : "more than

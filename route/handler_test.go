@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	jwtpkg "github.com/ceymard/rel/jwt"
-	"github.com/ceymard/rel/pg"
+	jwtpkg "github.com/rel-server/rel/jwt"
+	"github.com/rel-server/rel/pg"
 )
 
 func TestHandler_AnonymousCall(t *testing.T) {

@@ -7,7 +7,7 @@ package websec
 import (
 	"net/http"
 
-	"github.com/ceymard/rel/config"
+	"github.com/rel-server/rel/config"
 )
 
 // Middleware answers a CORS preflight directly (never reaching next at

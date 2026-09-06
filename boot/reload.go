@@ -21,11 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/dmut"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/route"
-	"github.com/ceymard/rel/wellknown"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/dmut"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/route"
+	"github.com/rel-server/rel/wellknown"
 )
 
 // Reloader owns the mutable state a SIGUSR1 reload (specs/migrations.md ##

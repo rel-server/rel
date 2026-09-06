@@ -20,15 +20,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/logging"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/route"
-	"github.com/ceymard/rel/server"
-	"github.com/ceymard/rel/sso"
-	"github.com/ceymard/rel/static"
-	"github.com/ceymard/rel/websec"
-	"github.com/ceymard/rel/wellknown"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/logging"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/route"
+	"github.com/rel-server/rel/server"
+	"github.com/rel-server/rel/sso"
+	"github.com/rel-server/rel/static"
+	"github.com/rel-server/rel/websec"
+	"github.com/rel-server/rel/wellknown"
 )
 
 // BuildMux assembles the full inner http.Handler — /rel, /route/, and (when

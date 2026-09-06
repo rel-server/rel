@@ -11,10 +11,10 @@ import (
 
 	jet "github.com/CloudyKit/jet/v6"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/errcode"
-	"github.com/ceymard/rel/logging"
-	"github.com/ceymard/rel/websec"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/logging"
+	"github.com/rel-server/rel/websec"
 )
 
 // TemplateSet wraps a *jet.Set — nil is a valid, meaningful value (no

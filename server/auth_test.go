@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ceymard/rel/config"
-	jwtpkg "github.com/ceymard/rel/jwt"
-	"github.com/ceymard/rel/pg"
+	"github.com/rel-server/rel/config"
+	jwtpkg "github.com/rel-server/rel/jwt"
+	"github.com/rel-server/rel/pg"
 )
 
 // mintCookie signs role/claims under cfg.Jwt ; /rel never mints its own

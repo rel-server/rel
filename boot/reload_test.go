@@ -22,10 +22,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ceymard/rel/config"
-	"github.com/ceymard/rel/pg"
-	"github.com/ceymard/rel/route"
-	"github.com/ceymard/rel/server"
+	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/route"
+	"github.com/rel-server/rel/server"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 

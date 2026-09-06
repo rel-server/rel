@@ -4,9 +4,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ceymard/rel/pg"
-	tsembed "github.com/ceymard/rel/typescript"
-	"github.com/ceymard/rel/wellknown"
+	"github.com/rel-server/rel/pg"
+	tsembed "github.com/rel-server/rel/typescript"
+	"github.com/rel-server/rel/wellknown"
 )
 
 // localImportLine matches one `import ... from "./..."` statement — single-

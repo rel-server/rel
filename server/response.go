@@ -11,8 +11,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/ceymard/rel/errcode"
-	"github.com/ceymard/rel/pgerr"
+	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/pgerr"
 	"github.com/jackc/pgx/v5"
 	"github.com/samber/oops"
 )
