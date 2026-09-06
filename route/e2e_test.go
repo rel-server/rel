@@ -160,6 +160,94 @@ func TestE2E_JWTRenewal(t *testing.T) {
 // TestE2E_RSxxxClassification proves an application-raised RSxxx exception
 // (pgerr.Classify) surfaces through the new dispatch path at the right
 // status, not just in pgerr's own unit tests.
+// TestE2E_SniffedContentType_Multipart proves ## Content-type sniffing's
+// Part.sniffed_content_type : rel detects the part's actual bytes
+// regardless of what Content-Type the client claimed for it.
+func TestE2E_SniffedContentType_Multipart(t *testing.T) {
+	var body strings.Builder
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreatePart(map[string][]string{
+		"Content-Disposition": {`form-data; name="file"; filename="fake.txt"`},
+		"Content-Type":        {"text/plain"}, // claimed ; the actual bytes are a PNG header
+	})
+	if err != nil {
+		t.Fatalf("CreatePart: %v", err)
+	}
+	if _, err := part.Write([]byte("\x89PNG\r\n\x1a\n" + strings.Repeat("x", 20))); err != nil {
+		t.Fatalf("writing part: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("closing multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/new/sniff/multipart", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "image/png") {
+		t.Errorf("expected the sniffed image/png (not the claimed text/plain), got %q", rec.Body.String())
+	}
+}
+
+// TestE2E_SniffedContentType_RawBody proves ## Content-type sniffing's
+// HttpRequest.sniffed_content_type for a raw (non-multipart) bytea body.
+func TestE2E_SniffedContentType_RawBody(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/new/sniff/body", strings.NewReader("\x89PNG\r\n\x1a\n"+strings.Repeat("x", 20)))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "image/png") {
+		t.Errorf("expected the sniffed image/png, got %q", rec.Body.String())
+	}
+}
+
+// TestE2E_SniffedContentType_StreamUploadSecondCallOnly proves stream_upload
+// never sniffs on the first call (no bytes yet) but does on the second,
+// from the already-streamed temp file's head.
+func TestE2E_SniffedContentType_StreamUploadSecondCallOnly(t *testing.T) {
+	dir := t.TempDir()
+	cfg := *testCfg
+	cfg.Http.Static.Path = dir
+	staticSrv := static.New(cfg.Http)
+	handler := NewHandler(testDb, &cfg, testReg, staticSrv)
+
+	var body strings.Builder
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreatePart(map[string][]string{
+		"Content-Disposition": {`form-data; name="file"; filename="fake.txt"`},
+		"Content-Type":        {"text/plain"},
+	})
+	if err != nil {
+		t.Fatalf("CreatePart: %v", err)
+	}
+	if _, err := part.Write([]byte("\x89PNG\r\n\x1a\n" + strings.Repeat("x", 20))); err != nil {
+		t.Fatalf("writing part: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("closing multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/new/stream?path=sniffed.png", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "image/png") {
+		t.Errorf("expected the second call's sniffed image/png (from the temp file's head), got %q", rec.Body.String())
+	}
+}
+
 func TestE2E_RSxxxClassification(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/new/raises", nil)
 	rec := httptest.NewRecorder()

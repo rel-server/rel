@@ -90,7 +90,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// nil for the route's own call unless middleware ran and set one (##
 	// Middleware).
 	buildReq := func(reqContext json.RawMessage) ([]byte, error) {
-		return buildRelHttpRequest(r, resolved.BodyJSON, verified, claims, staticInfo, resolved.Parts, reqContext, nil)
+		return buildRelHttpRequest(r, resolved.BodyJSON, verified, claims, staticInfo, resolved.Parts, reqContext, nil, resolved.SniffedContentType)
 	}
 
 	reqJSON, err := buildReq(nil)

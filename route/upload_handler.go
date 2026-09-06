@@ -127,7 +127,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// buildFirstReq re-derives the first call's request JSON for a given
 	// request.context — nil unless middleware ran and set one.
 	buildFirstReq := func(reqContext json.RawMessage) ([]byte, error) {
-		return buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, reqContext, firstUpload)
+		return buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, reqContext, firstUpload, "")
 	}
 	reqJSON1, err := buildFirstReq(nil)
 	if err != nil {
@@ -346,6 +346,14 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	secondUploadPayload := requestUploadPayload{Part: partJSON}
 	if hasUpload {
 		secondUploadPayload.Size = &size
+		// ## Content-type sniffing : the only place stream_upload's own
+		// Part.sniffed_content_type gets set — the first call has no bytes
+		// yet, so it never sniffs at all ; here the bytes already landed on
+		// disk, so sniff from the temp file's head rather than re-reading
+		// the (already-consumed) request body.
+		if sniffed, ok := sniffFileHead(tempPath); ok {
+			secondUploadPayload.Part = withSniffedContentType(partJSON, sniffed)
+		}
 	} else {
 		secondUploadPayload.Part = json.RawMessage("null")
 	}
@@ -354,7 +362,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
-	reqJSON2, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, nil, secondUpload)
+	reqJSON2, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, nil, secondUpload, "")
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
 		return
@@ -410,6 +418,43 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 
 	writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, secondEnvelope, secondContent, templates, staticSrv)
+}
+
+// sniffFileHead reads enough of path's head for net/http.DetectContentType
+// (512 bytes is its own documented ceiling — more is never useful) ; ok is
+// false for an empty file (nothing to sniff) or a read failure, in which
+// case the caller leaves Part.sniffed_content_type absent rather than
+// guessing.
+func sniffFileHead(path string) (sniffed string, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	buf := make([]byte, 512)
+	n, _ := io.ReadFull(f, buf)
+	if n == 0 {
+		return "", false
+	}
+	return http.DetectContentType(buf[:n]), true
+}
+
+// withSniffedContentType decodes partJSON, sets SniffedContentType, and
+// re-marshals — partJSON was already built once (requestPartFrom/
+// synthesizedPseudoPart) before any bytes were available, so sniffing
+// patches it in after the fact rather than threading sniffed-ness through
+// the earlier construction.
+func withSniffedContentType(partJSON json.RawMessage, sniffed string) json.RawMessage {
+	var part requestPart
+	if err := sonic.Unmarshal(partJSON, &part); err != nil {
+		return partJSON
+	}
+	part.SniffedContentType = &sniffed
+	encoded, err := sonic.Marshal(part)
+	if err != nil {
+		return partJSON
+	}
+	return encoded
 }
 
 // resolveUnderDir rejects a path escaping dir outright ; plain

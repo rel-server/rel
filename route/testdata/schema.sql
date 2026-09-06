@@ -345,6 +345,20 @@ create function fn_new_upload(req jsonb, files bytea[]) returns jsonb language s
 $$;
 comment on function fn_new_upload(jsonb, bytea[]) is 'route: {"path": "/new/upload"}';
 
+-- ## Content-type sniffing fixtures : echo the relevant sniffed_content_type
+-- back so a real HTTP test can inspect it.
+create function fn_new_sniff_multipart(req jsonb, files bytea[]) returns jsonb language sql as $$
+  select req->'parts'->0->'sniffed_content_type';
+$$;
+comment on function fn_new_sniff_multipart(jsonb, bytea[]) is 'route:: path: "/new/sniff/multipart"';
+grant execute on function fn_new_sniff_multipart(jsonb, bytea[]) to "~anonymous";
+
+create function fn_new_sniff_body(req jsonb, files bytea) returns jsonb language sql as $$
+  select req->'sniffed_content_type';
+$$;
+comment on function fn_new_sniff_body(jsonb, bytea) is 'route:: path: "/new/sniff/body"';
+grant execute on function fn_new_sniff_body(jsonb, bytea) to "~anonymous";
+
 -- A named text path argument, matched against a "{id}" placeholder.
 create function fn_new_byid(req jsonb, id text) returns jsonb language sql as $$
   select jsonb_build_object('id', id);

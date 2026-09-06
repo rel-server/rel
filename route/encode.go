@@ -29,6 +29,11 @@ type relHttpRequestPayload struct {
 	URI         string              `json:"uri"`
 	Headers     map[string][]string `json:"headers"`
 	ContentType string              `json:"content_type"`
+	// SniffedContentType is ## Content-type sniffing : rel's own detection
+	// of the body's actual bytes, alongside the client-claimed ContentType
+	// above — omitted for a body-less request or a multipart one (whose
+	// sniffing lives per-Part instead).
+	SniffedContentType string `json:"sniffed_content_type,omitempty"`
 	// Typed by ContentType (see encodeBody) ; RawMessage since the shape is
 	// genuinely polymorphic (JSON value / string / form object / base64 / null).
 	Body    json.RawMessage   `json:"body"`
@@ -125,7 +130,7 @@ func (e *badQueryError) Unwrap() error { return e.err }
 // when there's no static.Server at all ; parts is nil for a non-multipart
 // request ; reqContext is nil until a middleware has actually merged
 // something in (## Middleware).
-func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified bool, claims jwtpkg.Claims, static *staticInfoPayload, parts []requestPart, reqContext, upload json.RawMessage) ([]byte, error) {
+func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified bool, claims jwtpkg.Claims, static *staticInfoPayload, parts []requestPart, reqContext, upload json.RawMessage, sniffedContentType string) ([]byte, error) {
 	cookies := map[string]string{}
 	for _, c := range r.Cookies() {
 		cookies[c.Name] = c.Value
@@ -139,19 +144,20 @@ func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified boo
 		return nil, &badQueryError{err}
 	}
 	payload := relHttpRequestPayload{
-		Method:      r.Method,
-		URI:         r.URL.String(),
-		Headers:     map[string][]string(r.Header),
-		ContentType: r.Header.Get("Content-Type"),
-		Body:        bodyJSON,
-		Cookies:     cookies,
-		Jwt:         jwtVal,
-		Query:       queryVal,
-		CspNonce:    websec.NonceFromContext(r.Context()),
-		Parts:       parts,
-		Static:      static,
-		Context:     reqContext,
-		Upload:      upload,
+		Method:             r.Method,
+		URI:                r.URL.String(),
+		Headers:            map[string][]string(r.Header),
+		ContentType:        r.Header.Get("Content-Type"),
+		Body:               bodyJSON,
+		Cookies:            cookies,
+		Jwt:                jwtVal,
+		Query:              queryVal,
+		CspNonce:           websec.NonceFromContext(r.Context()),
+		Parts:              parts,
+		Static:             static,
+		Context:            reqContext,
+		Upload:             upload,
+		SniffedContentType: sniffedContentType,
 	}
 	return sonic.Marshal(payload)
 }

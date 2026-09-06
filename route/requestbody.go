@@ -26,6 +26,12 @@ type requestPart struct {
 	Filename *string `json:"filename"`
 	// ContentType is nil, not "", when the part had no header at all.
 	ContentType *string `json:"content_type"`
+	// SniffedContentType is ## Content-type sniffing's own detection of the
+	// part's actual bytes, via net/http.DetectContentType — omitted
+	// (absent, not null) until those bytes are actually in hand :
+	// stream_upload's first call builds a requestPart before reading any
+	// bytes at all, so it stays nil there.
+	SniffedContentType *string `json:"sniffed_content_type,omitempty"`
 	// Headers is never nil — an empty map marshals as "{}".
 	Headers map[string][]string `json:"headers"`
 }
@@ -83,6 +89,11 @@ type resolvedRequestBody struct {
 	SingleBytes []byte
 	Files       [][]byte
 	Parts       []requestPart
+	// SniffedContentType is ## Content-type sniffing's HttpRequest.
+	// sniffed_content_type — "" (omitted) for a multipart body, whose
+	// per-part sniffing lives on each Parts entry instead, or for a body-
+	// less request.
+	SniffedContentType string
 }
 
 // resolveRequestBody reads r.Body (bounded by maxBodySize), dispatching on
@@ -152,7 +163,7 @@ func finishSingleBody(route Route, contentTypeHeader string, body []byte) (resol
 		if err != nil {
 			return resolvedRequestBody{}, err
 		}
-		return resolvedRequestBody{BodyJSON: bodyJSON, Files: [][]byte{}, Parts: nil}, nil
+		return resolvedRequestBody{BodyJSON: bodyJSON, Files: [][]byte{}, Parts: nil, SniffedContentType: sniffedContentTypeOf(body)}, nil
 	}
 
 	// A zero-byte body yields an empty/absent payload, not a 415 — a route
@@ -179,10 +190,20 @@ func finishSingleBody(route Route, contentTypeHeader string, body []byte) (resol
 	}
 
 	return resolvedRequestBody{
-		BodyJSON:    json.RawMessage("null"),
-		SingleBytes: body,
-		Parts:       nil,
+		BodyJSON:           json.RawMessage("null"),
+		SingleBytes:        body,
+		Parts:              nil,
+		SniffedContentType: sniffedContentTypeOf(body),
 	}, nil
+}
+
+// sniffedContentTypeOf is ## Content-type sniffing's own detection, "" for
+// an empty body (nothing to sniff, and "" json-omits via omitempty).
+func sniffedContentTypeOf(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	return http.DetectContentType(body)
 }
 
 // synthesizedPseudoPart : name/filename are always null for a raw binary
@@ -232,7 +253,10 @@ func parseMultipart(mr *multipart.Reader, maxPartCount int) ([][]byte, []request
 			return nil, nil, badRequestBody("reading multipart part: " + rerr.Error())
 		}
 		files = append(files, data)
-		parts = append(parts, requestPartFrom(p))
+		part := requestPartFrom(p)
+		sniffed := http.DetectContentType(data)
+		part.SniffedContentType = &sniffed
+		parts = append(parts, part)
 	}
 	return files, parts, nil
 }

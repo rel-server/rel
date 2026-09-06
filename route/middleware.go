@@ -240,7 +240,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 
 		staticInfo := staticInfoForRequest(staticSrv, r)
 		buildReq := func(reqContext json.RawMessage) ([]byte, error) {
-			return buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, reqContext, nil)
+			return buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, reqContext, nil, "")
 		}
 
 		// mergedContext/accumulated have no consumer here — /rel and the

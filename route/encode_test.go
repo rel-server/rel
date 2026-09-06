@@ -139,6 +139,33 @@ func TestEncodeBody_HasFiles_AlwaysNull(t *testing.T) {
 	}
 }
 
+// TestDecodeOutboundCookie_NullClears is a regression test : a response
+// cookie set to JSON null must clear the cookie (MaxAge -1), not silently
+// unmarshal into an empty-string, persistent (default MaxAge) cookie.
+func TestDecodeOutboundCookie_NullClears(t *testing.T) {
+	cfg := config.Test()
+	c := decodeOutboundCookie(cfg, "session", json.RawMessage("null"))
+	if c.MaxAge >= 0 {
+		t.Errorf("expected MaxAge < 0 (a clear), got %d", c.MaxAge)
+	}
+	if c.Value != "" {
+		t.Errorf("expected an empty value, got %q", c.Value)
+	}
+}
+
+// TestDecodeOutboundCookie_StringSetsValue covers the ordinary case, so the
+// null-check above provably doesn't also swallow a real string value.
+func TestDecodeOutboundCookie_StringSetsValue(t *testing.T) {
+	cfg := config.Test()
+	c := decodeOutboundCookie(cfg, "greeting", json.RawMessage(`"hello"`))
+	if c.Value != "hello" {
+		t.Errorf(`expected value "hello", got %q`, c.Value)
+	}
+	if c.MaxAge < 0 {
+		t.Errorf("expected a persistent cookie (MaxAge >= 0), got %d", c.MaxAge)
+	}
+}
+
 func TestMediaTypeOf_StripsParams(t *testing.T) {
 	if got := mediaTypeOf("text/plain; charset=utf-8"); got != "text/plain" {
 		t.Errorf("expected text/plain, got %q", got)
