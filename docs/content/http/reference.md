@@ -126,6 +126,7 @@ each row pointing at the page that explains the *behavior*, not just the key.
 | `saml.<name>.callback_function` | falls back to `http.functions.sso_callback` | Same as `openid.<name>.callback_function`. |
 | `saml.<name>.public_host` | falls back to `http.public_host` | Same as `openid.<name>.public_host`. |
 | `saml.certificate_path` / `saml.private_key_path` | generated on first boot | This deployment's SP certificate/key, shared across every `saml.<name>` entry. |
+| `saml.<name>.certificate_path` / `saml.<name>.private_key_path` | falls back to `saml.certificate_path` / `saml.private_key_path` | Per-entry override — same generate-if-missing behavior, scoped to this entry alone. |
 
 ### Static file access control
 

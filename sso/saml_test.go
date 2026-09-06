@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -376,5 +377,79 @@ func TestSaml_AcsIdpInitiatedHasNilState(t *testing.T) {
 	}
 	if payload.State != nil {
 		t.Errorf("state = %#v, want nil for an IdP-initiated login", payload.State)
+	}
+}
+
+// TestResolveSamlKeyPair_NoOverrideReusesShared proves an entry setting
+// neither certificate_path nor private_key_path reuses the shared keypair
+// object exactly (pointer equality) — no extra disk read/generation, and
+// every such entry ends up trusting the same SP identity.
+func TestResolveSamlKeyPair_NoOverrideReusesShared(t *testing.T) {
+	shared := &spKeyPair{}
+	kp, err := resolveSamlKeyPair("test", config.SamlProvider{}, &config.Config{}, "app.example.com", shared)
+	if err != nil {
+		t.Fatalf("resolveSamlKeyPair: %v", err)
+	}
+	if kp != shared {
+		t.Errorf("expected the shared keypair back, got a different one")
+	}
+}
+
+// TestResolveSamlKeyPair_OverrideLoadsItsOwn proves an entry with its own
+// certificate_path/private_key_path gets a distinct keypair, generated and
+// persisted under its own path — not the shared one.
+func TestResolveSamlKeyPair_OverrideLoadsItsOwn(t *testing.T) {
+	shared := &spKeyPair{}
+	dir := t.TempDir()
+	p := config.SamlProvider{
+		CertificatePath: dir + "/own-cert.pem",
+		PrivateKeyPath:  dir + "/own-cert.key",
+	}
+	kp, err := resolveSamlKeyPair("test", p, &config.Config{}, "app.example.com", shared)
+	if err != nil {
+		t.Fatalf("resolveSamlKeyPair: %v", err)
+	}
+	if kp == shared {
+		t.Errorf("expected a distinct keypair, got the shared one back")
+	}
+	if _, err := os.Stat(dir + "/own-cert.pem"); err != nil {
+		t.Errorf("expected the override certificate to be persisted at its own path: %v", err)
+	}
+
+	// A second call must load the now-persisted keypair back, not generate
+	// yet another one.
+	kp2, err := resolveSamlKeyPair("test", p, &config.Config{}, "app.example.com", shared)
+	if err != nil {
+		t.Fatalf("resolveSamlKeyPair (second call): %v", err)
+	}
+	if kp2.Certificate.SerialNumber.Cmp(kp.Certificate.SerialNumber) != 0 || !kp2.Certificate.Equal(kp.Certificate) {
+		t.Errorf("expected the second call to load the same persisted certificate back")
+	}
+}
+
+// TestResolveSamlKeyPair_PartialOverrideFallsBackToShared proves setting
+// only certificate_path (or only private_key_path) falls back to
+// Saml.CertificatePath/PrivateKeyPath for the half left unset, rather than
+// treating an empty string as a literal (nonexistent) path.
+func TestResolveSamlKeyPair_PartialOverrideFallsBackToShared(t *testing.T) {
+	shared := &spKeyPair{}
+	dir := t.TempDir()
+	cfg := &config.Config{
+		Saml: config.Saml{PrivateKeyPath: dir + "/shared-cert.key"},
+	}
+	p := config.SamlProvider{CertificatePath: dir + "/own-cert.pem"}
+
+	kp, err := resolveSamlKeyPair("test", p, cfg, "app.example.com", shared)
+	if err != nil {
+		t.Fatalf("resolveSamlKeyPair: %v", err)
+	}
+	if kp == shared {
+		t.Errorf("expected a distinct keypair, got the shared one back")
+	}
+	if _, err := os.Stat(dir + "/own-cert.pem"); err != nil {
+		t.Errorf("expected the override certificate at its own path: %v", err)
+	}
+	if _, err := os.Stat(dir + "/shared-cert.key"); err != nil {
+		t.Errorf("expected the key at the shared fallback path: %v", err)
 	}
 }

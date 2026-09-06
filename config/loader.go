@@ -707,6 +707,12 @@ func readSamlProviders(root *ConfigReader) map[string]SamlProvider {
 		if s, err := providerReader.GetString("public_host"); err == nil {
 			p.PublicHost = s
 		}
+		if s, err := providerReader.GetString("certificate_path"); err == nil {
+			p.CertificatePath = s
+		}
+		if s, err := providerReader.GetString("private_key_path"); err == nil {
+			p.PrivateKeyPath = s
+		}
 		out[name] = p
 	}
 	return out

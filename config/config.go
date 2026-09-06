@@ -315,9 +315,10 @@ type OpenidProvider struct {
 	PublicHost string
 }
 
-// Saml is saml.* : the shared SP certificate/key (one SP identity across
-// every configured saml.<name> IdP) plus the named saml.<name>.* entries
-// themselves — specs/oauth-saml.md ## Configuration — SAML/## Certificate.
+// Saml is saml.* : the default SP certificate/key (shared across every
+// configured saml.<name> IdP that doesn't override it) plus the named
+// saml.<name>.* entries themselves — specs/oauth-saml.md
+// ## Configuration — SAML/## Certificate.
 type Saml struct {
 	// CertificatePath/PrivateKeyPath are saml.certificate_path/
 	// saml.private_key_path, default DefaultSamlCertificatePath/
@@ -325,7 +326,8 @@ type Saml struct {
 	// same shape jwt.secret's own default uses. Loaded if found (bring-
 	// your-own-certificate) ; generated and persisted to the first
 	// candidate whose parent directory exists, otherwise — see
-	// ## Certificate.
+	// ## Certificate. Used by any saml.<name> entry that doesn't set its
+	// own SamlProvider.CertificatePath/PrivateKeyPath.
 	CertificatePath string
 	PrivateKeyPath  string
 	// Providers is saml.<name>.* — named entries, same map-of-named-
@@ -352,6 +354,14 @@ type SamlProvider struct {
 	// PublicHost is saml.<name>.public_host, default "" (empty) : same
 	// per-entry override as OpenidProvider.PublicHost.
 	PublicHost string
+	// CertificatePath/PrivateKeyPath are saml.<name>.certificate_path/
+	// saml.<name>.private_key_path, default "" (empty) : an optional
+	// per-entry override of Saml.CertificatePath/PrivateKeyPath, same
+	// resolveHost-style "own value wins when set, else the shared one"
+	// rule as PublicHost. Same shape and same load-or-generate-and-persist
+	// behavior as the shared pair when set — see ## Certificate.
+	CertificatePath string
+	PrivateKeyPath  string
 }
 
 // HttpStatic is http.static.* — static file serving, per

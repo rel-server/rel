@@ -175,7 +175,10 @@ A few things worth knowing before wiring this up in production:
 - **SAML needs a stable certificate.** rel generates a self-signed one on first boot if
   `saml.certificate_path`/`saml.private_key_path` don't already exist, and reuses it silently
   on every later boot — swapping it breaks every IdP that was told to trust the old one, so
-  back those files up the same way you'd back up any other credential.
+  back those files up the same way you'd back up any other credential. That one certificate
+  is shared across every `saml.<name>` entry by default; an entry needing an IdP to trust a
+  certificate of its own sets `saml.<name>.certificate_path`/`private_key_path` — same
+  generate-if-missing behavior, scoped to that entry alone.
 - A misconfigured or not-yet-reachable provider doesn't fail startup — rel logs a warning and
   serves `503` from that provider's endpoints until it becomes reachable, so one broken IdP
   connection doesn't take the rest of the deployment down.
@@ -273,6 +276,7 @@ introspection/reload for every route reachable by `PUBLIC` at all, regardless of
 | `saml.<name>.idp_metadata_url` | — | required; fetched once at startup |
 | `saml.<name>.force_signed_requests` | `true` | sign outgoing `AuthnRequest`s |
 | `saml.certificate_path` / `saml.private_key_path` | generated on first boot | this deployment's SP certificate/key, shared across every `saml.<name>` entry |
+| `saml.<name>.certificate_path` / `saml.<name>.private_key_path` | unset, inherits the shared pair above | per-entry override, generated on first boot the same way if set and missing |
 
 See [Configuration](../configuration/index.md) for how these values, secrets included, get
 supplied across environment variables, config files, and generated files — including a couple

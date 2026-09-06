@@ -108,11 +108,15 @@ func (e *samlEndpoint) ensureReady(ctx context.Context) bool {
 }
 
 // mountSaml registers /auth/saml/{name}/{login,acs,metadata} for every
-// configured saml.<name> entry. kp is the shared SP identity — one
-// keypair across every IdP, per specs/oauth-saml.md ## Certificate. Each
-// entry's own root URL is resolveHost(p.PublicHost, cfg.Http.PublicHost) —
+// configured saml.<name> entry. sharedKP is the default SP identity — one
+// keypair shared by every entry that doesn't override it, per
+// specs/oauth-saml.md ## Certificate. An entry with its own
+// certificate_path/private_key_path (resolveSamlKeyPair) instead loads or
+// generates a keypair of its own, under the same rules, so its own IdP
+// trusts a certificate distinct from the shared default. Each entry's own
+// root URL is resolveHost(p.PublicHost, cfg.Http.PublicHost) —
 // specs/oauth-saml.md ## Configuration — HTTP's per-entry override.
-func mountSaml(router chi.Router, db *pg.DbInfos, cfg *config.Config, kp *spKeyPair, templates *route.TemplateSet) {
+func mountSaml(router chi.Router, db *pg.DbInfos, cfg *config.Config, sharedKP *spKeyPair, templates *route.TemplateSet) {
 	if len(cfg.Saml.Providers) == 0 {
 		return
 	}
@@ -126,11 +130,39 @@ func mountSaml(router chi.Router, db *pg.DbInfos, cfg *config.Config, kp *spKeyP
 			log.Error("sso: saml entry has no effective public_host (neither its own nor http.public_host is set), skipping", "name", name)
 			continue
 		}
+		kp, err := resolveSamlKeyPair(name, p, cfg, host, sharedKP)
+		if err != nil {
+			log.Error("sso: could not load or generate this saml entry's own SAML SP certificate, skipping", "name", name, "error", err.Error())
+			continue
+		}
 		endpoint := newSamlEndpoint(name, p, rootURLFor(host), kp)
 		router.Get(samlLoginPath(name), samlLoginHandler(endpoint))
 		router.Post(samlAcsPath(name), samlAcsHandler(endpoint, db, cfg, templates))
 		router.Get(samlMetadataPath(name), samlMetadataHandler(endpoint))
 	}
+}
+
+// resolveSamlKeyPair is saml.<name>.certificate_path/private_key_path's
+// own-value-wins-else-shared rule (same shape as resolveHost) : an entry
+// setting neither reuses sharedKP as-is (one disk read/generation for the
+// whole deployment, and one SP identity for every IdP trusting it) ; an
+// entry setting either one loads or generates its OWN keypair instead,
+// falling back to the shared path list for whichever of the pair it left
+// unset, under the exact same load-or-generate-and-persist behavior as the
+// shared pair (sso/cert.go's LoadOrGenerateSPKeyPair).
+func resolveSamlKeyPair(name string, p config.SamlProvider, cfg *config.Config, host string, sharedKP *spKeyPair) (*spKeyPair, error) {
+	if p.CertificatePath == "" && p.PrivateKeyPath == "" {
+		return sharedKP, nil
+	}
+	certPath := p.CertificatePath
+	if certPath == "" {
+		certPath = cfg.Saml.CertificatePath
+	}
+	keyPath := p.PrivateKeyPath
+	if keyPath == "" {
+		keyPath = cfg.Saml.PrivateKeyPath
+	}
+	return LoadOrGenerateSPKeyPair(certPath, keyPath, []string{host}, nil)
 }
 
 // samlLoginHandler is the SP-initiated flow : redirect to the IdP with a

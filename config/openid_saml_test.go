@@ -194,6 +194,42 @@ idp_metadata_url = "https://idp.example.com/metadata"
 	}
 }
 
+// TestLoad_SamlProviders_PerEntryCertOverride covers saml.<name>.
+// certificate_path/private_key_path : an optional, per-entry override of
+// the shared saml.certificate_path/private_key_path, empty (inheriting the
+// shared pair) when unset.
+func TestLoad_SamlProviders_PerEntryCertOverride(t *testing.T) {
+	cfgPath := writeFile(t, t.TempDir(), "rel.toml", `
+[saml]
+certificate_path = "/shared/cert.pem"
+private_key_path = "/shared/cert.key"
+
+[saml.inherits]
+idp_metadata_url = "https://a.example.com/metadata"
+
+[saml.overrides]
+idp_metadata_url = "https://b.example.com/metadata"
+certificate_path = "/custom/b-cert.pem"
+private_key_path = "/custom/b-cert.key"
+`)
+	cfg, err := Load([]string{"--config=" + cfgPath})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.Saml.Providers["inherits"].CertificatePath; got != "" {
+		t.Errorf("saml.inherits.certificate_path should be empty (inherits the shared pair), got %q", got)
+	}
+	if got := cfg.Saml.Providers["inherits"].PrivateKeyPath; got != "" {
+		t.Errorf("saml.inherits.private_key_path should be empty (inherits the shared pair), got %q", got)
+	}
+	if got := cfg.Saml.Providers["overrides"].CertificatePath; got != "/custom/b-cert.pem" {
+		t.Errorf("saml.overrides.certificate_path = %q", got)
+	}
+	if got := cfg.Saml.Providers["overrides"].PrivateKeyPath; got != "/custom/b-cert.key" {
+		t.Errorf("saml.overrides.private_key_path = %q", got)
+	}
+}
+
 // TestLoad_SsoCallbackFallback_DefaultEmpty covers http.functions.sso_callback's
 // default (disabled) and explicit-set path.
 func TestLoad_SsoCallbackFallback_DefaultEmpty(t *testing.T) {

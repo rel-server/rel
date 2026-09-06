@@ -70,11 +70,18 @@ endpoint.
   flat filenames directly under `/secrets/`, plus a local-dev fallback, same
   colon-separated candidate search list `configuration.md ## $FILE$ value indirection`
   describes). See `## Certificate`.
+* `saml.<name>.certificate_path`, `saml.<name>.private_key_path` (default empty, meaning
+  "use `saml.certificate_path`/`saml.private_key_path`") — per-entry override, for an IdP
+  that must trust a certificate distinct from every other configured entry's. Setting only
+  one of the pair leaves the other inheriting the shared value, the same way
+  `openid.<name>.public_host`/`saml.<name>.public_host` inherit `http.public_host` above.
+  Same load-or-generate-and-persist behavior as the shared pair — see `## Certificate`.
 
 ## Certificate
 
 SAML requires this deployment to act as a Service Provider with a stable identity: an
-entity ID and a certificate the IdP is told to trust ahead of time. On startup, rel:
+entity ID and a certificate the IdP is told to trust ahead of time. By default, every
+configured `saml.<name>` entry shares one such identity. On startup, rel:
 
 1. Tries to load `saml.certificate_path`/`saml.private_key_path`. Found: use them
    unchanged — this is the bring-your-own-certificate path, for a deployment that already
@@ -88,6 +95,14 @@ entity ID and a certificate the IdP is told to trust ahead of time. On startup, 
    warning) — the certificate must stay stable across restarts, since an IdP has been
    configured to trust that specific certificate and swapping it invalidates that trust
    with no obvious error surfaced anywhere on the SAML side.
+
+An entry setting its own `saml.<name>.certificate_path`/`private_key_path` goes through
+the exact same three steps independently, scoped to its own path pair, instead of sharing
+the deployment-wide identity — for an IdP that must trust a certificate distinct from
+every other configured entry's. A failure at this per-entry step (an unwritable candidate
+directory failing step 2's write, say) only skips that one entry, logged, the same
+non-fatal treatment `## Configuration — HTTP`'s no-effective-host case gets; it never
+affects entries using the shared identity or each other.
 
 `## Endpoints`' independence between `/auth/saml/{name}/metadata` and
 `saml.<name>.idp_metadata_url` resolving exists specifically so a developer can complete
