@@ -228,6 +228,8 @@ Dynamic namespaces (not enumerated above — "*" matches an entire schema) :
   blacklist.functions.<schema>.<name|*>=y|n    blacklist a function from being called
   http.static.access.<name>.prefix=<subpath>   gate a static-file subpath prefix behind a DB check
   http.static.access.<name>.function=<fqname>  the check_static_access-shaped function for that rule
+  route.<schema>.<function>.path=<chi-path>    declare <schema>.<function> routable at <chi-path>
+  route.<schema>.<function>.method=<verbs>     comma-separated accepted methods ; inferred if unset
   openid.<name>.issuer=<url>                   OIDC issuer URL ; /.well-known/openid-configuration is discovered from it
   openid.<name>.client_id=<id>                 default $FILE$/secrets/openid-<name>.id:./openid-<name>.id
   openid.<name>.client_secret=<secret>         default $FILE$/secrets/openid-<name>.secret:./openid-<name>.secret

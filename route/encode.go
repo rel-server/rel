@@ -38,6 +38,28 @@ type relHttpRequestPayload struct {
 	Query any `json:"query"`
 	// CspNonce is docs/content/http/cors-csp.md ## CSP ### Nonce's csp_nonce.
 	CspNonce string `json:"csp_nonce"`
+	// Parts is specs/new-routes.md ## Function prototype's multipart part
+	// metadata, always filled for a multipart request regardless of
+	// whether the route declares bytea[] — nil for a non-multipart request.
+	Parts []requestPart `json:"parts,omitempty"`
+	// Static is specs/new-routes.md ## Static path masking's request.static
+	// : what would be served at this exact request path, computed once per
+	// request regardless of whether anything ends up masking it.
+	Static *staticInfoPayload `json:"static,omitempty"`
+	// Context is specs/new-routes.md ## Middleware's request.context :
+	// shallow-merged in by any middleware that ran first ; nil if none did.
+	Context json.RawMessage `json:"context,omitempty"`
+	// Upload is specs/new-routes.md ## `stream_upload`'s per-call upload
+	// metadata ({part} on the first call, {part, size} on the second) ;
+	// nil for any route that isn't stream_upload.
+	Upload json.RawMessage `json:"upload,omitempty"`
+}
+
+// staticInfoPayload is static.Info's own HTTP-facing shape.
+type staticInfoPayload struct {
+	Exists     bool   `json:"exists"`
+	Size       int64  `json:"size,omitempty"`
+	ModifiedAt string `json:"modified_at,omitempty"`
 }
 
 // badBodyError marks a malformed request body (specs/route.md ## Request)
@@ -98,7 +120,11 @@ func (e *badQueryError) Unwrap() error { return e.err }
 
 // buildRelHttpRequest encodes r as docs/content/http/requests-responses.md's RelHttpRequest ; bodyJSON is
 // pre-encoded (see encodeBody) since the handler needs the route's hasFiles.
-func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified bool, claims jwtpkg.Claims) ([]byte, error) {
+// static/parts/reqContext are specs/new-routes.md additions — static is nil
+// when there's no static.Server at all ; parts is nil for a non-multipart
+// request ; reqContext is nil until a middleware has actually merged
+// something in (## Middleware).
+func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified bool, claims jwtpkg.Claims, static *staticInfoPayload, parts []requestPart, reqContext, upload json.RawMessage) ([]byte, error) {
 	cookies := map[string]string{}
 	for _, c := range r.Cookies() {
 		cookies[c.Name] = c.Value
@@ -121,6 +147,10 @@ func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified boo
 		Jwt:         jwtVal,
 		Query:       queryVal,
 		CspNonce:    websec.NonceFromContext(r.Context()),
+		Parts:       parts,
+		Static:      static,
+		Context:     reqContext,
+		Upload:      upload,
 	}
 	return sonic.Marshal(payload)
 }
@@ -162,7 +192,27 @@ func WriteRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Co
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding function response")
 		return
 	}
+	status := applyResponseSideEffects(w, r, cfg, functionIdent, resp)
 
+	if resp.Template != "" {
+		writeTemplateResponse(w, r, templates, resp.Template, resp.TemplateData, resp.ContentType, status)
+		return
+	}
+
+	if resp.ContentType != "" {
+		w.Header().Set("Content-Type", resp.ContentType)
+	}
+	w.WriteHeader(status)
+	_, _ = w.Write(contentBytes(resp.Content, resp.ContentType))
+}
+
+// applyResponseSideEffects applies headers/cookies/jwt/csp — every
+// RelHttpResponse field that ISN'T the response body itself — and returns
+// the resolved status. Shared between the single-jsonb-envelope case above
+// (also sso's own callback response, via WriteRelHttpResponse) and a
+// full-control route's envelope (writeFullControlResponse), since both
+// carry the exact same side-effecting fields.
+func applyResponseSideEffects(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, resp relHttpResponsePayload) int {
 	for key, rawVal := range resp.Headers {
 		for _, v := range headerValues(rawVal) {
 			w.Header().Add(key, v)
@@ -178,21 +228,67 @@ func WriteRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Co
 		w.Header().Set("Content-Security-Policy", websec.Policy(cfg.Http.Csp, resp.Csp, nonce))
 	}
 
-	status := resp.Status
-	if status == 0 {
-		status = http.StatusOK
+	if resp.Status == 0 {
+		return http.StatusOK
+	}
+	return resp.Status
+}
+
+// writeSingleReturnResponse writes a non-full-control route's single return
+// value directly as the body — no envelope, no cookies/headers/jwt/status
+// override possible without the two-OUT-column shape. raw is exactly what
+// Postgres returned : already the real bytes/text/JSON, never itself
+// JSON-encoded the way a single-jsonb-envelope's "content" key is, so it's
+// written verbatim rather than through contentBytes. route.Template (the
+// declared default) renders it as Data when set — specs/new-routes.md
+// ## Templates : "the other return type is then used as the Data" applies
+// here too, there being no per-response override without full control.
+func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, route Route, raw []byte, templates *TemplateSet) {
+	if route.Template != "" {
+		writeTemplateResponse(w, r, templates, route.Template, templateDataFromSingleReturn(raw, route.ContentType), route.ContentType, http.StatusOK)
+		return
+	}
+	if route.ContentType != "" {
+		w.Header().Set("Content-Type", route.ContentType)
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(raw)
+}
+
+// writeFullControlResponse decodes envelopeRaw (the first OUT column) and
+// writes contentRaw (the second) as the body, per specs/new-routes.md
+// ## Function prototype's two-OUT-column shape — envelopeRaw carries every
+// side-effecting field plus an optional content_type/template override ;
+// contentRaw is the real body bytes, exactly like writeSingleReturnResponse's
+// raw, and a template (envelope's own, falling back to route.Template) uses
+// contentRaw as its Data.
+func writeFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, route Route, envelopeRaw, contentRaw []byte, templates *TemplateSet) {
+	var resp relHttpResponsePayload
+	if err := sonic.Unmarshal(envelopeRaw, &resp); err != nil {
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding function response")
+		return
+	}
+	status := applyResponseSideEffects(w, r, cfg, functionIdent, resp)
+
+	contentType := resp.ContentType
+	if contentType == "" {
+		contentType = route.ContentType
 	}
 
-	if resp.Template != "" {
-		writeTemplateResponse(w, r, templates, resp, status)
+	template := resp.Template
+	if template == "" {
+		template = route.Template
+	}
+	if template != "" {
+		writeTemplateResponse(w, r, templates, template, templateDataFromSingleReturn(contentRaw, contentType), contentType, status)
 		return
 	}
 
-	if resp.ContentType != "" {
-		w.Header().Set("Content-Type", resp.ContentType)
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
 	}
 	w.WriteHeader(status)
-	_, _ = w.Write(contentBytes(resp.Content, resp.ContentType))
+	_, _ = w.Write(contentRaw)
 }
 
 // headerValues decodes a RelHttpResponse.headers value : a single JSON
@@ -227,6 +323,16 @@ func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) 
 		HttpOnly: true,
 		SameSite: routeSameSite("Lax"),
 		MaxAge:   cfg.Http.CookiesMaxAge,
+	}
+
+	// specs/new-routes.md ## Cookie clearing : checked before the plain-
+	// string unmarshal below, which would otherwise silently treat JSON
+	// null the same as an empty string and produce a persistent, not
+	// cleared, cookie.
+	if string(bytes.TrimSpace(raw)) == "null" {
+		c.Value = ""
+		c.MaxAge = -1
+		return c
 	}
 
 	var asString string

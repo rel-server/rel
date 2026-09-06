@@ -39,24 +39,30 @@ func NewTemplateSet(path string) *TemplateSet {
 }
 
 // writeTemplateResponse implements ## Templates' steps 1-4 ; a load or
-// execution failure is a logged 500, never a silent fallback.
-func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *TemplateSet, resp relHttpResponsePayload, status int) {
+// execution failure is a logged 500, never a silent fallback. templateName/
+// dataRaw/contentType are read out of whichever shape produced them — the
+// old single-jsonb-envelope's template/template_data/content_type (sso's
+// callback, WriteRelHttpResponse's own non-full-control case), or a
+// full-control route's envelope template/content_type paired with its
+// second OUT column as Data (specs/new-routes.md ## Templates : "the other
+// return type is then used as the Data").
+func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *TemplateSet, templateName string, dataRaw json.RawMessage, contentType string, status int) {
 	rlog := logging.FromContext(r.Context()).With("module", "route")
 	if templates == nil || templates.set == nil {
-		rlog.Error("route: RelHttpResponse.template set but no http.templates.path configured/found", "template", resp.Template)
+		rlog.Error("route: template set but no http.templates.path configured/found", "template", templateName)
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "template rendering unavailable (no http.templates.path configured)")
 		return
 	}
 
-	tmpl, err := templates.set.GetTemplate(resp.Template)
+	tmpl, err := templates.set.GetTemplate(templateName)
 	if err != nil {
-		rlog.Error("route: loading template", "template", resp.Template, "error", err.Error())
+		rlog.Error("route: loading template", "template", templateName, "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "loading template")
 		return
 	}
 
 	vars := make(jet.VarMap)
-	vars.Set("Data", templateDataValue(resp.TemplateData))
+	vars.Set("Data", templateDataValue(dataRaw))
 	vars.Set("Req", decodeRequestForTemplate(r))
 	vars.Set("Nonce", websec.NonceFromContext(r.Context()))
 
@@ -64,13 +70,13 @@ func writeTemplateResponse(w http.ResponseWriter, r *http.Request, templates *Te
 	// clean 500, never a partially-written body.
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, vars, nil); err != nil {
-		rlog.Error("route: executing template", "template", resp.Template, "error", err.Error())
+		rlog.Error("route: executing template", "template", templateName, "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "executing template")
 		return
 	}
 
-	if resp.ContentType != "" {
-		w.Header().Set("Content-Type", resp.ContentType)
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(buf.Bytes())
@@ -85,6 +91,26 @@ func templateDataValue(raw json.RawMessage) any {
 	var v any
 	_ = sonic.Unmarshal(raw, &v)
 	return v
+}
+
+// templateDataFromSingleReturn wraps a single-return route's raw Postgres
+// bytes into the json.RawMessage templateDataValue expects. A jsonb/json
+// return (contentType "application/json") is already valid JSON and passes
+// through unchanged ; every other non-binary shape classifySingleReturnType
+// produces — text/plain, or a mimetype domain over a text underlying, e.g.
+// "text/csv" — is raw text (e.g. hello, not "hello"), which
+// templateDataValue would otherwise silently fail to unmarshal into nil.
+// classifyShape already rejects template+binary, so binary never reaches
+// here.
+func templateDataFromSingleReturn(raw []byte, contentType string) json.RawMessage {
+	if contentType == "application/json" {
+		return json.RawMessage(raw)
+	}
+	encoded, err := sonic.Marshal(string(raw))
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(encoded)
 }
 
 // decodeRequestForTemplate decodes the exact request JSON the route

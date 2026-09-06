@@ -10,7 +10,7 @@
 - When replying or writing specs / docs / comments, use plain english over lingo and buzzwords ; stay clear and legible by non-senior developers.
 - When alerting me on problems or inconsistencies, use examples if the explanation is complex
 
-- Maintain `./docs` <-> code relevance
+- ALWAYS Update docs as you work on the code : docs MUST always be relevant
 
 # When authoring
 

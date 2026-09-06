@@ -22,6 +22,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/route"
@@ -51,11 +53,7 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pg.NewInfos: %v", err)
 	}
-	if _, err := setupPool.Pool.Exec(ctx, `
-		create domain "RelHttpRequest" as jsonb;
-		create domain "RelHttpResponse" as jsonb;
-		create role "~anonymous";
-	`); err != nil {
+	if _, err := setupPool.Pool.Exec(ctx, `create role "~anonymous";`); err != nil {
 		t.Fatalf("base schema setup: %v", err)
 	}
 	setupPool.Pool.Close()
@@ -75,14 +73,14 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 		t.Fatalf("route.BuildRegistry: %v", err)
 	}
 
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	mux.Handle("/rel", server.NewRelHandler(db, cfg, nil))
-	mux.Handle("/route/", route.NewHandler(db, cfg, reg, nil))
+	route.RegisterRoutes(mux, db, cfg, reg, nil)
 
 	wrapper := NewReloadableHandler(mux)
 
 	// Before the reload : the migration's route function doesn't exist yet.
-	reqBefore := httptest.NewRequest("GET", "/route/public/fn_created_by_migration", nil)
+	reqBefore := httptest.NewRequest("GET", "/created", nil)
 	recBefore := httptest.NewRecorder()
 	wrapper.ServeHTTP(recBefore, reqBefore)
 	if recBefore.Code != http.StatusNotFound {
@@ -94,7 +92,7 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 	reloader.Reload(ctx)
 
 	// Registry rebuild picked up the migration's new function.
-	reqAfter := httptest.NewRequest("GET", "/route/public/fn_created_by_migration", nil)
+	reqAfter := httptest.NewRequest("GET", "/created", nil)
 	recAfter := httptest.NewRecorder()
 	wrapper.ServeHTTP(recAfter, reqAfter)
 	if recAfter.Code != http.StatusOK {

@@ -1,6 +1,9 @@
-// This file implements specs/http-content.md ### Upload destinations'
-// "Ordering" subsection : the body streams to a temp file only after
-// __prepare's placement decision, and disk only changes after commit.
+// This file implements specs/new-routes.md ## `stream_upload` : the same
+// full-control function is called twice — once with request.upload
+// metadata-only (no bytes received yet, deciding the destination), once
+// with request.upload.size filled in (bytes already landed on disk). The
+// actual disk-streaming/atomic-swap mechanics are unchanged from the old
+// __prepare/mandatory-pair mechanism they replace.
 package route
 
 import (
@@ -18,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
-
 	"github.com/jackc/pgx/v5"
 
 	"github.com/rel-server/rel/config"
@@ -30,33 +32,41 @@ import (
 	"github.com/rel-server/rel/static"
 )
 
-// relUploadPayload mirrors the RelUpload domain. Path/Mkdir/Overwrite/MaxSize
-// are __prepare's decision ; Part/Size are always rel-filled.
-type relUploadPayload struct {
-	Path      *string         `json:"path"`
-	Mkdir     bool            `json:"mkdir"`
-	Overwrite string          `json:"overwrite"`
-	MaxSize   *int64          `json:"max_size"`
-	Part      json.RawMessage `json:"part"`
-	Size      *int64          `json:"size"`
+// requestUploadPayload is HttpRequest.upload's shape on the way IN to a
+// stream_upload function : only Part/Size are ever meaningful here — the
+// destination fields (path/mkdir/overwrite/max_size) are the function's own
+// decision, read back from its RESPONSE instead (responseUploadPayload).
+type requestUploadPayload struct {
+	Part json.RawMessage `json:"part,omitempty"`
+	Size *int64          `json:"size,omitempty"`
 }
 
-// handleUploadRoute implements ### Upload destinations' "Ordering" ; body
-// is always JSON null here, so reqJSON is built directly, not by the caller.
+// responseUploadPayload is HttpResponse.upload's shape on the way OUT of a
+// stream_upload function's first call : its destination decision.
+type responseUploadPayload struct {
+	Path      *string `json:"path"`
+	Mkdir     bool    `json:"mkdir"`
+	Overwrite string  `json:"overwrite"`
+	MaxSize   *int64  `json:"max_size"`
+}
+
+// firstCallEnvelope is only ever consulted for its "upload" field ; any
+// other field a first-call response sets (cookies, say) is meaningless and
+// ignored, since the first call's own response is never written to the
+// client — only the second call's is.
+type firstCallEnvelope struct {
+	Upload responseUploadPayload `json:"upload"`
+}
+
+// handleUploadRoute implements ## `stream_upload`'s two-call flow.
 func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, route Route, staticSrv *static.Server, templates *TemplateSet, verified bool, claims jwtpkg.Claims) {
 	ctx := r.Context()
 	rlog := logging.FromContext(ctx).With("module", "route")
 
-	reqJSON, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims)
-	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
-		return
-	}
-	r = r.WithContext(withRequestJSON(ctx, reqJSON))
-	ctx = r.Context()
+	staticInfo := staticInfoForRequest(staticSrv, r)
 
-	// Step 2 : a JSON/text/form body is a 415, checked before either
-	// function runs, from Content-Type alone.
+	// Step : a JSON/text/form body is a 415, checked before either call
+	// runs, from Content-Type alone.
 	contentTypeHeader := r.Header.Get("Content-Type")
 	mt := mediaTypeOf(contentTypeHeader)
 	if mt == "application/json" || strings.HasSuffix(mt, "+json") ||
@@ -78,8 +88,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		boundary = params["boundary"]
 	}
 
-	// Step 2 : read ONLY the incoming upload's headers — part is built
-	// without touching a single byte of the actual payload.
+	// Read ONLY the incoming upload's headers — part is built without
+	// touching a single byte of the actual payload.
 	partJSON := json.RawMessage("null")
 	hasUpload := false
 	var mr *multipart.Reader
@@ -110,8 +120,20 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 	}
 
-	// Step 3 : check_session, then renew, SET LOCAL ROLE, invoke
-	// __prepare, commit.
+	firstUpload, err := sonic.Marshal(requestUploadPayload{Part: partJSON})
+	if err != nil {
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+		return
+	}
+	reqJSON1, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, nil, firstUpload)
+	if err != nil {
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+		return
+	}
+	r = r.WithContext(withRequestJSON(ctx, reqJSON1))
+	ctx = r.Context()
+
+	// check_session, renew, SET LOCAL ROLE, invoke the first call, commit.
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
@@ -121,10 +143,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// check_session runs in its own short-lived transaction, distinct from
 	// tx1 below — never inside tx1 itself, which is READ ONLY and would
 	// reject a check_session that writes (a revocation-tracking side
-	// effect, say). A real (uncommitted-until-here) transaction, rather
-	// than a bare statement, is what lets dbauth.SetLocalClaims's GUC
-	// reach check_session at all — see its own doc comment for why
-	// set_config(..., true) needs one.
+	// effect, say).
 	checkTx, err := conn.Begin(ctx)
 	if err != nil {
 		conn.Release()
@@ -179,10 +198,10 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	prepIdent := route.PrepareFunction.Identifier.EscapedString()
-	var uploadRaw []byte
-	prow := tx1.QueryRow(ctx, "select "+prepIdent+"($1::jsonb, $2::jsonb)", reqJSON, []byte(partJSON))
-	if err := prow.Scan(&uploadRaw); err != nil {
+	ident := route.Function.Identifier.EscapedString()
+	var firstEnvelope, firstContent []byte
+	frow := tx1.QueryRow(ctx, "select * from "+ident+"($1::jsonb)", reqJSON1)
+	if err := frow.Scan(&firstEnvelope, &firstContent); err != nil {
 		_ = tx1.Rollback(ctx)
 		conn.Release()
 		writeErrorForPgErr(w, err, cfg.Dev)
@@ -195,12 +214,13 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	conn.Release()
 
-	var upload relUploadPayload
-	if err := sonic.Unmarshal(uploadRaw, &upload); err != nil {
-		rlog.Error("route: decoding __prepare's RelUpload response", "function", route.PrepareFunction.Identifier.String(), "error", err.Error())
+	var first firstCallEnvelope
+	if err := sonic.Unmarshal(firstEnvelope, &first); err != nil {
+		rlog.Error("route: decoding stream_upload's first-call response", "function", route.Function.Identifier.String(), "error", err.Error())
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
+	upload := first.Upload
 
 	writeDir := ""
 	if staticSrv != nil {
@@ -208,7 +228,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 
 	// Traversal validation/409 check/mkdir are skipped entirely when
-	// !hasUpload — __prepare's path/mkdir/overwrite are never acted on.
+	// !hasUpload — the first call's path/mkdir/overwrite are never acted on.
 	var finalPath, tempPath, overwrite string
 	// One unconditional defer rather than repeating cleanup at every error
 	// return ; a no-op once swapUploadIntoPlace has already moved tempPath.
@@ -226,7 +246,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			}
 			cleaned, ok := resolveUnderDir(writeDir, *upload.Path)
 			if !ok {
-				rlog.Error("route: upload __prepare returned a path escaping http.static.path", "path", *upload.Path)
+				rlog.Error("route: stream_upload's first call returned a path escaping http.static.path", "path", *upload.Path)
 				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 				return
 			}
@@ -252,7 +272,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			tempPath = filepath.Join(filepath.Dir(finalPath), ".upload-"+randomToken())
 		} else if writeDir != "" {
 			// Discard case : still streamed to a staging location, so the
-			// mandatory function gets an accurate size.
+			// second call gets an accurate size.
 			tempPath = filepath.Join(writeDir, ".upload-"+randomToken())
 		} else {
 			rlog.Error("route: upload route has no http.static.path directory configured/exists to stage the discarded upload into")
@@ -261,8 +281,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 	}
 
-	// Steps 4-5 : stream to the temp file ; for multipart, one more
-	// NextPart() catches a second part.
+	// Stream to the temp file ; for multipart, one more NextPart() catches
+	// a second part.
 	var size int64
 	if hasUpload {
 		f, ferr := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -275,10 +295,10 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		if isMultipart {
 			src = currentPart
 		}
-		// __prepare may tighten the upload cap further (e.g. a per-user
-		// quota) via RelUpload.max_size — it can only lower cfg.Http.
-		// MaxUploadSize, never raise it, since limitedBody is already
-		// bounded to that ceiling upstream.
+		// The first call may tighten the upload cap further (e.g. a
+		// per-user quota) via Upload.max_size — it can only lower
+		// cfg.Http.MaxUploadSize, never raise it, since limitedBody is
+		// already bounded to that ceiling upstream.
 		if upload.MaxSize != nil && *upload.MaxSize >= 0 && *upload.MaxSize < int64(cfg.Http.MaxUploadSize) {
 			src = http.MaxBytesReader(w, src, *upload.MaxSize)
 		}
@@ -290,7 +310,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			if errors.As(cerr, &maxErr) {
 				msg := "request body exceeds http.max_upload_size"
 				if upload.MaxSize != nil && *upload.MaxSize < int64(cfg.Http.MaxUploadSize) {
-					msg = "request body exceeds the upload size limit set by " + route.PrepareFunction.Identifier.String()
+					msg = "request body exceeds the upload size limit set by " + route.Function.Identifier.String()
 				}
 				writePlainError(w, http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, msg)
 				return
@@ -311,14 +331,26 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 	}
 
-	uploadForMandatory, err := buildUploadForMandatory(uploadRaw, partJSON, hasUpload, size)
+	secondUploadPayload := requestUploadPayload{Part: partJSON}
+	if hasUpload {
+		secondUploadPayload.Size = &size
+	} else {
+		secondUploadPayload.Part = json.RawMessage("null")
+	}
+	secondUpload, err := sonic.Marshal(secondUploadPayload)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
+	reqJSON2, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, nil, secondUpload)
+	if err != nil {
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+		return
+	}
+	r = r.WithContext(withRequestJSON(ctx, reqJSON2))
 
-	// Steps 6-8 : a second connection/transaction ; check_session/renew
-	// already ran once, in step 3, and aren't repeated.
+	// A second connection/transaction ; check_session/renew already ran
+	// once, before the first call, and aren't repeated.
 	conn2, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
@@ -342,10 +374,9 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	mandIdent := route.Function.Identifier.EscapedString()
-	var respRaw []byte
-	mrow := tx2.QueryRow(ctx, "select "+mandIdent+"($1::jsonb, $2::jsonb)", reqJSON, uploadForMandatory)
-	if err := mrow.Scan(&respRaw); err != nil {
+	var secondEnvelope, secondContent []byte
+	mrow := tx2.QueryRow(ctx, "select * from "+ident+"($1::jsonb)", reqJSON2)
+	if err := mrow.Scan(&secondEnvelope, &secondContent); err != nil {
 		_ = tx2.Rollback(ctx)
 		// No commit : the temp file is deleted by the deferred cleanup above.
 		writeErrorForPgErr(w, err, cfg.Dev)
@@ -356,8 +387,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	// Step 9 : the disk swap finalizes only on commit AND a set path ;
-	// path omitted means the deferred cleanup deletes the temp file instead.
+	// The disk swap finalizes only on commit AND a set path ; path omitted
+	// means the deferred cleanup deletes the temp file instead.
 	if hasUpload && finalPath != "" {
 		if err := swapUploadIntoPlace(rlog, tempPath, finalPath, overwrite); err != nil {
 			rlog.Error("route: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
@@ -366,7 +397,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 	}
 
-	WriteRelHttpResponse(w, r, cfg, route.Function.Identifier.String(), respRaw, templates)
+	writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, secondEnvelope, secondContent, templates)
 }
 
 // resolveUnderDir rejects a path escaping dir outright ; plain
@@ -395,7 +426,7 @@ func randomToken() string {
 	return hex.EncodeToString(b)
 }
 
-// swapUploadIntoPlace is step 9's rename sequence ; the DB write already
+// swapUploadIntoPlace is the final rename sequence ; the DB write already
 // committed by this point, so a failure here can only log/500, never roll back.
 func swapUploadIntoPlace(rlog *slog.Logger, tempPath, finalPath, overwrite string) error {
 	dir := filepath.Dir(finalPath)
@@ -403,7 +434,7 @@ func swapUploadIntoPlace(rlog *slog.Logger, tempPath, finalPath, overwrite strin
 	hadExisting := false
 	if _, err := os.Stat(finalPath); err == nil {
 		// Not re-enforced here — refusing now would leave the DB referencing
-		// a file that was never actually written (step 9 : last-write-wins).
+		// a file that was never actually written (last-write-wins).
 		if overwrite == "disallow" {
 			rlog.Warn("route: upload overwrote an existing file at commit time despite overwrite:'disallow' — a concurrent request won the race after the early existence check", "path", finalPath)
 		}
@@ -424,28 +455,4 @@ func swapUploadIntoPlace(rlog *slog.Logger, tempPath, finalPath, overwrite strin
 		_ = os.Remove(backupPath)
 	}
 	return nil
-}
-
-// buildUploadForMandatory decodes __prepare's raw response, overwrites
-// only the rel-filled part/size fields, and re-marshals unnarrowed.
-func buildUploadForMandatory(prepareRaw []byte, partJSON json.RawMessage, hasUpload bool, size int64) ([]byte, error) {
-	var m map[string]any
-	if err := sonic.Unmarshal(prepareRaw, &m); err != nil {
-		return nil, err
-	}
-	if m == nil {
-		m = map[string]any{}
-	}
-	if !hasUpload {
-		m["part"] = nil
-		m["size"] = nil
-		return sonic.Marshal(m)
-	}
-	var partVal any
-	if len(partJSON) > 0 && string(partJSON) != "null" {
-		_ = sonic.Unmarshal(partJSON, &partVal)
-	}
-	m["part"] = partVal
-	m["size"] = size
-	return sonic.Marshal(m)
 }

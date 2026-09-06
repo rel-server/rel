@@ -507,6 +507,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Functions.CheckSession = root.GetStringOrDefault("http.functions.check_session", "")
 	cfg.Http.Static.Path = root.GetStringOrDefault("http.static.path", DefaultHttpStaticPath)
 	cfg.Http.Static.Access = readStaticAccess(root, "http.static.access")
+	cfg.Route = readRoutes(root, "route")
 	cfg.Http.Templates.Path = root.GetStringOrDefault("http.templates.path", DefaultHttpTemplatesPath)
 
 	// http.typescript.enable defaults to Dev, same "true if dev enabled"
@@ -608,6 +609,50 @@ func readStaticAccess(root *ConfigReader, path string) map[string]StaticAccessRu
 			rule.Function = s
 		}
 		out[name] = rule
+	}
+	return out
+}
+
+// readRoutes reads route.<schema>.<function>.{path,method} —
+// specs/new-routes.md ## In the configuration : one level deeper than
+// readStaticAccess's named sub-keys, since a route is identified by TWO
+// levels (schema, then function name), not one.
+func readRoutes(root *ConfigReader, path string) map[string]map[string]RouteDecl {
+	out := map[string]map[string]RouteDecl{}
+	schemas, err := root.GetIterator(path)
+	if err != nil {
+		return out
+	}
+	for schema, schemaReader := range schemas {
+		functions, err := schemaReader.GetIterator("")
+		if err != nil {
+			continue
+		}
+		for function, fnReader := range functions {
+			var decl RouteDecl
+			if s, err := fnReader.GetString("path"); err == nil {
+				decl.Path = s
+			}
+			if s, err := fnReader.GetString("method"); err == nil {
+				decl.Method = s
+			}
+			if s, err := fnReader.GetString("template"); err == nil {
+				decl.Template = s
+			}
+			if b, err := fnReader.GetBool("stream_upload"); err == nil {
+				decl.StreamUpload = b
+			}
+			if b, err := fnReader.GetBool("middleware"); err == nil {
+				decl.Middleware = b
+			}
+			if decl.Path == "" {
+				continue
+			}
+			if out[schema] == nil {
+				out[schema] = map[string]RouteDecl{}
+			}
+			out[schema][function] = decl
+		}
 	}
 	return out
 }

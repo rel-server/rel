@@ -12,8 +12,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bytedance/sonic"
-
 	"github.com/rel-server/rel/errcode"
 )
 
@@ -77,15 +75,19 @@ func writeRequestBodyError(w http.ResponseWriter, err error) {
 }
 
 // resolvedRequestBody is everything handleRoute needs to build
-// RelHttpRequest.body ; Files/PartsHeadersRaw are always non-nil.
+// RelHttpRequest.body/parts ; Files/PartsRaw are always non-nil. SingleBytes
+// is only set for a route.AcceptsBytes (singular, non-array) function's
+// non-multipart binary body.
 type resolvedRequestBody struct {
-	BodyJSON        json.RawMessage
-	Files           [][]byte
-	PartsHeadersRaw []byte
+	BodyJSON    json.RawMessage
+	SingleBytes []byte
+	Files       [][]byte
+	Parts       []requestPart
 }
 
 // resolveRequestBody reads r.Body (bounded by maxBodySize), dispatching on
-// route.AcceptsFiles and Content-Type ; w is only for MaxBytesReader's signature.
+// route.AcceptsBytes/AcceptsBytesArray and Content-Type ; w is only for
+// MaxBytesReader's signature.
 func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, maxBodySize int64, maxPartCount int) (resolvedRequestBody, error) {
 	contentTypeHeader := r.Header.Get("Content-Type")
 
@@ -119,66 +121,67 @@ func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, max
 		}
 		return resolvedRequestBody{}, badRequestBody("reading request body: " + err.Error())
 	}
-	return finishSingleBody(route, r, contentTypeHeader, body)
+	return finishSingleBody(route, contentTypeHeader, body)
 }
 
-// finishMultipartBody applies specs/route.md ## Request bodies' multipart
-// mismatch rules to already-parsed (possibly empty) files/parts.
+// finishMultipartBody applies specs/new-routes.md ## Function prototype's
+// multipart mismatch rule : bytea[] (AcceptsBytesArray) is the only shape
+// multipart can populate ; parts is always filled in the request for a
+// multipart body, regardless of whether the route even accepts bytes.
 func finishMultipartBody(route Route, files [][]byte, parts []requestPart) (resolvedRequestBody, error) {
-	if route.AcceptsFiles {
-		return resolvedRequestBody{
-			BodyJSON:        json.RawMessage("null"),
-			Files:           files,
-			PartsHeadersRaw: mustMarshalParts(parts),
-		}, nil
-	}
-	// A route not declaring files has nowhere to put real multipart data —
-	// 415, never silently base64-encoded as a fallback.
-	if len(files) > 0 {
-		return resolvedRequestBody{}, unsupportedMediaType("route does not accept file uploads (no files bytea[] parameter declared)")
+	if !route.AcceptsBytesArray {
+		if len(files) > 0 {
+			return resolvedRequestBody{}, unsupportedMediaType("route does not accept file uploads (no bytea[] parameter declared)")
+		}
+		return resolvedRequestBody{BodyJSON: json.RawMessage("null"), Files: [][]byte{}, Parts: nil}, nil
 	}
 	return resolvedRequestBody{
-		BodyJSON:        json.RawMessage("null"),
-		Files:           [][]byte{},
-		PartsHeadersRaw: []byte("[]"),
+		BodyJSON: json.RawMessage("null"),
+		Files:    files,
+		Parts:    parts,
 	}, nil
 }
 
-// finishSingleBody applies specs/route.md's body content-type dispatch (no
-// files) or single-raw-binary-POST rule (files) to a non-multipart body.
-func finishSingleBody(route Route, r *http.Request, contentTypeHeader string, body []byte) (resolvedRequestBody, error) {
-	if !route.AcceptsFiles {
+// finishSingleBody applies ## Function prototype's body content-type
+// dispatch (no bytea argument) or single-raw-binary-POST rule (AcceptsBytes)
+// to a non-multipart body. A bytea[]-declaring route never receives bytes
+// this way — bytea[] is multipart-only (see finishMultipartBody).
+func finishSingleBody(route Route, contentTypeHeader string, body []byte) (resolvedRequestBody, error) {
+	if !route.AcceptsBytes && !route.AcceptsBytesArray {
 		bodyJSON, err := encodeBody(contentTypeHeader, body, false)
 		if err != nil {
 			return resolvedRequestBody{}, err
 		}
-		return resolvedRequestBody{BodyJSON: bodyJSON, Files: [][]byte{}, PartsHeadersRaw: []byte("[]")}, nil
+		return resolvedRequestBody{BodyJSON: bodyJSON, Files: [][]byte{}, Parts: nil}, nil
 	}
 
-	// A zero-byte body yields empty files/parts_headers, not a 415 — a
-	// route requiring at least one file checks array_length itself.
+	// A zero-byte body yields an empty/absent payload, not a 415 — a route
+	// requiring bytes checks for that itself.
 	if len(body) == 0 {
-		return resolvedRequestBody{BodyJSON: json.RawMessage("null"), Files: [][]byte{}, PartsHeadersRaw: []byte("[]")}, nil
+		if route.AcceptsBytes {
+			return resolvedRequestBody{BodyJSON: json.RawMessage("null"), SingleBytes: []byte{}, Parts: nil}, nil
+		}
+		return resolvedRequestBody{BodyJSON: json.RawMessage("null"), Files: [][]byte{}, Parts: nil}, nil
+	}
+
+	if route.AcceptsBytesArray {
+		// bytea[] only ever gets bytes through multipart ; a non-multipart
+		// body with actual content has nowhere to go.
+		return resolvedRequestBody{}, unsupportedMediaType("route only accepts multipart file uploads (bytea[] parameter)")
 	}
 
 	mt := mediaTypeOf(contentTypeHeader)
 	if mt == "application/json" || strings.HasSuffix(mt, "+json") ||
 		strings.HasPrefix(mt, "text/") || mt == "application/x-www-form-urlencoded" {
 		// This content-type would populate body, leaving no separate byte
-		// payload to deliver as a file.
-		return resolvedRequestBody{}, unsupportedMediaType("route only accepts file uploads, but content_type " + contentTypeHeader + " has no separate byte payload to deliver as files")
+		// payload to deliver as the bytea argument.
+		return resolvedRequestBody{}, unsupportedMediaType("route only accepts a raw byte body, but content_type " + contentTypeHeader + " has no separate byte payload to deliver")
 	}
 
-	// A single raw binary POST : one-element files array, synthesized
-	// pseudo-part if parts_headers was declared.
-	partsRaw := []byte("[]")
-	if route.AcceptsPartsHeaders {
-		partsRaw = mustMarshalParts([]requestPart{synthesizedPseudoPart(r, contentTypeHeader)})
-	}
 	return resolvedRequestBody{
-		BodyJSON:        json.RawMessage("null"),
-		Files:           [][]byte{body},
-		PartsHeadersRaw: partsRaw,
+		BodyJSON:    json.RawMessage("null"),
+		SingleBytes: body,
+		Parts:       nil,
 	}, nil
 }
 
@@ -254,18 +257,4 @@ func requestPartFrom(p *multipart.Part) requestPart {
 		ContentType: ct,
 		Headers:     map[string][]string(p.Header),
 	}
-}
-
-// mustMarshalParts marshals parts as a JSON array, always "[]" (never
-// "null") for an empty/nil slice.
-func mustMarshalParts(parts []requestPart) []byte {
-	if len(parts) == 0 {
-		return []byte("[]")
-	}
-	b, err := sonic.Marshal(parts)
-	if err != nil {
-		// requestPart always marshals cleanly ; fall back rather than panic.
-		return []byte("[]")
-	}
-	return b
 }

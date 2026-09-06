@@ -31,20 +31,20 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// BuildMux assembles the full inner http.Handler — /rel, /route/, and (when
-// at least one http.static.path directory exists) /static/ — wrapped
+// BuildMux assembles the full inner http.Handler — /rel, every declared
+// route at its own arbitrary path (specs/new-routes.md), and a root-level
+// static fallback for any path no declared route claims — wrapped
 // uniformly in logging.RequestMiddleware (specs/logging.md ## Request-
 // scoped logging) and websec.Middleware (specs/http-content.md's "CORS and
-// CSP apply to /rel, /route, AND /static uniformly"). /route and /auth
-// (the SSO mount) additionally sit behind websec.NonceMiddleware, scoped
-// via a chi.Group rather than a path-prefixed sub-router since sso.Mount's
-// own route patterns are already absolute (docs/content/http/cors-csp.md
-// ## CSP ### Nonce explains why /rel and /static don't get one). A
-// well-known query is invoked through /rel, not a separate route ; wkReg
-// is handed to server.NewRelHandler directly. Both cmd/rel/main.go
-// (startup) and boot/reload.go's Reload (every SIGUSR1) call this with a
-// freshly built *route.Registry and *wellknown.Registry —
-// registry-building itself stays each call site's own responsibility.
+// CSP apply uniformly"). Declared routes and /auth (the SSO mount)
+// additionally sit behind websec.NonceMiddleware, scoped via a chi.Group
+// (docs/content/http/cors-csp.md ## CSP ### Nonce explains why /rel and the
+// static fallback don't get one). A well-known query is invoked through
+// /rel, not a separate route ; wkReg is handed to server.NewRelHandler
+// directly. Both cmd/rel/main.go (startup) and boot/reload.go's Reload
+// (every SIGUSR1) call this with a freshly built *route.Registry and
+// *wellknown.Registry — registry-building itself stays each call site's
+// own responsibility.
 func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) (http.Handler, error) {
 	staticSrv := static.New(cfg.Http)
 
@@ -55,16 +55,11 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	if cfg.Http.TypeScript.Enable {
 		mux.Handle("/rel/database.ts", server.NewTypeScriptHandler(db, cfg, wkReg))
 	}
-	if staticSrv != nil {
-		mux.Handle("/static/*", http.StripPrefix("/static/", staticSrv.Handler(db, cfg)))
-	} else if logger != nil {
-		logger.Debug("boot: no http.static.path directory found, /static/ is not mounted")
-	}
 
 	mux.Group(func(r chi.Router) {
 		r.Use(websec.NonceMiddleware(cfg))
 
-		r.Handle("/route/*", route.NewHandler(db, cfg, reg, staticSrv))
+		route.RegisterRoutes(r, db, cfg, reg, staticSrv)
 
 		// specs/oauth-saml.md : /auth/oidc/* and /auth/saml/* — a no-op when
 		// neither openid.* nor saml.* has any entry configured. Mount resolves
@@ -73,6 +68,17 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 		// gate here.
 		sso.Mount(r, db, cfg)
 	})
+
+	// specs/new-routes.md ## Static path masking : a path no declared route
+	// claims falls through to a static file, if any exist, at the router
+	// ROOT — not a fixed /static/* prefix, which is what makes masking "/"
+	// (index override) meaningful. An exact-path route always wins first,
+	// since chi tries every registered route before NotFound.
+	if staticSrv != nil {
+		mux.NotFound(staticSrv.Handler(db, cfg).ServeHTTP)
+	} else if logger != nil {
+		logger.Debug("boot: no http.static.path directory found, static fallback is not mounted")
+	}
 
 	return logging.RequestMiddleware(websec.Middleware(cfg)(mux)), nil
 }

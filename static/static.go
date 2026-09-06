@@ -15,6 +15,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bytedance/sonic"
 
@@ -97,6 +98,37 @@ func (s *Server) matchRule(reqPath string) (accessRule, bool) {
 		}
 	}
 	return accessRule{}, false
+}
+
+// Info is specs/new-routes.md ## Static path masking's request.static
+// shape — what would be served at a given request path, before any
+// masking route function or middleware runs.
+type Info struct {
+	Exists     bool
+	Size       int64
+	ModifiedAt time.Time
+}
+
+// Stat reports what would be served at reqPath (relative to
+// http.static.path, no leading "/") — Exists false for a nonexistent path,
+// a directory with no index.html, or one that fails the same dotfile/
+// traversal check Handler itself applies. Safe to call on a nil *Server
+// (no http.static.path directories at all).
+func (s *Server) Stat(reqPath string) Info {
+	if s == nil || hasDotSegment(reqPath) {
+		return Info{}
+	}
+	_, fi, ok := s.openMulti(reqPath)
+	if !ok {
+		return Info{}
+	}
+	if fi.IsDir() {
+		_, fi, ok = s.openMulti(path.Join(reqPath, "index.html"))
+		if !ok {
+			return Info{}
+		}
+	}
+	return Info{Exists: true, Size: fi.Size(), ModifiedAt: fi.ModTime()}
 }
 
 // hasDotSegment implements ## Static files' "Dotfiles are never served"

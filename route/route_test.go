@@ -48,6 +48,15 @@ func TestMain(m *testing.M) {
 
 	testCfg.Http.Functions.CheckSession = "public.fn_check_session"
 
+	// specs/new-routes.md fixtures : config-declared routes, exercised by
+	// routeset_test.go's BuildRouteSet tests.
+	testCfg.Route = map[string]map[string]config.RouteDecl{
+		"public": {
+			"fn_new_configonly": {Path: "/new/configonly"},
+			"fn_new_override":   {Path: "/new/from-config"},
+		},
+	}
+
 	testReg, err = BuildRegistry(testDb, testCfg)
 	if err != nil {
 		panic(err)

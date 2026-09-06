@@ -21,6 +21,11 @@ type Config struct {
 
 	Blacklist Blacklist
 
+	// Route is route.<schema>.<function>.* — specs/new-routes.md
+	// ## In the configuration : config-declared routes, keyed schema then
+	// function name.
+	Route map[string]map[string]RouteDecl
+
 	// TypeScript is specs/typescript.md ## Configuration's typescript.* :
 	// typescript.helper_path only, as of now — the endpoints themselves are
 	// gated by Http.TypeScript/Http.Json below.
@@ -257,6 +262,28 @@ type HttpCsp struct {
 	// exactly as the header itself is written. When set, REPLACES every
 	// individual directive above entirely.
 	Policy string
+}
+
+// RouteDecl is one route.<schema>.<function>.* config-declared route —
+// specs/new-routes.md ## In the configuration. Schema/function are
+// inferred from the config key path itself, not stored here. Mirrors the
+// same fields a comment-embedded Route declaration carries (see
+// route.Declaration), minus function/schema.
+type RouteDecl struct {
+	// Path is route.<schema>.<function>.path : a path in chi syntax.
+	// Required for the function to become routable at all.
+	Path string
+	// Method is route.<schema>.<function>.method, default "" (inferred —
+	// see specs/new-routes.md ## Method inference) : a comma-separated
+	// list of accepted HTTP methods.
+	Method string
+	// Template is route.<schema>.<function>.template : a Jet template path,
+	// used when the response doesn't set its own.
+	Template string
+	// StreamUpload is route.<schema>.<function>.stream_upload.
+	StreamUpload bool
+	// Middleware is route.<schema>.<function>.middleware.
+	Middleware bool
 }
 
 // StaticAccessRule is one http.static.access.<name>.* entry —

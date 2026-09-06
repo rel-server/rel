@@ -329,3 +329,158 @@ grant execute on all functions in schema public to "~anonymous";
 revoke execute on function fn_app_only() from "~anonymous";
 revoke execute on function fn_dest_anon_prepare_only("RelHttpRequest", "RelUpload") from "~anonymous";
 revoke execute on function fn_dest_anon_mandatory_only__prepare("RelHttpRequest", jsonb) from "~anonymous";
+
+-- specs/new-routes.md fixtures : plain json/jsonb-typed functions, matched
+-- structurally rather than by RelHttpRequest domain identity, so these
+-- coexist with the domain-based fixtures above without either registry
+-- picking up the other's functions.
+
+-- Simple GET route, method inferred (no bytea arg, no stream_upload).
+create function fn_new_echo0() returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_new_echo0() is 'route:: path: "/new/echo0"';
+
+-- Method inferred POST via a bytea[] second argument.
+create function fn_new_upload(req jsonb, files bytea[]) returns jsonb language sql as $$
+  select jsonb_build_object('count', coalesce(array_length(files, 1), 0));
+$$;
+comment on function fn_new_upload(jsonb, bytea[]) is 'route: {"path": "/new/upload"}';
+
+-- A named text path argument, matched against a "{id}" placeholder.
+create function fn_new_byid(req jsonb, id text) returns jsonb language sql as $$
+  select jsonb_build_object('id', id);
+$$;
+comment on function fn_new_byid(jsonb, text) is 'route:: path: "/new/items/{id}"';
+
+-- stream_upload : no bytea/bytea[] argument at all, full-control shape (to
+-- set "upload" on its response). First call (req->'upload'->'part' set,
+-- no size yet) decides destination ; second call (size set) records it.
+create table stream_upload_log (id serial primary key, upload jsonb not null);
+grant all on stream_upload_log to public;
+grant all on stream_upload_log_id_seq to public;
+
+create function fn_new_stream(req jsonb, out resp jsonb, out content jsonb) returns record language plpgsql as $$
+declare
+  u jsonb := req->'upload';
+begin
+  if u->'size' is null then
+    -- First call : decide destination from query params, matching the old
+    -- __prepare fixture's own reject/path/mkdir/overwrite/max_size knobs.
+    if (req->'query'->>'reject') = 'true' then
+      raise exception 'rejected on first call' using errcode = 'RS400';
+    end if;
+    resp := jsonb_build_object('upload', jsonb_build_object(
+      'path', req->'query'->>'path',
+      'mkdir', coalesce((req->'query'->>'mkdir')::boolean, false),
+      'overwrite', coalesce(req->'query'->>'overwrite', 'disallow'),
+      'max_size', (req->'query'->>'max_size')::bigint
+    ));
+    content := null;
+  else
+    -- Second call : bytes already landed, record what we actually got.
+    insert into stream_upload_log (upload) values (u);
+    resp := jsonb_build_object('status', 200, 'content_type', 'application/json');
+    content := u;
+  end if;
+end;
+$$;
+comment on function fn_new_stream(jsonb) is 'route:: path: "/new/stream", stream_upload: true';
+
+-- Full-control (two-OUT-column) ordinary route.
+create function fn_new_fullcontrol(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  select jsonb_build_object('status', 200), jsonb_build_object('ok', true);
+$$;
+comment on function fn_new_fullcontrol(jsonb) is 'route:: path: "/new/full"';
+
+-- Middleware : must be full-control shape.
+create function fn_new_middleware(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  select null::jsonb, null::jsonb;
+$$;
+comment on function fn_new_middleware(jsonb) is 'route:: path: "/new", middleware: true';
+
+-- Colliding pair : same path, both GET (overlapping) -> both excluded.
+create function fn_new_collide_a(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+create function fn_new_collide_b(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_new_collide_a(jsonb) is 'route:: path: "/new/collide"';
+comment on function fn_new_collide_b(jsonb) is 'route:: path: "/new/collide"';
+
+-- Disjoint methods at the same path : both must coexist.
+create function fn_new_disjoint_get(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+create function fn_new_disjoint_post(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_new_disjoint_get(jsonb) is 'route:: path: "/new/disjoint", method: "GET"';
+comment on function fn_new_disjoint_post(jsonb) is 'route:: path: "/new/disjoint", method: "POST"';
+
+-- Reserved path : must never be registered, regardless of declaration.
+create function fn_new_reserved(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_new_reserved(jsonb) is 'route:: path: "/auth/oidc/evil/login"';
+
+-- Template + binary return : invalid combination, function disabled.
+create domain "application/pdf" as bytea;
+create function fn_new_template_binary(req jsonb) returns "application/pdf" language sql as $$
+  select '\x255044462d'::bytea;
+$$;
+comment on function fn_new_template_binary(jsonb) is 'route:: path: "/new/badtemplate", template: "x.jet"';
+
+-- Malformed declaration : discovery must log and skip, not crash the whole
+-- registry build.
+create function fn_new_malformed(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_new_malformed(jsonb) is 'route:: path: "unterminated';
+
+-- Extra IN argument not present in the path : function disabled.
+create function fn_new_extra_arg(req jsonb, extra text) returns jsonb language sql as $$
+  select jsonb_build_object('extra', extra);
+$$;
+comment on function fn_new_extra_arg(jsonb, text) is 'route:: path: "/new/noplaceholder"';
+
+-- A function with no declaration at all, plain doc comment : must not be
+-- discovered as a route.
+create function fn_new_undeclared(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_new_undeclared(jsonb) is 'just a normal function, nothing to see here';
+
+-- Config-declared, no comment at all : proves discovery from
+-- route.<schema>.<function>.* config alone.
+create function fn_new_configonly(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+
+-- Config overrides a comment declaration, with a warning.
+create function fn_new_override(req jsonb) returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_new_override(jsonb) is 'route:: path: "/new/from-comment"';
+
+-- End-to-end HTTP tests (route/e2e_test.go), exercised through testHandler
+-- for real, not just BuildRegistry. Anonymous grants given explicitly below
+-- ; fn_new_fullcontrol above stays deliberately ungranted, proving the
+-- anonymous-401 path.
+grant execute on function fn_new_echo0() to "~anonymous";
+grant execute on function fn_new_byid(jsonb, text) to "~anonymous";
+grant execute on function fn_new_stream(jsonb) to "~anonymous";
+grant execute on function fn_new_upload(jsonb, bytea[]) to "~anonymous";
+
+-- A full-control login-style route : mints a JWT and sets a plain cookie,
+-- proving applyResponseSideEffects/writeFullControlResponse actually wire
+-- jwt/cookies through for the new two-OUT-column shape.
+create function fn_new_login(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  select jsonb_build_object(
+    'status', 201,
+    'jwt', jsonb_build_object('role', 'app_user'),
+    'cookies', jsonb_build_object('greeting', 'hello')
+  ), jsonb_build_object('ok', true);
+$$;
+comment on function fn_new_login(jsonb) is 'route:: path: "/new/login", method: "POST"';
+grant execute on function fn_new_login(jsonb) to "~anonymous";
+
+-- Raises an RSxxx exception, proving pgerr.Classify's tiering actually
+-- surfaces through the new dispatch path's writeErrorForPgErr, not just in
+-- pgerr's own unit tests.
+create function fn_new_raises(req jsonb) returns jsonb language plpgsql as $$
+begin
+  raise exception 'forbidden by application logic' using errcode = 'RS403';
+end;
+$$;
+comment on function fn_new_raises(jsonb) is 'route:: path: "/new/raises"';
+grant execute on function fn_new_raises(jsonb) to "~anonymous";
+
+-- Single-return jsonb route with a declared template : the other return
+-- type is used as the template's Data, per specs/new-routes.md ## Templates.
+create function fn_new_templated(req jsonb) returns jsonb language sql as $$
+  select jsonb_build_object('name', 'world');
+$$;
+comment on function fn_new_templated(jsonb) is 'route:: path: "/new/templated", template: "greet.jet"';
+grant execute on function fn_new_templated(jsonb) to "~anonymous";
