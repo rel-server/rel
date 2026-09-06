@@ -152,6 +152,32 @@ cross-site top-level `GET` navigation), but **not** for SAML's `/acs` under the 
 callback function driven by SAML will see `payload.jwt: null` even for an actually-logged-in
 browser, unless the deployment sets `jwt.same_site = None`.
 
+### Errors
+
+Two distinct error sources exist on `/auth/oidc/*` and `/auth/saml/*`, and a client tells them
+apart the same way it tells apart any other `code`/`X-Rel-Errorcode` pair (see [Error
+responses](../configuration/operations.md#error-responses)) — not by HTTP status alone, since
+both can plausibly render as a 4xx or 5xx:
+
+- **The callback function's own rejection** — `raise exception ... using errcode = 'RSxxx'`,
+  the same convention any other route function uses, once a request has actually reached the
+  database.
+- **Protocol-level failures rel itself detects**, before the callback function ever runs — these
+  get their own rel-internal codes:
+
+| `code` | Status | Meaning |
+|---|---|---|
+| `SSO_NOT_READY` | 503 | discovery/IdP metadata hasn't resolved yet |
+| `SSO_BAD_REQUEST` | 400 | malformed callback request — missing `code`, unparseable form |
+| `SSO_BAD_STATE` | 400 | missing or mismatched OAuth2 `state` |
+| `SSO_BAD_NONCE` | 400 | ID token nonce doesn't match the one this login minted |
+| `SSO_TOKEN_EXCHANGE_FAILED` | 502 | the issuer's token endpoint rejected the exchange |
+| `SSO_NO_ID_TOKEN` | 502 | token response carried no `id_token` |
+| `SSO_INVALID_ID_TOKEN` | 502 | `id_token` failed signature/issuer/audience verification |
+| `SSO_USERINFO_FAILED` | 502 | `fetch_userinfo`'s own call to the issuer failed |
+| `SSO_SAML_INVALID_RESPONSE` | 400 | SAML response/assertion failed to parse or verify |
+| `SSO_INTERNAL` | 500 | rel's own logic failed — state/nonce generation, encoding |
+
 ### Passing state through login
 
 `/login` accepts a plain query string, decoded the same structural way [`GET
@@ -221,6 +247,26 @@ Rejecting (`raise exception ... using errcode = 'RSxxx'`) clears the session and
 re-authentication; returning normally lets it stand. rel doesn't require any particular claim
 (a `jti`, a session id) for this to work — how you identify "this session" in your own revoked-
 sessions table is up to whatever custom claims your login function put on the JWT.
+
+### Claims as a Postgres setting
+
+The claims object is also available as a plain Postgres setting, `current_setting('rel.jwt.claims',
+true)::jsonb` — the same shape as `req.jwt`/`check_session`'s own `jwt` argument (`null` for an
+anonymous request), readable from any function that runs as part of handling the request: an
+RLS policy, a trigger, a function called deeper down that doesn't have the claims threaded
+through as an argument. It's set right alongside the role switch, so it's there for every route
+function, every `/rel` query/write, `check_session` itself, and a static file's own access-control
+function.
+
+```sql
+create policy own_rows_only on documents
+  using (owner_id = (current_setting('rel.jwt.claims', true)::jsonb->>'user_id')::bigint);
+```
+
+The `true` second argument matters: without it, `current_setting` raises an error instead of
+returning `null` on a connection where it was never set — worth keeping even though rel itself
+always sets it, since a direct `psql` session (superuser, migrations) never goes through this
+path at all.
 
 ## Deployment checklist
 
