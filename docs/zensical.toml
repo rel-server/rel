@@ -30,6 +30,7 @@ nav = [
   ] },
   { "HTTP layer" = [
       { "Overview" = "http/index.md" },
+      { "HTTP reference" = "http/reference.md" },
       { "Requests and responses" = "http/requests-responses.md" },
       { "Rendering HTML with templates" = "http/templates.md" },
       { "File uploads" = "http/uploads.md" },

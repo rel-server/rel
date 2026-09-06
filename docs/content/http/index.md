@@ -89,6 +89,8 @@ obvious HTTP status (a permission-denied error becomes `401`, for instance).
 
 ## In this section
 
+- **[HTTP reference](reference.md)** — every domain name, function signature, and
+  configuration key in this section, in one place.
 - **[Requests and responses](requests-responses.md)** — the `RelHttpRequest`/`RelHttpResponse`
   domains.
 - **[Rendering HTML with templates](templates.md)** — server-side Jet templates, the CSP
