@@ -8,3 +8,14 @@
   border: none;
   border-top: 1px solid var(--md-default-fg-color--lightest);
 }
+
+/*
+  Theme default is word-break: break-word on inline text elements, which
+  breaks words mid-character rather than only at existing hyphens/spaces.
+*/
+.md-typeset a,
+.md-typeset code,
+.md-typeset kbd,
+.md-typeset mark {
+  word-break: keep-all;
+}
