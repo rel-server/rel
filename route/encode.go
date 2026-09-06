@@ -16,6 +16,7 @@ import (
 	"github.com/rel-server/rel/errcode"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/querystring"
+	"github.com/rel-server/rel/static"
 	"github.com/rel-server/rel/websec"
 	"github.com/samber/oops"
 )
@@ -171,6 +172,9 @@ type relHttpResponsePayload struct {
 	TemplateData json.RawMessage `json:"template_data"`
 	// Csp is docs/content/http/cors-csp.md ## CSP ### Per-response override.
 	Csp string `json:"csp"`
+	// StaticFile is specs/new-routes.md ## Static path masking's
+	// static_file : served instead of Content when set.
+	StaticFile string `json:"static_file"`
 }
 
 type jwtAttrsPayload struct {
@@ -236,14 +240,21 @@ func applyResponseSideEffects(w http.ResponseWriter, r *http.Request, cfg *confi
 
 // writeSingleReturnResponse writes a non-full-control route's single return
 // value directly as the body — no envelope, no cookies/headers/jwt/status
-// override possible without the two-OUT-column shape. raw is exactly what
-// Postgres returned : already the real bytes/text/JSON, never itself
-// JSON-encoded the way a single-jsonb-envelope's "content" key is, so it's
-// written verbatim rather than through contentBytes. route.Template (the
-// declared default) renders it as Data when set — specs/new-routes.md
-// ## Templates : "the other return type is then used as the Data" applies
-// here too, there being no per-response override without full control.
-func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, route Route, raw []byte, templates *TemplateSet) {
+// override possible without the two-OUT-column shape, EXCEPT whatever
+// accumulated already carries in from a pass-through middleware ahead of
+// this route (## Middleware : a middleware's side-effecting fields apply
+// regardless of the route's own shape) — a zero-value accumulated when no
+// middleware ran leaves this response exactly as before middleware
+// existed. raw is exactly what Postgres returned : already the real
+// bytes/text/JSON, never itself JSON-encoded the way a single-jsonb-
+// envelope's "content" key is, so it's written verbatim rather than
+// through contentBytes. route.Template (the declared default) renders it
+// as Data when set — specs/new-routes.md ## Templates : "the other return
+// type is then used as the Data" applies here too, there being no
+// per-response override without full control.
+func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, route Route, accumulated relHttpResponsePayload, raw []byte, templates *TemplateSet) {
+	applyResponseSideEffects(w, r, cfg, functionIdent, accumulated)
+
 	if route.Template != "" {
 		writeTemplateResponse(w, r, templates, route.Template, templateDataFromSingleReturn(raw, route.ContentType), route.ContentType, http.StatusOK)
 		return
@@ -256,31 +267,77 @@ func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, route Rou
 }
 
 // writeFullControlResponse decodes envelopeRaw (the first OUT column) and
-// writes contentRaw (the second) as the body, per specs/new-routes.md
-// ## Function prototype's two-OUT-column shape — envelopeRaw carries every
-// side-effecting field plus an optional content_type/template override ;
-// contentRaw is the real body bytes, exactly like writeSingleReturnResponse's
-// raw, and a template (envelope's own, falling back to route.Template) uses
-// contentRaw as its Data.
-func writeFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, route Route, envelopeRaw, contentRaw []byte, templates *TemplateSet) {
+// renders contentRaw (the second) as the body, per specs/new-routes.md
+// ## Function prototype's two-OUT-column shape. accumulated carries any
+// cookies/headers/jwt/jwt_attrs/csp already merged in from middleware that
+// ran ahead of this response (## Middleware : "on a per-key basis, a later
+// middleware's or the route function's own value ... wins") — pass a
+// zero-value relHttpResponsePayload{} when no middleware ran, which leaves
+// this response's own values as the only ones present, unchanged from
+// before middleware existed.
+func writeFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, route Route, accumulated relHttpResponsePayload, envelopeRaw, contentRaw []byte, templates *TemplateSet, staticSrv *static.Server) {
 	var resp relHttpResponsePayload
-	if err := sonic.Unmarshal(envelopeRaw, &resp); err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding function response")
+	// A genuine SQL NULL envelope (as opposed to the JSON literal "null")
+	// scans as zero-length raw ; treated the same as an empty {} envelope
+	// rather than a decode error.
+	if len(envelopeRaw) > 0 {
+		if err := sonic.Unmarshal(envelopeRaw, &resp); err != nil {
+			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding function response")
+			return
+		}
+	}
+	renderFullControlResponse(w, r, cfg, functionIdent, route, accumulated, resp, contentRaw, templates, staticSrv)
+}
+
+// renderFullControlResponse is writeFullControlResponse's already-decoded
+// half, shared with a terminating middleware's own response (## Middleware),
+// which has its envelope decoded once already rather than needing a second
+// round trip through JSON.
+func renderFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, route Route, accumulated, resp relHttpResponsePayload, contentRaw []byte, templates *TemplateSet, staticSrv *static.Server) {
+	mergeSideEffects(&accumulated, resp)
+	accumulated.Status = resp.Status
+	accumulated.ContentType = resp.ContentType
+	accumulated.Template = resp.Template
+	accumulated.StaticFile = resp.StaticFile
+
+	status := applyResponseSideEffects(w, r, cfg, functionIdent, accumulated)
+
+	// ## Static path masking : static_file serves that file instead of
+	// content ; checked before the null-content 404 rule below, since
+	// static_file is the explicit way to defer to disk.
+	if accumulated.StaticFile != "" {
+		relPath := strings.TrimPrefix(accumulated.StaticFile, "/")
+		if staticSrv != nil && staticSrv.ServeFile(w, r, relPath) {
+			return
+		}
+		http.NotFound(w, r)
 		return
 	}
-	status := applyResponseSideEffects(w, r, cfg, functionIdent, resp)
 
-	contentType := resp.ContentType
+	contentType := accumulated.ContentType
 	if contentType == "" {
 		contentType = route.ContentType
 	}
 
-	template := resp.Template
+	template := accumulated.Template
 	if template == "" {
 		template = route.Template
 	}
 	if template != "" {
 		writeTemplateResponse(w, r, templates, template, templateDataFromSingleReturn(contentRaw, contentType), contentType, status)
+		return
+	}
+
+	// ## Static path masking : "returning neither [content nor static_file]
+	// serves a 404" — scoped to the masking case specifically : a response
+	// that didn't even bother setting its own status either has made no
+	// decision at all, so there's nothing to send. A response with an
+	// explicit status (401, 402, 204, ...) and deliberately no content is a
+	// normal, real answer, not a masking no-op — its null/empty content is
+	// sent as-is (a middleware terminating with only {status: 401} is the
+	// concrete case this guards).
+	if accumulated.Status == 0 && (len(bytes.TrimSpace(contentRaw)) == 0 || string(bytes.TrimSpace(contentRaw)) == "null") {
+		http.NotFound(w, r)
 		return
 	}
 

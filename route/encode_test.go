@@ -3,7 +3,11 @@ package route
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/rel-server/rel/config"
 )
 
 // TestEncodeBody_JSON : body decodes to the actual JSON value, never a
@@ -141,5 +145,39 @@ func TestMediaTypeOf_StripsParams(t *testing.T) {
 	}
 	if got := mediaTypeOf("application/json"); got != "application/json" {
 		t.Errorf("expected application/json, got %q", got)
+	}
+}
+
+// TestRenderFullControlResponse_ExplicitStatusWithNullContentIsNotMasked
+// is a regression test : a response that sets an explicit status (e.g. a
+// terminating middleware's {status: 401}) with null/empty content is a
+// real, deliberate answer — it must be sent as that status, not silently
+// turned into a 404 by ## Static path masking's "returning neither serves
+// a 404" rule, which is scoped to a response that set NEITHER content NOR
+// its own status at all.
+func TestRenderFullControlResponse_ExplicitStatusWithNullContentIsNotMasked(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/whatever", nil)
+	cfg := config.Test()
+
+	renderFullControlResponse(rec, req, cfg, "public.fn", Route{}, relHttpResponsePayload{}, relHttpResponsePayload{Status: 401}, []byte("null"), nil, nil)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected the explicit 401 to be sent as-is, got %d", rec.Code)
+	}
+}
+
+// TestRenderFullControlResponse_NoStatusNoContentIsMaskingNotFound covers
+// the actual masking case this rule protects : nothing set at all (no
+// status, no content, no static_file) really does mean 404.
+func TestRenderFullControlResponse_NoStatusNoContentIsMaskingNotFound(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/whatever", nil)
+	cfg := config.Test()
+
+	renderFullControlResponse(rec, req, cfg, "public.fn", Route{}, relHttpResponsePayload{}, relHttpResponsePayload{}, []byte("null"), nil, nil)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for a response setting neither status nor content, got %d", rec.Code)
 	}
 }

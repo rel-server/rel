@@ -139,7 +139,7 @@ rel sniffs the actual bytes of any request body or upload part and exposes the r
 
 ## Static path masking
 
-A function defined at an exact path takes priority over a static file at that same path. Returning `static_file` in the response serves that file instead of `content`; returning neither serves a `404`.
+A function defined at an exact path takes priority over a static file at that same path. Returning `static_file` in the response serves that file instead of `content`; returning neither serves a `404` — but only when `status` is ALSO unset. A response with an explicit `status` (a middleware terminating with `{status: 401}`, say) and no `content`/`static_file` is a real, deliberate answer, not a masking no-op, and is sent as that status with an empty body.
 
 `static_file` resolves under the same traversal rules as `http.static.path` and `Upload.path` — no `..`, no dotfile path segment, nothing outside the configured static directories.
 
@@ -174,7 +174,13 @@ Middleware supersedes `http.functions.check_session` — a session-revocation ch
 
 `/auth/*` (OIDC/SAML login, callback, ACS, metadata) is exempt from all middleware, unconditionally — a session-checking middleware there could make login unrecoverable, since the callback that would let a user regain a valid session is itself blocked by the check meant to detect the lack of one.
 
-`/auth/*` and `/rel`, and any other path rel itself serves, are reserved: no user-declared route or middleware is ever registered there, from config or from a database comment alike — see `## How it works`.
+`/auth/*` and `/rel`, and any other path rel itself serves, are reserved: no user-declared route or middleware is ever registered there, from config or from a database comment alike — see `## How it works`. This means a middleware can never be declared directly at `/rel` itself ; gating `/rel` means declaring the middleware at a shorter prefix that still covers it (`/`, at minimum).
+
+Renew (session cookie renewal) always runs after the whole middleware chain has let a request through, never before — a middleware that rejects a request must never hand back a freshly renewed cookie for the very session it just rejected. This mirrors `check_session`'s own ordering today (Check before Renew).
+
+> Thoughts: `stream_upload`'s middleware pass (see `## \`stream_upload\`` below) runs once, ahead of the first call only — its own accumulated cookies/headers/jwt/jwt_attrs/csp still apply to the second call's response, the one actually sent to the client, even though the chain itself never runs a second time.
+
+> Question: when a middleware sets `jwt` ahead of a route function that never itself sets `jwt`, which function's identifier gates `http.functions.allowed_auth` — the middleware's own, or the route's? Advise.
 
 ## Templates
 

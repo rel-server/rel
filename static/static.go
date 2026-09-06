@@ -1,57 +1,40 @@
-// Package static implements specs/http-content.md ## Static files and
-// ### Access control : serving http.static.path's colon-separated
-// directory search list at the fixed /static/ URL prefix, with no
-// directory listing, no dotfiles, and an opt-in, named, prefix-scoped
-// database access-control mechanism. (### Upload destinations, the same
-// section's second half, lives in route — it's a route-function discovery
-// mechanism wired through the registry, not something /static/ itself
-// serves.)
+// Package static implements specs/http-content.md ## Static files :
+// serving http.static.path's colon-separated directory search list, with
+// no directory listing and no dotfiles. Access control moved to
+// specs/new-routes.md ## Middleware — a database-backed gate over a
+// subtree is now an ordinary middleware function declared at that prefix,
+// not something this package arranges itself. (### Upload destinations,
+// specs/http-content.md ## Static files' second half, lives in route — it's
+// a route-function discovery mechanism wired through the registry, not
+// something this package serves.)
 package static
 
 import (
-	"context"
 	"net/http"
 	"os"
 	"path"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/bytedance/sonic"
-
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dbauth"
-	"github.com/rel-server/rel/errcode"
-	jwtpkg "github.com/rel-server/rel/jwt"
-	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
-	"github.com/rel-server/rel/pgerr"
 )
 
 // Server is a built, ready-to-mount static file server : Dirs is the
 // existing-only subset of http.static.path's colon-separated search list,
-// in order (first match wins) ; Access is the named access-control rule
-// set, sorted longest-prefix-first so an overlapping pair of rules always
-// matches the more specific one. Rebuilt on every boot.BuildMux call (see
-// its own doc comment) — startup and every SIGUSR1 reload alike, per
+// in order (first match wins). Rebuilt on every boot.BuildMux call (see its
+// own doc comment) — startup and every SIGUSR1 reload alike, per
 // ## Static files' own "this check re-runs every time the inner mux is
 // (re)built" rule.
 type Server struct {
-	Dirs   []string
-	Access []accessRule
-}
-
-type accessRule struct {
-	name     string
-	prefix   string
-	function string
+	Dirs []string
 }
 
 // New builds a *Server from cfg, or nil if EVERY directory in
 // http.static.path is missing — ## Static files' "missing directories
 // silently skipped... /static/* isn't mounted at ALL only when EVERY
 // listed directory is missing" rule ; the caller (boot.BuildMux) simply
-// doesn't mount "/static/" at all in that case.
+// doesn't mount the static fallback at all in that case.
 func New(cfg config.Http) *Server {
 	var dirs []string
 	for _, d := range config.SplitPathList(cfg.Static.Path) {
@@ -62,19 +45,7 @@ func New(cfg config.Http) *Server {
 	if len(dirs) == 0 {
 		return nil
 	}
-
-	rules := make([]accessRule, 0, len(cfg.Static.Access))
-	for name, r := range cfg.Static.Access {
-		if r.Prefix == "" || r.Function == "" {
-			continue
-		}
-		rules = append(rules, accessRule{name: name, prefix: r.Prefix, function: r.Function})
-	}
-	// Longest-prefix-first : deterministic, most-specific-wins matching,
-	// independent of the map's own (unspecified) iteration order.
-	sort.Slice(rules, func(i, j int) bool { return len(rules[i].prefix) > len(rules[j].prefix) })
-
-	return &Server{Dirs: dirs, Access: rules}
+	return &Server{Dirs: dirs}
 }
 
 // WriteDir is ### Upload destinations' "the FIRST listed directory
@@ -87,17 +58,6 @@ func (s *Server) WriteDir() string {
 		return ""
 	}
 	return s.Dirs[0]
-}
-
-// matchRule returns the most specific accessRule whose prefix reqPath
-// falls under, ("", false) if none.
-func (s *Server) matchRule(reqPath string) (accessRule, bool) {
-	for _, r := range s.Access {
-		if strings.HasPrefix(reqPath, r.prefix) {
-			return r, true
-		}
-	}
-	return accessRule{}, false
 }
 
 // Info is specs/new-routes.md ## Static path masking's request.static
@@ -155,59 +115,23 @@ func (s *Server) openMulti(name string) (dir string, fi os.FileInfo, ok bool) {
 	return "", nil, false
 }
 
-// Handler is the actual /static/ mount, per net/http's convention : callers
-// mount this at "/static/" wrapped in http.StripPrefix("/static/", ...),
-// so upath below is already relative to http.static.path.
+// Handler is the static fallback mount — specs/new-routes.md
+// ## Static path masking : rel os.Stats/serves whatever the request path
+// resolves to, relative to http.static.path ; a database-backed gate over
+// a subtree is now a middleware function (## Middleware), not something
+// this handler arranges. db/cfg are unused now that access control moved
+// out, kept for call-site compatibility (boot.BuildMux mounts this the same
+// way it mounts every other handler here).
 func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
-	fs := multiDirFS(s.Dirs)
-	fileServer := http.FileServer(fs)
+	fileServer := http.FileServer(multiDirFS(s.Dirs))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upath := strings.TrimPrefix(r.URL.Path, "/")
 
-		// Before any filesystem call or access-control gating — closes off
-		// serving a partial upload mid-stream or a dotfile like .env either way.
+		// Before any filesystem call — closes off serving a partial upload
+		// mid-stream or a dotfile like .env.
 		if hasDotSegment(upath) {
 			http.NotFound(w, r)
-			return
-		}
-
-		rule, gated := s.matchRule(upath)
-		if !gated {
-			s.serve(w, r, fileServer, upath)
-			return
-		}
-
-		claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
-
-		// ### Access control : 401 before the existence check (same
-		// ordering as /rel/route) — avoids leaking existence to the gate.
-		if !verified && !db.AnonymousRoleExists {
-			// Unlike /rel and /route, no X-Rel-Errorcode header here — this
-			// package's writePlainError never carried one ; flagged, not fixed.
-			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabledMessage)
-			return
-		}
-
-		// Cheap stat before any DB round trip, for a request that was never
-		// going to succeed either way.
-		_, fi, exists := s.openMulti(upath)
-		if !exists {
-			http.NotFound(w, r)
-			return
-		}
-		if fi.IsDir() && !s.hasIndex(upath) {
-			http.NotFound(w, r)
-			return
-		}
-
-		if err := checkStaticAccess(r.Context(), db, rule.function, upath, verified, claims); err != nil {
-			if status, message, ok := pgerr.RSStatus(err); ok {
-				writePlainError(w, status, message)
-				return
-			}
-			logging.FromContext(r.Context()).With("module", "static").Error("check_static_access", "function", rule.function, "path", upath, "error", err.Error())
-			writePlainError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 
@@ -230,58 +154,35 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, fileServer http.H
 	fileServer.ServeHTTP(w, r)
 }
 
+// ServeFile serves relPath (relative to http.static.path, no leading "/")
+// through the same multi-directory search/no-directory-listing/dotfile
+// rules Handler itself applies — specs/new-routes.md ## Static path
+// masking's static_file : a full-control route or middleware response can
+// defer to a specific file on disk, not necessarily the one at the
+// request's own URL path. Returns false (writes nothing) when relPath
+// doesn't resolve to anything servable, leaving 404 rendering to the
+// caller — route's own error format, not this package's.
+func (s *Server) ServeFile(w http.ResponseWriter, r *http.Request, relPath string) bool {
+	if s == nil || hasDotSegment(relPath) {
+		return false
+	}
+	_, fi, exists := s.openMulti(relPath)
+	if !exists {
+		return false
+	}
+	if fi.IsDir() && !s.hasIndex(relPath) {
+		return false
+	}
+	fileServer := http.FileServer(multiDirFS(s.Dirs))
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = "/" + relPath
+	fileServer.ServeHTTP(w, r2)
+	return true
+}
+
 func (s *Server) hasIndex(dirPath string) bool {
 	_, _, ok := s.openMulti(path.Join(dirPath, "index.html"))
 	return ok
-}
-
-// checkStaticAccessPayload is ### Access control's own documented shape :
-// {"path": "<request path, relative to http.static.path>", "jwt": JWT | null}.
-type checkStaticAccessPayload struct {
-	Path string        `json:"path"`
-	Jwt  jwtpkg.Claims `json:"jwt"`
-}
-
-// checkStaticAccess acquires one connection for the check_static_access
-// call — no SET LOCAL ROLE (### Access control), but wrapped in a plain
-// transaction anyway solely to scope dbauth.SetLocalClaims's GUC to this
-// one call : set_config(..., true) outside a transaction block is NOT
-// transaction-scoped (see SetLocalClaims's own doc comment), so a bare
-// conn.Exec here would leak it into the pool.
-func checkStaticAccess(ctx context.Context, db *pg.DbInfos, qualifiedName, reqPath string, verified bool, claims jwtpkg.Claims) error {
-	var jwtVal jwtpkg.Claims
-	if verified {
-		jwtVal = claims
-	}
-	payload, err := sonic.Marshal(checkStaticAccessPayload{Path: reqPath, Jwt: jwtVal})
-	if err != nil {
-		return err
-	}
-	conn, err := db.Pool.Acquire(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Release()
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := dbauth.SetLocalClaims(ctx, tx, jwtVal); err != nil {
-		return err
-	}
-	if err := dbauth.CallJSONBFunction(ctx, tx, qualifiedName, payload); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func writePlainError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte(message))
 }
 
 // multiDirFS backs http.FileServer directly, trying each directory's own

@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -82,66 +81,6 @@ func TestRelHandler_ClaimsSetting_AuthenticatedMatchesJWT(t *testing.T) {
 	}
 }
 
-func TestRelHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
-	cfg := config.Test()
-	cfg.Pg.Query.AnonymousRole = "~anonymous"
-	cfg.Http.Functions.CheckSession = "public.check_session"
-	handler := NewRelHandler(testDb, cfg, nil)
-
-	toggleSessionControl(t, true)
-	defer toggleSessionControl(t, false)
-
-	cookie := mintCookie(t, cfg, "authenticated_user")
-	rec := postRelWithCookie(t, handler, `{
-		"relation": "secret_notes", "schema": "public", "select": ["own"]
-	}`, cookie)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 (RS401 from check_session), got %d: %s", rec.Code, rec.Body.String())
-	}
-	cleared := false
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == cfg.Jwt.CookieName && c.MaxAge < 0 {
-			cleared = true
-		}
-	}
-	if !cleared {
-		t.Errorf("expected the jwt cookie to be cleared, got %v", rec.Result().Cookies())
-	}
-}
-
-func TestRelHandler_CheckSessionRejection_DoesNotAlsoRenew(t *testing.T) {
-	// A token past renewafter AND rejected by check_session must not leave
-	// two Set-Cookie headers (a renewed token, then the clear).
-	cfg := config.Test()
-	cfg.Pg.Query.AnonymousRole = "~anonymous"
-	cfg.Http.Functions.CheckSession = "public.check_session"
-	cfg.Jwt.MaxAge = 5
-	cfg.Jwt.RenewAfter = 0.1
-	handler := NewRelHandler(testDb, cfg, nil)
-
-	toggleSessionControl(t, true)
-	defer toggleSessionControl(t, false)
-
-	cookie := mintCookie(t, cfg, "authenticated_user")
-	time.Sleep(1500 * time.Millisecond)
-
-	rec := postRelWithCookie(t, handler, `{
-		"relation": "secret_notes", "schema": "public", "select": ["own"]
-	}`, cookie)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
-	}
-	setCookies := rec.Result().Cookies()
-	if len(setCookies) != 1 {
-		t.Fatalf("expected exactly 1 Set-Cookie, got %d: %v", len(setCookies), setCookies)
-	}
-	if setCookies[0].MaxAge >= 0 {
-		t.Errorf("expected the one Set-Cookie to be a clear (negative MaxAge), got %+v", setCookies[0])
-	}
-}
-
 func TestRelHandler_AnonymousReadDeniedOnRoleGatedTable_CleanEnvelope(t *testing.T) {
 	// Same cause as the write test above, but on the read path : the
 	// query fails before any bytes are written, so a clean envelope must result.
@@ -157,24 +96,6 @@ func TestRelHandler_AnonymousReadDeniedOnRoleGatedTable_CleanEnvelope(t *testing
 	}
 	if envelope["status"] != "error" {
 		t.Errorf("expected status \"error\", got %v", envelope["status"])
-	}
-}
-
-func TestRelHandler_CheckSessionAllows_AuthenticatedReadSucceeds(t *testing.T) {
-	cfg := config.Test()
-	cfg.Pg.Query.AnonymousRole = "~anonymous"
-	cfg.Http.Functions.CheckSession = "public.check_session"
-	handler := NewRelHandler(testDb, cfg, nil)
-
-	toggleSessionControl(t, false)
-
-	cookie := mintCookie(t, cfg, "authenticated_user")
-	rec := postRelWithCookie(t, handler, `{
-		"relation": "secret_notes", "schema": "public", "select": ["own"]
-	}`, cookie)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -203,60 +124,6 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	}
 	if !renewed {
 		t.Errorf("expected a renewed Set-Cookie, got %v", rec.Result().Cookies())
-	}
-}
-
-// TestRelHandler_CheckSessionSeesPreRenewalClaims : a token past renewafter
-// still gets check_session called with its ORIGINAL (pre-renewal) "iat".
-func TestRelHandler_CheckSessionSeesPreRenewalClaims(t *testing.T) {
-	cfg := config.Test()
-	cfg.Pg.Query.AnonymousRole = "~anonymous"
-	cfg.Http.Functions.CheckSession = "public.check_session"
-	cfg.Jwt.MaxAge = 5
-	cfg.Jwt.RenewAfter = 0.1
-	handler := NewRelHandler(testDb, cfg, nil)
-
-	toggleSessionControl(t, false)
-	defer toggleSessionControl(t, false)
-
-	originalClaims := jwtpkg.Mint(cfg.Jwt, "authenticated_user", time.Now(), cfg.Jwt.MaxAge, nil)
-	token, err := jwtpkg.Sign(cfg.Jwt, originalClaims)
-	if err != nil {
-		t.Fatalf("sign: %v", err)
-	}
-	cookie := jwtpkg.CookieValue(cfg.Jwt, token, originalClaims, "")
-	originalIat := jwtpkg.IssuedAt(originalClaims).Unix()
-
-	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold
-
-	rec := postRelWithCookie(t, handler, `{
-		"relation": "secret_notes", "schema": "public", "select": ["own"]
-	}`, cookie)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	renewed := false
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == cfg.Jwt.CookieName && c.Value != cookie.Value {
-			renewed = true
-		}
-	}
-	if !renewed {
-		t.Fatalf("expected a renewed Set-Cookie (precondition for this test), got %v", rec.Result().Cookies())
-	}
-
-	conn, err := testDb.Pool.Acquire(context.Background())
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	defer conn.Release()
-	var seenIat float64
-	if err := conn.QueryRow(context.Background(), "select iat from last_check_session_iat").Scan(&seenIat); err != nil {
-		t.Fatalf("reading last_check_session_iat: %v", err)
-	}
-	if int64(seenIat) != originalIat {
-		t.Errorf("expected check_session to see the pre-renewal iat=%d, got %v", originalIat, seenIat)
 	}
 }
 
@@ -312,16 +179,4 @@ func postRelWithCookie(t *testing.T, handler http.Handler, body string, cookie *
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec
-}
-
-func toggleSessionControl(t *testing.T, reject bool) {
-	t.Helper()
-	conn, err := testDb.Pool.Acquire(context.Background())
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	defer conn.Release()
-	if _, err := conn.Exec(context.Background(), "update session_control set reject = $1", reject); err != nil {
-		t.Fatalf("toggle session_control: %v", err)
-	}
 }

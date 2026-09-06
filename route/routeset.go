@@ -94,6 +94,50 @@ type Registry struct {
 	Middleware []Route
 }
 
+// MiddlewareChain returns every s.Middleware entry whose prefix applies to
+// targetPath — a declared route's own AnonPath (a precomputed-at-dispatch-
+// time chain) or a concrete request path for /rel or the static fallback,
+// which have no declared route of their own. Already shortest-prefix-first,
+// then alphabetical (s.Middleware's own sort order), since filtering
+// preserves order.
+func (s *Registry) MiddlewareChain(targetPath string) []Route {
+	var chain []Route
+	for _, mw := range s.Middleware {
+		if middlewarePrefixMatches(mw.AnonPath, targetPath) {
+			chain = append(chain, mw)
+		}
+	}
+	return chain
+}
+
+// middlewarePrefixMatches implements ## Middleware's "prefix match ...
+// segment by segment" rule : mwAnonPath's segments must all match
+// targetPath's corresponding leading segments, where a "{}" segment
+// matches any single segment (targetPath's own placeholder segments are
+// already anonymized to "{}" too when it's a declared route's AnonPath ;
+// for a concrete request path — /rel or a static file — targetPath carries
+// real segment values instead, which a middleware's own "{}" placeholder
+// still matches).
+func middlewarePrefixMatches(mwAnonPath, targetPath string) bool {
+	if mwAnonPath == "/" {
+		return true
+	}
+	mwSegs := strings.Split(strings.Trim(mwAnonPath, "/"), "/")
+	targetSegs := strings.Split(strings.Trim(targetPath, "/"), "/")
+	if len(mwSegs) > len(targetSegs) {
+		return false
+	}
+	for i, seg := range mwSegs {
+		if seg == "{}" {
+			continue
+		}
+		if seg != targetSegs[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // find is a test helper — production dispatch (Stage 2) matches a real
 // request path against Path/AnonPath through chi itself, not by exact
 // schema/function lookup.

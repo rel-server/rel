@@ -1,11 +1,13 @@
 // Package dbauth is the half of authentication.md's Lifecycle that
-// needs an actual Postgres connection — Check (step 3, the check_session
-// function) and identifier-escaping for Apply role (step 5) — shared
-// between /route (route/handler.go) and /rel (server/rel.go), each
-// wrapping its own request's whole DB work in one transaction, start to
-// finish, on one acquired connection. Verify/Renew (steps 2/4, no DB
-// needed) live in the jwt package instead — see jwt/middleware.go's own
-// doc comment for why the split falls there.
+// needs an actual Postgres connection — role-switching and identifier-
+// escaping for Apply role (step 5) — shared between /route
+// (route/handler.go) and /rel (server/rel.go), each wrapping its own
+// request's whole DB work in one transaction, start to finish, on one
+// acquired connection. Verify/Renew (steps 2/4, no DB needed) live in the
+// jwt package instead — see jwt/middleware.go's own doc comment for why the
+// split falls there. Check (step 3) was check_session, a single configured
+// function ; specs/new-routes.md ## Middleware supersedes it — a session
+// check is now an ordinary middleware function.
 package dbauth
 
 import (
@@ -32,28 +34,6 @@ type Execer interface {
 // caller must actually read.
 type Querier interface {
 	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
-}
-
-// CheckSession invokes http.functions.check_session — a void-returning
-// function, called only when a JWT already verified (Lifecycle step 3),
-// immediately before the role switch. An RSxxx exception here aborts the
-// whole request ; any other Postgres error is a genuine 500 — both are the
-// caller's own responsibility to classify (see pgerr.RSStatus).
-func CheckSession(ctx context.Context, exec Execer, qualifiedName string, claims jwtpkg.Claims) error {
-	claimsJSON, err := json.Marshal(claims)
-	if err != nil {
-		return err
-	}
-	return CallJSONBFunction(ctx, exec, qualifiedName, claimsJSON)
-}
-
-// CheckSessionIfConfigured calls CheckSession, but only when verified is
-// true and qualifiedName is non-empty — a no-op (nil) otherwise.
-func CheckSessionIfConfigured(ctx context.Context, exec Execer, qualifiedName string, claims jwtpkg.Claims, verified bool) error {
-	if !verified || qualifiedName == "" {
-		return nil
-	}
-	return CheckSession(ctx, exec, qualifiedName, claims)
 }
 
 // SetLocalRole issues SET LOCAL ROLE <role> — transaction-scoped, or (on a
@@ -109,25 +89,9 @@ func SetLocalClaims(ctx context.Context, exec Execer, claims jwtpkg.Claims) erro
 // Every SET LOCAL ROLE call site must use this exact wording, not restate it.
 const NoRoleConfiguredMessage = "no role configured (query.anonymous_role is unset and request is anonymous)"
 
-// CallJSONBFunction invokes qualifiedName(payload::jsonb) — the shared
-// calling convention docs/content/http/static-files.md ## Restricting
-// access to part of the tree deliberately reuses from CheckSession's own :
-// "a configured function
-// name, called with a jsonb payload, RSxxx to reject, returning normally
-// to allow." Void-returning by convention (the caller never reads a
-// result), but works identically for any single-jsonb-argument function
-// regardless of its own declared return type — Exec doesn't parse rows.
-func CallJSONBFunction(ctx context.Context, exec Execer, qualifiedName string, payload []byte) error {
-	schema, name := QualifiedIdentifier(qualifiedName)
-	sql := "select " + EscapeIdentifier(schema) + "." + EscapeIdentifier(name) + "($1::jsonb)"
-	_, err := exec.Exec(ctx, sql, payload)
-	return err
-}
-
 // QualifiedIdentifier splits qualifiedName on its first "." into
-// (schema, name), defaulting schema to "public" when unqualified — the
-// same convention CallJSONBFunction below already applies inline, factored
-// out so CallJSONBFunctionReturningJSON can share it.
+// (schema, name), defaulting schema to "public" when unqualified — shared
+// by CallJSONBFunctionReturningJSON below.
 func QualifiedIdentifier(qualifiedName string) (schema, name string) {
 	schema, name, ok := strings.Cut(qualifiedName, ".")
 	if !ok {
@@ -138,8 +102,7 @@ func QualifiedIdentifier(qualifiedName string) (schema, name string) {
 
 // CallJSONBFunctionReturningJSON invokes qualifiedName(payload::jsonb) and
 // returns its own jsonb result raw — specs/oauth-saml.md ## Callback
-// function's calling convention : unlike CallJSONBFunction (Exec, result
-// discarded by convention), the SSO callback's whole point is its
+// function's calling convention : the SSO callback's whole point is its
 // RelHttpResponse return value.
 func CallJSONBFunctionReturningJSON(ctx context.Context, q Querier, qualifiedName string, payload []byte) ([]byte, error) {
 	schema, name := QualifiedIdentifier(qualifiedName)

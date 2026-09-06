@@ -16,13 +16,16 @@ package boot
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rel-server/rel/config"
+	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/route"
 	"github.com/rel-server/rel/wellknown"
@@ -280,5 +283,292 @@ func TestBuildMux_ChiPrecedence_StaticSegmentBeatsParam(t *testing.T) {
 	mux.ServeHTTP(otherRec, otherReq)
 	if otherRec.Code != 200 || otherRec.Body.String() != "ITEM 42" {
 		t.Errorf("expected the param route to still match other values, got %d: %q", otherRec.Code, otherRec.Body.String())
+	}
+}
+
+// TestBuildMux_MiddlewareGatesRel proves specs/new-routes.md ## Middleware
+// applies to /rel, replacing check_session's own reject-and-clear-cookie
+// pattern : a middleware declared at "/" ("/rel" itself is a reserved path,
+// never available for a user declaration — see isReservedPath) terminates
+// with {status: 401, jwt: null} when a table flag is set, exactly the
+// pattern ## Middleware documents as check_session's replacement.
+func TestBuildMux_MiddlewareGatesRel(t *testing.T) {
+	ctx := context.Background()
+
+	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
+	if err != nil {
+		t.Fatalf("starting postgres container: %v", err)
+	}
+	defer func() { _ = container.Terminate(ctx) }()
+
+	uri, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("connection string: %v", err)
+	}
+
+	setupPool, err := pg.NewInfos(uri)
+	if err != nil {
+		t.Fatalf("pg.NewInfos: %v", err)
+	}
+	if _, err := setupPool.Pool.Exec(ctx, `
+		create role "~anonymous";
+		create role authenticated_user;
+		grant authenticated_user to current_user;
+
+		create table session_gate (id serial primary key, reject boolean not null default false);
+		insert into session_gate (reject) values (false);
+		grant select on session_gate to authenticated_user, "~anonymous";
+
+		create function relgate_probe() returns jsonb language sql as $$ select '{"ok":true}'::jsonb; $$;
+		grant execute on function relgate_probe() to authenticated_user;
+
+		create function fn_rel_gate(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+			select
+				case when (select reject from session_gate limit 1)
+					then jsonb_build_object('status', 401, 'jwt', 'null'::jsonb)
+				end,
+				null::jsonb;
+		$$;
+		comment on function fn_rel_gate(jsonb) is 'route:: path: "/", middleware: true';
+		grant execute on function fn_rel_gate(jsonb) to "~anonymous", authenticated_user;
+	`); err != nil {
+		t.Fatalf("base schema setup: %v", err)
+	}
+	setupPool.Pool.Close()
+
+	cfg := config.Test()
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
+	cfg.Dev = true
+
+	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("pg.NewInfosAdminQuery: %v", err)
+	}
+
+	reg, err := route.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("route.BuildRegistry: %v", err)
+	}
+	wkReg, err := wellknown.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("wellknown.BuildRegistry: %v", err)
+	}
+
+	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
+	if err != nil {
+		t.Fatalf("BuildMux: %v", err)
+	}
+
+	claims := jwtpkg.Mint(cfg.Jwt, "authenticated_user", time.Now(), cfg.Jwt.MaxAge, nil)
+	token, err := jwtpkg.Sign(cfg.Jwt, claims)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	cookie := jwtpkg.CookieValue(cfg.Jwt, token, claims, "")
+
+	postRel := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/rel", strings.NewReader(`{"function":"relgate_probe","schema":"public"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := postRel(); rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 before the gate trips, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := db.Pool.Exec(ctx, "update session_gate set reject = true"); err != nil {
+		t.Fatalf("tripping the gate: %v", err)
+	}
+
+	rec := postRel()
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 from the middleware, got %d: %s", rec.Code, rec.Body.String())
+	}
+	cleared := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cfg.Jwt.CookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Errorf("expected the jwt cookie to be cleared, got %v", rec.Result().Cookies())
+	}
+}
+
+// TestBuildMux_MiddlewareRejectionDoesNotAlsoRenew is a regression test :
+// jwt/middleware.go's own doc comment states Renew must run AFTER Check.
+// A token past jwt.renew_after AND rejected by the gating middleware must
+// leave exactly one Set-Cookie (the clear) — a renewed-then-cleared pair
+// would hand the client a working cookie for the very session {status:401,
+// jwt:null} just rejected.
+func TestBuildMux_MiddlewareRejectionDoesNotAlsoRenew(t *testing.T) {
+	ctx := context.Background()
+
+	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
+	if err != nil {
+		t.Fatalf("starting postgres container: %v", err)
+	}
+	defer func() { _ = container.Terminate(ctx) }()
+
+	uri, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("connection string: %v", err)
+	}
+
+	setupPool, err := pg.NewInfos(uri)
+	if err != nil {
+		t.Fatalf("pg.NewInfos: %v", err)
+	}
+	if _, err := setupPool.Pool.Exec(ctx, `
+		create role "~anonymous";
+		create role authenticated_user;
+		grant authenticated_user to current_user;
+
+		create function fn_rel_gate_always(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+			select jsonb_build_object('status', 401, 'jwt', 'null'::jsonb), null::jsonb;
+		$$;
+		comment on function fn_rel_gate_always(jsonb) is 'route:: path: "/", middleware: true';
+		grant execute on function fn_rel_gate_always(jsonb) to "~anonymous", authenticated_user;
+	`); err != nil {
+		t.Fatalf("base schema setup: %v", err)
+	}
+	setupPool.Pool.Close()
+
+	cfg := config.Test()
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
+	cfg.Jwt.MaxAge = 5
+	cfg.Jwt.RenewAfter = 0.1
+
+	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("pg.NewInfosAdminQuery: %v", err)
+	}
+
+	reg, err := route.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("route.BuildRegistry: %v", err)
+	}
+	wkReg, err := wellknown.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("wellknown.BuildRegistry: %v", err)
+	}
+
+	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
+	if err != nil {
+		t.Fatalf("BuildMux: %v", err)
+	}
+
+	claims := jwtpkg.Mint(cfg.Jwt, "authenticated_user", time.Now(), cfg.Jwt.MaxAge, nil)
+	token, err := jwtpkg.Sign(cfg.Jwt, claims)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	cookie := jwtpkg.CookieValue(cfg.Jwt, token, claims, "")
+	time.Sleep(1500 * time.Millisecond) // cross the renew_after threshold
+
+	// The body never gets read — the gating middleware always terminates
+	// before /rel's own handler runs at all.
+	req := httptest.NewRequest(http.MethodPost, "/rel", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 from the middleware, got %d: %s", rec.Code, rec.Body.String())
+	}
+	setCookies := rec.Result().Cookies()
+	if len(setCookies) != 1 {
+		t.Fatalf("expected exactly 1 Set-Cookie, got %d: %v", len(setCookies), setCookies)
+	}
+	if setCookies[0].MaxAge >= 0 {
+		t.Errorf("expected the one Set-Cookie to be a clear (negative MaxAge), got %+v", setCookies[0])
+	}
+}
+
+// TestBuildMux_MiddlewareGatesStaticFallback proves specs/new-routes.md
+// ## Middleware supersedes http.static.access.* : a middleware declared at
+// a prefix under http.static.path gates a static file under that prefix
+// exactly the way the old named access-control rule did.
+func TestBuildMux_MiddlewareGatesStaticFallback(t *testing.T) {
+	ctx := context.Background()
+
+	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
+	if err != nil {
+		t.Fatalf("starting postgres container: %v", err)
+	}
+	defer func() { _ = container.Terminate(ctx) }()
+
+	uri, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("connection string: %v", err)
+	}
+
+	setupPool, err := pg.NewInfos(uri)
+	if err != nil {
+		t.Fatalf("pg.NewInfos: %v", err)
+	}
+	if _, err := setupPool.Pool.Exec(ctx, `
+		create role "~anonymous";
+
+		create function fn_static_gate(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+			select jsonb_build_object('status', 403), jsonb_build_object('reason', 'forbidden');
+		$$;
+		comment on function fn_static_gate(jsonb) is 'route:: path: "/private", middleware: true';
+		grant execute on function fn_static_gate(jsonb) to "~anonymous";
+	`); err != nil {
+		t.Fatalf("base schema setup: %v", err)
+	}
+	setupPool.Pool.Close()
+
+	staticDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(staticDir, "private"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "private", "secret.txt"), []byte("TOP SECRET"), 0o644); err != nil {
+		t.Fatalf("writing secret.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "public.txt"), []byte("PUBLIC"), 0o644); err != nil {
+		t.Fatalf("writing public.txt: %v", err)
+	}
+
+	cfg := config.Test()
+	cfg.Http.Static.Path = staticDir
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
+
+	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("pg.NewInfosAdminQuery: %v", err)
+	}
+
+	reg, err := route.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("route.BuildRegistry: %v", err)
+	}
+	wkReg, err := wellknown.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("wellknown.BuildRegistry: %v", err)
+	}
+
+	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
+	if err != nil {
+		t.Fatalf("BuildMux: %v", err)
+	}
+
+	gatedReq := httptest.NewRequest("GET", "/private/secret.txt", nil)
+	gatedRec := httptest.NewRecorder()
+	mux.ServeHTTP(gatedRec, gatedReq)
+	if gatedRec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 from the middleware gating /private, got %d: %s", gatedRec.Code, gatedRec.Body.String())
+	}
+
+	openReq := httptest.NewRequest("GET", "/public.txt", nil)
+	openRec := httptest.NewRecorder()
+	mux.ServeHTTP(openRec, openReq)
+	if openRec.Code != http.StatusOK || openRec.Body.String() != "PUBLIC" {
+		t.Errorf("expected the ungated file to serve normally, got %d: %q", openRec.Code, openRec.Body.String())
 	}
 }

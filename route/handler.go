@@ -2,6 +2,7 @@ package route
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -41,7 +42,7 @@ func RegisterRoutes(r chi.Router, db *pg.DbInfos, cfg *config.Config, reg *Regis
 	for _, route := range reg.Routes {
 		route := route
 		handler := func(w http.ResponseWriter, req *http.Request) {
-			handleRoute(w, req, db, cfg, route, templates, staticSrv)
+			handleRoute(w, req, db, cfg, reg, route, templates, staticSrv)
 		}
 		for _, method := range route.Methods {
 			r.Method(method, route.Path, http.HandlerFunc(handler))
@@ -49,7 +50,7 @@ func RegisterRoutes(r chi.Router, db *pg.DbInfos, cfg *config.Config, reg *Regis
 	}
 }
 
-func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, route Route, templates *TemplateSet, staticSrv *static.Server) {
+func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, route Route, templates *TemplateSet, staticSrv *static.Server) {
 	ctx := r.Context()
 
 	// Verify (Lifecycle step 2) needs no DB connection — run first, so
@@ -73,7 +74,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// function called twice), dispatched before the single-transaction
 	// path below.
 	if route.StreamUpload {
-		handleUploadRoute(w, r, db, cfg, route, staticSrv, templates, verified, claims)
+		handleUploadRoute(w, r, db, cfg, reg, route, staticSrv, templates, verified, claims)
 		return
 	}
 
@@ -85,7 +86,14 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 
 	staticInfo := staticInfoForRequest(staticSrv, r)
 
-	reqJSON, err := buildRelHttpRequest(r, resolved.BodyJSON, verified, claims, staticInfo, resolved.Parts, nil, nil)
+	// buildReq re-derives the request JSON with a given request.context —
+	// nil for the route's own call unless middleware ran and set one (##
+	// Middleware).
+	buildReq := func(reqContext json.RawMessage) ([]byte, error) {
+		return buildRelHttpRequest(r, resolved.BodyJSON, verified, claims, staticInfo, resolved.Parts, reqContext, nil)
+	}
+
+	reqJSON, err := buildReq(nil)
 	if err != nil {
 		if bqe, ok := errors.AsType[*badQueryError](err); ok {
 			writePlainError(w, http.StatusBadRequest, errcode.QueryMalformedJSON, bqe.Error())
@@ -95,7 +103,8 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		return
 	}
 	// Stashed for ## Templates' "Req" var — the exact JSON the route
-	// function received, not re-derived independently.
+	// function received, not re-derived independently. Updated again below
+	// once middleware (if any) has resolved the final request.context.
 	r = r.WithContext(withRequestJSON(ctx, reqJSON))
 	ctx = r.Context()
 
@@ -107,8 +116,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	defer conn.Release()
 
 	// SET LOCAL ROLE/set_config(..., true) only hold for the current
-	// transaction, so check_session/role-switch/the route call all share
-	// one.
+	// transaction, so middleware/role-switch/the route call all share one.
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
@@ -116,25 +124,20 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Exposed before check_session runs, so it (and the route function
-	// itself) can read it via current_setting('rel.jwt.claims', true).
+	// Exposed before middleware runs, so it (and the route function itself)
+	// can read it via current_setting('rel.jwt.claims', true).
 	if err := dbauth.SetLocalClaims(ctx, tx, claims); err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
 		return
 	}
 
-	// check_session stays as-is for this stage — specs/new-routes.md
-	// supersedes it with middleware, but that cutover is a separate,
-	// not-yet-landed piece of work.
-	if err := dbauth.CheckSessionIfConfigured(ctx, tx, cfg.Http.Functions.CheckSession, claims, verified); err != nil {
-		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
-		writeErrorForPgErr(w, err, cfg.Dev)
-		return
-	}
-	if verified {
-		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
-	}
-
+	// Renew (Lifecycle step 4) deliberately waits until AFTER the middleware
+	// chain below decides not to reject — jwt/middleware.go's own doc
+	// comment states the invariant (Renew after Check) ; a revocation
+	// middleware must never hand back a freshly renewed cookie for the very
+	// session it just rejected. Role resolution below reads claims' role
+	// only, which renewal never changes, so using the pre-renewal claims
+	// here is exact, not just adequate.
 	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
 	if role == "" {
 		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
@@ -143,6 +146,40 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	if err := dbauth.SetLocalRole(ctx, tx, role); err != nil {
 		writeErrorForPgErr(w, err, cfg.Dev)
 		return
+	}
+
+	// ## Middleware : runs after the role switch, same transaction,
+	// sequential — a terminating middleware or an invocation error has
+	// already written the response ; either way there's nothing left to do.
+	handled, mergedContext, accumulated, err := runMiddlewareChain(ctx, tx, w, r, cfg, reg, route.AnonPath, buildReq, templates, staticSrv)
+	if err != nil {
+		return
+	}
+	if handled {
+		if err := tx.Commit(ctx); err != nil {
+			writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+			return
+		}
+		return
+	}
+	// Renew now that the chain has let the request through — a renewed
+	// cookie never reaches the client for a request middleware just
+	// rejected. Discarded rather than reassigned to claims : the route
+	// function's own request.jwt reflects the ORIGINAL claims, same as
+	// before middleware existed (buildReq's closure captures claims by
+	// reference, so reassigning here would leak the renewal into a request
+	// JSON built after this point).
+	if verified {
+		_ = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
+	}
+
+	if mergedContext != nil {
+		reqJSON, err = buildReq(mergedContext)
+		if err != nil {
+			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+			return
+		}
+		r = r.WithContext(withRequestJSON(ctx, reqJSON))
 	}
 
 	pathArgValues := make([]string, len(route.PathArgs))
@@ -160,7 +197,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 			writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
 			return
 		}
-		writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, envelope, content, templates)
+		writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, envelope, content, templates, staticSrv)
 		return
 	}
 
@@ -173,7 +210,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
 		return
 	}
-	writeSingleReturnResponse(w, r, route, raw, templates)
+	writeSingleReturnResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, raw, templates)
 }
 
 // buildInvokeCall builds the positional-argument SQL call for route, in

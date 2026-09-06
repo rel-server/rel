@@ -419,18 +419,14 @@ func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, 
 func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) error {
 	claims, verified := jwtpkg.FromContext(r.Context())
 
-	// Exposed before check_session runs, so it (and every item's own
-	// function calls) can read it via current_setting('rel.jwt.claims', true).
+	// Exposed before every item's own function calls, readable via
+	// current_setting('rel.jwt.claims', true). A session check itself is
+	// now middleware (specs/new-routes.md ## Middleware), run ahead of this
+	// by NewRelHandler's own wrapper, in its own transaction.
 	if serr := dbauth.SetLocalClaims(ctx, conn, claims); serr != nil {
 		return serverError(errcode.Internal, fmt.Errorf("setting jwt claims: %w", serr))
 	}
 
-	// ClearSessionCookie's own Header().Del guards a stray Set-Cookie ;
-	// currently a no-op since Renew runs after this, kept for safety.
-	if cerr := dbauth.CheckSessionIfConfigured(ctx, conn, cfg.Http.Functions.CheckSession, claims, verified); cerr != nil {
-		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
-		return classifyCheckSessionError(cerr)
-	}
 	if verified {
 		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
 	}
@@ -465,12 +461,6 @@ func classifyOrFallback(wrapped error, fallback func(error) *requestError) *requ
 		return pgClassified(status, code, tier, detail, wrapped)
 	}
 	return fallback(wrapped)
-}
-
-func classifyCheckSessionError(err error) *requestError {
-	return classifyOrFallback(fmt.Errorf("check_session: %w", err), func(e error) *requestError {
-		return serverError(errcode.Internal, e)
-	})
 }
 
 // classifyWriteError classifies via pgerr.Classify, never wrapped.Error()

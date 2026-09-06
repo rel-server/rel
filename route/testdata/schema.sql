@@ -484,3 +484,111 @@ create function fn_new_templated(req jsonb) returns jsonb language sql as $$
 $$;
 comment on function fn_new_templated(jsonb) is 'route:: path: "/new/templated", template: "greet.jet"';
 grant execute on function fn_new_templated(jsonb) to "~anonymous";
+
+-- specs/new-routes.md ## Middleware fixtures (route/middleware_test.go).
+
+-- Pass-through middleware : merges {"from_a": "a", "shared": "a"} into
+-- request.context, no side-effecting fields, no terminal fields.
+create function fn_mw_a(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  select jsonb_build_object('content', jsonb_build_object('from_a', 'a', 'shared', 'a')), null::jsonb;
+$$;
+comment on function fn_mw_a(jsonb) is 'route:: path: "/mw", middleware: true';
+grant execute on function fn_mw_a(jsonb) to "~anonymous";
+
+-- A second pass-through middleware at a longer (more specific) prefix,
+-- overlapping fn_mw_a's own "shared" key — this one must win (## Middleware
+-- : "a later middleware's keys win over an earlier one's on conflict").
+create function fn_mw_b(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  select jsonb_build_object('content', jsonb_build_object('from_b', 'b', 'shared', 'b')), null::jsonb;
+$$;
+comment on function fn_mw_b(jsonb) is 'route:: path: "/mw/chain", middleware: true';
+grant execute on function fn_mw_b(jsonb) to "~anonymous";
+
+-- Route under both prefixes above : echoes request.context back so the
+-- test can inspect the merged result.
+create function fn_mw_echo_context(req jsonb) returns jsonb language sql as $$
+  select coalesce(req->'context', 'null'::jsonb);
+$$;
+comment on function fn_mw_echo_context(jsonb) is 'route:: path: "/mw/chain/echo"';
+grant execute on function fn_mw_echo_context(jsonb) to "~anonymous";
+
+-- Rejecting middleware : an RSxxx exception short-circuits the request
+-- exactly like any other route function's own.
+create function fn_mw_reject(req jsonb, out resp jsonb, out content jsonb) returns record language plpgsql as $$
+begin
+  raise exception 'rejected by middleware' using errcode = 'RS403';
+end;
+$$;
+comment on function fn_mw_reject(jsonb) is 'route:: path: "/mw/rejected", middleware: true';
+grant execute on function fn_mw_reject(jsonb) to "~anonymous";
+
+create function fn_mw_reject_target() returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_mw_reject_target() is 'route:: path: "/mw/rejected/target"';
+grant execute on function fn_mw_reject_target() to "~anonymous";
+
+-- Terminal (non-RSxxx) middleware : sets status itself, short-circuiting
+-- without an exception — the route it guards must never run.
+create function fn_mw_terminal(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  select jsonb_build_object('status', 402), jsonb_build_object('reason', 'payment required');
+$$;
+comment on function fn_mw_terminal(jsonb) is 'route:: path: "/mw/terminal", middleware: true';
+grant execute on function fn_mw_terminal(jsonb) to "~anonymous";
+
+create table mw_terminal_calls (id serial primary key);
+grant all on mw_terminal_calls to public;
+grant all on mw_terminal_calls_id_seq to public;
+create function fn_mw_terminal_target() returns jsonb language sql as $$
+  insert into mw_terminal_calls default values;
+  select '{}'::jsonb;
+$$;
+comment on function fn_mw_terminal_target() is 'route:: path: "/mw/terminal/target"';
+grant execute on function fn_mw_terminal_target() to "~anonymous";
+
+-- Ordering : three overlapping middleware at "/order" (shortest),
+-- "/order/deep" (mid), and "/order/deep/target" itself (equal-length,
+-- still a valid prefix match) — each records its own name with a
+-- monotonic sequence number, proving shortest-prefix-first execution
+-- order. Deliberately NOT at "/" — that would apply to every other
+-- fixture's own route in this shared schema too.
+create table mw_order_calls (id serial primary key, name text not null);
+grant all on mw_order_calls to public;
+grant all on mw_order_calls_id_seq to public;
+
+create function fn_mw_order_root(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  insert into mw_order_calls (name) values ('root');
+  select null::jsonb, null::jsonb;
+$$;
+comment on function fn_mw_order_root(jsonb) is 'route:: path: "/order", middleware: true';
+grant execute on function fn_mw_order_root(jsonb) to "~anonymous";
+
+create function fn_mw_order_mid(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  insert into mw_order_calls (name) values ('mid');
+  select null::jsonb, null::jsonb;
+$$;
+comment on function fn_mw_order_mid(jsonb) is 'route:: path: "/order/deep", middleware: true';
+grant execute on function fn_mw_order_mid(jsonb) to "~anonymous";
+
+create function fn_mw_order_deep(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  insert into mw_order_calls (name) values ('deep');
+  select null::jsonb, null::jsonb;
+$$;
+comment on function fn_mw_order_deep(jsonb) is 'route:: path: "/order/deep/target", middleware: true';
+grant execute on function fn_mw_order_deep(jsonb) to "~anonymous";
+
+create function fn_mw_order_target() returns jsonb language sql as $$ select '{}'::jsonb; $$;
+comment on function fn_mw_order_target() is 'route:: path: "/order/deep/target"';
+grant execute on function fn_mw_order_target() to "~anonymous";
+
+-- stream_upload : middleware runs once, ahead of the first call only —
+-- counts its own invocations so the test can assert exactly 1, not 2, for
+-- a full two-call upload.
+create table mw_stream_calls (id serial primary key);
+grant all on mw_stream_calls to public;
+grant all on mw_stream_calls_id_seq to public;
+
+create function fn_mw_stream_counter(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
+  insert into mw_stream_calls default values;
+  select null::jsonb, null::jsonb;
+$$;
+comment on function fn_mw_stream_counter(jsonb) is 'route:: path: "/new/stream", middleware: true';
+grant execute on function fn_mw_stream_counter(jsonb) to "~anonymous";

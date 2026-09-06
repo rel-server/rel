@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/dbauth"
@@ -59,7 +58,7 @@ type firstCallEnvelope struct {
 }
 
 // handleUploadRoute implements ## `stream_upload`'s two-call flow.
-func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, route Route, staticSrv *static.Server, templates *TemplateSet, verified bool, claims jwtpkg.Claims) {
+func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, route Route, staticSrv *static.Server, templates *TemplateSet, verified bool, claims jwtpkg.Claims) {
 	ctx := r.Context()
 	rlog := logging.FromContext(ctx).With("module", "route")
 
@@ -125,7 +124,12 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
-	reqJSON1, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, nil, firstUpload)
+	// buildFirstReq re-derives the first call's request JSON for a given
+	// request.context — nil unless middleware ran and set one.
+	buildFirstReq := func(reqContext json.RawMessage) ([]byte, error) {
+		return buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, reqContext, firstUpload)
+	}
+	reqJSON1, err := buildFirstReq(nil)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
 		return
@@ -133,56 +137,19 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	r = r.WithContext(withRequestJSON(ctx, reqJSON1))
 	ctx = r.Context()
 
-	// check_session, renew, SET LOCAL ROLE, invoke the first call, commit.
+	// ## Middleware : "for a stream_upload route, the middleware chain runs
+	// once, ahead of the first call only" — same transaction as the first
+	// call itself, after the role switch, same as any other middleware.
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
 		return
 	}
 
-	// check_session runs in its own short-lived transaction, distinct from
-	// tx1 below — never inside tx1 itself, which is READ ONLY and would
-	// reject a check_session that writes (a revocation-tracking side
-	// effect, say).
-	checkTx, err := conn.Begin(ctx)
+	tx1, err := conn.Begin(ctx)
 	if err != nil {
 		conn.Release()
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
-		return
-	}
-	if err := dbauth.SetLocalClaims(ctx, checkTx, claims); err != nil {
-		_ = checkTx.Rollback(ctx)
-		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
-		return
-	}
-	if err := dbauth.CheckSessionIfConfigured(ctx, checkTx, cfg.Http.Functions.CheckSession, claims, verified); err != nil {
-		_ = checkTx.Rollback(ctx)
-		conn.Release()
-		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
-		writeErrorForPgErr(w, err, cfg.Dev)
-		return
-	}
-	if err := checkTx.Commit(ctx); err != nil {
-		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
-		return
-	}
-	if verified {
-		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
-	}
-
-	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
-	if role == "" {
-		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
-		return
-	}
-
-	tx1, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
-	if err != nil {
-		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting read-only transaction")
 		return
 	}
 	if err := dbauth.SetLocalClaims(ctx, tx1, claims); err != nil {
@@ -191,11 +158,56 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
 		return
 	}
+
+	// Renew (Lifecycle step 4) waits until after the middleware chain below
+	// decides not to reject — see route/handler.go's identical note. Role
+	// resolution reads claims' role only, unaffected by renewal.
+	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
+	if role == "" {
+		_ = tx1.Rollback(ctx)
+		conn.Release()
+		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
+		return
+	}
 	if err := dbauth.SetLocalRole(ctx, tx1, role); err != nil {
 		_ = tx1.Rollback(ctx)
 		conn.Release()
 		writeErrorForPgErr(w, err, cfg.Dev)
 		return
+	}
+
+	handled, mergedContext, accumulated, err := runMiddlewareChain(ctx, tx1, w, r, cfg, reg, route.AnonPath, buildFirstReq, templates, staticSrv)
+	if err != nil {
+		_ = tx1.Rollback(ctx)
+		conn.Release()
+		return
+	}
+	if handled {
+		if cerr := tx1.Commit(ctx); cerr != nil {
+			writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+		}
+		conn.Release()
+		return
+	}
+	if mergedContext != nil {
+		reqJSON1, err = buildFirstReq(mergedContext)
+		if err != nil {
+			_ = tx1.Rollback(ctx)
+			conn.Release()
+			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+			return
+		}
+		r = r.WithContext(withRequestJSON(ctx, reqJSON1))
+	}
+
+	// Renew now that the chain has let the request through — mutates
+	// claims (unlike route/handler.go's discard), since the second call
+	// below builds its OWN request fresh and should see the renewed
+	// session, same as it did before middleware existed (the first call's
+	// reqJSON1 above is already built/used by this point, so it keeps
+	// showing the pre-renewal claims either way).
+	if verified {
+		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
 	}
 
 	ident := route.Function.Identifier.EscapedString()
@@ -209,7 +221,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	if err := tx1.Commit(ctx); err != nil {
 		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing read-only transaction")
+		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
 		return
 	}
 	conn.Release()
@@ -397,7 +409,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 	}
 
-	writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, secondEnvelope, secondContent, templates)
+	writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, secondEnvelope, secondContent, templates, staticSrv)
 }
 
 // resolveUnderDir rejects a path escaping dir outright ; plain

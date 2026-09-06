@@ -47,9 +47,13 @@ import (
 // own responsibility.
 func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) (http.Handler, error) {
 	staticSrv := static.New(cfg.Http)
+	templates := route.NewTemplateSet(cfg.Http.Templates.Path)
 
 	mux := chi.NewRouter()
-	mux.Handle("/rel", server.NewRelHandler(db, cfg, wkReg))
+	// ## Middleware : "applies uniformly across /rel, since it's served by
+	// the same router" — its own dedicated transaction, distinct from
+	// /rel's own internal one.
+	mux.Handle("/rel", route.GateMiddleware(db, cfg, reg, templates, staticSrv, server.NewRelHandler(db, cfg, wkReg)))
 	// specs/typescript.md ## Configuration : gated by http.typescript.enable,
 	// not mounted at all otherwise (no 404 handler needed for the disabled case).
 	if cfg.Http.TypeScript.Enable {
@@ -75,7 +79,7 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	// (index override) meaningful. An exact-path route always wins first,
 	// since chi tries every registered route before NotFound.
 	if staticSrv != nil {
-		mux.NotFound(staticSrv.Handler(db, cfg).ServeHTTP)
+		mux.NotFound(route.GateMiddleware(db, cfg, reg, templates, staticSrv, staticSrv.Handler(db, cfg)).ServeHTTP)
 	} else if logger != nil {
 		logger.Debug("boot: no http.static.path directory found, static fallback is not mounted")
 	}

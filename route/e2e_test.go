@@ -8,7 +8,6 @@ package route
 // invocation, response writing) actually works together.
 
 import (
-	"context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -120,42 +119,6 @@ func TestE2E_AnonymousForbidden(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 (fn_new_fullcontrol has no anonymous grant), got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-// TestE2E_CheckSessionReject proves check_session's reject path still runs
-// on the new dispatch path (dbauth.CheckSessionIfConfigured hasn't been
-// removed yet — that's Stage 3) : check_session only runs for a verified
-// (authenticated) request, so this signs a real JWT rather than hitting the
-// route anonymously ; toggling session_control.reject turns an
-// otherwise-200 authenticated request into the RS401 status check_session
-// raises.
-func TestE2E_CheckSessionReject(t *testing.T) {
-	now := time.Now()
-	token, err := jwtpkg.Sign(testCfg.Jwt, jwtpkg.Claims{
-		"role":      "app_user",
-		"iat":       float64(now.Unix()),
-		"exp":       float64(now.Add(time.Hour).Unix()),
-		"auth_time": float64(now.Unix()),
-	})
-	if err != nil {
-		t.Fatalf("signing token: %v", err)
-	}
-
-	if _, err := testDb.Pool.Exec(context.Background(), "update session_control set reject = true"); err != nil {
-		t.Fatalf("toggling session_control.reject: %v", err)
-	}
-	defer func() {
-		_, _ = testDb.Pool.Exec(context.Background(), "update session_control set reject = false")
-	}()
-
-	req := httptest.NewRequest(http.MethodGet, "/new/echo0", nil)
-	req.AddCookie(&http.Cookie{Name: testCfg.Jwt.CookieName, Value: token})
-	rec := httptest.NewRecorder()
-	testHandler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 (RS401 from check_session), got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
