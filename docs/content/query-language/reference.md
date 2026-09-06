@@ -72,11 +72,11 @@ interface Relation {
 | `update_columns` | [Writing data back](writing.md). |
 | `join` | [Joining and embedding relations](joining.md). |
 | `select` | [Selecting fields](selecting.md) — defaults to `["full"]`. |
-| `distinct` | [Ordering, distinctness, and pagination](ordering-pagination.md). |
-| `distinct_on` | [Ordering, distinctness, and pagination](ordering-pagination.md). |
-| `order_by` | [Ordering, distinctness, and pagination](ordering-pagination.md). |
-| `offset` | [Ordering, distinctness, and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
-| `limit` | [Ordering, distinctness, and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
+| `distinct` | [Distinctness](distinctness.md). |
+| `distinct_on` | [Distinctness](distinctness.md) — must be a prefix of `order_by`. |
+| `order_by` | [Ordering and pagination](ordering-pagination.md). |
+| `offset` | [Ordering and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
+| `limit` | [Ordering and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
 
 ## `WellKnownQuery` and `WriteQuery`
 

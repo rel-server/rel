@@ -45,7 +45,8 @@ a single page. "Source" is what to draw the content from; the page itself never 
 | The query language | Calling functions | `query-engine.md ## Reading Algorithm ### Function-rooted nodes` |
 | The query language | Computed fields and aggregates | `query.ts`'s `call`/`agg` forms |
 | The query language | Operators reference | `query.ts`'s operator types, `query-json.md`'s word-form table |
-| The query language | Ordering, distinctness, and pagination | `query.ts`'s `order_by`/`distinct`/`limit`/`offset` fields |
+| The query language | Ordering and pagination | `query.ts`'s `order_by`/`limit`/`offset` fields |
+| The query language | Distinctness | `query.ts`'s `distinct`/`distinct_on` fields |
 | The query language | Writing data back | `query-engine.md ## Writability`, `## Writing Algorithm` |
 | The query language | Batching queries | `query.ts`'s `Query[]` sequence form |
 | The query language | Querying with GET | `query-json.md` |

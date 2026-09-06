@@ -31,8 +31,9 @@ page — before the rest of this section walks through it by example.
   convention.
 - **[Aggregates](aggregates.md)** — `agg`/`aggregate`.
 - **[Operators reference](operators.md)** — every operator, JSON/array access, casts.
-- **[Ordering, distinctness, and pagination](ordering-pagination.md)** — `order_by`,
-  `distinct`/`distinct_on`, `limit`/`offset`.
+- **[Ordering and pagination](ordering-pagination.md)** — `order_by`, `limit`/`offset`.
+- **[Distinctness](distinctness.md)** — `distinct`/`distinct_on`, and pairing it with
+  `order_by`.
 - **[Writing data back](writing.md)** — write modes, `on_conflict`, writability.
 - **[Batching queries in one request](batching.md)** — several queries, one transaction.
 - **[Querying with `GET`](get-requests.md)** — the same read-only queries as a URL query string.
