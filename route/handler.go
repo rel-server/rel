@@ -92,14 +92,22 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	}
 	defer conn.Release()
 
-	// SET LOCAL ROLE only holds for the current transaction, so
-	// check_session/role-switch/the route call all share one.
+	// SET LOCAL ROLE/set_config(..., true) only hold for the current
+	// transaction, so check_session/role-switch/the route call all share
+	// one.
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Exposed before check_session runs, so it (and the route function
+	// itself) can read it via current_setting('rel.jwt.claims', true).
+	if err := dbauth.SetLocalClaims(ctx, tx, claims); err != nil {
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
+		return
+	}
 
 	if err := dbauth.CheckSessionIfConfigured(ctx, tx, cfg.Http.Functions.CheckSession, claims, verified); err != nil {
 		jwtpkg.ClearSessionCookie(cfg.Jwt, w)

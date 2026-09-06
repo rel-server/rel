@@ -40,5 +40,17 @@ begin
   if (select reject from session_control limit 1) then
     raise exception 'Session revoked' using errcode = 'RS401';
   end if;
+  -- Proves rel.jwt.claims is already set by the time check_session runs
+  -- here too, matching this same call's own claims argument exactly.
+  if claims is distinct from current_setting('rel.jwt.claims', true)::jsonb then
+    raise exception 'rel.jwt.claims does not match check_session''s own claims argument' using errcode = 'RS500';
+  end if;
 end;
 $$;
+
+-- Reads rel.jwt.claims directly, proving it's visible to an ordinary
+-- query-language function call through /rel too, not just check_session.
+create function current_claims_setting() returns jsonb language sql as $$
+  select current_setting('rel.jwt.claims', true)::jsonb;
+$$;
+grant execute on function current_claims_setting() to "~anonymous", authenticated_user;

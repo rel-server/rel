@@ -211,7 +211,11 @@ type checkStaticAccessPayload struct {
 }
 
 // checkStaticAccess acquires one connection for the check_static_access
-// call — no transaction, no SET LOCAL ROLE (### Access control).
+// call — no SET LOCAL ROLE (### Access control), but wrapped in a plain
+// transaction anyway solely to scope dbauth.SetLocalClaims's GUC to this
+// one call : set_config(..., true) outside a transaction block is NOT
+// transaction-scoped (see SetLocalClaims's own doc comment), so a bare
+// conn.Exec here would leak it into the pool.
 func checkStaticAccess(ctx context.Context, db *pg.DbInfos, qualifiedName, reqPath string, verified bool, claims jwtpkg.Claims) error {
 	var jwtVal jwtpkg.Claims
 	if verified {
@@ -226,7 +230,20 @@ func checkStaticAccess(ctx context.Context, db *pg.DbInfos, qualifiedName, reqPa
 		return err
 	}
 	defer conn.Release()
-	return dbauth.CallJSONBFunction(ctx, conn, qualifiedName, payload)
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := dbauth.SetLocalClaims(ctx, tx, jwtVal); err != nil {
+		return err
+	}
+	if err := dbauth.CallJSONBFunction(ctx, tx, qualifiedName, payload); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func writePlainError(w http.ResponseWriter, status int, message string) {

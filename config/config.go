@@ -173,6 +173,16 @@ type Http struct {
 	// memory — see route.md ## Configuration. Scoped to /route
 	// only, never /rel.
 	MaxBodySize int
+	// MaxUploadSize is http.max_upload_size, default equal to MaxBodySize :
+	// hard cap, in bytes, on the streamed payload of a single-upload /route
+	// request (specs/http-content.md ## Upload destinations) — replaces
+	// MaxBodySize as the ceiling on that path, since the payload streams
+	// straight to a temp file rather than being buffered in memory, so it
+	// can reasonably be set much higher. A route's __prepare function may
+	// return a smaller RelUpload.max_size to tighten this further for a
+	// given request (e.g. a per-user quota) ; it can never raise it above
+	// this configured ceiling.
+	MaxUploadSize int
 	// MaxPartCount is http.max_part_count, default 100 : max number of
 	// multipart/form-data parts a single /route request may contain,
 	// independent of their total byte size — see ## Request bodies

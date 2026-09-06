@@ -66,6 +66,7 @@ var Options = []Option{
 	{"http.upload_domain_name", DefaultHttpUploadDomainName, "Name of the JSON domain used by the two-function upload-destinations mechanism (see specs/http-content.md)."},
 	{"http.cookies_max_age", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route response, when unspecified. Doesn't apply to the JWT cookie — see jwt.max_age."},
 	{"http.max_body_size", fmt.Sprint(DefaultHttpMaxBodySize) + " (bytes)", "Hard cap on a /route request's entire body (for multipart, the whole envelope — boundaries and part headers included, not just part payload bytes). Rejected with 413 before any of it is buffered in memory."},
+	{"http.max_upload_size", "= http.max_body_size", "Hard cap, in bytes, on a single-upload /route request's streamed payload (see specs/http-content.md ## Upload destinations). Since that payload streams to a temp file rather than being buffered in memory, this can be set much higher than http.max_body_size. A route's __prepare function may return a smaller RelUpload.max_size to tighten this per-request ; it can never raise it."},
 	{"http.max_part_count", fmt.Sprint(DefaultHttpMaxPartCount), "Max number of multipart/form-data parts a single /route request may contain, independent of their total byte size."},
 	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route functions may mint or clear a session."},
 	{"http.functions.allowed_routes", "(unrestricted)", "Regexp restricting which route functions are exposed on /route."},

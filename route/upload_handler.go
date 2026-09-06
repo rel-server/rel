@@ -30,12 +30,13 @@ import (
 	"github.com/rel-server/rel/static"
 )
 
-// relUploadPayload mirrors the RelUpload domain. Path/Mkdir/Overwrite are
-// __prepare's decision ; Part/Size are always rel-filled.
+// relUploadPayload mirrors the RelUpload domain. Path/Mkdir/Overwrite/MaxSize
+// are __prepare's decision ; Part/Size are always rel-filled.
 type relUploadPayload struct {
 	Path      *string         `json:"path"`
 	Mkdir     bool            `json:"mkdir"`
 	Overwrite string          `json:"overwrite"`
+	MaxSize   *int64          `json:"max_size"`
 	Part      json.RawMessage `json:"part"`
 	Size      *int64          `json:"size"`
 }
@@ -64,11 +65,11 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	if err := tooLargeIfContentLengthExceeds(r, int64(cfg.Http.MaxBodySize)); err != nil {
+	if err := tooLargeIfContentLengthExceeds(r, int64(cfg.Http.MaxUploadSize), "http.max_upload_size"); err != nil {
 		writeRequestBodyError(w, err)
 		return
 	}
-	limitedBody := http.MaxBytesReader(w, r.Body, int64(cfg.Http.MaxBodySize))
+	limitedBody := http.MaxBytesReader(w, r.Body, int64(cfg.Http.MaxUploadSize))
 
 	isMultipart := false
 	var boundary string
@@ -109,18 +110,43 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 	}
 
-	// Step 3 : check_session as a plain statement before BEGIN READ ONLY,
-	// then renew, SET LOCAL ROLE, invoke __prepare, commit.
+	// Step 3 : check_session, then renew, SET LOCAL ROLE, invoke
+	// __prepare, commit.
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
 		return
 	}
 
-	if err := dbauth.CheckSessionIfConfigured(ctx, conn, cfg.Http.Functions.CheckSession, claims, verified); err != nil {
+	// check_session runs in its own short-lived transaction, distinct from
+	// tx1 below — never inside tx1 itself, which is READ ONLY and would
+	// reject a check_session that writes (a revocation-tracking side
+	// effect, say). A real (uncommitted-until-here) transaction, rather
+	// than a bare statement, is what lets dbauth.SetLocalClaims's GUC
+	// reach check_session at all — see its own doc comment for why
+	// set_config(..., true) needs one.
+	checkTx, err := conn.Begin(ctx)
+	if err != nil {
+		conn.Release()
+		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
+		return
+	}
+	if err := dbauth.SetLocalClaims(ctx, checkTx, claims); err != nil {
+		_ = checkTx.Rollback(ctx)
+		conn.Release()
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
+		return
+	}
+	if err := dbauth.CheckSessionIfConfigured(ctx, checkTx, cfg.Http.Functions.CheckSession, claims, verified); err != nil {
+		_ = checkTx.Rollback(ctx)
 		conn.Release()
 		jwtpkg.ClearSessionCookie(cfg.Jwt, w)
 		writeErrorForPgErr(w, err, cfg.Dev)
+		return
+	}
+	if err := checkTx.Commit(ctx); err != nil {
+		conn.Release()
+		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
 		return
 	}
 	if verified {
@@ -138,6 +164,12 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if err != nil {
 		conn.Release()
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting read-only transaction")
+		return
+	}
+	if err := dbauth.SetLocalClaims(ctx, tx1, claims); err != nil {
+		_ = tx1.Rollback(ctx)
+		conn.Release()
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
 		return
 	}
 	if err := dbauth.SetLocalRole(ctx, tx1, role); err != nil {
@@ -239,9 +271,16 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
 			return
 		}
-		var src io.Reader = limitedBody
+		var src io.ReadCloser = limitedBody
 		if isMultipart {
 			src = currentPart
+		}
+		// __prepare may tighten the upload cap further (e.g. a per-user
+		// quota) via RelUpload.max_size — it can only lower cfg.Http.
+		// MaxUploadSize, never raise it, since limitedBody is already
+		// bounded to that ceiling upstream.
+		if upload.MaxSize != nil && *upload.MaxSize >= 0 && *upload.MaxSize < int64(cfg.Http.MaxUploadSize) {
+			src = http.MaxBytesReader(w, src, *upload.MaxSize)
 		}
 		n, cerr := io.Copy(f, src)
 		_ = f.Close()
@@ -249,7 +288,11 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		if cerr != nil {
 			var maxErr *http.MaxBytesError
 			if errors.As(cerr, &maxErr) {
-				writePlainError(w, http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, "request body exceeds http.max_body_size")
+				msg := "request body exceeds http.max_upload_size"
+				if upload.MaxSize != nil && *upload.MaxSize < int64(cfg.Http.MaxUploadSize) {
+					msg = "request body exceeds the upload size limit set by " + route.PrepareFunction.Identifier.String()
+				}
+				writePlainError(w, http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, msg)
 				return
 			}
 			writePlainError(w, http.StatusBadRequest, errcode.MalformedBody, "reading upload body: "+cerr.Error())
@@ -286,6 +329,11 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	tx2, err := conn2.Begin(ctx)
 	if err != nil {
 		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
+		return
+	}
+	if err := dbauth.SetLocalClaims(ctx, tx2, claims); err != nil {
+		_ = tx2.Rollback(ctx)
+		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
 		return
 	}
 	if err := dbauth.SetLocalRole(ctx, tx2, role); err != nil {

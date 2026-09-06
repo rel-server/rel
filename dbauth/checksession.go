@@ -1,10 +1,11 @@
 // Package dbauth is the half of authentication.md's Lifecycle that
 // needs an actual Postgres connection — Check (step 3, the check_session
 // function) and identifier-escaping for Apply role (step 5) — shared
-// between /route (route/handler.go, its own transaction) and /rel
-// (server/rel.go, the request's pinned pool connection). Verify/Renew
-// (steps 2/4, no DB needed) live in the jwt package instead — see
-// jwt/middleware.go's own doc comment for why the split falls there.
+// between /route (route/handler.go) and /rel (server/rel.go), each
+// wrapping its own request's whole DB work in one transaction, start to
+// finish, on one acquired connection. Verify/Renew (steps 2/4, no DB
+// needed) live in the jwt package instead — see jwt/middleware.go's own
+// doc comment for why the split falls there.
 package dbauth
 
 import (
@@ -61,6 +62,43 @@ func CheckSessionIfConfigured(ctx context.Context, exec Execer, qualifiedName st
 // callers wrap/render it however their own response shape requires.
 func SetLocalRole(ctx context.Context, exec Execer, role string) error {
 	_, err := exec.Exec(ctx, "SET LOCAL ROLE "+EscapeIdentifier(role))
+	return err
+}
+
+// ClaimsSettingName is the current_setting()/set_config() GUC name the
+// verified JWT's claims are exposed under — "rel.jwt.claims", the same
+// two-dot custom-GUC shape PostgREST's own request.jwt.claims already
+// established as safe (Postgres has no fixed-depth restriction on a
+// placeholder GUC's name, only that it contain at least one dot). Readable
+// from any function running inside the same transaction as SetLocalClaims
+// — check_session, a static access gate, or a query/route function's own
+// nested calls — via current_setting('rel.jwt.claims', true)::jsonb ; the
+// missing_ok second argument is defensive, for a connection outside rel's
+// own pool (a superuser's direct psql session) rather than anything rel
+// itself ever leaves unset.
+const ClaimsSettingName = "rel.jwt.claims"
+
+// SetLocalClaims exposes claims under ClaimsSettingName, transaction-
+// scoped exactly like SetLocalRole (set_config's own third argument,
+// is_local=true) — reverted by Postgres at COMMIT/ROLLBACK, before the
+// connection can be released back to the pool, so it can never leak into
+// whatever unrelated request the pool hands that connection to next. This
+// is why every call site sets it inside a real transaction, never on a
+// bare connection : set_config(..., true) called outside a transaction
+// block is NOT transaction-scoped — it behaves as a bare session-level
+// SET instead (Postgres's own documented behavior), which is exactly the
+// leak this exists to prevent.
+//
+// claims nil (anonymous, or not yet verified) mints the GUC as the JSON
+// literal "null" rather than leaving it unset, so a reader can always do
+// current_setting('rel.jwt.claims', true)::jsonb->>'x' with no separate
+// "no session" case to special-case.
+func SetLocalClaims(ctx context.Context, exec Execer, claims jwtpkg.Claims) error {
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		return err
+	}
+	_, err = exec.Exec(ctx, "select set_config($1, $2, true)", ClaimsSettingName, string(claimsJSON))
 	return err
 }
 

@@ -20,5 +20,10 @@ begin
   if (select reject from access_control limit 1) then
     raise exception 'access denied' using errcode = 'RS403';
   end if;
+  -- Proves rel.jwt.claims is already set by the time this gate runs, and
+  -- matches this same call's own payload.jwt exactly.
+  if (payload->'jwt') is distinct from current_setting('rel.jwt.claims', true)::jsonb then
+    raise exception 'rel.jwt.claims does not match payload.jwt' using errcode = 'RS500';
+  end if;
 end;
 $$;

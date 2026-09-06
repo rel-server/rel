@@ -40,6 +40,7 @@ func Test() *Config {
 			UploadDomainName:   DefaultHttpUploadDomainName,
 			CookiesMaxAge:      DefaultHttpCookiesMaxAge,
 			MaxBodySize:        DefaultHttpMaxBodySize,
+			MaxUploadSize:      DefaultHttpMaxBodySize,
 			MaxPartCount:       DefaultHttpMaxPartCount,
 			Static:             HttpStatic{Path: DefaultHttpStaticPath},
 			Templates:          HttpTemplates{Path: DefaultHttpTemplatesPath},

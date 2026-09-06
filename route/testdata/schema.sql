@@ -71,7 +71,23 @@ begin
   if (select reject from session_control limit 1) then
     raise exception 'Session revoked' using errcode = 'RS401';
   end if;
+  -- Proves rel.jwt.claims is already set by the time check_session runs,
+  -- and matches this same call's own claims argument exactly.
+  if claims is distinct from current_setting('rel.jwt.claims', true)::jsonb then
+    raise exception 'rel.jwt.claims does not match check_session''s own claims argument' using errcode = 'RS500';
+  end if;
 end;
+$$;
+
+-- Reads rel.jwt.claims directly, proving it's visible to an ordinary
+-- route function too (not just check_session) — missing_ok=true so a
+-- connection where it was never set reads as SQL NULL, not an error.
+create function fn_claims_setting() returns "RelHttpResponse" language sql as $$
+  select jsonb_build_object(
+    'status', 200,
+    'content_type', 'application/json',
+    'content', current_setting('rel.jwt.claims', true)::jsonb
+  );
 $$;
 
 -- RSxxx : a route function's own raised exception maps directly to that
@@ -197,10 +213,12 @@ $$;
 
 -- specs/http-content.md ### Upload destinations' RelUpload domain and
 -- the two-function <name>__prepare/<name> family. fn_dest_upload__prepare
--- reads a "reject" query flag to exercise the earliest-rejection path, and
--- an optional "path"/"overwrite" query value to control placement ; the
--- mandatory fn_dest_upload records what it actually received (path/mkdir/
--- overwrite/part/size) into upload_log for tests to assert on.
+-- reads a "reject" query flag to exercise the earliest-rejection path, an
+-- optional "path"/"overwrite" query value to control placement, and an
+-- optional "max_size" query value to exercise __prepare's per-request
+-- tightening of http.max_upload_size ; the mandatory fn_dest_upload records
+-- what it actually received (path/mkdir/overwrite/max_size/part/size) into
+-- upload_log for tests to assert on.
 create domain "RelUpload" as jsonb;
 
 create table upload_log (id serial primary key, upload jsonb not null);
@@ -217,7 +235,8 @@ begin
   return jsonb_build_object(
     'path', q->>'path',
     'mkdir', coalesce((q->>'mkdir')::boolean, false),
-    'overwrite', coalesce(q->>'overwrite', 'disallow')
+    'overwrite', coalesce(q->>'overwrite', 'disallow'),
+    'max_size', (q->>'max_size')::bigint
   );
 end;
 $$;

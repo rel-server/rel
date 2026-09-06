@@ -244,6 +244,54 @@ func TestHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
 	}
 }
 
+// TestHandler_ClaimsSetting_AnonymousIsJSONNull proves rel.jwt.claims is
+// always set, even for an anonymous request — JSON null, not left unset.
+func TestHandler_ClaimsSetting_AnonymousIsJSONNull(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_claims_setting", nil)
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "null" {
+		t.Errorf("expected the anonymous rel.jwt.claims setting to read back as JSON null, got %q", rec.Body.String())
+	}
+}
+
+// TestHandler_ClaimsSetting_AuthenticatedMatchesJWT proves an authenticated
+// request's rel.jwt.claims setting carries the session's own role, readable
+// from an ordinary route function via current_setting — and, via
+// fn_check_session's own self-check (schema.sql), from check_session too.
+func TestHandler_ClaimsSetting_AuthenticatedMatchesJWT(t *testing.T) {
+	loginReq := httptest.NewRequest(http.MethodPost, "/route/public/fn_login", nil)
+	loginRec := httptest.NewRecorder()
+	testHandler.ServeHTTP(loginRec, loginReq)
+	var jwtCookie *http.Cookie
+	for _, c := range loginRec.Result().Cookies() {
+		if c.Name == testCfg.Jwt.CookieName {
+			jwtCookie = c
+		}
+	}
+	if jwtCookie == nil {
+		t.Fatalf("login didn't set a cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_claims_setting", nil)
+	req.AddCookie(jwtCookie)
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &claims); err != nil {
+		t.Fatalf("decoding rel.jwt.claims content: %v", err)
+	}
+	if claims["role"] != "app_user" {
+		t.Errorf("expected rel.jwt.claims to carry role=app_user, got %#v", claims)
+	}
+}
+
 func TestHandler_RSCode_MapsToExactStatus(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/route/public/fn_forbidden", nil)
 	rec := httptest.NewRecorder()

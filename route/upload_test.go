@@ -176,6 +176,53 @@ func TestUpload_PrepareRejects_BeforeBytesRead(t *testing.T) {
 	}
 }
 
+// TestUpload_PrepareMaxSize_TightensLimit proves __prepare's returned
+// max_size rejects an upload the global http.max_upload_size would have
+// allowed, with the temp file cleaned up.
+func TestUpload_PrepareMaxSize_TightensLimit(t *testing.T) {
+	handler, dir := newUploadTestHandler(t)
+
+	content := bytes.Repeat([]byte("x"), 10)
+	req := multipartUploadRequest(t, "/route/public/fn_dest_upload?path=toobig.txt&max_size=5", "file", "toobig.txt", "text/plain", content)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "toobig.txt")); err == nil {
+		t.Errorf("expected no file written at the final path")
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Name()[0] == '.' {
+			t.Errorf("expected leftover temp file to be deleted, found %s", e.Name())
+		}
+	}
+}
+
+// TestUpload_PrepareMaxSize_AllowsWithinLimit proves a max_size at or above
+// the actual payload size still lets the upload through.
+func TestUpload_PrepareMaxSize_AllowsWithinLimit(t *testing.T) {
+	handler, dir := newUploadTestHandler(t)
+
+	content := []byte("hello")
+	req := multipartUploadRequest(t, "/route/public/fn_dest_upload?path=fits.txt&max_size=5", "file", "fits.txt", "text/plain", content)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "fits.txt"))
+	if err != nil {
+		t.Fatalf("expected file at final path: %v", err)
+	}
+	if string(got) != "hello" {
+		t.Errorf("got content %q, want %q", got, "hello")
+	}
+}
+
 // TestUpload_SecondMultipartPart_Is415 proves a second part triggers 415
 // before the mandatory function ever runs, and the temp file is deleted.
 func TestUpload_SecondMultipartPart_Is415(t *testing.T) {

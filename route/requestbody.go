@@ -54,9 +54,10 @@ func unsupportedMediaType(msg string) error {
 
 // tooLargeIfContentLengthExceeds rejects an over-limit Content-Length
 // before reading ; MaxBytesReader alone only catches it after limit+1 bytes.
-func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64) error {
+// configKey names the limit in the error message (e.g. "http.max_body_size").
+func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64, configKey string) error {
 	if r.ContentLength > maxBodySize {
-		return tooLargeBody("request body exceeds http.max_body_size")
+		return tooLargeBody("request body exceeds " + configKey)
 	}
 	return nil
 }
@@ -88,7 +89,7 @@ type resolvedRequestBody struct {
 func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, maxBodySize int64, maxPartCount int) (resolvedRequestBody, error) {
 	contentTypeHeader := r.Header.Get("Content-Type")
 
-	if err := tooLargeIfContentLengthExceeds(r, maxBodySize); err != nil {
+	if err := tooLargeIfContentLengthExceeds(r, maxBodySize, "http.max_body_size"); err != nil {
 		return resolvedRequestBody{}, err
 	}
 

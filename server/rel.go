@@ -414,9 +414,16 @@ func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, 
 }
 
 // applyRole runs Lifecycle steps 3-5 (Check/Renew/Apply role) on conn,
-// inside an open transaction — SET LOCAL ROLE reverts at commit/rollback.
+// inside an open transaction — SET LOCAL ROLE/set_config(..., true) both
+// revert at commit/rollback.
 func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) error {
 	claims, verified := jwtpkg.FromContext(r.Context())
+
+	// Exposed before check_session runs, so it (and every item's own
+	// function calls) can read it via current_setting('rel.jwt.claims', true).
+	if serr := dbauth.SetLocalClaims(ctx, conn, claims); serr != nil {
+		return serverError(errcode.Internal, fmt.Errorf("setting jwt claims: %w", serr))
+	}
 
 	// ClearSessionCookie's own Header().Del guards a stray Set-Cookie ;
 	// currently a no-op since Renew runs after this, kept for safety.

@@ -50,6 +50,38 @@ func TestRelHandler_AuthenticatedCookieAppliesRole(t *testing.T) {
 	}
 }
 
+// TestRelHandler_ClaimsSetting_AnonymousIsJSONNull proves rel.jwt.claims is
+// always set for /rel too, even anonymously — JSON null, not left unset.
+func TestRelHandler_ClaimsSetting_AnonymousIsJSONNull(t *testing.T) {
+	rec := postRel(t, `{"function": "current_claims_setting", "schema": "public"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "null" {
+		t.Errorf("expected the anonymous rel.jwt.claims setting to read back as JSON null, got %q", rec.Body.String())
+	}
+}
+
+// TestRelHandler_ClaimsSetting_AuthenticatedMatchesJWT proves an
+// authenticated /rel request's rel.jwt.claims setting carries the
+// session's own role, readable from an ordinary query-language function
+// call — and, via check_session's own self-check (testdata/roles.sql),
+// from check_session too.
+func TestRelHandler_ClaimsSetting_AuthenticatedMatchesJWT(t *testing.T) {
+	cookie := mintCookie(t, testCfg, "authenticated_user")
+	rec := postRelWithCookie(t, testHandler, `{"function": "current_claims_setting", "schema": "public"}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &claims); err != nil {
+		t.Fatalf("decoding rel.jwt.claims content: %v", err)
+	}
+	if claims["role"] != "authenticated_user" {
+		t.Errorf("expected rel.jwt.claims to carry role=authenticated_user, got %#v", claims)
+	}
+}
+
 func TestRelHandler_CheckSessionRejection_AbortsAndClearsCookie(t *testing.T) {
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
