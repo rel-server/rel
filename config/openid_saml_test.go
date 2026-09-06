@@ -219,8 +219,9 @@ sso_callback = "auth.sso_callback"
 }
 
 // TestLoad_PublicHost_GlobalDefaultAndPerEntryOverride covers
-// specs/oauth-saml.md ## Configuration — HTTP : http.public_host is a bare
-// host with no default, and openid.<name>.public_host/saml.<name>.public_host
+// docs/content/http/authentication.md ## OpenID Connect and SAML :
+// http.public_host is a bare host with no default ; specs/oauth-saml.md
+// ## Configuration — HTTP's openid.<name>.public_host/saml.<name>.public_host
 // override it per entry when set.
 func TestLoad_PublicHost_GlobalDefaultAndPerEntryOverride(t *testing.T) {
 	cfg, err := Load([]string{"--config=" + writeFile(t, t.TempDir(), "rel.toml", "")})

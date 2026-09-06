@@ -82,7 +82,7 @@ func TestLoad_PrecedenceFileEnvFlag(t *testing.T) {
 	// a "jwt-secret" file wherever `go test` runs from.
 	t.Chdir(t.TempDir())
 	dir := t.TempDir()
-	// query-engine.md ## Configuration's real keys : pg.host/pg.port.
+	// docs/content/configuration/index.md ### Postgres connection's real keys : pg.host/pg.port.
 	p := writeFile(t, dir, "rel.toml", `
 [pg]
 host = "file-host"

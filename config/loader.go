@@ -461,7 +461,8 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Pg.Password = root.GetStringOrDefault("pg.password", "")
 	cfg.Pg.Host = root.GetStringOrDefault("pg.host", DefaultPgHost)
 	cfg.Pg.Port = root.GetIntOrDefault("pg.port", DefaultPgPort)
-	// pg.database : not in query-engine.md, an invented key (specs/TODO.md).
+	// pg.database : not itemized in docs/content/configuration/index.md's
+	// Postgres connection table either — an invented key (specs/TODO.md).
 	cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
 	cfg.Pg.PoolSize = root.GetIntOrDefault("pg.pool_size", DefaultPgPoolSize)
 
@@ -481,7 +482,9 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// flattened (not nested) to match every other single-scalar key.
 	cfg.Pg.Query.WellKnownDirs = root.GetStringOrDefault("pg.query.wellknown_path", DefaultPgQueryWellKnownPath)
 
-	// dev : specs/configuration.md ## Development mode, default false.
+	// dev : docs/content/configuration/index.md ## Development mode, default false,
+	// kept orthogonal from logging.level so error detail and log verbosity can
+	// be toggled independently.
 	cfg.Dev = root.GetBoolOrDefault("dev", false)
 
 	cfg.Logging.Handler = root.GetStringOrDefault("logging.handler", DefaultLoggingHandler)

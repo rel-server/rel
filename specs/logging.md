@@ -4,13 +4,7 @@ Use `log/slog` (standard library) for all logging. There is no wrapping logging 
 
 ## Configuration
 
-- `logging.handler` (`JSON` or `pretty`, default `pretty`) selects the output format.
-  - `JSON` uses `slog.NewJSONHandler` — one JSON object per line, for production/machine consumption.
-  - `pretty` uses `github.com/lmittmann/tint` — colored, human-readable single-line output, for local development.
-- `logging.level` (`debug`, `info`, `warn`, `error`, default `info`) sets the minimum level emitted by the handler.
-- `logging.filter.*` (default empty) for each key specified, a regexp on the values that it must contain to be displayed. Log payloads that do *not have* anything to filter against are displayed
-- `logging.exclude.*` (default empty) similar to filter except will suppress the log entry. Applies *after* filter if specified.
-- Output is always stdout. No file destinations, rotation, or multi-writer configuration — the process supervisor/container runtime owns log capture.
+- `logging.handler`: `JSON` uses `slog.NewJSONHandler`; `pretty` uses `github.com/lmittmann/tint`. User-facing behavior of `logging.handler`/`logging.level`/`logging.filter.*`/`logging.exclude.*` : `docs/content/configuration/operations.md ## Logging`.
 
 ## Logger construction
 
@@ -18,9 +12,8 @@ A `logging` package builds exactly one `*slog.Logger` at startup from the assemb
 
 ## Domain scoping
 
-On top of logging level, every log line must show what module it came from (query / route / pg
-/ ...) to help with context — a `"module"` attribute, attached once per package rather than
-repeated at every call site.
+Every log line's `"module"` attribute (`docs/content/configuration/operations.md ## Logging`)
+is attached once per package rather than repeated at every call site.
 
 `logging.For(module string) *slog.Logger` returns a logger with `"module"` already attached.
 Convention : one package-level `var log = logging.For("<name>")` per package, `<name>`
@@ -41,17 +34,19 @@ package-level `log` directly : `logging.FromContext(ctx).With("module", "route")
 
 HTTP middleware, early in the chain, does the following for every incoming request:
 
-1. Reads a request ID from an inbound `X-Request-Id` header, or generates one if absent/blank.
+1. Treats a blank `X-Request-Id` header the same as an absent one when deciding whether to generate a request ID (`docs/content/configuration/operations.md ## Logging` covers the header behavior itself).
 2. Derives a child logger via `logger.With("request_id", id, ...)`, including other stable per-request attributes (e.g. route, remote address) as they're decided.
 3. Stores that logger on the request's `context.Context`.
 
-Application code MUST retrieve its logger from context (`logging.FromContext(ctx)`) rather than calling `slog.Default()` directly, so every line emitted while handling a request carries `request_id` and can be correlated end to end.
+Application code MUST retrieve its logger from context (`logging.FromContext(ctx)`) rather than calling `slog.Default()` directly.
 
 Code with no request context (startup, background jobs) uses `slog.Default()`, or a logger explicitly threaded through, tagged with a component/subsystem attribute instead of `request_id`.
 
 ## Access logging
 
-The same middleware logs one line per completed request, at `info` level, once the response is written — at minimum: method, path, status code, duration, and response size. This happens unconditionally, including for failed/panicking requests (status reflects the error response); it is not something individual handlers opt into.
+The same middleware that derives the request-scoped logger logs the access line
+(`docs/content/configuration/operations.md ## Logging`) once the response is written,
+including for failed/panicking requests (status reflects the error response).
 
 ## Error integration with `samber/oops`
 

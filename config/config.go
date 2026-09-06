@@ -1,10 +1,12 @@
 package config
 
-// Config is rel's runtime configuration, as described in specs/query-engine.md
-// ## Configuration and ## Scoping. This is only the shape ; nothing loads it
-// from a file/env yet (config.tempindexthreshold, mentioned in query-engine.md's
-// Writing Algorithm as a tentative option the redactor was "torn" on, isn't
-// here either — deliberately, since it was never actually settled).
+// Config is rel's runtime configuration — connection settings are
+// docs/content/configuration/index.md ### Postgres connection, blacklist shape
+// is specs/query-engine.md ## Scoping. This is only the shape ; nothing loads
+// it from a file/env yet (config.tempindexthreshold, mentioned in
+// query-engine.md's Writing Algorithm as a tentative option the redactor was
+// "torn" on, isn't here either — deliberately, since it was never actually
+// settled).
 type Config struct {
 	Pg      Pg
 	Logging Logging
@@ -24,8 +26,8 @@ type Config struct {
 	// gated by Http.TypeScript/Http.Json below.
 	TypeScript TypeScript
 
-	// Dev is specs/configuration.md ## Development mode's `dev` key,
-	// default false : gates the extra detail error-handling.md ##
+	// Dev is docs/content/configuration/index.md ## Development mode's `dev`
+	// key, default false : gates the extra detail error-handling.md ##
 	// Postgres error detail and ## Stack traces add to error responses.
 	Dev bool
 }
@@ -106,8 +108,8 @@ const (
 	DefaultJwtMaxSessionAge = 604800
 )
 
-// Logging is specs/logging.md ## Configuration : logging.handler,
-// logging.level, logging.filter.*, logging.exclude.*.
+// Logging is docs/content/configuration/operations.md ## Logging :
+// logging.handler, logging.level, logging.filter.*, logging.exclude.*.
 type Logging struct {
 	// Handler is logging.handler : "JSON" or "pretty" (default "pretty").
 	Handler string
@@ -132,8 +134,9 @@ type Http struct {
 	// PublicHost is http.public_host, default "" : this deployment's own
 	// externally-reachable domain (a bare host, e.g. "app.example.com" —
 	// NO scheme, port, or path). rel always builds "https://<host>/..."
-	// from it — see specs/oauth-saml.md ## Configuration — HTTP for why a
-	// bare host, not a full URL, and why the scheme is never configurable.
+	// from it — see docs/content/http/authentication.md ## OpenID Connect
+	// and SAML for why a bare host, not a full URL, and why the scheme is
+	// never configurable.
 	// Needed because both OIDC's redirect_uri and SAML's metadata/ACS URLs
 	// require a STABLE, exactly-registered-with-the-IdP value, not one
 	// derived per-request from the incoming Host header (most IdPs require
@@ -278,8 +281,8 @@ type HttpFunctions struct {
 	// SsoCallback is http.functions.sso_callback, default "" (disabled) :
 	// unquoted, fully qualified name of the Postgres function an
 	// openid.<name>/saml.<name> entry's own callback_function falls back
-	// to when unset — specs/oauth-saml.md ## Configuration — OIDC/##
-	// Configuration — SAML.
+	// to when unset — docs/content/http/authentication.md ## OpenID Connect
+	// and SAML.
 	SsoCallback string
 }
 
@@ -369,12 +372,13 @@ type HttpStatic struct {
 }
 
 // DefaultLoggingHandler/DefaultLoggingLevel/DefaultHttpPort are
-// specs/logging.md's own stated defaults (Handler/Level) and this
-// package's own invented default (Port — see Http's doc comment).
-// DefaultHttpRequestDomainName/DefaultHttpResponseDomainName/
-// DefaultHttpCookiesMaxAge are route.md's own stated defaults.
-// DefaultHttpStaticPath is this package's own invented default, matching
-// HttpStatic's doc comment.
+// docs/content/configuration/operations.md's own stated defaults
+// (Handler/Level) and this package's own invented default (Port — see
+// Http's doc comment). DefaultHttpRequestDomainName/
+// DefaultHttpResponseDomainName are docs/content/http/requests-responses.md's
+// stated defaults ; DefaultHttpCookiesMaxAge is route.md's own stated
+// default. DefaultHttpStaticPath is this package's own invented default,
+// matching HttpStatic's doc comment.
 const (
 	DefaultLoggingHandler         = "pretty"
 	DefaultLoggingLevel           = "info"
@@ -388,8 +392,8 @@ const (
 	// http.max_part_count (100).
 	DefaultHttpMaxBodySize  = 10485760
 	DefaultHttpMaxPartCount = 100
-	// DefaultHttpUploadDomainName is route.md's stated default
-	// for http.upload_domain_name.
+	// DefaultHttpUploadDomainName is docs/content/http/uploads.md's stated
+	// default for http.upload_domain_name.
 	DefaultHttpUploadDomainName = "RelUpload"
 	// DefaultHttpTemplatesPath is specs/http-content.md ## Templates'
 	// stated default for http.templates.path.
@@ -473,17 +477,19 @@ type PgQuery struct {
 	// dotted key.
 	Login
 
-	// AnonymousRole is pg.query.anonymous_role (default "~anonymous") :
-	// the role rel switches to, from Login, for requests with no
-	// credentials of their own — used both for /rel (query-engine.md) and JWT
-	// verification failures on /route (authentication.md ## Roles, which
-	// used to name this same setting jwt.anonrole ; reconciled onto
-	// query.anonymous_role, the name query-engine.md already used, itself
-	// later moved under pg.query.* for this same consistency pass).
+	// AnonymousRole is pg.query.anonymous_role (default "~anonymous",
+	// docs/content/configuration/index.md ### Postgres connection) : the
+	// role rel switches to, from Login, for requests with no credentials of
+	// their own — used both for /rel and JWT verification failures on
+	// /route (authentication.md ## Roles, which used to name this same
+	// setting jwt.anonrole ; reconciled onto query.anonymous_role, the name
+	// query-engine.md already used, itself later moved under pg.query.* for
+	// this same consistency pass).
 	AnonymousRole string
 
 	// MaxDepth is pg.query.max_depth : the maximum depth a query can
-	// specify. query-engine.md's default is 6.
+	// specify. Default 6 — docs/content/configuration/index.md ### Postgres
+	// connection.
 	MaxDepth int
 
 	// WellKnownDirs is pg.query.wellknown_path (well-known-queries.md
@@ -575,15 +581,17 @@ func (b Blacklist) IsRelationBlacklisted(schema, name string) bool {
 	return IsTruthy(b.Relations[schema][name]) || IsTruthy(b.Relations[schema]["*"])
 }
 
-// DefaultMaxDepth is query-engine.md's pg.query.max_depth default.
+// DefaultMaxDepth is docs/content/configuration/index.md's pg.query.max_depth
+// default.
 const DefaultMaxDepth = 6
 
-// DefaultBlacklist is query-engine.md ## Scoping's default blacklist, verbatim :
-// pg_catalog and information_schema wholesale for relations (wildcarded
-// deliberately, not enumerated — see query-engine.md's own "Why" on that), and
-// the specific dangerous pg_catalog functions for functions, including the
-// rest of the pg_advisory_*lock* family the spec's parenthetical calls out
-// by name pattern rather than listing individually (the _unlock variants are
+// DefaultBlacklist is docs/content/configuration/index.md ### Restricting
+// what a query can reach's default blacklist : pg_catalog and
+// information_schema wholesale for relations (wildcarded deliberately, not
+// enumerated — see query-engine.md ## Scoping's "Why" on that), and the
+// specific dangerous pg_catalog functions for functions, including the rest
+// of the pg_advisory_*lock* family query-engine.md ## Scoping calls out by
+// name pattern rather than listing individually (the _unlock variants are
 // deliberately excluded, per that same note : "which are harmless").
 func DefaultBlacklist() Blacklist {
 	return Blacklist{

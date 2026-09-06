@@ -1,5 +1,6 @@
-// Well-known queries through /rel : specs/well-known-queries.md ##
-// Querying — invoked exactly like a Relation (bare, a read ; wrapped in
+// Well-known queries through /rel :
+// docs/content/query-language/well-known-queries.md ## Calling one over
+// POST /rel — invoked exactly like a Relation (bare, a read ; wrapped in
 // WriteQuery.query, a write), no separate endpoint. Reuses testDb/testCfg
 // from rel_test.go's TestMain (same shared container/schema), but each
 // test builds its own *wellknown.Registry (and thus its own handler),

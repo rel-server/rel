@@ -72,8 +72,9 @@ func SetLocalRole(ctx context.Context, exec Execer, role string) error {
 const NoRoleConfiguredMessage = "no role configured (query.anonymous_role is unset and request is anonymous)"
 
 // CallJSONBFunction invokes qualifiedName(payload::jsonb) — the shared
-// calling convention specs/http-content.md ### Access control
-// deliberately reuses from CheckSession's own : "a configured function
+// calling convention docs/content/http/static-files.md ## Restricting
+// access to part of the tree deliberately reuses from CheckSession's own :
+// "a configured function
 // name, called with a jsonb payload, RSxxx to reject, returning normally
 // to allow." Void-returning by convention (the caller never reads a
 // result), but works identically for any single-jsonb-argument function

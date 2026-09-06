@@ -62,8 +62,9 @@ type Registry struct {
 }
 
 // Lookup finds the Route for schema/function/method, falling back to the
-// unsuffixed ("") entry when no verb-specific one matches (specs/route.md
-// ## HTTP). The second return is false if nothing matches either way.
+// unsuffixed ("") entry when no verb-specific one matches
+// (docs/content/http/index.md ## Restricting a route to one HTTP verb). The
+// second return is false if nothing matches either way.
 func (r *Registry) Lookup(schema, function, method string) (Route, bool) {
 	byFunc := r.routes[schema]
 	if byFunc == nil {
@@ -80,8 +81,9 @@ func (r *Registry) Lookup(schema, function, method string) (Route, bool) {
 	return route, ok
 }
 
-// BuildRegistry scans db.Functions for route functions per specs/route.md
-// ## HTTP's signature rule, then runs ## Anonymous route authorization
+// BuildRegistry scans db.Functions for route functions per
+// docs/content/http/index.md ## What makes a function a route, then runs
+// specs/route.md ## Anonymous route authorization
 // against db.Pool to populate each Route.AnonymousAuthorized and to warn
 // about any route reachable by PUBLIC. http.functions.allowed_routes
 // additionally restricts which functions are discovered.
@@ -344,7 +346,8 @@ func matchesRouteShape(fn *pg.Function, reqType, respType *pg.Type) (string, boo
 	return "", false, false, false
 }
 
-// isMimeTypeUnderlying is specs/route.md's mimetype-domain rule : a domain
+// isMimeTypeUnderlying is docs/content/http/static-files.md ## Returning
+// binary or text content directly's mimetype-domain rule : a domain
 // over bytea or over text.
 func isMimeTypeUnderlying(underlying *pg.Type) bool {
 	name := underlying.PgIdentifier.String()

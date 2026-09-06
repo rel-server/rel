@@ -1,12 +1,8 @@
 # Well Known Queries
 
-They're basically what views achieve in SQL, but in rel, with the write operations planned for.
-
 - rel reads and compiles them from disk on startup, and again on every `SIGUSR1` reload (`boot/reload.go`'s 7-step sequence, the same reload that reintrospects the schema and rebuilds the mux). There is no separate `SIGUSR2` trigger : a well-known reload is always a full, clean re-read from disk and recompile, never an incremental diff.
 
 ## Configuration
-
-* `pg.query.wellknown_path` (default `'/wellknown'`) : a colon `:` separated list of directories containing well-known queries in json, yaml, or huml format.
 
 >: What other configuration options would be relevant ?
 
@@ -14,11 +10,7 @@ Consumed the same way `http.static.path` already is : the config field itself (`
 
 ## Behaviour
 
-Rel reads the directories of `pg.query.wellknown_path` recursively and considers every `.json`, `.yml`, `.yaml`, `.huml` file whose name doesn't start with `_`. Every format is converted to a plain JSON value tree before parsing — `sonic/ast`'s existing JSON-specific parser (`query.ParseExpression`/`ParseQuery`) is reused unchanged for all of them.
-
-If a query has an error, a warning is logged and the query is deactivated — never queryable. If a query introduces a name that collides with an already-loaded one, rel logs a warning and deactivates *every* well-known query registered under that name, not just the newest one. A request naming a deactivated (or never-validly-defined) query is rejected the same way a genuinely unknown name would be.
-
-`name` is declared inside the file's own content (`## Definition`) and is the only thing that identifies a well-known query — directory layout under `wellknown_path` has no bearing on the exposed name. A file may declare several `WellKnownQuery` entries via the `WellKnownQuery[]` form. Two files in unrelated subdirectories can collide on the same declared `name` ; that is an ordinary collision, not a special case.
+Every format (`.json`/`.yml`/`.yaml`/`.huml`) is converted to a plain JSON value tree before parsing — `sonic/ast`'s existing JSON-specific parser (`query.ParseExpression`/`ParseQuery`) is reused unchanged for all of them.
 
 A well-known query is invoked exactly like a `Relation` would be — bare (a read) or wrapped in `WriteQuery.query` (a write) — and can be freely mixed with plain `Relation` items in a `Query[]` sequence, sharing that sequence's transaction like anything else in it. See `## Querying` below for the wire shape. They are evaluated once and their statements are prepared, ready to be queried for maximum performance.
 
@@ -34,8 +26,6 @@ The statement list is not uniformly "the same on every invocation," though the S
 - **phase2 (delete)** is gated on the *parent's* population, never the node's own. A delete-bearing node with zero `_data` rows of its own means "nothing survived in the payload under this parent, delete everything that used to be here." The root (no parent) is never skipped this way, matching how an empty top-level payload already means "delete everything matching `where`" today.
 
 `write_dml.go`'s `run*` functions currently compile and execute their SQL in the same call — no split today between "compile this tree's DML once" (cacheable, the well-known-query part) and "run the already-compiled statements against this request's own `_data` rows, skipping the ones the populated-check rules out" (per-request). Reusing a well-known write query's compiled statements across requests needs that split built first.
-
-The shape of their output is known and exported in typescript.
 
 ## Definition
 
@@ -69,8 +59,6 @@ Nothing currently copies a param's declared `type` into a usage site's `cast` au
 
 ## Querying
 
-There is no separate `/wellknown` endpoint. A well-known query is invoked through `/rel`, in exactly the same two positions `query.ts`'s `Query` union already gives a `Relation` :
-
 ```typescript
 interface WellKnownQuery {
   wellknown: string
@@ -80,12 +68,7 @@ interface WellKnownQuery {
 }
 ```
 
-- **Bare, as the whole request body (or one `Query[]` item)** — a read : `{"wellknown": "directors_by_name", "params": {"name": "Denis Villeneuve"}}`.
-- **Wrapped in `WriteQuery.query`** — a write, with `data` supplied the same way it would be for a plain `Relation` write : `{"query": {"wellknown": "insert_director"}, "data": {...}}`.
-
-Because it occupies the same slot a `Relation` does, a well-known query composes freely with plain relations inside a `Query[]` sequence — a well-known query and a hand-written one can share the same transaction. `POST` and `GET` are both available, exactly as they are for the rest of `/rel` ; `GET`'s query-string encoding of this shape is `query-json.md ## Well-known queries on GET /rel`.
-
-There's no separate infrastructure to reuse : the same auth pipeline, the same `boot.BuildMux` mount, the same response shape (`/rel`'s manual streaming JSON array + `RelErrorResponse` error envelope) apply, because it's the same handler. A well-known item's statement, when it's a read, is the one already compiled at load time (`## Behaviour`) rather than recompiled per request ; only its args are resolved fresh, per request, against the caller's `params`.
+There's no separate infrastructure to reuse : the same auth pipeline, the same `boot.BuildMux` mount, the same response shape (`/rel`'s manual streaming JSON array + `RelErrorResponse` error envelope) apply, because it's the same handler as a plain `Relation`. A well-known item's statement, when it's a read, is the one already compiled at load time (`## Behaviour`) rather than recompiled per request ; only its args are resolved fresh, per request, against the caller's `params`.
 
 ## Compilation Errors
 

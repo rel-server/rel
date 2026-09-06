@@ -66,8 +66,8 @@ var pgClassTable = map[string]classified{
 }
 
 // IsRSCode reports whether code is RSxxx-shaped — used by a caller that
-// needs to tell an author-chosen, always-safe RSxxx message (route.md ##
-// Postgres Exceptions) apart from every other code sharing
+// needs to tell an author-chosen, always-safe RSxxx message
+// (docs/content/http/index.md ## Errors are just exceptions) apart from every other code sharing
 // TierUnclassified, since Classify itself has no separate tier value for
 // that distinction (see its RSxxx branch's own doc comment).
 func IsRSCode(code errcode.Code) bool {
@@ -89,7 +89,7 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 
 	if rsStatus, message, isRS := RSStatus(err); isRS {
 		// Tier isn't meaningful for RSxxx : the raised message IS the
-		// response body, unconditionally (route.md ## Postgres Exceptions).
+		// response body, unconditionally (docs/content/http/index.md ## Errors are just exceptions).
 		return rsStatus, errcode.Code(pgErr.Code), TierUnclassified, &Detail{Message: message}, true
 	}
 

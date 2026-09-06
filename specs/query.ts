@@ -36,10 +36,8 @@ export interface Relation {
     If the function is table-valued, joining can be performed just like if the query is about
     the type of the returned table. A function-rooted (or function-embedded) node is NEVER
     writable, unconditionally — regardless of whether its return type resolves to a real,
-    otherwise-writable table — see `query-engine.md ## Reading Algorithm ### Function-rooted
-    nodes` for the full reasoning (writes always target the underlying table directly, never
-    "through" the function, so any filtering the function's own body does would otherwise be
-    silently bypassed).
+    otherwise-writable table — see `docs/content/query-language/functions.md` for the rule and
+    `query-engine.md ## Reading Algorithm ### Function-rooted nodes` for the full reasoning.
   */
   function?: string
 
@@ -55,7 +53,7 @@ export interface Relation {
 
    Joining is limited to columns that are part of a foreign key constraint, or to distant columns where a unique constraint exists on either the local columns or the parent columns.
 
-   The relation's OWN `on` columns (the child side being described here, whichever side of the resulting embed ends up "one" or "many") MUST additionally be covered by an index on those exact columns, or the query is rejected — see `query-engine.md` ### Join eligibility. This applies uniformly to FK-backed and non-FK joins alike : Postgres does not automatically index the referencing side of a foreign key, so an FK-backed embed is just as capable of silently compiling into a per-parent-row sequential scan as an ad-hoc one.
+   The relation's OWN `on` columns (the child side being described here, whichever side of the resulting embed ends up "one" or "many") MUST additionally be covered by an index on those exact columns, or the query is rejected — see `docs/content/query-language/joining.md`, and `query-engine.md ### Join eligibility` for the indexing internals. This applies uniformly to FK-backed and non-FK joins alike : Postgres does not automatically index the referencing side of a foreign key, so an FK-backed embed is just as capable of silently compiling into a per-parent-row sequential scan as an ad-hoc one.
   */
   on?: { [local_column: string]: string }
 
@@ -75,8 +73,9 @@ export interface Relation {
     Delete-bearing modes (`merge`, `merge-new`, `merge-update`, `deleteonly`) only make sense on an
     _incoming_ relation : one whose rows are exclusively owned/scoped by the parent row through the join
     (this is what "rows not in the payload, matching the parent" even means) — commonly, but not
-    necessarily, backed by a declared foreign key ; see `query-engine.md` `### Definitions` and
-    `### Join eligibility`. An _outgoing_ relation (a to-one "belongs to", e.g. `user.manager_id ->
+    necessarily, backed by a declared foreign key ; see `docs/content/query-language/writing.md` and
+    `docs/content/query-language/joining.md`, or `query-engine.md` `### Definitions` and
+    `### Join eligibility` for the compiler-level detail. An _outgoing_ relation (a to-one "belongs to", e.g. `user.manager_id ->
     manager.id`) is not exclusively owned by the current row - the referenced row may be pointed to by
     any number of other rows - so there is no coherent set of "rows not in the payload" to delete. Using
     a delete-bearing mode on an outgoing relation is a validation error, raised when the query is

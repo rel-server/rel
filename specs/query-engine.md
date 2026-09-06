@@ -1,12 +1,9 @@
 # Query Engine
 
-Rel's most important feature is its querying capabilities.
-
-Similarly to GraphQL and PostgresT, it offers a complex query engine able to span across relations in the database to produce intricated and complex content.
-
-Unlike GraphQL, there are no "mutations" to describe ; unlike PostgresT, the complex form that it generates can be sent back as-is to the server so that it updates accordingly ; it makes inserting or updating rows of linked tables in a single transaction possible, even and especially when related rows depend on a identifying key not yet known (ids) because the parent doesn't already exist.
-
-Selecting is based on a relation. Foreign keys allow embedding of a distant resource into the result : whether from the table to another or in reverse. When embedding a remote relation that has multiple rows to the current one, embeds an array. Otherwise, stays as a simple object.
+Rel's core query/write mechanic (bidirectional queries, nested writes before a parent exists,
+outgoing/incoming embedding) is described for users in `docs/content/index.md` and
+`docs/content/getting-started.md ## A query, end to end`. This document specifies the
+compiler that implements it.
 
 Compiling a query JSON tree into SQL happens in two passes, both implemented and tested :
 
@@ -18,17 +15,14 @@ Compiling a query JSON tree into SQL happens in two passes, both implemented and
 
 ## Search path
 
-Roles we switch to when requests are made are NOT respected, because that would mean having to query them every time. The only enforced search path will be the one of the base user we connect the database to.
+The connecting role's own search path is what's respected for unqualified `relation`/
+`function` resolution (`docs/content/query-language/shaping.md ## Schema resolution`) ; a
+request-scoped `set role` switch is never separately queried for its own search path, since
+that would mean an extra round-trip per request.
 
-## Configuration
-
-* `pg.uri` : a full `postgres://user:pass@host:port/db` connection string. When set, authoritative — the granular fields below are ignored entirely, not merged with it. The simplest possible setup is `pg.uri` alone.
-* `pg.user` / `pg.password` / `pg.host` / `pg.port` / `pg.database` : the primary Postgres connection, used when `pg.uri` is unset. This is the login rel uses to connect to the database to perform migrations with dmut, to introspect the database at startup, and — unless `pg.query.user` overrides it — to serve requests, i.e. the role from which `set role` to all other roles is executed.
-* `pg.query.user` / `pg.query.password` (default : `pg.user` / `pg.password` if provided) : an OPTIONAL, narrower-scoped login for the connection that actually serves requests specifically. Documented and encouraged for a hardened deployment, never required — `set role` per request, not this login's own privileges, is what actually restricts what a request can access ; introspection and dmut migrations always use the primary connection above, never this one.
-* `pg.query.anonymous_role` (default `~anonymous`) : the role rel switches to for requests without credentials of their own. Full lifecycle (when/how this applies, alongside JWT verification) is `authentication.md`'s `# Roles` concern — this entry exists here only because it's also part of `## Configuration`'s connection-role settings.
-* `pg.pool_size` (default `10`) : the max number of connections in the pool that serves requests. Never affects startup introspection or dmut migrations, which each use one short-lived connection regardless of this setting.
-
-* `pg.query.max_depth` (default `6`) : maximum depth a query can specify
+Connection settings (`pg.uri`, `pg.user`/`pg.query.user`, `pg.pool_size`,
+`pg.query.anonymous_role`, `pg.query.max_depth`) are documented in full in
+`docs/content/configuration/index.md ### Postgres connection`.
 
 Unlike route functions, all queries are sent on `/rel`, and all of them MUST be `POST`.
 
@@ -36,11 +30,11 @@ When querying resources they're not allowed to access in the database, the statu
 
 `/rel` only returns JSON, even when it replies an error.
 
-Group by and window functions are intentionally disabled ; these should be done inside views instead.
+Group by and window functions are intentionally disabled (`docs/content/query-language/shaping.md ## Depth and disallowed constructs`).
 
 > Why: too much abuse potential, and group by anyway disables writing back entirely on the relation. Rel is about selecting data to write it back (mostly,) the rest can be done in views.
 
-To avoid paying for parsing and preparing statements all the time, rel offers a "well-known" queries mechanism that are read on server startup or after reloading a schema. They are named and make use of the `["$param", ...]` expresion which are transformed into prepared statement param. Another advantage of well-known queries is that they're also exported by rel's typescript/javascript export and typed appropriately. See `specs/well-known-queries.md` for the full mechanism.
+See `specs/well-known-queries.md` for the well-known queries mechanism.
 
 ## Implementation
 
@@ -97,34 +91,39 @@ this document is pretending to keep.
 
 ## Scoping
 
-Proper scoping is to be enforced when walking the json query tree ; it is an error to refer to unknown columns or relations, and this MUST be caught by the "compiler". Aliases must be correctly propagated in the right scopes ; subqueries and parent queries do not see the same identifiers.
+Scoping rules (what a node's expressions can reference, alias propagation, the parent/sibling
+visibility restriction) are specified in full in `docs/content/query-language/shaping.md ##
+What a node can see`. Rel must be aware of the search path when inspecting functions being
+called.
 
-The scope will handle look-up for ; relations, functions, but also local relation aliases and columns, regular and computed.
+Function and relation blacklisting (`blacklist.functions.<schema>.<name>`,
+`blacklist.relations.<schema>.<name>`, the default entries) is specified in
+`docs/content/configuration/index.md ### Restricting what a query can reach` and
+`docs/content/configuration/best-practices.md ## Restrict what a query can reach`. Beyond the
+documented default function list, `pg_advisory_lock` and the rest of the `pg_advisory_*lock*`
+family are blacklisted too, minus the `_unlock` variants (harmless) — `PUBLIC`-executable by
+default, and holding a session/transaction advisory lock indefinitely is a cheap way to wedge a
+connection or contend with any advisory locks rel's own runtime might use internally.
 
-Functions may be blacklisted for use in the query through config : `blacklist.functions.<schema>.<function_name_or_operator or *>` with `y` or `true` to effectively disable them for use in the query builder. Rel must be aware of the search path when inspecting functions being called.
+> Why the relation blacklist is wildcarded per-schema rather than naming individual views :
+> Postgres ships and changes the exact set of catalog/information_schema views across versions,
+> so pinning specific names would need to be kept in sync with every version rel supports,
+> whereas "nothing in these two schemas is a valid query target" is a version-independent rule.
 
-Similarly, relations may be blacklisted for the same reason. Default blacklist :
-- `blacklist.relations.pg_catalog.*` : `y`
-- `blacklist.relations.information_schema.*` : `y`
-
-Default functions blacklist :
-- `blacklist.functions.pg_catalog.set_config` : `y`
-- `blacklist.functions.pg_catalog.pg_sleep` : `y`
-- `blacklist.functions.pg_catalog.pg_terminate_backend` : `y`
-- `blacklist.functions.pg_catalog.pg_cancel_backend` : `y`
-- `blacklist.functions.pg_catalog.pg_advisory_lock` : `y` (and the rest of the `pg_advisory_*lock*` family, minus the `_unlock` variants, which are harmless) — `PUBLIC`-executable by default, and holding a session/transaction advisory lock indefinitely is a cheap way to wedge a connection or contend with any advisory locks rel's own runtime might use internally.
-
-> Why these two and why wildcarded : both schemas are readable by `PUBLIC` by default (`pg_settings`, `pg_stat_activity`, `information_schema.tables`, ...) and reachable through the ordinary `relation`/`schema` fields on a query, same as any table. Wildcarding the whole schema rather than naming individual views is deliberate here, unlike the function blacklist above : Postgres ships and changes the exact set of catalog/information_schema views across versions, so pinning specific names would need to be kept in sync with every version rel supports, whereas "nothing in these two schemas is a valid query target" is a version-independent rule that never needs updating. A user who genuinely wants to query one of these (introspection tooling, say) can still override the specific entry back to `n`.
-
-The database role rel connects with to the server in order to perform requests should never be `postgres` or superuser, and should never be a member of `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, or `pg_signal_backend` - a stark warning must be printed if this is the case. The developer must be incited to create a role of some kind that will receive grants for all subroles that shall exist within the database and give it to `pg.query.user`.
-
-> Why this still matters alongside the blacklist : the blacklist can only stop what it already knows the name of. It's a maintained list, not a closed one — a newly `CREATE EXTENSION`'d function (which defaults to `PUBLIC EXECUTE` the moment it's created, e.g. `dblink`, `postgres_fdw`) isn't covered until someone notices and adds it. The role restrictions above are the backstop for exactly that gap : as long as the role never holds those privileges/memberships, most of what makes a *newly discovered* dangerous function actually dangerous (arbitrary file/network/process access) stays unreachable regardless of whether the blacklist has caught up yet.
+The database role rel connects with to serve requests should never be `postgres` or superuser,
+and should never be a member of `pg_read_server_files`, `pg_write_server_files`,
+`pg_execute_server_program`, or `pg_signal_backend` — a stark warning must be printed if this
+is the case. See `docs/content/configuration/best-practices.md ## Give requests a narrower
+Postgres role than migrations get` for why this matters alongside the blacklist.
 
 ### Self-reference and child scope
 
-A node's scope is its own relation's columns plus its visible children's join aliases (`OuterAlias`, per `OutgoingNodes`/`IncomingNodes`) — never its parent's, never a sibling's (sibling visibility is explicitly excluded for v1, despite `query.ts`'s alias comment mentioning siblings).
-
-A node's own declared alias (`InnerName`) resolves within its own expressions too, self-referencing its own columns — not only usable by children.
+Scope contents are `docs/content/query-language/shaping.md ## What a node can see`'s "own
+physical columns, own alias, direct join children's aliases" rule ; internally, a node's scope
+is its relation's columns plus its visible children's join aliases (`OuterAlias`, per
+`OutgoingNodes`/`IncomingNodes`), and its own declared alias (`InnerName`) resolves within its
+own expressions too, self-referencing its own columns. Sibling visibility is explicitly
+excluded for v1, despite `query.ts`'s alias comment mentioning siblings.
 
 > Why: even where redundant, self-qualification (`self_alias.column`) gives generated SQL an explicit, always-correct way to name a column, rather than relying on bare/unqualified names and real Postgres correlated-subquery scoping rules (inner scope shadows outer) to resolve correctly on their own.
 
@@ -188,7 +187,10 @@ The actual reason compile-time resolution is still needed is **not security** : 
 
 ### Join eligibility : indexing, not just correctness
 
-A join's `on` mapping (see `query.ts`) must be backed by a foreign key constraint, or — for a non-FK join — by a unique constraint on whichever side is the "one" side. Either way, the **child's own `on` columns** (the relation being described, per `query.ts` — i.e. whichever side isn't the enclosing/parent query) MUST be covered by an index on those exact columns, or rel refuses to compile the query. This is a hard, unconditional compile-time error, with no config escape hatch — consistent with the rest of this section defaulting to strict (mandatory `on`, no ambiguity, blacklist-by-default).
+The eligibility/indexing rule itself is specified in
+`docs/content/query-language/joining.md`. This is a hard, unconditional compile-time error,
+with no config escape hatch — consistent with the rest of this section defaulting to strict
+(mandatory `on`, no ambiguity, blacklist-by-default).
 
 > Why : the Reading Algorithm (`## Reading Algorithm`) runs a correlated subquery per node, executed once per parent row — always scanning the *child* relation, filtered by its own `on` columns, regardless of which side ends up being the "one" or the "many" side of the resulting embed. The child side is what actually gets scanned either way ; when the child side is unique that scan is already indexed for free (a unique constraint always creates its own supporting index), so "the child's columns, always" subsumes the many-side case rather than needing a separate rule for it. Without an index backing them, that's a sequential scan per parent row — silently, since nothing about the query *looks* wrong, it's just a performance cliff waiting for the table to grow. This is not only a non-FK-join concern : Postgres does **not** automatically index the referencing side of a foreign key (only the referenced/unique side is guaranteed an index, because the constraint requires one). `customers → orders` via `orders.customer_id` is exactly as capable of degrading to a per-parent-row seq scan as any ad-hoc join would be if nobody thought to add `CREATE INDEX ON orders(customer_id)`. So this check applies uniformly, FK-backed or not — it is not a special case bolted onto the non-FK path.
 
@@ -206,9 +208,9 @@ rel doesn't treat foreign keys as special to eligibility — the actual rule is 
 
 ## Writability
 
-For a query to be bidirectional, there is a notion of writability of a column ; a column is said to be writable if and only if it appears exactly once in the select expression and is not transformed by anything other than coalescing operators. Columns are tracked and are writable even if they appear in sub-objects.
-
-A relation's rows are writable iff the columns of its identity target (primary key by default, or whatever on_conflict explicitly designates as the conflict-resolution unique constraint) are present and writable exactly *once* in the select output.
+Column and relation writability rules are specified in full in
+`docs/content/query-language/writing.md`. Columns are tracked and are writable even if they
+appear in sub-objects.
 
 If a child query disables writability for its own table, it disables it for the whole query, unless it was *explicitely* set to readonly. A user attempting a write on such a query receives an error indicating the offending relation.
 
@@ -242,22 +244,19 @@ A function-rooted node also gets `Relation` populated — via `GetRelationByType
 
 > A `RETURNS TABLE` function's `RecordRelation` is structurally barred from ever being eligible as the CHILD/joined-into side of any relationship — Postgres can't index a function's computed output, and `## Scoping ### Join eligibility` requires exactly that on the child side — only a query root or the parent/outer side of an outgoing join out to a real indexed relation.
 
-**A function-rooted (or function-embedded) node is unconditionally UNWRITABLE, regardless of
-`write_mode` or whether its `Relation` resolves to a real, otherwise-writable table.** The
-Writing Algorithm always targets `Relation`'s own underlying table directly (`insert into
-target_relation ...`, by name), never "through" the function that was used to read it — so
-any filtering a function's own SQL body does (a `where owner_id = ...`, a soft-delete filter,
-anything at all) is silently bypassed for writes. Concretely : a function defined as `select
-* from director where public = true` only ever shows public directors on read, but if writes
-were allowed through that same node, a client could upsert a row by `id` the function itself
-would never have exposed to them, since the write path never consults the function's own
-`where` at all. A Postgres VIEW has a real, enforced guard against exactly this : it can only
-ever be written through if Postgres itself considers it auto-updatable, or it has an `INSTEAD
-OF` trigger — either way, the view's own defining query is genuinely in the path of the
-write, or the write is refused outright. A function has no equivalent mechanism, and rel has
-no way to inspect a function's body at introspection time to distinguish "this is a safe
-passthrough" from "this embeds real access control" — so it can't safely allow writes for
-some functions and not others either. `query/shape.go`'s `identityIsWritable` enforces this
+A function-rooted (or function-embedded) node's unwritability
+(`docs/content/query-language/functions.md`) holds regardless of `write_mode` or whether its
+`Relation` resolves to a real, otherwise-writable table.
+
+> Why : a Postgres VIEW has a real, enforced guard against exactly this — it can only ever be
+> written through if Postgres itself considers it auto-updatable, or it has an `INSTEAD OF`
+> trigger — either way, the view's own defining query is genuinely in the path of the write, or
+> the write is refused outright. A function has no equivalent mechanism, and rel has no way to
+> inspect a function's body at introspection time to distinguish "this is a safe passthrough"
+> from "this embeds real access control" — so it can't safely allow writes for some functions
+> and not others either.
+
+`query/shape.go`'s `identityIsWritable` enforces this
 unconditionally, checked before its `PrimaryKey`/`OnConflict` logic, so a function returning a
 real composite/relation type (with a real, otherwise-writable primary key) doesn't
 accidentally look writable purely because its underlying table happens to have one.

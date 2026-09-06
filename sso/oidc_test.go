@@ -231,7 +231,7 @@ func TestOidc_CallbackRejectsStateMismatch(t *testing.T) {
 // TestOidc_CallbackRejectsUnknownIdentity covers the RSxxx rejection path
 // : a valid, verified login for an identity the callback function's own
 // users table has no row for must fail with the raised status and set no
-// cookie — mirrors route.md's Postgres-exception convention.
+// cookie — mirrors docs/content/http/index.md's Postgres-exception convention.
 func TestOidc_CallbackRejectsUnknownIdentity(t *testing.T) {
 	issuer := newFakeOidcIssuer(t)
 	issuer.tokenIDTokenExtra = map[string]any{"email": "nobody@example.com"}

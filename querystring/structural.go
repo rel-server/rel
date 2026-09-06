@@ -30,8 +30,8 @@
 // float64, bool, nil, []any, map[string]any) — never a second, parallel
 // Expression AST. The tree is handed to sonic.Marshal and then to the
 // EXISTING query.ParseQuery/query.ParseExpression pipeline, unchanged —
-// specs/query-json.md's own "no new JSON shape is introduced" : one
-// JSON-consuming Expression parser in the codebase, not two to keep in sync.
+// reusing it keeps one JSON-consuming Expression parser in the codebase,
+// not two to keep in sync.
 package querystring
 
 import (

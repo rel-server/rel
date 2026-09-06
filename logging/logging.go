@@ -66,9 +66,10 @@ func Install(cfg config.Logging) (*slog.Logger, error) {
 	return logger, nil
 }
 
-// For returns a *slog.Logger tagged with a "module" attribute — the
-// mechanism specs/logging.md ## Domain scoping describes : "logging must
-// show what module it came from... to help with context." Convention : one
+// For returns a *slog.Logger tagged with a "module" attribute — see
+// docs/content/configuration/operations.md ## Logging for what the
+// attribute means to a reader of the logs, specs/logging.md ## Domain
+// scoping for the attach-once-per-package mechanism. Convention : one
 // package-level `var log = logging.For("<name>")` per package, `<name>`
 // matching the package/directory name (query, route, pg, dmut, boot, ...),
 // used for every log call in that package instead of calling slog.Default()

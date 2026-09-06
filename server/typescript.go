@@ -1,4 +1,4 @@
-// GET /rel/database.ts — specs/typescript.md ## Endpoints/## database.ts :
+// GET /rel/database.ts — docs/content/typescript-client.md ## Fetching it / specs/typescript.md ## database.ts :
 // the introspected, schema-whitelisted database exported as a single,
 // self-sufficient TypeScript file (github.com/ceymard/rel/tsgen does the
 // actual generation ; this file is only the HTTP wiring).
@@ -39,7 +39,7 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 	})
 }
 
-// resolveTypeScriptSchemas is specs/typescript.md ## Endpoints' `schemas`
+// resolveTypeScriptSchemas is docs/content/typescript-client.md ## Fetching it's `schemas`
 // query param, intersected with http.typescript.schemas' own whitelist —
 // the redactor's own answer, during this feature's implementation, to how
 // the two combine : the param never widens past the configured whitelist ;

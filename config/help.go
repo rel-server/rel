@@ -59,7 +59,7 @@ var Options = []Option{
 
 	// ---- http.* : HTTP server + /route function discovery ----
 	{"http.host", "(all interfaces)", "HTTP listen address."},
-	{"http.public_host", "(disabled)", "This deployment's own externally-reachable domain (a bare host, e.g. app.example.com — no scheme/port/path ; rel always builds https://<host>/... from it). An openid.<name>/saml.<name> entry with no effective host (its own public_host override, or this one) is skipped — see specs/oauth-saml.md ## Configuration — HTTP."},
+	{"http.public_host", "(disabled)", "This deployment's own externally-reachable domain (a bare host, e.g. app.example.com — no scheme/port/path ; rel always builds https://<host>/... from it). An openid.<name>/saml.<name> entry with no effective host (its own public_host override, or this one) is skipped — see docs/content/http/authentication.md ## OpenID Connect and SAML."},
 	{"http.port", fmt.Sprint(DefaultHttpPort), "HTTP listen port."},
 	{"http.request_domain_name", DefaultHttpRequestDomainName, "Name of the JSON domain identifying a route function's request argument type."},
 	{"http.response_domain_name", DefaultHttpResponseDomainName, "Name of the JSON domain identifying a route function's response type."},
@@ -70,7 +70,7 @@ var Options = []Option{
 	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route functions may mint or clear a session."},
 	{"http.functions.allowed_routes", "(unrestricted)", "Regexp restricting which route functions are exposed on /route."},
 	{"http.functions.check_session", "(disabled)", "Function called on every authenticated request, letting the database reject a session early."},
-	{"http.functions.sso_callback", "(disabled)", "Fallback Postgres function an openid.<name>/saml.<name> entry's own callback_function calls when it doesn't set one itself (specs/oauth-saml.md)."},
+	{"http.functions.sso_callback", "(disabled)", "Fallback Postgres function an openid.<name>/saml.<name> entry's own callback_function calls when it doesn't set one itself (docs/content/http/authentication.md ## OpenID Connect and SAML)."},
 	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served at the fixed /static/ URL prefix, first match wins."},
 	{"http.templates.path", DefaultHttpTemplatesPath, "Filesystem directory Jet templates (RelHttpResponse.template) are loaded from."},
 	{"http.typescript.enable", "false (true if dev)", "Serve GET /rel/database.ts — the introspected schema as TypeScript types plus a few query-building helpers."},
@@ -238,7 +238,8 @@ Dynamic namespaces (not enumerated above — "*" matches an entire schema) :
   saml.<name>.force_signed_requests=y|n        default y : sign the outgoing AuthnRequest with the SP key
   saml.<name>.callback_function=<fqname>       falls back to http.functions.sso_callback when unset
   saml.<name>.public_host=<host>               overrides http.public_host for this entry alone
-  See specs/oauth-saml.md for the full /auth/oidc/<name>/*, /auth/saml/<name>/* contract.
+  See docs/content/http/authentication.md ## OpenID Connect and SAML for the full
+  /auth/oidc/<name>/*, /auth/saml/<name>/* contract.
   Both blacklists only ever ADD to the built-in defaults ; neither ever removes from them.
   As flags/config file keys these are dotted directly ; as environment variables, the
   same REL_/"__" rule as every other key applies to the placeholders too, e.g.

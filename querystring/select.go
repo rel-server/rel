@@ -271,7 +271,7 @@ func compileSelectCommaList(s string) (any, error) {
 	}
 }
 
-// compileOrderBy implements ## order_by ; a leading "-" immediately
+// compileOrderBy's leading "-" (specs/query-json.md ## Filter expression grammar) immediately
 // followed by a digit opens a negative number, not a descending marker.
 func compileOrderBy(s string) ([]any, error) {
 	p := newExprParser(s)

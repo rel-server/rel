@@ -316,8 +316,8 @@ type ShapeFromExpressionMap<
 //
 // "call" resolves through ShapeFromCallTag (above), a literal-identifier lookup against FunctionsByName/
 // Functions. Raw operators, "agg", "index"/"slice", "format", ... still fall back to `unknown` : narrowing them
-// needs the database.json export specs/typescript.md's "Goals" already calls out as separate, not-yet-built
-// (v2) work.
+// needs a JSON-schema export of the database (not currently implemented — see database.json's
+// status) — separate, not-yet-built (v2) work.
 type ShapeFromExpression<
   E,
   Rel extends object,

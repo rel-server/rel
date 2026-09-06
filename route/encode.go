@@ -20,8 +20,9 @@ import (
 	"github.com/samber/oops"
 )
 
-// relHttpRequestPayload is route.md ## Request's RelHttpRequest, with one
-// deviation : Cookies is {[name]: string}, a browser only sends name=value.
+// relHttpRequestPayload is docs/content/http/requests-responses.md's
+// RelHttpRequest, with one deviation : Cookies is {[name]: string}, a
+// browser only sends name=value.
 type relHttpRequestPayload struct {
 	Method      string              `json:"method"`
 	URI         string              `json:"uri"`
@@ -35,7 +36,7 @@ type relHttpRequestPayload struct {
 	// Query is specs/query-json.md ## /route's query field, decoded
 	// through the structural layer only (querystring.DecodeQueryField).
 	Query any `json:"query"`
-	// CspNonce is specs/http-content.md ## CSP ### Nonce's csp_nonce.
+	// CspNonce is docs/content/http/cors-csp.md ## CSP ### Nonce's csp_nonce.
 	CspNonce string `json:"csp_nonce"`
 }
 
@@ -59,8 +60,10 @@ func mediaTypeOf(contentType string) string {
 	return strings.ToLower(strings.TrimSpace(contentType))
 }
 
-// encodeBody implements route.md ## Request's body dispatch ; hasFiles
-// forces JSON null since the payload goes through files/parts_headers instead.
+// encodeBody implements docs/content/http/requests-responses.md's body
+// dispatch (see specs/route.md ## Request for the malformed-body/charset
+// edge cases) ; hasFiles forces JSON null since the payload goes through
+// files/parts_headers instead.
 func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage, error) {
 	if hasFiles || len(body) == 0 {
 		return json.RawMessage("null"), nil
@@ -93,7 +96,7 @@ type badQueryError struct{ err error }
 func (e *badQueryError) Error() string { return e.err.Error() }
 func (e *badQueryError) Unwrap() error { return e.err }
 
-// buildRelHttpRequest encodes r as route.md's RelHttpRequest ; bodyJSON is
+// buildRelHttpRequest encodes r as docs/content/http/requests-responses.md's RelHttpRequest ; bodyJSON is
 // pre-encoded (see encodeBody) since the handler needs the route's hasFiles.
 func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified bool, claims jwtpkg.Claims) ([]byte, error) {
 	cookies := map[string]string{}
@@ -122,7 +125,7 @@ func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified boo
 	return sonic.Marshal(payload)
 }
 
-// relHttpResponsePayload is route.md ## Responses' RelHttpResponse.
+// relHttpResponsePayload is docs/content/http/requests-responses.md's RelHttpResponse.
 // Content/Headers/Cookies/Jwt are json.RawMessage since each is polymorphic.
 type relHttpResponsePayload struct {
 	Status      int                        `json:"status"`
@@ -136,7 +139,7 @@ type relHttpResponsePayload struct {
 	// non-empty Template renders in place of Content as the response body.
 	Template     string          `json:"template"`
 	TemplateData json.RawMessage `json:"template_data"`
-	// Csp is specs/http-content.md ## CSP ### Per-response override.
+	// Csp is docs/content/http/cors-csp.md ## CSP ### Per-response override.
 	Csp string `json:"csp"`
 }
 
@@ -214,7 +217,7 @@ type outboundCookiePayload struct {
 	MaxAge   *int    `json:"maxage"`
 }
 
-// decodeOutboundCookie applies specs/route.md ## Cookies' stated defaults
+// decodeOutboundCookie applies docs/content/http/requests-responses.md's stated cookie defaults
 // on top of either shorthand form.
 func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) *http.Cookie {
 	c := &http.Cookie{

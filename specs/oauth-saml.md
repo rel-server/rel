@@ -11,51 +11,23 @@ SAML end by producing an ordinary `RelHttpResponse`, at which point everything
 
 ## Design
 
-Both protocols reduce to the same shape: redirect the user to a foreign identity
-provider, receive a callback carrying whatever that provider is willing to assert about
-the user, and hand the entire assertion — as JSON, unfiltered, uninterpreted — to a
-developer-supplied Postgres function. That function is the only place identity claims get
-interpreted into a role: rel does not itself decide what an email, a `groups` claim, or a
-SAML attribute means. This is the same division of responsibility `authentication.md
-## Session invalidation`'s `check_session` and username/password login already use:
-protocol/transport mechanics in Go, identity decisions in the database.
-
-Each configured endpoint — an OIDC issuer or a SAML IdP — is a named entry
-(`openid.<name>.*` / `saml.<name>.*`, `authentication.md`'s own naming). `<name>` is
-chosen by the developer and has no relationship to a provider's brand; nothing about
-either protocol's configuration is hardcoded to a specific IdP (Google, Okta, ...) the way
-a per-provider library integration would be.
+This is the same division of responsibility `authentication.md ## Session invalidation`'s
+`check_session` and username/password login already use: protocol/transport mechanics in
+Go, identity decisions in the database.
 
 ## Endpoints
 
-For every configured `openid.<name>`:
-
-* `GET /auth/oidc/{name}/login` — redirects to the issuer's authorization endpoint.
-* `GET /auth/oidc/{name}/callback` — the OAuth2 redirect target ; exchanges the code,
-  verifies the ID token, builds `## Claims shape` below, and calls the configured
-  callback function.
-
-For every configured `saml.<name>`:
-
-* `GET /auth/saml/{name}/login` — SP-initiated flow: redirects to the IdP with a signed
-  or unsigned `AuthnRequest` per `saml.<name>.force_signed_requests`.
-* `POST /auth/saml/{name}/acs` — the Assertion Consumer Service: parses the IdP's
-  response, builds `## Claims shape` below, and calls the configured callback function.
-  Since nothing distinguishes an IdP-initiated POST from the response to an SP-initiated
-  one at this endpoint, IdP-initiated login works with no separate configuration.
-* `GET /auth/saml/{name}/metadata` — this deployment's SP metadata (entity ID, ACS URL,
-  signing/encryption certificate), as XML. Always served once `saml.<name>` is
-  configured, independent of whether `saml.<name>.idp_metadata_url` has ever resolved —
-  see `## Certificate` below for why this independence matters.
+* `POST /auth/saml/{name}/acs` — Since nothing distinguishes an IdP-initiated POST from
+  the response to an SP-initiated one at this endpoint, IdP-initiated login works with no
+  separate configuration.
+* `GET /auth/saml/{name}/metadata` — Always served once `saml.<name>` is configured,
+  independent of whether `saml.<name>.idp_metadata_url` has ever resolved — see
+  `## Certificate` below for why this independence matters.
 
 A request to any `{name}` not present in configuration is a plain `404`.
 
 ## Configuration — HTTP
 
-* `http.public_host` (default empty) — this deployment's own externally-reachable domain :
-  a bare host (`app.example.com`), never a full URL — no scheme, port, or path. rel always
-  builds `https://<host>/...` from it for OIDC's `redirect_uri` and SAML's metadata/ACS
-  URLs.
 * `openid.<name>.public_host` / `saml.<name>.public_host` (default empty, meaning "use
   `http.public_host`") — per-entry override of `http.public_host`, for a deployment
   reachable at more than one domain. Each named entry still answers to exactly one host —
@@ -73,8 +45,8 @@ endpoint.
 
 ## Configuration — OIDC
 
-* `openid.<name>.issuer` (required) — the issuer URL; `/.well-known/openid-configuration`
-  is fetched from it for discovery.
+* `openid.<name>.issuer` (required) — `/.well-known/openid-configuration` is fetched from
+  it for discovery.
 * `openid.<name>.client_id`, `openid.<name>.client_secret` (default
   `/secrets/openid-<name>.id:./openid-<name>.id` and
   `/secrets/openid-<name>.secret:./openid-<name>.secret` — flat filenames, same
@@ -86,36 +58,18 @@ endpoint.
   default just means the common case (create the named endpoint, drop the two files IdP
   registration gave you, no config file changes) needs no explicit
   `client_id`/`client_secret` lines at all.
-* `openid.<name>.scopes` (default `["openid", "email", "profile"]`).
-* `openid.<name>.fetch_userinfo` (default `false`) — when true, after token exchange the
-  discovered userinfo endpoint is also called (with the obtained access token), and its
-  claims are merged over the ID token's own (`## Claims shape` below documents the merge
-  precedence). Off by default since it's an extra round trip and most issuers already put
-  what a typical deployment needs directly in the ID token.
-* `openid.<name>.callback_function` (default empty) — unquoted, fully qualified name of
-  the Postgres function this endpoint's callback calls. Falls back to
-  `http.functions.sso_callback` (`## Callback function` below) when unset.
+* `openid.<name>.fetch_userinfo` (default `false`) — when true, its claims are merged
+  over the ID token's own (`## Claims shape` below documents the merge precedence). Off
+  by default since it's an extra round trip and most issuers already put what a typical
+  deployment needs directly in the ID token.
 
 ## Configuration — SAML
 
-* `saml.<name>.idp_metadata_url` (required) — fetched once at startup (`## Metadata
-  fetch is lazy` below covers failure handling).
-* `saml.<name>.force_signed_requests` (default `true`) — sign the outgoing
-  `AuthnRequest` with this deployment's SP key.
-* `saml.<name>.callback_function` (default empty) — same fallback rule as
-  `openid.<name>.callback_function`, onto `http.functions.sso_callback`.
 * `saml.certificate_path`, `saml.private_key_path` (default
   `/secrets/saml-cert.pem:./saml-cert.pem` and `/secrets/saml-cert.key:./saml-cert.key` —
   flat filenames directly under `/secrets/`, plus a local-dev fallback, same
   colon-separated candidate search list `configuration.md ## $FILE$ value indirection`
-  describes) — this deployment's SP certificate/key, shared across every configured
-  `saml.<name>` entry (one SP identity, potentially many IdPs). See `## Certificate`.
-
-Both `openid.<name>.callback_function` / `saml.<name>.callback_function` and
-`http.functions.sso_callback` are named after `authentication.md`'s existing
-`http.functions.check_session` setting; the specific default function name below is
-illustrative, not fixed — final naming should follow whatever convention
-`authentication.md`'s own function-naming settles on.
+  describes). See `## Certificate`.
 
 ## Certificate
 
@@ -142,12 +96,6 @@ has configured anything — without that, standing up a new SAML connection is a
 neither side's metadata is meaningful until the other side already trusts it.
 
 ## Metadata fetch is lazy
-
-Both `saml.<name>.idp_metadata_url` (SAML) and `openid.<name>.issuer` discovery (OIDC)
-are fetched once at startup. A failure there (the IdP/issuer isn't reachable yet, or its
-administrator hasn't finished configuring their side — exactly the bootstrapping order
-`## Certificate` describes) does not fail startup: rel logs a `WARN` naming the endpoint
-and leaves it marked not-ready.
 
 A `{name}` marked not-ready re-attempts the same fetch inline, synchronously, the next
 time `/auth/{oidc,saml}/{name}/login` is requested — no background retry loop, no fixed
@@ -209,38 +157,13 @@ token beyond handing them to this one call.
 
 ## Callback function
 
-```sql
-create function auth.sso_callback(claims jsonb) returns "RelHttpResponse"
-language plpgsql
-security definer
-as $$
-declare
-  matched_role text;
-begin
-  -- Inspect claims->>'protocol', claims->'claims', decide a role, mint a
-  -- session exactly like any other RelHttpResponse.jwt-setting function
-  -- (authentication.md ## Lifecycle, step 1).
-  if matched_role is null then
-    raise exception 'No account for this identity' using errcode = 'RS401';
-  end if;
-
-  return jsonb_build_object('jwt', jsonb_build_object('role', matched_role));
-end;
-$$;
-```
-
 Takes plain `jsonb`, not the `RelHttpRequest` domain — same reasoning as
 `check_session`'s signature (`authentication.md ## Session invalidation`): this keeps the
 function out of `route.md`'s route auto-discovery regardless of its name, since it isn't
 meant to be callable directly at `/route/...`. Returns `RelHttpResponse` (the configured
-response domain, `route.md ## Configuration`'s `http.response_domain_name`), so minting a
-session, setting extra cookies, or redirecting the browser onward after login all reuse
-`route.md ## Responses`/`authentication.md ## Lifecycle` unchanged — nothing SSO-specific
-about the response shape.
-
-Rejecting a login is the same convention every other function in this system uses:
-`raise exception ... using errcode = 'RSxxx'` aborts with that status
-(`error-handling.md`'s `RSxxx` convention) instead of minting anything.
+response domain, `route.md ## Configuration`'s `http.response_domain_name`), so setting
+extra cookies or redirecting the browser onward after login reuse `route.md ## Responses`
+unchanged — nothing SSO-specific about the response shape.
 
 No function configured, and no `http.functions.sso_callback` fallback either, is a
 startup-time `WARN` (same non-fatal "won't work until configured" treatment

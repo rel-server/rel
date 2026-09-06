@@ -18,7 +18,8 @@ package errcode
 type Code string
 
 // Header is the response header every error response carries `Code` in,
-// regardless of body framing — specs/error-handling.md ## Delivery.
+// regardless of body framing — docs/content/configuration/operations.md
+// ## Error responses.
 const Header = "X-Rel-Errorcode"
 
 // Fallbacks for an error reaching a response with no more specific code

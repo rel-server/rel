@@ -6,13 +6,9 @@ At its core, rel was thought up to be queried by javascript clients ; web browse
 
 Especially for typescript ; provide a lightweight, ergonomic and minimalist client library along with database schema in JSON format that can :
 
-- Provide completion while writing queries, especially on column/property names so that changing names get flagged
 - Give a way to deserialize cleanly into objects with specific prototypes (in particular to allow custom accessors and methods) ; embedded children must retain prototype and type information for the result at the call site. custom prototypes must also allow for a post-deserialization hook.
 - Give a way to serialize back those objects, even when creating prototypes.
 - Type check column usage in expressions (might be hard and will use a lot of generics - probably a v2 concern)
-- Give a json schema of the database that could be introspected by a library
-
-Not an ORM — `.save()` is a non-goal. What matters is that a query's shape and result are known to TypeScript.
 
 A facility to `setPrototypeOf()` transparently, so a developer can add accessors/methods to returned types and their embedded sub-types, is a primary goal. It must be minimally intrusive enough to survive regeneration of the file, and must surface an error if a change no longer applies.
 
@@ -35,25 +31,11 @@ When `typescript.helper_path` is set, rel (re)writes the file at that path at st
 
 The write is a plain overwrite of the whole file ; there is no incremental/diffed update.
 
-## Endpoints
-
-Available as `GET`, both endpoints accept `schemas` as a query parameter that allows selecting which schemas will be included into the file. If not provided, all known schemas (aside from `pg_catalog`) are included into the output.
-
-- `/rel/database.ts` : the database described as typescript types with some helpers
-- `/rel/database.json` : a JSON file that describe the database exported by rel
-
-
-## database.json
-
-Based on the introspection we made, outputs a full JSON file
-
 ## database.ts
-
-The typescript file is somewhat different from the json file ; on top of serving the structure of the database, it also provide a few helper functions that make use of the generated types to help the developper.
 
 A draft lives under `./typescript/` : `query.ts` (`RelationQuery`/`Expression`, the wire format), `shapes.ts` (the Shape-inference machinery), `querier.ts` (`Querier`/`relation()`/`func()`/`join()`/`wellknown()`), and `schema.example.ts` (a worked "hotel" example standing in for section 2, below — a real deployment generates that section from introspection instead). `example.ts` exercises all of it together and is `## Testing`'s answer, below. `tsconfig.json`/`biome.json` keep the whole directory checkable as one project (`just check`) while it's still hand-edited.
 
-The generated file is self-sufficient : a single `.ts` file with no imports, produced by concatenating `querier.ts` + the generated schema + `query.ts` + `shapes.ts`, each with its own local `import ... from "./..."` line (needed for `./typescript/*.ts` to type-check as separate files today) stripped first — so it can be dropped in and used (or pointed at by `typescript.helper_path`, above) entirely on its own.
+Produced by concatenating `querier.ts` + the generated schema + `query.ts` + `shapes.ts`, each with its own local `import ... from "./..."` line (needed for `./typescript/*.ts` to type-check as separate files today) stripped first.
 
 ### File layout
 
@@ -93,7 +75,7 @@ Three sections, always in this order :
 
 ### Write shape
 
-A read and a write to the same `RelationQuery` don't necessarily have the same JSON shape — `query.ts`'s `get`/`get-set`/`set` doc comments and `specs/query-engine.md ## Writability` : a bare column (or one wrapped only in `??`/`||?`/`coalesce`) is writable by default, `get` explicitly removes writability for that column, and `set` explicitly marks a column write-only, never returned on read. `shapes.ts`'s `WriteShapeFromQuery` walks the same `select` tree as `ShapeFromQuery` and produces the same shape everywhere *except* at these three tags : `get`'s key is dropped from the write shape entirely, `set`'s key is dropped from the read shape entirely, and `get-set`/a bare column appear on both. `Querier` carries `WriteShape` as its own type parameter (separate from the read `Shape`) precisely so `write()`'s `data` argument is checked against this, not against what `get()` returns ; `relation()`/`func()` supply both from the same query, computed once each.
+`query.ts`'s `get`/`get-set`/`set` doc comments and `specs/query-engine.md ## Writability` govern writability ; a bare column (or one wrapped only in `??`/`||?`/`coalesce`) is writable by default. `shapes.ts`'s `WriteShapeFromQuery` walks the same `select` tree as `ShapeFromQuery` and produces the same shape everywhere *except* at these three tags : `get`'s key is dropped from the write shape entirely, `set`'s key is dropped from the read shape entirely, and `get-set`/a bare column appear on both. `Querier` carries `WriteShape` as its own type parameter (separate from the read `Shape`) precisely so `write()`'s `data` argument is checked against this, not against what `get()` returns ; `relation()`/`func()` supply both from the same query, computed once each.
 
 Left entirely to the server, not modeled here : the exactly-once occurrence rule a column must satisfy to count as writable at all, `insert_columns`/`update_columns` allowlisting, identity-target writability, and whether a writable column is required or optional in `data` (`write_mode`-dependent — insert vs. update vs. upsert). Reproducing that fully would mean tree-wide occurrence counting with duplicate detection, functionally a second copy of `query/shape.go`'s writability derivation in conditional types — squarely the kind of thing `## Goals` already flags as a separate, harder concern. `WriteShapeFromQuery` is a best-effort narrowing, not a validator ; a `data` payload it accepts can still be rejected server-side, same as expression column type-checking already isn't fully enforced.
 

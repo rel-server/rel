@@ -435,7 +435,7 @@ func parseFullExpr(s string) (any, error) {
 }
 
 // parseTopLevelExprList parses a comma-separated list of `expr` entries —
-// parseArgList's own loop minus the enclosing parentheses (## Comma lists).
+// parseArgList's own loop minus the enclosing parentheses (docs/content/query-language/get-requests.md ## Structural layer).
 func parseTopLevelExprList(s string) ([]any, error) {
 	p := newExprParser(s)
 	if p.atEnd() {

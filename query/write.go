@@ -180,7 +180,7 @@ func ExecuteWriteStateParams(ctx context.Context, conn Querier, root *QueryNode,
 		if bad.IsFunction() {
 			code = errcode.WriteForbiddenFunctionRoot
 		}
-		return nil, oops.With("relation", unwritableNodeName(bad)).Code(code).Errorf("write: relation %q is not writable — its identity columns must appear exactly once in the select output, untransformed and writable (specs/query-engine.md ## Configuration)", unwritableNodeName(bad))
+		return nil, oops.With("relation", unwritableNodeName(bad)).Code(code).Errorf("write: relation %q is not writable — its identity columns must appear exactly once in the select output, untransformed and writable (docs/content/query-language/writing.md)", unwritableNodeName(bad))
 	}
 
 	rows, nextRowID, err := denormalize(root, ids, payload, state.nextRowID)

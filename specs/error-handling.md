@@ -6,29 +6,27 @@ Logs record an error's full attached context regardless of what a client respons
 
 Implemented. `errcode` (rel-internal codes), `pgerr.Classify` (RSxxx + PG_* classification, the `Detail` field allow-list), `config.Dev`, and both `/rel` (`server/response.go`) and `/route` (`route/response.go`) envelopes/gating are wired through. The `## Rel-internal codes` query-compile-error family (`UNKNOWN_IDENTIFIER`, `JOIN_MISSING_INDEX`, `WRITE_FORBIDDEN`, `WRITE_FORBIDDEN_FUNCTION_ROOT`, `QUERY_INVALID_EXPRESSION`) is attached at each `query`/`pg` package raise site via `oc.Code(errcode.X)`, and read back by `server/rel.go`'s `codeOrUnclassified` — `errcode.Unclassified` is the fallback for any case not yet covered by the taxonomy.
 
-## Configuration
-
-- `dev` (default false) : puts rel in dev mode, more verbose error replies to clients.
-
 ## Error codes
 
-Two separate, non-overlapping code spaces feed one `code` field :
+`docs/content/configuration/operations.md ## Error responses` covers the two code families,
+the delivery channels, and `code`'s always-present guarantee, for a reader of a running
+deployment.
 
-1. **Postgres-raised codes** — `RSxxx` and possible future `R`-prefixed families, 5 characters, constrained to SQLSTATE shape (`raise exception ... using errcode = 'RS404'`). A PL/pgSQL function body picks its own HTTP status this way without rel needing to know about that function in advance. See `## Postgres-raised codes`.
-2. **Rel-internal codes** — everything rel itself classifies before or after touching Postgres : malformed requests, query-compile rejections, auth gates, infra failures. `SCREAMING_SNAKE_CASE` tokens, attached at the error's construction site via `oc.Code("UNKNOWN_RELATION")`. See `## Rel-internal codes`.
-
-`code` is always present, on every error response, including 500s. An error that reaches a response with no more specific code gets `INTERNAL` (5xx) or `UNCLASSIFIED` (4xx) — never an absent field. Client code switches on `code`'s value without checking for its presence first.
+`RSxxx` and possible future `R`-prefixed families are 5 characters, constrained to SQLSTATE
+shape. Rel-internal codes are `SCREAMING_SNAKE_CASE` tokens attached at the error's
+construction site via `oc.Code("UNKNOWN_RELATION")`. An error that reaches a response with no
+more specific code gets `INTERNAL` (5xx) or `UNCLASSIFIED` (4xx) — never an absent field.
 
 > Why: a code is a static, safe-to-send enum token, never derived from user input or internal state — distinguishing `DB_UNAVAILABLE` from `TRANSACTION_ERROR` is worth telling even an anonymous caller, since it lets a support conversation or client-side error path branch without parsing message text.
 
 ### Delivery
 
-- **`X-Rel-Errorcode` response header**, set to the `code` value, on every error response from both `/rel` and `/route` — the one channel that works regardless of body framing (`/rel`'s JSON envelope, `/route`'s plain text, an in-flight route function's own arbitrary mimetype/template output once it's already started writing).
-- **`code` field inside `RelErrorResponse`** (`/rel` only — its body is always JSON). `/route`'s built-in error paths (route lookup, request-body decoding, transaction handling) stay plain-text, unchanged ; the header is that path's only channel, per `route.md ## Postgres Exceptions`'s "no separate JSON property" stance.
+- **`X-Rel-Errorcode` response header** covers even an in-flight route function's own arbitrary mimetype/template output, once it's already started writing.
+- **`code` field inside `RelErrorResponse`** (`/rel` only — its body is always JSON). `/route`'s built-in error paths (route lookup, request-body decoding, transaction handling) stay plain-text, unchanged ; the header is that path's only channel, per `docs/content/http/index.md ## Errors are just exceptions`'s "no separate JSON property" stance.
 
 ### Postgres-raised codes
 
-Unchanged from the existing convention (`route.md ## Postgres Exceptions`, `pgerr` package) : `RSxxx` gives the response status `xxx`, the raised message becomes the body, and `code` is set to the errcode itself (`"RS404"`), echoed in the header/JSON field like any other code.
+Unchanged from the existing convention (`docs/content/http/index.md ## Errors are just exceptions`, `pgerr` package).
 
 `route.md`'s further claim — *"any other error code results in the error page with status 500, unless it's a known Postgres code with unambiguous HTTP semantics"* — is not yet implemented. `pgerr.RSStatus` only recognizes the `RSxxx` pattern today ; every other code, including `permission_denied`/`unique_violation`/etc., falls through to a generic 500. `## Postgres error detail` below makes the mapping load-bearing rather than cosmetic, since it decides whether a constraint violation is safe to show a client in full.
 
@@ -112,13 +110,13 @@ Well-known query codes (`WELL_KNOWN_*`) are their own family, listed in full in 
 
 The gate is not "is this from Postgres" but **"does this message reveal anything beyond what the client's own request already implied."** Three tiers :
 
-1. **Constraint violations the client's own submitted data triggered** — `PG_UNIQUE_VIOLATION`, `PG_FOREIGN_KEY_VIOLATION`, `PG_NOT_NULL_VIOLATION`, `PG_CHECK_VIOLATION`. `pg_error` is included unconditionally, in production too, built from an explicit field allow-list (below) — never `pgErr.Error()`'s full text or the raw struct. `error` gets a short synthesized message per violation kind (e.g. `"a unique constraint was violated"`) ; `pg_error` carries the allow-listed fields alongside it.
+1. **Constraint violations the client's own submitted data triggered** — `PG_UNIQUE_VIOLATION`, `PG_FOREIGN_KEY_VIOLATION`, `PG_NOT_NULL_VIOLATION`, `PG_CHECK_VIOLATION`. `pg_error` is built from an explicit field allow-list (below) — never `pgErr.Error()`'s full text or the raw struct.
    > Why: the constraint targets columns of a relation already named in the request's own `query`/`data` — the client supplied the offending value, so the constraint/column names aren't new information to them.
-2. **`PG_PERMISSION_DENIED`** — status/`code` (403) are always shown, but the message stays a fixed generic string (`"insufficient permissions for this operation"`) in production. Full raw text only under `dev: true`.
+2. **`PG_PERMISSION_DENIED`** (403) — fixed generic string `"insufficient permissions for this operation"`.
    > Why: unlike a constraint name, the object name in Postgres's raw permission-denied text can reveal the *existence* of something an unprivileged caller had no other way to confirm (`specs/TODO.md`'s fingerprinting-via-error-text risk).
-3. **Everything unclassified** (falls through to `INTERNAL`/500) — `pg_error` omitted, `error` generic, in production ; both included only when `dev: true`.
+3. **Everything unclassified** falls through to `INTERNAL`/500.
 
-`dev` mode's job is showing the unclassified tail and stack traces — tier 1 is never gated by it.
+`dev` mode's job is showing the unclassified tail and stack traces.
 
 Gating is by tier, never by whether the caller is authenticated.
 
@@ -172,4 +170,4 @@ interface PgErrorDetail {
 }
 ```
 
-`error`'s content is status-gated, same as `pg_error`/`stacktrace` : today `error` is unconditionally `err.Error()`, the full wrapped error chain, sent to every client regardless of mode. For a 5xx response, `error` is a fixed, safe, generic string in the default mode (`"internal error"`, or an explicit `oops.Public(...)` message read via `oops.GetPublic(err, "internal error")` when a more specific-but-still-safe message is worth giving) ; the full chain only appears in `error` when `dev: true`. 4xx `error` text is unchanged — the full descriptive message, since it is inherently about the client's own malformed input.
+`error`'s content is status-gated, same as `pg_error`/`stacktrace` : today `error` is unconditionally `err.Error()`, the full wrapped error chain, sent to every client regardless of mode. Landing the gating described in `docs/content/configuration/operations.md ## Error responses` means, for a 5xx response, `error` becomes a fixed, safe, generic string in the default mode (`"internal error"`, or an explicit `oops.Public(...)` message read via `oops.GetPublic(err, "internal error")` when a more specific-but-still-safe message is worth giving). 4xx `error` text is unchanged — the full descriptive message, since it is inherently about the client's own malformed input.

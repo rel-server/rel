@@ -34,8 +34,10 @@ type candidate struct {
 // use, a missing directory silently skipped, no cap on recursion depth or
 // file count) and returns a *Registry of every one that parsed, resolved,
 // and validated cleanly. A per-file or per-definition failure logs a
-// warning and excludes just that definition (## Behaviour : "a warning is
-// logged and the query is deactivated") — nothing here is fatal, since a
+// warning and excludes just that definition
+// (docs/content/query-language/well-known-queries.md ## Defining one : "a
+// query with any other definition error is deactivated the same way") —
+// nothing here is fatal, since a
 // broken well-known file is the deploying developer's own authoring
 // mistake, not a reason to refuse to boot at all.
 func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {

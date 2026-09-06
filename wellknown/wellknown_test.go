@@ -123,7 +123,8 @@ func TestBuildRegistry_InvalidQueryDeactivatesOnlyThatEntry(t *testing.T) {
 	}
 }
 
-// TestBuildRegistry_DuplicateNameDeactivatesBothEntries : ## Behaviour
+// TestBuildRegistry_DuplicateNameDeactivatesBothEntries :
+// docs/content/query-language/well-known-queries.md ## Defining one
 // deactivates every entry under a duplicate name, not just the newest.
 func TestBuildRegistry_DuplicateNameDeactivatesBothEntries(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{

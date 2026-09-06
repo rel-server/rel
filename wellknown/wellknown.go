@@ -34,9 +34,10 @@ type ParamDef struct {
 // Compiled is one successfully loaded, resolved, and validated well-known
 // query — absent from a *Registry entirely (not tombstoned) when it was
 // never validly defined, deactivated by a duplicate name, or failed
-// validation ; specs/well-known-queries.md ## Behaviour : "a request naming
-// a deactivated (or never-validly-defined) query is rejected the same way
-// a genuinely unknown name would be", so there's no distinct state to carry
+// validation ; docs/content/query-language/well-known-queries.md
+// ## Defining one : "a request for a deactivated or never-registered name
+// gets the same WELL_KNOWN_UNKNOWN_QUERY error either way", so there's no
+// distinct state to carry
 // for that case.
 type Compiled struct {
 	Name   string

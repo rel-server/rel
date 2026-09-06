@@ -18,15 +18,15 @@ import (
 	"github.com/ceymard/rel/config"
 )
 
-// Claims is specs/authentication.md ## Claims :
+// Claims is specs/authentication.md ## Claims, extended with any free-form
+// claims a login/callback function adds :
 //
 //	{ role: string, iat: number, exp: number, auth_time: number, ...free-form }
 //
 // Aliased directly to jwtlib.MapClaims (already map[string]any) rather than
-// a fixed struct : "anything else is a free-form claim the developer can
-// add" needs to round-trip untouched through Renew ("other claims carried
-// over as-is") with no separate bag to shuttle them through — the map IS
-// the free-form storage. iat/exp/auth_time are stored as float64 Unix
+// a fixed struct : a developer-added claim needs to round-trip untouched
+// through Renew ("other claims carried over as-is") with no separate bag to
+// shuttle them through — the map IS the free-form storage. iat/exp/auth_time are stored as float64 Unix
 // seconds : jwtlib.MapClaims's own GetExpirationTime/GetIssuedAt only
 // accept float64 or json.Number for a numeric-date claim (see its source),
 // and encoding/json round-trips a Go float64 through JSON and back as

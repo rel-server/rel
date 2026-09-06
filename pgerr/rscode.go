@@ -1,4 +1,4 @@
-// Package pgerr implements route.md's ## Postgres Exceptions
+// Package pgerr implements docs/content/http/index.md ## Errors are just exceptions'
 // "RSxxx" convention, shared between /route (route/response.go, plain-text
 // body) and /rel's check_session rejection (server/rel.go, JSON envelope) —
 // the two response framings stay separate, only the SQLSTATE→status mapping
