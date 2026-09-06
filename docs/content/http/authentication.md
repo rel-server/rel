@@ -29,17 +29,21 @@ language plpgsql
 security definer
 as $$
 declare
-  matched_role text;
+  matched_user auth.users;
 begin
-  select role into matched_role from auth.users
+  select * into matched_user from auth.users
   where auth.users.username = (req->'body')->>'username'
     and auth.users.password_hash = crypt((req->'body')->>'password', auth.users.password_hash);
 
-  if matched_role is null then
+  if matched_user is null then
     raise exception 'Invalid credentials' using errcode = 'RS401';
   end if;
 
-  return jsonb_build_object('jwt', jsonb_build_object('role', matched_role));
+  return jsonb_build_object('jwt', jsonb_build_object(
+    'role', matched_user.role,
+    'user_id', matched_user.id,
+    'plan', matched_user.plan
+  ));
 end;
 $$;
 ```
@@ -47,11 +51,15 @@ $$;
 Called as `POST /route/auth/login` with `{"username": "...", "password": "..."}` as the JSON
 body.
 
-rel fills in `iat`, `exp`, and `auth_time` itself — a function can only set `role` and any
-custom claims it wants to carry alongside it. Setting `jwt: null` on a response clears the
-session (logout). By default, *any* route function can set `jwt` and authenticate the caller
-as any role; restrict that with `http.functions.allowed_auth` (a regexp against the function's
-fully qualified name) once you have real login functions to point it at — e.g. `^auth\.`.
+`role` is the only claim rel itself reads back out of the JWT (to `SET ROLE` with); every other
+key in the object — `user_id`/`plan` above, or anything else — is just carried along as a
+custom claim, verbatim, for your own functions to read later via `req.jwt` or
+`http.functions.check_session`'s argument (see below). rel fills in `iat`, `exp`, and
+`auth_time` itself; setting either of those, or `auth_time`, on the response's `jwt` object has
+no effect — they're always overwritten. Setting `jwt: null` on a response clears the session
+(logout). By default, *any* route function can set `jwt` and authenticate the caller as any
+role; restrict that with `http.functions.allowed_auth` (a regexp against the function's fully
+qualified name) once you have real login functions to point it at — e.g. `^auth\.`.
 
 ## OpenID Connect and SAML
 
