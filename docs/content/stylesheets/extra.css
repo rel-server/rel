@@ -1,0 +1,10 @@
+/*
+  The ToC ("On this page") is nested into the primary nav sidebar by
+  overrides/main.html instead of getting its own secondary column; this is
+  the separator between the page-nav list and the ToC list underneath it.
+*/
+.md-nav__toc-separator {
+  margin: 0.8rem 0.6rem;
+  border: none;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}

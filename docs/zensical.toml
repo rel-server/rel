@@ -7,6 +7,8 @@ repo_url = "https://github.com/ceymard/rel"
 repo_name = "ceymard/rel"
 edit_uri = "edit/main/docs/content/"
 
+extra_css = ["stylesheets/extra.css"]
+
 nav = [
   { "Home" = "index.md" },
   { "Getting started" = "getting-started.md" },
