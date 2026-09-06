@@ -38,6 +38,10 @@ $$;
 ```
 
 `payload` is `{"path": "<request path, relative to http.static.path>", "jwt": JWT | null}`.
+The same `jwt` value is also available as `current_setting('rel.jwt.claims', true)::jsonb`
+inside this function (see [Authentication ## Session
+lifecycle](authentication.md#session-lifecycle)) — useful for a nested function call that
+doesn't have `payload` in scope, without threading it through as an extra argument.
 Any number of these rules can coexist, each scoped to its own prefix (`<name>` above is
 yours to choose); a path outside every configured prefix is served exactly as before.
 Existence is checked first: a request for a path that doesn't exist anywhere under

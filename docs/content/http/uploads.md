@@ -36,10 +36,12 @@ body has nowhere to put it as a separate "file", and a plain `(req)`-only route 
 with no body genuinely gets an empty `files` array, though — that's not a mismatch, just an
 upload-less call.
 
-Uploads are bounded by `http.max_body_size` (10 MiB by default) and `http.max_part_count`
-(100) — see [Configuration](../configuration/index.md) to raise either. Both bytes and parts
-must be fully received and held in memory before the route function runs; there is no
-streaming mechanism for genuinely large uploads (video, multi-GB archives).
+Uploads received this way are bounded by `http.max_body_size` (10 MiB by default) and
+`http.max_part_count` (100) — see [Configuration](../configuration/index.md) to raise either.
+Both bytes and parts must be fully received and held in memory before the route function
+runs; there is no streaming mechanism for genuinely large uploads (video, multi-GB archives)
+through this path. The `__prepare`/mandatory-function pair below streams straight to disk
+instead, and is bounded by the separate, independently-configurable `http.max_upload_size`.
 
 ## Choosing a destination without routing bytes through Postgres
 
@@ -62,6 +64,7 @@ interface RelUpload {
   path?: string                      // relative to http.static.path's first directory ; omitted = discard the upload once received
   mkdir?: boolean                    // create path's parent directory if missing
   overwrite?: 'allow' | 'disallow'   // default 'disallow'
+  max_size?: number                  // tighten http.max_upload_size for this request only (e.g. a per-user quota) ; can only lower it, never raise it
   part?: RequestPart                 // absent when returned by __prepare ; filled in by rel before the mandatory function runs
   size?: number                      // rel-filled, post-stream, the actual observed byte count
 }
@@ -73,7 +76,9 @@ interface RelUpload {
   It runs inside a real read-only transaction, so an attempted write inside it fails with a
   genuine Postgres error. It may reject outright (`RSxxx`) — the earliest possible rejection
   point, before spending time receiving bytes for an upload that was always going to be
-  refused.
+  refused. It may also return `max_size` to tighten `http.max_upload_size` for this one
+  request (a per-user quota, say) — since it runs before any payload byte is read, this still
+  applies before a single byte streams to disk. It can only lower the cap, never raise it.
 - **`<name>(req RelHttpRequest, upload RelUpload) returns RelHttpResponse`** — the mandatory,
   unsuffixed name; runs *after* the bytes are fully written to a temporary location on disk.
   `upload` is `__prepare`'s own returned value, with `part`/`size` filled in. This function

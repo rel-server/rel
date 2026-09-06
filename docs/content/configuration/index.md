@@ -120,6 +120,7 @@ the binary itself, if you want it without leaving a terminal.
 | `http.public_host` | disabled | This deployment's externally-reachable domain (bare host, no scheme/port) — required for OpenID/SAML redirect URLs to resolve. See [Authentication](../http/authentication.md). |
 | `http.cookies_max_age` | `86400` (seconds) | Default max-age for a cookie set via a route response, when the response doesn't specify one. Doesn't apply to the JWT cookie — see `jwt.max_age` below. |
 | `http.max_body_size` | 10 MiB | Hard cap on a `/route` request's entire body (multipart envelope included). Rejected with `413` before any of it is buffered. |
+| `http.max_upload_size` | = `http.max_body_size` | Hard cap on a `__prepare`-based upload's streamed payload — separate from `http.max_body_size` since this path streams to disk instead of buffering in memory. See [File uploads](../http/uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
 | `http.max_part_count` | `100` | Max number of `multipart/form-data` parts a single `/route` request may contain. |
 | `http.static.path` | — | Colon-separated directories served under `/static/`. See [HTTP layer](../http/index.md). |
 | `http.templates.path` | `/template` | Directory Jet templates are loaded from, for a route's `RelHttpResponse.template`. See [Requests and responses](../http/requests-responses.md#rendering-html-with-a-template). |

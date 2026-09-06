@@ -15,14 +15,16 @@ know roughly what you're looking for and just need the exact name or default.
 Four Postgres domains rel looks for by matching their bare name — each one's own resolution
 rule (unqualified search across every schema, more than one match across schemas is a fatal
 startup error, zero matches just disables whatever needs it) is covered on its own page, linked
-below.
+below. rel doesn't distribute a Postgres extension — there's no `CREATE EXTENSION` that installs
+these for you; each is a plain domain you create by hand, once, under whichever name its config
+key resolves to.
 
-| Domain | Config key | Default | Underlying type | Shape |
-|---|---|---|---|---|
-| `RelHttpRequest` | `http.request_domain_name` | `RelHttpRequest` | `jsonb` | `{method, uri, query, headers, content_type, body, cookies, jwt, csp_nonce}` — the shape a route function's `req` argument receives. See [Requests and responses ## `RelHttpRequest`](requests-responses.md#relhttprequest). |
-| `RelHttpResponse` | `http.response_domain_name` | `RelHttpResponse` | `jsonb` | `{status?, content_type, content, headers?, cookies?, jwt?, jwt_attrs?, csp?, template?, template_data?}` — the shape a route function, or an SSO callback function, must return. See [Requests and responses ## `RelHttpResponse`](requests-responses.md#relhttpresponse). |
-| `RelUpload` | `http.upload_domain_name` | `RelUpload` | `jsonb` | `{path?, mkdir?, overwrite?, part?, size?}` — threaded between an upload-destination pair's `__prepare` and mandatory function. See [File uploads ## Choosing a destination without routing bytes through Postgres](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
-| a mimetype domain, e.g. `"image/png"` | — not configurable; matched by name pattern (contains `/`) and underlying type below | — | `bytea` or `text`, nothing else | The raw bytes/string verbatim — no wrapper object. Lets a route return binary or text content directly, instead of JSON. See [Static files ## Returning binary or text content directly](static-files.md#returning-binary-or-text-content-directly). |
+| Domain | Config key | Default | Underlying type |
+|---|---|---|---|
+| [`RelHttpRequest`](requests-responses.md#relhttprequest) | `http.request_domain_name` | `RelHttpRequest` | `jsonb` |
+| [`RelHttpResponse`](requests-responses.md#relhttpresponse) | `http.response_domain_name` | `RelHttpResponse` | `jsonb` |
+| [`RelUpload`](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres) | `http.upload_domain_name` | `RelUpload` | `jsonb` |
+| [a mimetype domain](static-files.md#returning-binary-or-text-content-directly), e.g. `"image/png"` | not configurable; matched by name pattern (contains `/`) and underlying type | — | `bytea` or `text`, nothing else |
 
 ## Function prototypes
 
@@ -68,6 +70,7 @@ each row pointing at the page that explains the *behavior*, not just the key.
 | `http.request_domain_name` / `http.response_domain_name` / `http.upload_domain_name` | `RelHttpRequest` / `RelHttpResponse` / `RelUpload` | Domain types — see [Domain types](#domain-types) above. |
 | `http.cookies_max_age` | `86400` (seconds) | Default max-age for a cookie set via the generic `cookies` field. Never applies to the JWT cookie. See [Requests and responses ## `RelHttpResponse`](requests-responses.md#relhttpresponse). |
 | `http.max_body_size` | 10 MiB | Hard cap on a `/route` request's entire body. See [File uploads](uploads.md#receiving-raw-bytes). |
+| `http.max_upload_size` | = `http.max_body_size` | Hard cap on the streamed payload of a `__prepare`-based upload — independent of `http.max_body_size` since this path streams to disk, not memory. See [File uploads](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
 | `http.max_part_count` | `100` | Max `multipart/form-data` parts per request. See [File uploads](uploads.md#receiving-raw-bytes). |
 | `http.static.path` | `/static` | Colon-separated directories served at `/static/*`. See [Static files](static-files.md). |
 | `http.templates.path` | `/template` | Directory Jet templates load from. See [Rendering HTML with templates](templates.md). |
