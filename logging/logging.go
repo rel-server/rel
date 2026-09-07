@@ -1,14 +1,18 @@
 // Package logging builds Rel's one process-wide *slog.Logger from
-// config.Logging (## Configuration, ## Logger construction), and derives
+// config.Logging (## Configuration, ## Logger construction), derives
 // per-request child loggers (## Request-scoped logging, request.go :
-// RequestMiddleware, FromContext) — three of specs/logging.md's five
-// sections.
+// RequestMiddleware, FromContext), and provides ResponseRecorder
+// (response_recorder.go), the http.ResponseWriter wrapper route/handler.go
+// and server/rel.go each use to build ## Access logging's own line —
+// ## Configuration, ## Logger construction, ## Domain scoping, and
+// ## Request-scoped logging live here ; the rest of specs/logging.md's
+// sections (## Access logging, ## Introspection logging, ## Route registry
+// logging) live in the packages they log (route, server, pg) instead,
+// since their fields are domain-specific.
 //
 // Deliberately NOT implemented here (documented, not silently dropped) :
-// ## Access logging (per-request summary log line) and ## Error
-// integration with samber/oops (a logging.Error(err) slog.Attr helper) —
-// no concrete driving need for either yet, unlike request-scoped logging
-// itself (specs/TODO.md tracked it as a real gap until it landed).
+// ## Error integration with samber/oops (a logging.Error(err) slog.Attr
+// helper) — no concrete driving need for it yet.
 package logging
 
 import (

@@ -16,6 +16,7 @@ import (
 	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
 	jwtpkg "github.com/rel-server/rel/jwt"
+	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/static"
 )
@@ -52,10 +53,31 @@ func RegisterRoutes(r chi.Router, db *pg.DbInfos, cfg *config.Config, reg *Regis
 
 func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, route Route, templates *TemplateSet, staticSrv *static.Server) {
 	ctx := r.Context()
+	start := time.Now()
+
+	// Wraps w for the rest of this function so every downstream response
+	// helper (writePlainError, writeErrorForPgErr, write*Response, ...)
+	// keeps calling the ordinary http.ResponseWriter methods unchanged,
+	// while specs/logging.md ## Access logging's status/size fields get
+	// captured for free.
+	rec := logging.NewResponseRecorder(w)
+	w = rec
 
 	// Verify (Lifecycle step 2) needs no DB connection — run first, so
 	// anonymity is knowable before anything DB-related happens.
 	claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
+	var role string
+
+	// specs/logging.md ## Access logging : fires exactly once, from every
+	// return path (including an early rejection), since role/claims not yet
+	// resolved at that point are simply the zero value.
+	defer func() {
+		logging.FromContext(ctx).Info("request",
+			"method", r.Method, "path", r.URL.Path,
+			"status", rec.Status, "response_size", rec.Size, "duration", time.Since(start),
+			"verified", verified, "role", role, "claims", claims,
+			"function", route.Function.Identifier.String(), "full_control", route.FullControl)
+	}()
 
 	// Both anonymous checks run before the body is read or a connection
 	// acquired, so an unauthorized request never holds one.
@@ -138,7 +160,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// session it just rejected. Role resolution below reads claims' role
 	// only, which renewal never changes, so using the pre-renewal claims
 	// here is exact, not just adequate.
-	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
+	role = jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
 	if role == "" {
 		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
 		return
@@ -253,6 +275,8 @@ func buildInvokeCall(route Route, reqJSON []byte, resolved resolvedRequestBody, 
 // return value.
 func invokeSingleReturnRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) ([]byte, error) {
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
+	logging.FromContext(ctx).Debug("invoking route",
+		"function", route.Function.Identifier.String(), "sql", "select "+call, "args", args)
 	var raw []byte
 	if err := tx.QueryRow(ctx, "select "+call, args...).Scan(&raw); err != nil {
 		return nil, err
@@ -265,6 +289,8 @@ func invokeSingleReturnRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSO
 // result columns rather than one composite value.
 func invokeFullControlRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) (envelope, content []byte, err error) {
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
+	logging.FromContext(ctx).Debug("invoking route",
+		"function", route.Function.Identifier.String(), "sql", "select * from "+call, "args", args)
 	if err := tx.QueryRow(ctx, "select * from "+call, args...).Scan(&envelope, &content); err != nil {
 		return nil, nil, err
 	}

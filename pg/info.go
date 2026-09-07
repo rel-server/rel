@@ -20,7 +20,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/samber/oops"
+
+	"github.com/rel-server/rel/logging"
 )
+
+var log = logging.For("pg")
 
 // Introspection of the database.
 type DbInfos struct {
@@ -168,6 +172,12 @@ func introspect(ctx context.Context, primaryURI string, anonymousRole string) (*
 		}
 	}
 
+	log.Info("introspection complete",
+		"relation_count", len(db.Relations),
+		"function_count", len(db.Functions),
+		"type_count", len(db.Types),
+		"anonymous_role_exists", db.AnonymousRoleExists)
+
 	return db, nil
 }
 
@@ -180,9 +190,15 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 	if err := FillFunctionInformations(db, conn); err != nil {
 		return err
 	}
+	for _, fn := range db.Functions {
+		log.Debug("function found", "schema", fn.Identifier.Schema, "name", fn.Identifier.Name, "arity", len(fn.Arguments))
+	}
 
 	if err := FillRelationInformations(db, conn); err != nil {
 		return err
+	}
+	for _, rel := range db.Relations {
+		log.Debug("relation found", "schema", rel.Identifier.Schema, "name", rel.Identifier.Name, "column_count", len(rel.Columns))
 	}
 
 	// Constraints and indexes both need relations already resolved
@@ -199,6 +215,9 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 	// run after both are populated.
 	if err := FillTypeInformations(db, conn); err != nil {
 		return err
+	}
+	for _, typ := range db.Types {
+		log.Debug("type found", "schema", typ.PgIdentifier.Schema, "name", typ.PgIdentifier.Name)
 	}
 
 	// Needs every Function's argument types and every Relation's own

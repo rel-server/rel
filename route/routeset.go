@@ -287,6 +287,19 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	if err := applyAnonymousAuthorization(db, cfg, set); err != nil {
 		return nil, err
 	}
+
+	log.Info("route registry built", "route_count", len(set.Routes), "middleware_count", len(set.Middleware))
+	for _, entry := range set.Routes {
+		log.Debug("route registered",
+			"methods", entry.Methods, "path", entry.AnonPath,
+			"function", entry.Function.Identifier.String(), "anonymous_authorized", entry.AnonymousAuthorized)
+	}
+	for _, entry := range set.Middleware {
+		log.Debug("middleware registered",
+			"path", entry.AnonPath,
+			"function", entry.Function.Identifier.String(), "anonymous_authorized", entry.AnonymousAuthorized)
+	}
+
 	return set, nil
 }
 

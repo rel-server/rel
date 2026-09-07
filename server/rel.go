@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rel-server/rel/config"
@@ -168,6 +169,29 @@ func resolveWellKnownItem(wkReg *wellknown.Registry, name string, paramsRaw []by
 
 func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
 	ctx := r.Context()
+	start := time.Now()
+
+	// Wraps w for the rest of this function so every downstream response
+	// helper keeps calling the ordinary http.ResponseWriter methods
+	// unchanged, while specs/logging.md ## Access logging's status/size
+	// fields get captured for free.
+	rec := logging.NewResponseRecorder(w)
+	w = rec
+	var role string
+	var itemCount int
+	var anyWrite bool
+
+	// specs/logging.md ## Access logging : fires exactly once, from every
+	// return path (including an early rejection), since role/itemCount/
+	// anyWrite not yet known at that point are simply the zero value.
+	defer func() {
+		claims, verified := jwtpkg.FromContext(ctx)
+		logging.FromContext(ctx).Info("request",
+			"method", r.Method, "path", r.URL.Path,
+			"status", rec.Status, "response_size", rec.Size, "duration", time.Since(start),
+			"verified", verified, "role", role, "claims", claims,
+			"item_count", itemCount, "write", anyWrite)
+	}()
 
 	// authentication.md "## Roles ## Anonymous role existence" : reject
 	// before reading the body or acquiring a connection when disabled.
@@ -206,6 +230,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	if items == nil {
 		items = []query.ParsedQuery{pq}
 	}
+	itemCount = len(items)
 
 	// Resolve every item's tree before touching a connection — a 400 here
 	// means nothing has been opened yet, nothing to roll back.
@@ -288,6 +313,12 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 		resolved = append(resolved, ri)
 	}
+	for _, ri := range resolved {
+		if ri.isWrite {
+			anyWrite = true
+			break
+		}
+	}
 
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
@@ -323,7 +354,8 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	// Lifecycle steps 3-5 run here, needing this connection ; SET LOCAL
 	// ROLE reverts at the single commit/rollback below (## Transactions).
-	if err := applyRole(ctx, w, r, conn, cfg); err != nil {
+	role, err = applyRole(ctx, w, r, conn, cfg)
+	if err != nil {
 		_, _ = conn.Exec(ctx, "rollback")
 		writeError(w, err, cfg.Dev)
 		return
@@ -358,7 +390,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			QueryPlan: item.queryPlan && cfg.Pg.Query.AllowQueryPlan,
 			Sql:       item.sql && cfg.Pg.Query.AllowSql,
 		}
-		result, err := query.ExecuteWriteStateParamsOpts(ctx, conn, item.root, item.data, state, item.paramValues, opts)
+		result, err := query.ExecuteWriteStateParamsOpts(ctx, loggingQuerier{inner: conn}, item.root, item.data, state, item.paramValues, opts)
 		if err != nil {
 			_, _ = conn.Exec(ctx, "rollback")
 			writeError(w, classifyWriteError(err, i), cfg.Dev)
@@ -575,6 +607,7 @@ func writeBufferedRows(w io.Writer, rows [][]byte) error {
 // executeDiscard runs sw for its side effects only, scanning no column —
 // server/rel.go's own answer to a read's "returns": "none" + "rollback".
 func executeDiscard(ctx context.Context, conn *pgxpool.Conn, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
+	logging.FromContext(ctx).Debug("executing read", "sql", sw.String(), "args", args)
 	rows, err := conn.Query(ctx, sw.String(), args...)
 	if err != nil {
 		if cleanErrorPossible {
@@ -597,6 +630,7 @@ func executeDiscard(ctx context.Context, conn *pgxpool.Conn, sw *writer.SQLWrite
 // streamItem runs sw and streams the result : a bare scalar for a scalar
 // function root, a JSON array otherwise (## Response Shape).
 func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, root *query.QueryNode, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
+	logging.FromContext(ctx).Debug("executing read", "sql", sw.String(), "args", args)
 	rows, err := conn.Query(ctx, sw.String(), args...)
 	if err != nil {
 		if cleanErrorPossible {
@@ -632,7 +666,7 @@ func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, root *quer
 // applyRole runs Lifecycle steps 3-5 (Check/Renew/Apply role) on conn,
 // inside an open transaction — SET LOCAL ROLE/set_config(..., true) both
 // revert at commit/rollback.
-func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) error {
+func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) (string, error) {
 	claims, verified := jwtpkg.FromContext(r.Context())
 
 	// Exposed before every item's own function calls, readable via
@@ -640,7 +674,7 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 	// now middleware (specs/new-routes.md ## Middleware), run ahead of this
 	// by NewRelHandler's own wrapper, in its own transaction.
 	if serr := dbauth.SetLocalClaims(ctx, conn, claims); serr != nil {
-		return serverError(errcode.Internal, fmt.Errorf("setting jwt claims: %w", serr))
+		return "", serverError(errcode.Internal, fmt.Errorf("setting jwt claims: %w", serr))
 	}
 
 	if verified {
@@ -649,12 +683,12 @@ func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn
 
 	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
 	if role == "" {
-		return serverError(errcode.NoRoleConfigured, fmt.Errorf("%s", dbauth.NoRoleConfiguredMessage))
+		return "", serverError(errcode.NoRoleConfigured, fmt.Errorf("%s", dbauth.NoRoleConfiguredMessage))
 	}
 	if serr := dbauth.SetLocalRole(ctx, conn, role); serr != nil {
-		return serverError(errcode.Internal, fmt.Errorf("applying role: %w", serr))
+		return "", serverError(errcode.Internal, fmt.Errorf("applying role: %w", serr))
 	}
-	return nil
+	return role, nil
 }
 
 // codeOrUnclassified reads back the query package's own oc.Code(...) tag
