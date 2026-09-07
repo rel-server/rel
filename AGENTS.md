@@ -12,12 +12,12 @@
 
 - ALWAYS Update docs as you work on the code : docs MUST always be relevant.
 - NEVER rm -rf previously produced docs when testing them with zensical ; it messes up the live server
+- In markdown, **DO NOT WRAP** to an arbitrary column size ; editors soft-wrap. Editing \n wrapped paragraphs is a pain.
 
 # When authoring
 
 The redactor(s) write specs with you as a mirror, to help shape them as best as possible for a prompt implementation by a low/medium thinking agent.
 
-In markdown, do not limit the line length to an arbitrary column size ; editors will soft-wrap. Editing \n wrapped paragraphs is a pain.
 
 With lines starting by `>>` The user is prompting you and/or answering your questions ; take it into account and remove it once handled.
 
