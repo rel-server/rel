@@ -85,7 +85,10 @@
         <loc>https://rel-server.github.io/rel/dev/http/authentication/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/typescript-client/</loc>
+        <loc>https://rel-server.github.io/rel/dev/typescript/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/typescript/database-json/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/configuration/</loc>
