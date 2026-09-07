@@ -26,7 +26,7 @@ owns the relationship, not from anything you declare: `room_types.property_id` p
 **incoming** relation. Join the other way — `properties.chain_id` pointing at `chains.id` — and
 you get one object, never an array: an **outgoing** relation. This distinction also picks each
 relation's default write mode (see [Writing data back](writing.md)) and decides where
-[`agg`](aggregates.md) can be used. [Database reference](database-reference.md) has the full
+[`agg`](aggregates.md) can be used. [Database reference](../example-database/reference.md) has the full
 diagram of which foreign key points which way across the hotel schema.
 
 A join's `on` columns must be backed by a foreign key, or by a unique constraint on whichever

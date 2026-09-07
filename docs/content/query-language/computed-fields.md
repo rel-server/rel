@@ -26,7 +26,7 @@ language sql as $$
 $$;
 ```
 
-[Database reference](database-reference.md) lists every computed field the hotel schema
+[Database reference](../example-database/reference.md) lists every computed field the hotel schema
 already defines this way (`hotel.booking_nights`, `hotel.booking_total_paid`,
 `hotel.guest_full_name`, `hotel.property_average_rating`).
 

@@ -64,5 +64,5 @@ A query's nesting depth is capped (`pg.query.max_depth`, default `6`) — see
 [Configuration reference](../configuration/reference.md). `GROUP BY` and window functions have no equivalent
 in the query language at all; model that shape as a database view and query the view instead.
 
-See [Database reference](database-reference.md) for the full schema these examples query
+See [Database reference](../example-database/reference.md) for the full schema these examples query
 against.
