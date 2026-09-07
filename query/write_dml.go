@@ -834,8 +834,15 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		return err
 	}
 	// Never update the identity columns themselves via excluded.* — they're
-	// the conflict target.
-	updateCols = excludeColumnPaths(updateCols, identCols)
+	// the conflict target. The primary key is excluded too even when
+	// on_conflict names a different constraint : excluded.<pk> is a phantom
+	// pre-insert value (nextval() for a generated column) that must never
+	// overwrite a matched row's real, pre-existing identity.
+	exclude := identCols
+	if node.Relation.PrimaryKey != nil {
+		exclude = append(append([]*pg.Column(nil), identCols...), node.Relation.PrimaryKey.Columns...)
+	}
+	updateCols = excludeColumnPaths(updateCols, exclude)
 
 	w := writer.NewSQL()
 	w.Write("with ")
@@ -875,10 +882,29 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	if len(updateCols) == 0 {
 		// Nothing to update ; still need a no-op update so RETURNING sees
 		// the conflicting row (ON CONFLICT DO NOTHING has no RETURNING).
+		// identCols[0] itself may be the relation's real, generated-always
+		// PK (the default on_conflict target) — Postgres rejects any SET on
+		// such a column besides the literal DEFAULT keyword, which would
+		// regenerate it. Self-reference some other real column by the
+		// target table's own name instead (not "excluded", whose value for
+		// an identity column is only a phantom pre-insert placeholder).
+		// Only the real PK is off-limits here — unlike updateCols above, a
+		// non-PK on_conflict column (identCols) is perfectly safe to
+		// self-reference.
+		var pkOnly []*pg.Column
+		if node.Relation.PrimaryKey != nil {
+			pkOnly = node.Relation.PrimaryKey.Columns
+		}
+		noop := firstColumnNotIn(node.Relation.Columns, pkOnly)
+		if noop == nil {
+			return fmt.Errorf("upsert on %s: every column is part of the primary key, leaving no column for a no-op ON CONFLICT DO UPDATE", node.Relation.Identifier.String())
+		}
 		w.Write("update set ")
-		w.Id(identCols[0].Name)
-		w.Write(" = excluded.")
-		w.Id(identCols[0].Name)
+		w.Id(noop.Name)
+		w.Write(" = ")
+		w.Write(node.Relation.Identifier.EscapedString())
+		w.Write(".")
+		w.Id(noop.Name)
 	} else {
 		w.Write("update set ")
 		for i, cp := range updateCols {
@@ -1006,6 +1032,21 @@ func dedupeColumnPaths(a, b []ColumnPath) []ColumnPath {
 		}
 	}
 	return out
+}
+
+// firstColumnNotIn returns the first of cols absent from exclude, nil if
+// every column is excluded.
+func firstColumnNotIn(cols []*pg.Column, exclude []*pg.Column) *pg.Column {
+	ex := map[*pg.Column]bool{}
+	for _, c := range exclude {
+		ex[c] = true
+	}
+	for _, c := range cols {
+		if !ex[c] {
+			return c
+		}
+	}
+	return nil
 }
 
 // excludeColumnPaths drops any cols entry matching exclude ; only

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -1015,6 +1016,130 @@ func TestExecuteWrite_MergeNewNonPKOnConflictRecoversRealKey(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected exactly 1 profile row (no duplicate inserted), got %d", count)
+	}
+}
+
+func TestExecuteWrite_UpsertNonPKOnConflictPreservesRealKey(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	// profile's on_conflict target isn't its PK ; a matched row's "resolved.id"
+	// is a phantom nextval() value that must never overwrite the real id via
+	// "on conflict ... do update set id = excluded.id" — for a GENERATED
+	// ALWAYS identity column (unlike profile's plain serial) Postgres rejects
+	// that update outright, so this bug surfaces as a hard error there.
+	var existingID int
+	if err := conn.QueryRow(ctx, `insert into profile (user_email) values ('upsert-phantom@example.com') returning id`).Scan(&existingID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "profile", "schema": "public",
+		"select": {"id": "id", "user_email": "user_email", "notes": "notes"},
+		"write_mode": "upsert",
+		"on_conflict": ["user_email"],
+		"join": {"notes": {"relation": "profile_note", "schema": "public", "on": {"profile_id": "id"}, "select": ["own"]}}
+	}`)
+	payload := []byte(`[{"user_email": "upsert-phantom@example.com", "notes": []}]`)
+
+	for i := 0; i < 2; i++ {
+		if _, err := conn.Exec(ctx, `truncate _data`); err != nil {
+			t.Fatalf("truncate _data: %v", err)
+		}
+		result, err := ExecuteWrite(ctx, conn, node, payload)
+		if err != nil {
+			t.Fatalf("ExecuteWrite (run %d): %v", i, err)
+		}
+		keys := dataKeysFor(t, conn, result.NodeIDs[node])
+		if len(keys) != 1 {
+			t.Fatalf("run %d: expected 1 keys row, got %d", i, len(keys))
+		}
+		gotID, ok := keys[0]["id"]
+		if !ok {
+			t.Fatalf("run %d: expected id in keys, got %#v", i, keys[0])
+		}
+		if int(gotID.(float64)) != existingID {
+			t.Errorf("run %d: expected preserved id=%d (the real, pre-existing row), got %v (a phantom nextval)", i, existingID, gotID)
+		}
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from profile where user_email = 'upsert-phantom@example.com'`).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 profile row (no duplicate inserted), got %d", count)
+	}
+}
+
+func TestExecuteWrite_UpsertDefaultPKConflictSelfReferencesOtherColumn(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	// depot's only other column (location) is nullable, so an insert
+	// attempt needs nothing beyond "id" ; select carries only "id", so
+	// updateCols is empty and the on_conflict target is the default
+	// primary key — the no-op ON CONFLICT DO UPDATE must self-reference
+	// "location" (the one other real column) via depot's own name, not
+	// set "id" to a phantom excluded.id.
+	var depotID int
+	if err := conn.QueryRow(ctx, `insert into depot default values returning id`).Scan(&depotID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "depot", "schema": "public", "select": {"id": "id"}, "write_mode": "upsert"}`)
+	payload := []byte(`[{"id": ` + itoa(depotID) + `}]`)
+
+	result, err := ExecuteWrite(ctx, conn, node, payload)
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 keys row, got %d", len(keys))
+	}
+	gotID, ok := keys[0]["id"]
+	if !ok {
+		t.Fatalf("expected id in keys, got %#v", keys[0])
+	}
+	if int(gotID.(float64)) != depotID {
+		t.Errorf("expected preserved id=%d (the real, pre-existing row), got %v (a phantom nextval)", depotID, gotID)
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from depot`).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 depot row (no duplicate inserted), got %d", count)
+	}
+}
+
+func TestExecuteWrite_UpsertDefaultPKConflictWithNoOtherColumn(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	// customer has exactly one column — its own serial PK — so updateCols
+	// is unavoidably empty and the on_conflict target is the default
+	// primary key : the no-op ON CONFLICT DO UPDATE must not set "id" to
+	// "excluded.id" (a phantom pre-insert value ; on a GENERATED ALWAYS
+	// identity column it's also a flat Postgres syntax error) and, since no
+	// other column exists to self-reference instead, must report a clear
+	// compile error rather than emit broken SQL.
+	var customerID int
+	if err := conn.QueryRow(ctx, `insert into customer default values returning id`).Scan(&customerID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "customer", "schema": "public", "select": {"id": "id"}, "write_mode": "upsert"}`)
+	payload := []byte(`[{"id": ` + itoa(customerID) + `}]`)
+
+	_, err := ExecuteWrite(ctx, conn, node, payload)
+	if err == nil {
+		t.Fatal("expected an error (no non-identity column available), got nil")
+	}
+	if !strings.Contains(err.Error(), "no column") && !strings.Contains(err.Error(), "primary key") {
+		t.Errorf("expected the no-op-column error, got: %v", err)
 	}
 }
 

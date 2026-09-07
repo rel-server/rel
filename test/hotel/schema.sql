@@ -53,6 +53,7 @@ create table hotel.properties (
   description text,
   created_at timestamptz not null default now()
 );
+create index properties_chain_id_idx on hotel.properties (chain_id);
 -- a stored generated column, kept separate from `description` itself so the
 -- FTS index below has something cheap to index directly
 alter table hotel.properties add column description_search tsvector
