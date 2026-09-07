@@ -9,8 +9,8 @@ relations, no shared root — and they all run inside one transaction:
 
 ```json
 [
-  { "query": { "relation": "properties", "schema": "hotel", "select": "*" },
-    "data": { "id": 1, "name": "Marina Bay Grand Hotel" } },
+  { "query": { "relation": "properties", "schema": "hotel", "select": ["own"] },
+    "data": [{ "id": 1, "name": "Marina Bay Grand Hotel" }] },
   { "wellknown": "top_rated_properties", "params": { "min_rating": 4 } }
 ]
 ```

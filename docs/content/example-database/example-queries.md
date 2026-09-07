@@ -199,6 +199,77 @@ curl http://localhost:8080/rel \
   }'
 ```
 
+## A three-level nested write, safe to run over and over
+
+Create a chain, one of its properties, and that property's room types in a single request —
+`properties` and `room_types` carry no `id`, since neither exists yet. `chains` defaults to
+`insert`-only as the root relation, so it's overridden to `upsert`, matched by its unique `name`
+instead of the default primary key : a repeat of this exact request finds the same chain by name
+and updates it in place rather than hitting a duplicate-key error. `properties` is overridden to
+plain `insert` too, instead of its default `merge` — an incoming join's `merge` (and, despite the
+name, `merge-new` as well) deletes whatever the payload leaves out, which would wipe out every
+property already sitting under this chain from an earlier run ; plain `insert` has no delete
+component at all, so firing the same request any number of times never fails and never removes
+anything — it just adds one more property (and its own room types) under the same chain each
+time. `room_type_count` is a plain read alongside the write, aggregating over the very relation
+the request just inserted into:
+
+```sh
+curl http://localhost:8080/rel \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query": {
+      "relation": "chains",
+      "schema": "hotel",
+      "write_mode": "upsert",
+      "on_conflict": ["name"],
+      "join": {
+        "properties": {
+          "relation": "properties",
+          "schema": "hotel",
+          "on": { "chain_id": "id" },
+          "write_mode": "insert",
+          "join": {
+            "room_types": { "relation": "room_types", "schema": "hotel", "on": { "property_id": "id" } }
+          },
+          "select": {
+            "id": "id",
+            "chain_id": "chain_id",
+            "name": "name",
+            "star_rating": "star_rating",
+            "room_types": "room_types",
+            "room_type_count": ["agg", "count", [[".", "room_types", "id"]]]
+          }
+        }
+      },
+      "select": { "id": "id", "name": "name", "properties": "properties" }
+    },
+    "data": [{
+      "name": "Example Group",
+      "properties": [{
+        "name": "Example Group Riverside",
+        "star_rating": 4,
+        "room_types": [
+          { "name": "Standard", "base_price": "129.00", "capacity": 2 },
+          { "name": "Suite", "base_price": "249.00", "capacity": 4 }
+        ]
+      }]
+    }]
+  }'
+```
+
+`room_types` has no explicit `select`, so it defaults to every column (including its own `id`) —
+leaving `id` out, the way [Writability rules](../query-language/writing.md#writability-rules)
+warns against, would make `room_types` unwritable and reject the whole request instead of only
+skipping that one relation. Run the request once and a brand-new chain, property, and pair of
+room types appear ; run it again — or ten more times — and it matches the existing chain by name,
+adds another `Example Group Riverside` under it with its own two room types, and reports
+`room_type_count: 2` every time, with nothing to clean up between runs. See [Write
+order](../query-language/writing.md#write-order) for why a property's `id`, generated only during
+this same write, is already available to the `room_types` rows nested under it — the same
+mechanism that threads the chain's own `id` (freshly generated the first run, matched by name on
+every run after) down into `chain_id` on each property.
+
 ## Reaching into a composite-typed column
 
 `guests.billing_address` is a composite column (`hotel.address`), not a join — `.` reaches into

@@ -5,9 +5,10 @@ icon: material/pencil
 # Writing data back
 
 Send `{"query": <Relation>, "data": <payload>}` — a `ComplexQuery` — instead of a bare `Relation`
-to write. `data` must be shaped like what `query`'s own `select` would produce — the same object
-(or array of objects, for the root or an incoming join) you'd get back from reading, edited in
-place. rel denormalizes it back down to one row per relation the query touched and applies each
+to write. `data` must be shaped like what `query`'s own `select` would produce, edited in place :
+an array of rows at the root and at any incoming join (reading either back always returns an
+array), a single object at an outgoing join (reading it back returns one row, never an array).
+rel denormalizes it back down to one row per relation the query touched and applies each
 relation's own `write_mode`:
 
 `ComplexQuery` also carries five flags — `returns`, `count`, `stats`, `query_plan`, `sql`, and
@@ -16,11 +17,11 @@ a plain read too (just omit `data`). See [Complex queries](complex-query.md).
 
 | `write_mode` | Behavior | Default for |
 |---|---|---|
-| `insert` | insert new rows only | the root relation |
+| `insert` | insert new rows only, never update or delete | the root relation |
 | `upsert` | insert or update, never delete | an outgoing join |
 | `merge` | insert new, update matching, delete rows missing from the payload | an incoming join |
-| `merge-new` | insert new only, ignore rows that already exist | — |
-| `merge-update` | update matching only, ignore new rows | — |
+| `merge-new` | insert new, ignore rows that already exist, delete rows missing from the payload | — |
+| `merge-update` | update matching rows, ignore new rows, delete rows missing from the payload | — |
 | `update` | update matching rows only, never insert or delete | — |
 | `deleteonly` | delete rows missing from the payload, nothing else | — |
 | `readonly` | never write this relation (or anything nested under it) | — |
@@ -28,7 +29,9 @@ a plain read too (just omit `data`). See [Complex queries](complex-query.md).
 `merge`/`merge-new`/`merge-update`/`deleteonly` all delete rows the payload didn't mention, so
 they're only legal on an incoming relation (see [Joining and embedding
 relations](joining.md)) — there's no coherent "rows missing from the payload" for an outgoing
-one, since the referenced row isn't exclusively owned by the one pointing at it. `on_conflict`
+one, since the referenced row isn't exclusively owned by the one pointing at it. `insert` is the
+only mode in this table with no delete component at all — reach for it, not `merge-new`, when a
+nested write must never remove a sibling row it didn't mention. `on_conflict`
 names the constraint (by name, or by its column list) used to detect an existing row on
 insert/upsert/merge; it defaults to the relation's primary key. `insert_columns`/
 `update_columns` narrow which columns a write actually touches, beyond whatever `select`
@@ -113,11 +116,11 @@ is to rename a property and reprice one of its room types:
     },
     "select": { "id": "id", "name": "name", "room_types": "room_types" }
   },
-  "data": {
+  "data": [{
     "id": 1,
     "name": "Marina Bay Grand Hotel",
     "room_types": [{ "name": "Deluxe", "base_price": "219.00" }]
-  }
+  }]
 }
 ```
 

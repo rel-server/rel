@@ -82,7 +82,7 @@ POST /rel
 POST /rel
 {
   "query": { "wellknown": "checkin_guest" },
-  "data": { "booking_id": "b1a2c3d4-...", "status": "checked_in" }
+  "data": [{ "booking_id": "b1a2c3d4-...", "status": "checked_in" }]
 }
 ```
 
@@ -115,8 +115,8 @@ request](batching.md) — both share the same transaction as anything else in th
 [
   {
     "query": { "wellknown": "checkin_guest" },
-    "data": { "booking_id": "b1a2c3d4-...", "status": "checked_in" }
+    "data": [{ "booking_id": "b1a2c3d4-...", "status": "checked_in" }]
   },
-  { "relation": "rooms", "schema": "hotel", "where": ["=", "id", 42], "select": "*" }
+  { "relation": "rooms", "schema": "hotel", "where": ["=", "id", 42], "select": ["own"] }
 ]
 ```

@@ -12,7 +12,7 @@ is a table-valued function that returns a set of rooms:
   "function": "rooms_available",
   "schema": "hotel",
   "arguments": { "property_id": 1, "on_date": ["2026-06-01"] },
-  "select": "*"
+  "select": ["own"]
 }
 ```
 
