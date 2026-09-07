@@ -293,6 +293,8 @@
       
         
       
+        
+      
     
     
     
@@ -531,6 +533,8 @@
       
         
           
+        
+      
         
       
         
@@ -1011,6 +1015,33 @@
     
   
   Writing data back
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/complex-query/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3zm2 2v2h2V7zm6 0h10v2H11zm0 8h10v2H11zm-6 5-3.5-3.5 1.41-1.41L5 17.17l4.59-4.58L11 14z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Complex queries
 
     
   </span>
@@ -2135,6 +2166,31 @@ the binary itself, if you want it without leaving a terminal.</p>
 <td><code>dev</code></td>
 <td><code>false</code></td>
 <td>Adds the real Postgres error text and a stack trace to an otherwise generic error response. See <a href="../#development-mode">Development mode</a>.</td>
+</tr>
+<tr>
+<td><code>allow_count</code></td>
+<td>same as <code>dev</code></td>
+<td>Enables <code>ComplexQuery</code>'s <code>count</code> flag. See <a href="../../query-language/complex-query/#availability">Complex queries</a>.</td>
+</tr>
+<tr>
+<td><code>allow_stats</code></td>
+<td>same as <code>dev</code></td>
+<td>Enables <code>ComplexQuery</code>'s <code>stats</code> flag.</td>
+</tr>
+<tr>
+<td><code>allow_query_plan</code></td>
+<td>same as <code>dev</code></td>
+<td>Enables <code>ComplexQuery</code>'s <code>query_plan</code> flag.</td>
+</tr>
+<tr>
+<td><code>allow_sql</code></td>
+<td>same as <code>dev</code></td>
+<td>Enables <code>ComplexQuery</code>'s <code>sql</code> flag.</td>
+</tr>
+<tr>
+<td><code>allow_rollback</code></td>
+<td>same as <code>dev</code></td>
+<td>Enables <code>ComplexQuery</code>'s <code>rollback</code> flag ; ungranted is a hard error, not a silent degrade.</td>
 </tr>
 </tbody>
 </table>

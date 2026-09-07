@@ -295,6 +295,8 @@
       
         
       
+        
+      
     
     
     
@@ -567,6 +569,8 @@
       
         
       
+        
+      
     
     
     
@@ -767,10 +771,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#wellknownquery-and-writequery" class="md-nav__link">
+  <a href="#wellknownquery-and-complexquery" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>WellKnownQuery</code> and <code>WriteQuery</code>
+        <code>WellKnownQuery</code> and <code>ComplexQuery</code>
       </span>
     </span>
   </a>
@@ -1109,6 +1113,33 @@
     
   
   Writing data back
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../complex-query/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3zm2 2v2h2V7zm6 0h10v2H11zm0 8h10v2H11zm-6 5-3.5-3.5 1.41-1.41L5 17.17l4.59-4.58L11 14z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Complex queries
 
     
   </span>
@@ -1803,10 +1834,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#wellknownquery-and-writequery" class="md-nav__link">
+  <a href="#wellknownquery-and-complexquery" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>WellKnownQuery</code> and <code>WriteQuery</code>
+        <code>WellKnownQuery</code> and <code>ComplexQuery</code>
       </span>
     </span>
   </a>
@@ -1906,6 +1937,8 @@
       
         
       
+        
+      
     
     
     
@@ -1947,7 +1980,7 @@ linked to the page that explains it. Skim this first to see the whole shape at a
 come back to it once you know roughly what you're looking for and just need the exact name.</p>
 <h2 id="the-request-body">The request body<a class="headerlink" href="#the-request-body" title="Permanent link">&para;</a></h2>
 <p><code>POST /rel</code>'s body is one of these, at the top level:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kr">type</span><span class="w"> </span><span class="nx">Query</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Relation</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WriteQuery</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WellKnownQuery</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">Query</span><span class="p">[]</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kr">type</span><span class="w"> </span><span class="nx">Query</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Relation</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">ComplexQuery</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WellKnownQuery</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">Query</span><span class="p">[]</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -1959,15 +1992,15 @@ come back to it once you know roughly what you're looking for and just need the 
 <tbody>
 <tr>
 <td>A <code>Relation</code></td>
-<td>A read (see <a href="../shaping/">Shaping a query</a>), or, wrapped in a <code>WriteQuery</code>, a write.</td>
+<td>A read (see <a href="../shaping/">Shaping a query</a>), or, wrapped in a <code>ComplexQuery</code>, a write.</td>
 </tr>
 <tr>
 <td>A <code>WellKnownQuery</code></td>
 <td>A call to a named, pre-parsed query — see <a href="../well-known-queries/">Well-known queries</a>.</td>
 </tr>
 <tr>
-<td>A <code>WriteQuery</code></td>
-<td>Write <code>data</code> back through <code>query</code> (a <code>Relation</code> or a <code>WellKnownQuery</code>) — see <a href="../writing/">Writing data back</a>.</td>
+<td>A <code>ComplexQuery</code></td>
+<td>Optionally write <code>data</code> back through <code>query</code> (a <code>Relation</code> or a <code>WellKnownQuery</code>), and/or shape the response beyond the plain selection — see <a href="../writing/">Writing data back</a> and <a href="../complex-query/">Complex queries</a>.</td>
 </tr>
 <tr>
 <td><code>Query[]</code></td>
@@ -2086,16 +2119,22 @@ the node is the query's root or a <code>join</code> target nested arbitrarily de
 </tr>
 </tbody>
 </table>
-<h2 id="wellknownquery-and-writequery"><code>WellKnownQuery</code> and <code>WriteQuery</code><a class="headerlink" href="#wellknownquery-and-writequery" title="Permanent link">&para;</a></h2>
+<h2 id="wellknownquery-and-complexquery"><code>WellKnownQuery</code> and <code>ComplexQuery</code><a class="headerlink" href="#wellknownquery-and-complexquery" title="Permanent link">&para;</a></h2>
 <div class="language-ts highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">WellKnownQuery</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nx">wellknown</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nx">params?</span><span class="o">:</span><span class="w"> </span><span class="kt">any</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">}</span>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">WriteQuery</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">ComplexQuery</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">Relation</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WellKnownQuery</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nx">data</span><span class="o">:</span><span class="w"> </span><span class="kt">any</span><span class="w"> </span><span class="c1">// shaped like `query`'s own `select`</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">}</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nx">data?</span><span class="o">:</span><span class="w"> </span><span class="kt">any</span><span class="w"> </span><span class="c1">// shaped like `query`'s own `select` ; write, if present, else a read</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nx">returns</span><span class="o">?:</span><span class="w"> </span><span class="s2">"none"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"results"</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="nx">count?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="nx">stats?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="nx">query_plan?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="nx">sql?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">  </span><span class="nx">rollback?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="p">}</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -2117,14 +2156,19 @@ the node is the query's root or a <code>join</code> target nested arbitrarily de
 <td><a href="../well-known-queries/#declaring-and-using-parameters">Well-known queries ## Declaring and using parameters</a>.</td>
 </tr>
 <tr>
-<td><code>WriteQuery</code></td>
+<td><code>ComplexQuery</code></td>
 <td><code>query</code></td>
 <td><a href="../writing/">Writing data back</a>.</td>
 </tr>
 <tr>
-<td><code>WriteQuery</code></td>
+<td><code>ComplexQuery</code></td>
 <td><code>data</code></td>
-<td><a href="../writing/">Writing data back</a>.</td>
+<td><a href="../writing/">Writing data back</a> — omit it entirely for a read.</td>
+</tr>
+<tr>
+<td><code>ComplexQuery</code></td>
+<td><code>returns</code>, <code>count</code>, <code>stats</code>, <code>query_plan</code>, <code>sql</code>, <code>rollback</code></td>
+<td><a href="../complex-query/">Complex queries</a>.</td>
 </tr>
 </tbody>
 </table>

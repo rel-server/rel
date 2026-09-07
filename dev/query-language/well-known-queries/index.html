@@ -295,6 +295,8 @@
       
         
       
+        
+      
     
     
     
@@ -533,6 +535,8 @@
       
         
           
+        
+      
         
       
         
@@ -1120,6 +1124,33 @@
     
   
   Writing data back
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../complex-query/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3zm2 2v2h2V7zm6 0h10v2H11zm0 8h10v2H11zm-6 5-3.5-3.5 1.41-1.41L5 17.17l4.59-4.58L11 14z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Complex queries
 
     
   </span>
@@ -1928,6 +1959,8 @@
       
         
       
+        
+      
     
     
     
@@ -2017,7 +2050,7 @@ when left off. Write it explicitly at each usage site to get the SQL type you ac
 was declared above.</p>
 <h2 id="calling-one-over-post-rel">Calling one over <code>POST /rel</code><a class="headerlink" href="#calling-one-over-post-rel" title="Permanent link">&para;</a></h2>
 <p>A well-known query occupies exactly the slot a plain <code>Relation</code> would, in either position: bare
-for a read, wrapped in <code>WriteQuery.query</code> for a write.</p>
+for a read, wrapped in <code>ComplexQuery.query</code> for a write.</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="err">POST</span><span class="w"> </span><span class="err">/rel</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="p">{</span><span class="w"> </span><span class="nt">"wellknown"</span><span class="p">:</span><span class="w"> </span><span class="s2">"top_rated_properties"</span><span class="p">,</span><span class="w"> </span><span class="nt">"params"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"min_rating"</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>

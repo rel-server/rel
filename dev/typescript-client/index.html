@@ -293,6 +293,8 @@
       
         
       
+        
+      
     
     
     
@@ -531,6 +533,8 @@
       
         
           
+        
+      
         
       
         
@@ -1011,6 +1015,33 @@
     
   
   Writing data back
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../query-language/complex-query/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3zm2 2v2h2V7zm6 0h10v2H11zm0 8h10v2H11zm-6 5-3.5-3.5 1.41-1.41L5 17.17l4.59-4.58L11 14z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Complex queries
 
     
   </span>
@@ -1920,10 +1951,42 @@ read. See <a href="../query-language/selecting/">The query language ## Selecting
 of an ad hoc relation — same <code>Querier</code>, but its params and result shape come from the query's
 own registered definition rather than from what you pass to <code>relation()</code>.</p>
 <h2 id="databasejson">database.json<a class="headerlink" href="#databasejson" title="Permanent link">&para;</a></h2>
-<p><code>GET /rel/database.json</code> is the same introspected structure — relations, columns, functions,
-relationships — as plain JSON instead of TypeScript types. Reach for it when you're not in a
-TypeScript project at all, or when you want to feed the schema into your own tooling (a
-generator, a schema browser, a non-JS client) rather than consume it as types directly.</p>
+<p><code>GET /rel/database.json</code> is the same introspected structure — types, relations, columns,
+constraints, indexes, relationships, functions, computed properties, well-known queries — as
+plain JSON instead of TypeScript types, gated and filtered by the same <code>schemas</code> query param and
+<code>http.typescript.*</code> configuration as <code>database.ts</code>. Reach for it when you're not in a TypeScript
+project at all, when you want to feed the schema into your own tooling (a generator, a schema
+browser, a non-JS client), or when you're building something like an automatic admin UI that
+needs the raw introspected facts — constraint names, index coverage, nullability, every declared
+foreign key including one the query engine can't efficiently join — rather than <code>database.ts</code>'s
+already-collapsed TypeScript types.</p>
+<p>Unlike <code>database.ts</code>, which only lists a foreign key that's actually usable in a <code>join()</code>,
+<code>database.json</code>'s own <code>relationships</code> section lists every declared foreign key touching an
+exported relation, in both directions, with an <code>eligible</code> flag telling you which ones are
+join-safe — a relation-picker UI built off this export can still show every real relationship,
+even one it has to resolve with its own lookup instead of a <code>join()</code>.</p>
+<p>The top-level response has these sections, every object key keyed <code>"schema.name"</code> unless noted
+otherwise and repeating its own <code>schema</code>/<code>name</code> fields :</p>
+<ul>
+<li><strong><code>types</code></strong> — every scalar/enum/domain/array/composite type referenced by a column or function
+  argument/return type, transitively. A composite entry points at its backing relation by key ;
+  that relation is always present in <code>relations</code>, even from a schema <code>schemas</code> didn't whitelist.</li>
+<li><strong><code>relations</code></strong> — one entry per table/view/materialized view/standalone composite type (<code>kind</code>
+  says which), with its columns (type, nullability, identity/generated/updatable flags, default
+  presence), its primary key and unique constraints (both named), and its indexes.</li>
+<li><strong><code>relationships</code></strong> — every declared foreign key touching a relation, both directions, each with
+  the target relation, the join columns (<code>on</code>, in the same shape the query language's own join
+  <code>on</code> field takes), cardinality (<code>unique</code>), the backing constraint's name, and <code>eligible</code> (false
+  when the FK-holding side isn't indexed — still a real relationship, just not <code>join()</code>-safe).</li>
+<li><strong><code>functions</code></strong> / <strong><code>functions_by_name</code></strong> — every plain function, with every argument's mode
+  (<code>in</code>/<code>out</code>/<code>inout</code>/<code>variadic</code>/<code>table</code> — not just the callable subset <code>database.ts</code> renders),
+  its volatility/strictness, and its return shape (a <code>types</code> key, or <code>null</code> when the row shape is
+  built from its own <code>out</code>/<code>table</code> arguments instead).</li>
+<li><strong><code>computed_properties</code></strong> — the same per-relation computed-field discovery <code>database.ts</code>'s
+  <code>ComputedProperties</code> documents.</li>
+<li><strong><code>wellknowns</code></strong> — each well-known query's raw compiled query JSON and declared parameters.</li>
+</ul>
+<p>See <code>specs/database-json.md</code> for the exact shape of every field.</p>
 <h2 id="keeping-it-in-sync">Keeping it in sync<a class="headerlink" href="#keeping-it-in-sync" title="Permanent link">&para;</a></h2>
 <p><code>database.ts</code>/<code>database.json</code> are a snapshot of the schema at the moment you fetched them —
 rel doesn't push updates to a client that already downloaded the file. If you add a column,

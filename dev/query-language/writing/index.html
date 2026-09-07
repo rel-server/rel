@@ -16,7 +16,7 @@
         <link rel="prev" href="../distinctness/">
       
       
-        <link rel="next" href="../batching/">
+        <link rel="next" href="../complex-query/">
       
       
         
@@ -295,6 +295,8 @@
       
         
       
+        
+      
     
     
     
@@ -533,6 +535,8 @@
       
         
           
+        
+      
         
       
         
@@ -1094,6 +1098,33 @@
   
 </nav>
       
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../complex-query/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3zm2 2v2h2V7zm6 0h10v2H11zm0 8h10v2H11zm-6 5-3.5-3.5 1.41-1.41L5 17.17l4.59-4.58L11 14z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Complex queries
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1862,6 +1893,8 @@
       
         
       
+        
+      
     
     
     
@@ -1897,11 +1930,14 @@
 
 
 <h1 id="writing-data-back">Writing data back<a class="headerlink" href="#writing-data-back" title="Permanent link">&para;</a></h1>
-<p>Send <code>{"query": &lt;Relation&gt;, "data": &lt;payload&gt;}</code> instead of a bare <code>Relation</code> to write. <code>data</code>
-must be shaped like what <code>query</code>'s own <code>select</code> would produce — the same object (or array of
-objects, for the root or an incoming join) you'd get back from reading, edited in place. rel
-denormalizes it back down to one row per relation the query touched and applies each relation's
-own <code>write_mode</code>:</p>
+<p>Send <code>{"query": &lt;Relation&gt;, "data": &lt;payload&gt;}</code> — a <code>ComplexQuery</code> — instead of a bare <code>Relation</code>
+to write. <code>data</code> must be shaped like what <code>query</code>'s own <code>select</code> would produce — the same object
+(or array of objects, for the root or an incoming join) you'd get back from reading, edited in
+place. rel denormalizes it back down to one row per relation the query touched and applies each
+relation's own <code>write_mode</code>:</p>
+<p><code>ComplexQuery</code> also carries five flags — <code>returns</code>, <code>count</code>, <code>stats</code>, <code>query_plan</code>, <code>sql</code>, and
+<code>rollback</code> — that shape what the response carries beyond the written-back selection, and work on
+a plain read too (just omit <code>data</code>). See <a href="../complex-query/">Complex queries</a>.</p>
 <table>
 <thead>
 <tr>
@@ -2118,13 +2154,13 @@ likes without blocking the rest of the request.</p>
         
         
           
-          <a href="../batching/" class="md-footer__link md-footer__link--next" aria-label="Next: Batching queries">
+          <a href="../complex-query/" class="md-footer__link md-footer__link--next" aria-label="Next: Complex queries">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Batching queries
+                Complex queries
               </div>
             </div>
             <div class="md-footer__button md-icon">

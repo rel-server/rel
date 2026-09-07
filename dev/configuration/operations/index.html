@@ -293,6 +293,8 @@
       
         
       
+        
+      
     
     
     
@@ -531,6 +533,8 @@
       
         
           
+        
+      
         
       
         
@@ -1011,6 +1015,33 @@
     
   
   Writing data back
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/complex-query/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3zm2 2v2h2V7zm6 0h10v2H11zm0 8h10v2H11zm-6 5-3.5-3.5 1.41-1.41L5 17.17l4.59-4.58L11 14z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Complex queries
 
     
   </span>
@@ -1974,6 +2005,16 @@ expect in the response:</p>
 <td><code>WRITE_FORBIDDEN</code></td>
 <td>400</td>
 <td>the write touched a relation whose identity isn't writable, or violated a <code>write_mode</code> rule</td>
+</tr>
+<tr>
+<td><code>QUERY_ROLLBACK_NOT_GRANTED</code></td>
+<td>400</td>
+<td><code>rollback: true</code> requested but <code>allow_rollback</code> is off — see <a href="../../query-language/complex-query/#availability">Complex queries</a></td>
+</tr>
+<tr>
+<td><code>QUERY_STATS_QUERY_PLAN_CONFLICT</code></td>
+<td>400</td>
+<td><code>stats</code> and <code>query_plan</code> both requested on the same write</td>
 </tr>
 <tr>
 <td><code>ANONYMOUS_DISABLED</code></td>
