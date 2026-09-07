@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
@@ -130,45 +129,22 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	r = r.WithContext(withRequestJSON(ctx, reqJSON))
 	ctx = r.Context()
 
-	conn, err := db.Pool.Acquire(ctx)
-	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection", err)
-		return
-	}
-	defer conn.Release()
-
 	// SET LOCAL ROLE/set_config(..., true) only hold for the current
 	// transaction, so middleware/role-switch/the route call all share one.
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction", err)
-		return
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Exposed before middleware runs, so it (and the route function itself)
-	// can read it via current_setting('rel.jwt.claims', true).
-	if err := dbauth.SetLocalClaims(ctx, tx, claims); err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims", err)
-		return
-	}
-
 	// Renew (Lifecycle step 4) deliberately waits until AFTER the middleware
 	// chain below decides not to reject — jwt/middleware.go's own doc
 	// comment states the invariant (Renew after Check) ; a revocation
 	// middleware must never hand back a freshly renewed cookie for the very
-	// session it just rejected. Role resolution below reads claims' role
+	// session it just rejected. Role resolution here reads claims' role
 	// only, which renewal never changes, so using the pre-renewal claims
 	// here is exact, not just adequate.
-	role = jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
-	if role == "" {
-		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
+	tx, release, resolvedRole, ok := beginRoleScopedTx(ctx, w, db, cfg, claims, verified)
+	if !ok {
 		return
 	}
-	if err := dbauth.SetLocalRole(ctx, tx, role); err != nil {
-		writeErrorForPgErr(ctx, w, err, cfg.Dev)
-		return
-	}
+	role = resolvedRole
+	defer release()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// ## Middleware : runs after the role switch, same transaction,
 	// sequential — a terminating middleware or an invocation error has

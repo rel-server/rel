@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/pg"
@@ -206,37 +205,16 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 			return
 		}
 
-		ctx := r.Context()
-		conn, err := db.Pool.Acquire(ctx)
-		if err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection", err)
-			return
-		}
-		defer conn.Release()
-
-		tx, err := conn.Begin(ctx)
-		if err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction", err)
-			return
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-
-		if err := dbauth.SetLocalClaims(ctx, tx, claims); err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims", err)
-			return
-		}
 		// No renewal here : /rel's own applyRole renews after this gate
 		// passes (a second renewal here would double the Set-Cookie), and
 		// the static fallback never renewed even before middleware existed.
-		role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
-		if role == "" {
-			writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
+		ctx := r.Context()
+		tx, release, _, ok := beginRoleScopedTx(ctx, w, db, cfg, claims, verified)
+		if !ok {
 			return
 		}
-		if err := dbauth.SetLocalRole(ctx, tx, role); err != nil {
-			writeErrorForPgErr(ctx, w, err, cfg.Dev)
-			return
-		}
+		defer release()
+		defer func() { _ = tx.Rollback(ctx) }()
 
 		staticInfo := staticInfoForRequest(staticSrv, r)
 		buildReq := func(reqContext json.RawMessage) ([]byte, error) {

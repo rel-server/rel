@@ -24,7 +24,6 @@ import (
 	"github.com/samber/oops"
 
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
@@ -141,60 +140,32 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// ## Middleware : "for a stream_upload route, the middleware chain runs
 	// once, ahead of the first call only" — same transaction as the first
 	// call itself, after the role switch, same as any other middleware.
-	conn, err := db.Pool.Acquire(ctx)
-	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection", err)
-		return
-	}
-
-	tx1, err := conn.Begin(ctx)
-	if err != nil {
-		conn.Release()
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction", err)
-		return
-	}
-	if err := dbauth.SetLocalClaims(ctx, tx1, claims); err != nil {
-		_ = tx1.Rollback(ctx)
-		conn.Release()
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims", err)
-		return
-	}
-
 	// Renew (Lifecycle step 4) waits until after the middleware chain below
 	// decides not to reject — see route/handler.go's identical note. Role
 	// resolution reads claims' role only, unaffected by renewal.
-	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
-	if role == "" {
-		_ = tx1.Rollback(ctx)
-		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.NoRoleConfigured, dbauth.NoRoleConfiguredMessage)
-		return
-	}
-	if err := dbauth.SetLocalRole(ctx, tx1, role); err != nil {
-		_ = tx1.Rollback(ctx)
-		conn.Release()
-		writeErrorForPgErr(ctx, w, err, cfg.Dev)
+	tx1, release1, role, ok := beginRoleScopedTx(ctx, w, db, cfg, claims, verified)
+	if !ok {
 		return
 	}
 
 	handled, mergedContext, accumulated, err := runMiddlewareChain(ctx, tx1, w, r, cfg, reg, route.AnonPath, buildFirstReq, templates, staticSrv)
 	if err != nil {
 		_ = tx1.Rollback(ctx)
-		conn.Release()
+		release1()
 		return
 	}
 	if handled {
 		if cerr := tx1.Commit(ctx); cerr != nil {
 			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", cerr)
 		}
-		conn.Release()
+		release1()
 		return
 	}
 	if mergedContext != nil {
 		reqJSON1, err = buildFirstReq(mergedContext)
 		if err != nil {
 			_ = tx1.Rollback(ctx)
-			conn.Release()
+			release1()
 			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 			return
 		}
@@ -216,16 +187,16 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	frow := tx1.QueryRow(ctx, "select * from "+ident+"($1::jsonb)", reqJSON1)
 	if err := frow.Scan(&firstEnvelope, &firstContent); err != nil {
 		_ = tx1.Rollback(ctx)
-		conn.Release()
+		release1()
 		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
 	}
 	if err := tx1.Commit(ctx); err != nil {
-		conn.Release()
+		release1()
 		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
-	conn.Release()
+	release1()
 
 	var first firstCallEnvelope
 	if err := sonic.Unmarshal(firstEnvelope, &first); err != nil {
@@ -371,28 +342,11 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	// A second connection/transaction ; check_session/renew already ran
 	// once, before the first call, and aren't repeated.
-	conn2, err := db.Pool.Acquire(ctx)
-	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection", err)
+	tx2, release2, ok := beginTxWithRole(ctx, w, db, cfg, claims, role)
+	if !ok {
 		return
 	}
-	defer conn2.Release()
-
-	tx2, err := conn2.Begin(ctx)
-	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction", err)
-		return
-	}
-	if err := dbauth.SetLocalClaims(ctx, tx2, claims); err != nil {
-		_ = tx2.Rollback(ctx)
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims", err)
-		return
-	}
-	if err := dbauth.SetLocalRole(ctx, tx2, role); err != nil {
-		_ = tx2.Rollback(ctx)
-		writeErrorForPgErr(ctx, w, err, cfg.Dev)
-		return
-	}
+	defer release2()
 
 	var secondEnvelope, secondContent []byte
 	mrow := tx2.QueryRow(ctx, "select * from "+ident+"($1::jsonb)", reqJSON2)
