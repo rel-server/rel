@@ -354,9 +354,9 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			}
 		}
 		opts := query.WriteOptions{
-			Stats:     item.stats && cfg.AllowStats,
-			QueryPlan: item.queryPlan && cfg.AllowQueryPlan,
-			Sql:       item.sql && cfg.AllowSql,
+			Stats:     item.stats && cfg.Pg.Query.AllowStats,
+			QueryPlan: item.queryPlan && cfg.Pg.Query.AllowQueryPlan,
+			Sql:       item.sql && cfg.Pg.Query.AllowSql,
 		}
 		result, err := query.ExecuteWriteStateParamsOpts(ctx, conn, item.root, item.data, state, item.paramValues, opts)
 		if err != nil {
@@ -428,7 +428,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 
 		if item.count {
-			if cfg.AllowCount {
+			if cfg.Pg.Query.AllowCount {
 				n, cerr := runCount(ctx, conn, item.root, item.paramValues)
 				if cerr != nil {
 					_, _ = conn.Exec(ctx, "rollback")
@@ -443,13 +443,13 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 		if item.stats {
 			envelopes[i].stats = []query.Stat{}
-			if cfg.AllowStats && writeResults[i] != nil {
+			if cfg.Pg.Query.AllowStats && writeResults[i] != nil {
 				envelopes[i].stats = writeResults[i].Stats
 			}
 		}
 		if item.sql {
 			envelopes[i].sql = []query.SqlResult{}
-			if cfg.AllowSql {
+			if cfg.Pg.Query.AllowSql {
 				if writeResults[i] != nil {
 					envelopes[i].sql = append(envelopes[i].sql, writeResults[i].Sql...)
 				}
@@ -460,7 +460,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 		if item.queryPlan {
 			envelopes[i].queryPlan = []query.PlanResult{}
-			if cfg.AllowQueryPlan {
+			if cfg.Pg.Query.AllowQueryPlan {
 				if writeResults[i] != nil {
 					envelopes[i].queryPlan = append(envelopes[i].queryPlan, writeResults[i].QueryPlan...)
 				}

@@ -73,7 +73,7 @@ expect in the response:
 | `UNKNOWN_IDENTIFIER` | 400 | a relation, column, function, or operator name didn't resolve |
 | `JOIN_MISSING_INDEX` | 400 | a join's own columns aren't indexed — rel refused to compile a query that would scan per parent row |
 | `WRITE_FORBIDDEN` | 400 | the write touched a relation whose identity isn't writable, or violated a `write_mode` rule |
-| `QUERY_ROLLBACK_NOT_GRANTED` | 400 | `rollback: true` requested but `allow_rollback` is off — see [Complex queries](../query-language/complex-query.md#availability) |
+| `QUERY_ROLLBACK_NOT_GRANTED` | 400 | `rollback: true` requested but `pg.query.allow_rollback` is off — see [Complex queries](../query-language/complex-query.md#availability) |
 | `QUERY_STATS_QUERY_PLAN_CONFLICT` | 400 | `stats` and `query_plan` both requested on the same write |
 | `ANONYMOUS_DISABLED` | 401 | request has no credentials and no anonymous role is configured |
 | `NO_ROLE_CONFIGURED` | 500 | `pg.query.anonymous_role` is unset and the request is anonymous — a deployment misconfiguration, not an ordinary request failure |

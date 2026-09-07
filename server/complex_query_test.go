@@ -64,7 +64,7 @@ func TestComplexQuery_Count(t *testing.T) {
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Complex Count A'), ('Complex Count B'), ('Complex Count C')`); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	handler := complexHandler(t, func(c *config.Config) { c.AllowCount = true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowCount = true })
 
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"], "where": ["like", "name", ["Complex Count%"]], "limit": 1},
@@ -122,7 +122,7 @@ func TestComplexQuery_Count_UngrantedDegradesSilently(t *testing.T) {
 
 // TestComplexQuery_Count_OnWrite_Rejected proves count+data is QUERY_COUNT_IS_READ_ONLY.
 func TestComplexQuery_Count_OnWrite_Rejected(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.AllowCount = true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowCount = true })
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"]},
 		"data": [{"name": "Should Not Insert"}],
@@ -138,7 +138,7 @@ func TestComplexQuery_Count_OnWrite_Rejected(t *testing.T) {
 
 // TestComplexQuery_Stats_OnRead_Rejected proves stats without data is QUERY_STATS_IS_WRITE_ONLY.
 func TestComplexQuery_Stats_OnRead_Rejected(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.AllowStats = true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"]},
 		"stats": true
@@ -154,7 +154,7 @@ func TestComplexQuery_Stats_OnRead_Rejected(t *testing.T) {
 // TestComplexQuery_Stats_OnWrite proves a granted `stats` reports the
 // write's own insert count.
 func TestComplexQuery_Stats_OnWrite(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.AllowStats = true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"]},
 		"data": [{"name": "Complex Stats Director"}],
@@ -193,7 +193,7 @@ func TestComplexQuery_Stats_OnWrite(t *testing.T) {
 // TestComplexQuery_StatsQueryPlanConflict proves the two are rejected
 // together on a write.
 func TestComplexQuery_StatsQueryPlanConflict(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.AllowStats, c.AllowQueryPlan = true, true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats, c.Pg.Query.AllowQueryPlan = true, true })
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"]},
 		"data": [{"name": "Should Not Run"}],
@@ -227,7 +227,7 @@ func TestComplexQuery_UnsupportedReturns(t *testing.T) {
 // TestComplexQuery_Returns_None_OnWrite_SkipsResult proves a write's
 // returns:"none" omits "result" while still reporting stats.
 func TestComplexQuery_Returns_None_OnWrite_SkipsResult(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.AllowStats = true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"]},
 		"data": [{"name": "Complex Returns None Director"}],
@@ -260,7 +260,7 @@ func TestComplexQuery_Returns_None_OnWrite_SkipsResult(t *testing.T) {
 // TestComplexQuery_Rollback_UndoesWrite proves rollback:true persists
 // nothing, while still reporting what happened via stats.
 func TestComplexQuery_Rollback_UndoesWrite(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.AllowRollback, c.AllowStats = true, true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowRollback, c.Pg.Query.AllowStats = true, true })
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"]},
 		"data": [{"name": "Complex Rollback Director"}],
@@ -327,7 +327,7 @@ func TestComplexQuery_Sql_And_QueryPlan_OnRead(t *testing.T) {
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Complex Sql Plan Director')`); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	handler := complexHandler(t, func(c *config.Config) { c.AllowSql, c.AllowQueryPlan = true, true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowSql, c.Pg.Query.AllowQueryPlan = true, true })
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"], "where": ["=", "name", ["Complex Sql Plan Director"]]},
 		"sql": true,
@@ -364,7 +364,7 @@ func TestComplexQuery_Sql_And_QueryPlan_OnRead(t *testing.T) {
 // TestComplexQuery_Sql_OnWrite_IncludesReadback proves a write's sql
 // collects both the DML statement and the read-back SELECT.
 func TestComplexQuery_Sql_OnWrite_IncludesReadback(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.AllowSql = true })
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowSql = true })
 	rec := postRelTo(t, handler, `{
 		"query": {"relation": "director", "schema": "public", "select": ["own"]},
 		"data": [{"name": "Complex Sql Write Director"}],

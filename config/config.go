@@ -36,16 +36,6 @@ type Config struct {
 	// Postgres error detail and ## Stack traces add to error responses.
 	Dev bool
 
-	// AllowCount/AllowStats/AllowQueryPlan/AllowSql/AllowRollback are
-	// specs/complex-query.md ## Availability's allow_count/allow_stats/
-	// allow_query_plan/allow_sql/allow_rollback : server-wide switches for
-	// ComplexQuery's matching flags, each defaulting to Dev.
-	AllowCount     bool
-	AllowStats     bool
-	AllowQueryPlan bool
-	AllowSql       bool
-	AllowRollback  bool
-
 	// Raw is every dotted config key actually resolved at load time (loader.go's
 	// assemble()), for reload.cmd's `{name}` interpolation (specs/reload.md) —
 	// whatever was explicitly set via file/env/flag, plus pg.uri/pg.host/
@@ -505,6 +495,17 @@ type PgQuery struct {
 	// directories, kept as the raw string here — splitting happens wherever
 	// well-known loading itself gets built (not yet).
 	WellKnownDirs string
+
+	// AllowCount/AllowStats/AllowQueryPlan/AllowSql/AllowRollback are
+	// specs/complex-query.md ## Availability's pg.query.allow_count/
+	// pg.query.allow_stats/pg.query.allow_query_plan/pg.query.allow_sql/
+	// pg.query.allow_rollback : server-wide switches for ComplexQuery's
+	// matching flags, each defaulting to Dev.
+	AllowCount     bool
+	AllowStats     bool
+	AllowQueryPlan bool
+	AllowSql       bool
+	AllowRollback  bool
 }
 
 // Pg is the primary Postgres connection — the one thing every deployment

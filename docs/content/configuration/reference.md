@@ -14,11 +14,6 @@ the binary itself, if you want it without leaving a terminal.
 | Key | Default | What it does |
 |---|---|---|
 | `dev` | `false` | Adds the real Postgres error text and a stack trace to an otherwise generic error response. See [Development mode](index.md#development-mode). |
-| `allow_count` | same as `dev` | Enables `ComplexQuery`'s `count` flag. See [Complex queries](../query-language/complex-query.md#availability). |
-| `allow_stats` | same as `dev` | Enables `ComplexQuery`'s `stats` flag. |
-| `allow_query_plan` | same as `dev` | Enables `ComplexQuery`'s `query_plan` flag. |
-| `allow_sql` | same as `dev` | Enables `ComplexQuery`'s `sql` flag. |
-| `allow_rollback` | same as `dev` | Enables `ComplexQuery`'s `rollback` flag ; ungranted is a hard error, not a silent degrade. |
 
 ## Postgres connection
 
@@ -30,6 +25,11 @@ the binary itself, if you want it without leaving a terminal.
 | `pg.query.anonymous_role` | `~anonymous` | The role a request with no valid session runs as. See [Authentication](../http/authentication.md). |
 | `pg.query.max_depth` | `6` | Maximum join nesting a query may specify. |
 | `pg.query.wellknown_path` | `/wellknown` | Colon-separated directories, searched recursively for well-known query files. See [Well-known queries](../query-language/well-known-queries.md). |
+| `pg.query.allow_count` | same as `dev` | Enables `ComplexQuery`'s `count` flag. See [Complex queries](../query-language/complex-query.md#availability). |
+| `pg.query.allow_stats` | same as `dev` | Enables `ComplexQuery`'s `stats` flag. |
+| `pg.query.allow_query_plan` | same as `dev` | Enables `ComplexQuery`'s `query_plan` flag. |
+| `pg.query.allow_sql` | same as `dev` | Enables `ComplexQuery`'s `sql` flag. |
+| `pg.query.allow_rollback` | same as `dev` | Enables `ComplexQuery`'s `rollback` flag ; ungranted is a hard error, not a silent degrade. |
 
 ## HTTP server
 

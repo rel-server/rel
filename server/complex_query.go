@@ -42,7 +42,7 @@ func validateComplexFlags(ri *resolvedItem) error {
 // sql's silent degrade, since silently ignoring it would let effects persist
 // the caller believed were undone.
 func checkRollbackGrant(ri *resolvedItem, cfg *config.Config) error {
-	if ri.rollback && !cfg.AllowRollback {
+	if ri.rollback && !cfg.Pg.Query.AllowRollback {
 		return oops.Code(errcode.QueryRollbackNotGranted).Errorf(`query: "rollback" is not enabled on this server`)
 	}
 	return nil

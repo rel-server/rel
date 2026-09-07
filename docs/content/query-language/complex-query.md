@@ -152,7 +152,8 @@ at its default) to see anything besides the plain, since-undone selection.
 ## Availability
 
 `count`, `stats`, `query_plan`, `sql`, and `rollback` are each gated behind a server-wide switch
-(`allow_count`, `allow_stats`, `allow_query_plan`, `allow_sql`, `allow_rollback` — see
+(`pg.query.allow_count`, `pg.query.allow_stats`, `pg.query.allow_query_plan`, `pg.query.allow_sql`,
+`pg.query.allow_rollback` — see
 [Configuration reference](../configuration/reference.md)), all on together under `dev: true`.
 Asking for a disabled flag isn't an error : `count`/`stats`/`query_plan`/`sql` just come back
 empty/absent, `result` and every other, enabled flag in the same request still work normally. The
