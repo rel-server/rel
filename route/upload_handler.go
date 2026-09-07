@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
+	"github.com/samber/oops"
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/dbauth"
@@ -228,8 +229,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	var first firstCallEnvelope
 	if err := sonic.Unmarshal(firstEnvelope, &first); err != nil {
-		rlog.Error("route: decoding stream_upload's first-call response", "function", route.Function.Identifier.String(), "error", err.Error())
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
 		return
 	}
 	upload := first.Upload
@@ -252,14 +252,14 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if hasUpload {
 		if upload.Path != nil && *upload.Path != "" {
 			if writeDir == "" {
-				rlog.Error("route: upload route resolved a path but no http.static.path directory is configured/exists", "path", *upload.Path)
-				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
+					oops.With("path", *upload.Path).Errorf("upload route resolved a path but no http.static.path directory is configured/exists"))
 				return
 			}
 			cleaned, ok := resolveUnderDir(writeDir, *upload.Path)
 			if !ok {
-				rlog.Error("route: stream_upload's first call returned a path escaping http.static.path", "path", *upload.Path)
-				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
+					oops.With("path", *upload.Path).Errorf("stream_upload's first call returned a path escaping http.static.path"))
 				return
 			}
 			finalPath = cleaned
@@ -276,8 +276,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			}
 			if upload.Mkdir {
 				if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
-					rlog.Error("route: upload mkdir", "path", finalPath, "error", err.Error())
-					writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
+					writeServerError(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
+						oops.With("path", finalPath).Wrapf(err, "upload mkdir"))
 					return
 				}
 			}
@@ -287,8 +287,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			// second call gets an accurate size.
 			tempPath = filepath.Join(writeDir, ".upload-"+randomToken())
 		} else {
-			rlog.Error("route: upload route has no http.static.path directory configured/exists to stage the discarded upload into")
-			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
+				oops.Errorf("upload route has no http.static.path directory configured/exists to stage the discarded upload into"))
 			return
 		}
 	}
@@ -299,8 +299,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if hasUpload {
 		f, ferr := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if ferr != nil {
-			rlog.Error("route: creating temp upload file", "path", tempPath, "error", ferr.Error())
-			writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
+				oops.With("path", tempPath).Wrapf(ferr, "creating temp upload file"))
 			return
 		}
 		var src io.ReadCloser = limitedBody
@@ -411,8 +411,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// means the deferred cleanup deletes the temp file instead.
 	if hasUpload && finalPath != "" {
 		if err := swapUploadIntoPlace(rlog, tempPath, finalPath, overwrite); err != nil {
-			rlog.Error("route: swapping upload into place", "temp", tempPath, "final", finalPath, "error", err.Error())
-			writePlainError(w, http.StatusInternalServerError, errcode.UploadIOError, "internal error")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
+				oops.With("temp", tempPath, "final", finalPath).Wrapf(err, "swapping upload into place"))
 			return
 		}
 	}
