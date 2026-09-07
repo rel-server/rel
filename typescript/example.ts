@@ -43,6 +43,31 @@ const rooms = relation("hotel.rooms", {
 
 export type RoomsShape = Awaited<ReturnType<typeof rooms.get>>
 
+// Scoped-join callback form (specs/typescript-better-join.md) : equivalent to `properties` above, but the
+// `join` handed to the callback is already scoped to "hotel.properties", so nested join() calls never repeat it.
+// Nested two levels deep (properties -> rooms -> room_type) to exercise TargetRelationName's recursive scoping.
+const propertiesScoped = relation("hotel.properties", (join) => ({
+  select: {
+    col: "created_at",
+    test: ["$param", "toto", "string"],
+  },
+  join: {
+    rooms: join("hotel.rooms<;id:property_id", (join) => ({
+      select: ["full"],
+      join: {
+        room_type: join("hotel.room_types>;id:room_type_id"),
+      },
+    })),
+  },
+}))
+
+export type PropertiesScopedShape = Awaited<ReturnType<typeof propertiesScoped.get>>
+
+// No second argument at all : a bare select-all, per resolveRequest()'s default (querier.ts).
+const propertiesBare = relation("hotel.properties")
+
+export type PropertiesBareShape = Awaited<ReturnType<typeof propertiesBare.get>>
+
 const roomsAvailable = func("hotel.rooms_available", {
   select: ["full"],
 })

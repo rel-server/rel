@@ -34,10 +34,59 @@ export function wellknown<W extends keyof Wellknowns>(
 // matches" when every candidate fails). Delegates to ResolveModel so root and join resolution share one path.
 type ResolveRelationModel<R extends string> = ResolveModel<{ relation: R }>
 
-// Builder for relations. `rel` must be a fully qualified "schema.relation" name.
-export function relation<R extends string, const Q extends RelationQuery<ResolveRelationModel<R>>>(
+// `join()` scoped to relation K, so a nested join never has to repeat the enclosing relation's name — see
+// scopedJoin() below and specs/typescript-better-join.md. K isn't constrained to keyof Relationships (relation()'s
+// own R isn't either) ; SafeRelationships resolves to `never` for an unrecognized relation, making the scoped
+// join uncallable there rather than a type error at the declaration site.
+type SafeRelationships<K extends string> = K extends keyof Relationships ? Relationships[K] : never
+
+// The target relation name embedded in a shortcut string itself : "hotel.rooms<;id:property_id" ->
+// "hotel.rooms". This is what lets a nested join's own callback re-scope itself to ITS target without a second
+// explicit argument — the shortcut the caller already had to type carries it.
+type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">"}${string}` ? Rel : never
+
+export interface ScopedJoin<K extends string> {
+  <
+    S extends SafeRelationships<K>["shortcut"],
+    const Q extends RelationQuery<
+      Extract<SafeRelationships<K>, { shortcut: S }>["relation"]
+    > = Record<string, never>,
+  >(
+    shortcut: S,
+    request?: Q | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
+  ): Q & { shortcut: S }
+}
+
+// Builds the `(shortcut, request?) => ...` closure handed to a relation()/join() callback, scoped to `key` —
+// shared by relation() (scoped to the relation itself) and join()'s own recursive case (scoped to the shortcut's
+// target, once parsed).
+function scopedJoin<K extends string>(key: K): ScopedJoin<K> {
+  return ((shortcut: string, request?: unknown) =>
+    join(key as never, shortcut as never, request as never)) as ScopedJoin<K>
+}
+
+// Resolves `request` the same way relation() and join() each need to : a callback is invoked with a join scoped
+// to `key` ; an absent request defaults to a bare `{}` (select-all, per query-language/selecting.md's own
+// "absent select defaults to full" rule) ; a plain object is used as-is.
+function resolveRequest<K extends string, Q>(
+  key: K,
+  request: Q | ((join: ScopedJoin<K>) => Q) | undefined,
+): Q {
+  if (typeof request === "function") {
+    return (request as (join: ScopedJoin<K>) => Q)(scopedJoin(key))
+  }
+  return request ?? ({} as Q)
+}
+
+// Builder for relations. `rel` must be a fully qualified "schema.relation" name. `request` is optional (a bare
+// select-all query, per resolveRequest above) and can be a plain query object or a callback receiving a `join`
+// already scoped to `rel`, so a nested join never has to repeat the relation it's being joined from.
+export function relation<
+  R extends string,
+  const Q extends RelationQuery<ResolveRelationModel<R>> = Record<string, never>,
+>(
   rel: R,
-  request: Q,
+  request?: Q | ((join: ScopedJoin<R>) => Q),
 ): Querier<
   ShapeFromQuery<Q, ResolveRelationModel<R>>,
   WriteShapeFromQuery<Q, ResolveRelationModel<R>>,
@@ -45,7 +94,7 @@ export function relation<R extends string, const Q extends RelationQuery<Resolve
 > {
   const [schema, relation] = rel.split(".")
   const query = {
-    ...request,
+    ...resolveRequest(rel, request),
     schema,
     relation,
   }
@@ -110,14 +159,30 @@ function parseShortcut(shortcut: string): {
 // a union — one member per FK reachable from that relation) ; `shortcut` then picks exactly one member, so a
 // relation with several FKs never collides on a single shape. `shortcut` is parsed directly into `on`/`relation`/
 // `schema`, and kept on the returned object's own type so shapes.ts's JoinCardinality/ResolveModel can resolve
-// this join's row shape and cardinality from it alone, without needing `key` again.
+// this join's row shape and cardinality from it alone, without needing `key` again. `request` is optional and can
+// be a callback, same as relation() — see ScopedJoin/scopedJoin above and specs/typescript-better-join.md ; the
+// callback it receives is scoped to `shortcut`'s own TARGET (parsed via TargetRelationName), not `key`, so a
+// join-of-a-join never repeats a relation name either.
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
-  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
->(_key: K, shortcut: S, request: Q): Q & { shortcut: S } {
+  const Q extends RelationQuery<
+    Extract<Relationships[K], { shortcut: S }>["relation"]
+  > = Record<string, never>,
+>(
+  _key: K,
+  shortcut: S,
+  request?: Q | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
+): Q & { shortcut: S } {
   const { schema, relation, on } = parseShortcut(shortcut)
-  return { ...request, schema, relation, on, shortcut } as Q & { shortcut: S }
+  const target = `${schema}.${relation}` as TargetRelationName<S>
+  return {
+    ...resolveRequest(target, request),
+    schema,
+    relation,
+    on,
+    shortcut,
+  } as Q & { shortcut: S }
 }
 
 // Both wellknown() and relation() produce a Querier with its Shape/WriteShape/Params known through their own

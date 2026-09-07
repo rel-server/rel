@@ -18,7 +18,7 @@ curl http://localhost:8080/rel/database.ts?schemas=hotel > src/database.ts
 
 `schemas` restricts which schemas get included — omit it and every schema but `pg_catalog` is
 exported. The endpoint is off by default outside of dev mode; see
-[Configuration](configuration/index.md) for `http.typescript.enable` and `http.typescript.schemas`.
+[Configuration reference](configuration/reference.md) for `http.typescript.enable` and `http.typescript.schemas`.
 If you'd rather have your editor/LSP watch a real file on disk instead of re-curling by hand,
 `typescript.helper_path` has rel write `database.ts` straight to a path of your choosing, on
 startup and on every schema reload.
@@ -28,29 +28,50 @@ if you like, and it just works.
 
 ## Building a query
 
-`database.ts` exports `relation()`, `join()`, `func()`, and `wellknown()` — thin builders that
-return a `Querier`, typed against your actual schema:
+`database.ts` exports `relation()`, `func()`, and `wellknown()` — thin builders that return a
+`Querier`, typed against your actual schema:
 
 ```ts
-import { relation, join } from "./database"
+import { relation } from "./database"
 
-const properties = await relation("hotel.properties", {
+const properties = await relation("hotel.properties", (join) => ({
   where: [">=", "star_rating", 4],
   join: {
-    rooms: join("hotel.properties", "hotel.rooms<;id:property_id", {
+    rooms: join("hotel.rooms<;id:property_id", {
       select: "*",
     }),
   },
   select: { id: "id", name: "name", star_rating: "star_rating", rooms: "rooms" },
-}).get()
+})).get()
 ```
 
 `properties` comes back typed as an array of exactly the shape you asked for — `id: number`,
 `name: string`, `rooms: Table__Hotel__Rooms[]` — not `any`. Get a column name wrong, or select
-a joined alias that isn't declared, and it's a compile error, not a runtime surprise. `join()`'s
-second argument is a generated "shortcut" string identifying which foreign key you mean, since
-a relation can have more than one path to the same table; your editor's autocomplete lists the
-valid ones for a given relation.
+a joined alias that isn't declared, and it's a compile error, not a runtime surprise.
+
+`relation()`'s second argument is a callback, and it's what makes a joined column's shortcut
+type-check correctly: the `join` it receives already knows which relation it's being called
+from, so it only offers the foreign keys reachable from *that* relation, and only accepts a
+shortcut that's actually valid there — get it wrong and it's a compile error, with your editor's
+autocomplete listing the valid shortcuts for that relation. The scoping recurses: a join nested
+inside another join gets a `join` of its own, scoped to *its* target, so the same type-checking
+applies at every depth without you having to tell it what relation you're embedding into:
+
+```ts
+const properties = await relation("hotel.properties", (join) => ({
+  join: {
+    rooms: join("hotel.rooms<;id:property_id", (join) => ({
+      join: {
+        room_type: join("hotel.room_types>;id:room_type_id"),
+      },
+    })),
+  },
+})).get()
+```
+
+The second argument is also optional entirely: `relation("hotel.properties")` alone, with no
+query, is a bare select-all (own columns plus every joined relation, the same default an omitted
+`select` already has server-side).
 
 Writing back uses the same `Querier`, with `.write()` instead of `.get()`:
 
