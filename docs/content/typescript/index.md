@@ -86,6 +86,13 @@ can genuinely differ — a column marked `get` in your `select` is read-only and
 write type entirely; one marked `set` is the opposite, accepted on write but never returned on
 read. See [The query language ## Selecting fields](../query-language/selecting.md).
 
+Only a column with no other way to end up with a value — not nullable, no default, not an
+identity/generated column — is mandatory in that write type; everything else (a nullable
+column, one with a default, an identity column) is optional, so inserting a new row only
+requires typing out the columns that actually need it. This follows a column through a select
+map's own rename too: `select: { display_name: "name" }` still requires `display_name` if
+`name` itself is required.
+
 `wellknown()` builds a call to a registered [well-known query](../query-language/well-known-queries.md) instead
 of an ad hoc relation — same `Querier`, but its params and result shape come from the query's
 own registered definition rather than from what you pass to `relation()`.

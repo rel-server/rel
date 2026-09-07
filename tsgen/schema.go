@@ -79,6 +79,7 @@ func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) str
 
 	relInterfaces := renderRelationInterfaces(relations, tc)
 	relationsMap := renderRelationsMap(relations)
+	requiredColumns := renderRequiredColumns(relations)
 	relationships := renderRelationships(relations, allowed, tc)
 	computedProperties := renderComputedProperties(relations, opts.Blacklist, tc)
 	functions := renderFunctions(fns, allowed, tc)
@@ -101,6 +102,7 @@ func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) str
 	b.WriteString(tc.declarations())
 	b.WriteString(relInterfaces)
 	b.WriteString(relationsMap)
+	b.WriteString(requiredColumns)
 	b.WriteString(relationships)
 	b.WriteString(computedProperties)
 	b.WriteString(functions)
@@ -242,6 +244,53 @@ func renderRelationsMap(relations []*pg.Relation) string {
 		key := relationKey(r.Identifier.Schema, r.Identifier.Name)
 		name := relationInterfaceName(r.Identifier.Schema, r.Identifier.Name, r.IsView)
 		fmt.Fprintf(&b, "  %s: %s\n", strconv.Quote(key), name)
+	}
+	b.WriteString("}\n\n")
+	return b.String()
+}
+
+// isRequiredColumn reports whether c MUST be given a value on insert —
+// specs/required-fields.md : not nullable, no default expression, and not
+// identity/generated (both of which Postgres fills in itself, the same way
+// a default would). IsUpdatable/view-writability aren't factored in here ;
+// RequiredColumns describes the relation's own shape, not what a given
+// write is actually allowed to touch — the same "best-effort narrowing, not
+// a validator" stance WriteShapeFromQuery's own doc comment (shapes.ts)
+// already takes.
+func isRequiredColumn(c *pg.Column) bool {
+	return c.IsReallyNotNull() && c.DefaultExpression == "" && !c.IsIdentity && !c.IsGenerated
+}
+
+// renderRequiredColumns is specs/required-fields.md's RequiredColumns : for
+// every target relation, the physical columns a write actually MUST supply
+// a value for — shapes.ts's WriteShapeFromRelationQuery uses this to mark
+// exactly those keys mandatory in a relation's write shape, leaving every
+// other column (nullable, defaulted, identity, generated) optional instead
+// of the physical-shape-verbatim, everything-mandatory shape tsgen used to
+// produce. `never` for a relation with no required column at all, rather
+// than omitting its key — RequiredColumns[key] is meant to be indexed
+// unconditionally by every target relation's own key (ResolveKey, shapes.ts).
+func renderRequiredColumns(relations []*pg.Relation) string {
+	var b strings.Builder
+	b.WriteString("export interface RequiredColumns {\n")
+	for _, r := range relations {
+		key := relationKey(r.Identifier.Schema, r.Identifier.Name)
+		var required []string
+		for _, c := range r.Columns {
+			if isRequiredColumn(c) {
+				required = append(required, c.Name)
+			}
+		}
+		if len(required) == 0 {
+			fmt.Fprintf(&b, "  %s: never\n", strconv.Quote(key))
+			continue
+		}
+		sort.Strings(required)
+		lits := make([]string, len(required))
+		for i, n := range required {
+			lits[i] = strconv.Quote(n)
+		}
+		fmt.Fprintf(&b, "  %s: %s\n", strconv.Quote(key), strings.Join(lits, " | "))
 	}
 	b.WriteString("}\n\n")
 	return b.String()

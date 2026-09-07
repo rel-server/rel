@@ -162,6 +162,38 @@ export type _AssertZeroArgFunctionArgsRejectsArbitraryKeys = Expect<
   { foo: "bar" } extends Functions["hotel.property_count"]["args"] ? false : true
 >
 
+// Required Fields (specs/required-fields.md) : RequiredColumns["hotel.room_types"] names "name"/"base_price" —
+// "id" is neither nullable nor required (a serial/identity column in a real deployment), so it must be OPTIONAL
+// in the write shape rather than mandatory the way tsgen used to render every physical column, verbatim.
+const roomTypeWrite = relation("hotel.room_types", {
+  select: ["own"],
+})
+
+export type RoomTypeWriteShape = Parameters<typeof roomTypeWrite.write>[0]
+
+// None of this schema's own column types ever include `undefined` themselves (only `| null` for a genuinely
+// nullable SQL column) — so an optional key's own apparent type (T[K] including `| undefined`, added implicitly
+// by a `?:` property) is the only way `undefined` can show up here at all.
+type IsOptionalKey<T, K extends keyof T> = undefined extends T[K] ? true : false
+
+export type _AssertRequiredColumnIsMandatory = Expect<
+  IsOptionalKey<RoomTypeWriteShape, "name"> extends false ? true : false
+>
+export type _AssertNonRequiredColumnIsOptional = Expect<IsOptionalKey<RoomTypeWriteShape, "id">>
+
+// The same required column, reached through a select map that renames it — BackingColumnOf (shapes.ts) resolves
+// each entry's own VALUE ("name") back to the physical column RequiredColumns names, independent of the KEY
+// ("renamed_name") it's filed under, so the rename doesn't accidentally demote it to optional.
+const roomTypeWriteAliased = relation("hotel.room_types", {
+  select: { renamed_name: "name", base_price: "base_price" },
+})
+
+export type RoomTypeWriteAliasedShape = Parameters<typeof roomTypeWriteAliased.write>[0]
+
+export type _AssertAliasedRequiredColumnStaysMandatory = Expect<
+  IsOptionalKey<RoomTypeWriteAliasedShape, "renamed_name"> extends false ? true : false
+>
+
 // Wellknowns (specs/typescript.md ## Wellknowns) : wellknown()'s params are supplied upfront, and its Shape/
 // WriteShape come from the raw query literal via ShapeFromRelationQuery/ResolveModel (schema.example.ts) — no
 // `.get(params)` argument needed, unlike relation()/func()'s own `$param`-driven Params.

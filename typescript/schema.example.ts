@@ -57,6 +57,17 @@ export interface Relations {
   "hotel.room_types": Table__Hotel__RoomTypes
 }
 
+// specs/required-fields.md : the physical columns a write MUST supply a value for — not nullable, no default,
+// not identity/generated. `id` is excluded everywhere here (`serial`/identity in the real schema) ; `star_rating`/
+// `chain_id`/`location`/`description`/`created_at`/`floor`/`status`/`features` are all either nullable or
+// defaulted, so they're excluded too — see shapes.ts's WriteOwnShape/WriteShapeFromExpressionMap for how this
+// gets applied.
+export interface RequiredColumns {
+  "hotel.properties": "name"
+  "hotel.rooms": "property_id" | "room_type_id" | "room_number"
+  "hotel.room_types": "name" | "base_price"
+}
+
 // `shortcut` is interpreted client-side by join() (querier.ts) to fill in `on:`/`relation:`/`schema:` and is
 // never sent to the server. Its purpose is limited to provide auto-completion to the developer.
 // `on:` alone can't tell TypeScript whether the embed is an object or an array ; `unique` does.

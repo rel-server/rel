@@ -75,6 +75,36 @@ func TestGenerateSchema_NotNullSemantics(t *testing.T) {
 	}
 }
 
+// TestGenerateSchema_RequiredColumns is specs/required-fields.md's
+// RequiredColumns : only a column with no way to end up with a value on its
+// own — not nullable, no default, not identity/generated — is required.
+// hotel.properties.id is `serial` (excluded via its own default expression,
+// same as identity would be), created_at is NOT NULL but defaulted (also
+// excluded), slug is nullable at the column level but NOT NULL via its own
+// domain (hotel.non_empty_text) — must still end up required, the same
+// domain-propagation TestGenerateSchema_NotNullSemantics already covers for
+// plain column typing.
+func TestGenerateSchema_RequiredColumns(t *testing.T) {
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
+
+	ifaceIdx := strings.Index(out, "export interface RequiredColumns {")
+	if ifaceIdx < 0 {
+		t.Fatalf("RequiredColumns interface not found in:\n%s", out)
+	}
+	blockEnd := strings.Index(out[ifaceIdx:], "\n}\n")
+	block := out[ifaceIdx : ifaceIdx+blockEnd]
+
+	for _, want := range []string{
+		`"hotel.properties": "name" | "slug"`,
+		`"hotel.room_types": "base_price" | "name"`,
+		`"hotel.rooms": "property_id" | "room_number" | "room_type_id"`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("RequiredColumns missing %q ; got:\n%s", want, block)
+		}
+	}
+}
+
 func TestGenerateSchema_HotelExample(t *testing.T) {
 	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
 

@@ -9,6 +9,7 @@ import type { Relationships, Wellknowns } from "./schema.example"
 import type {
   DefaultRow,
   Params,
+  RequiredKeysOf,
   ResolveModel,
   ShapeFromQuery,
   WriteShapeFromQuery,
@@ -89,7 +90,10 @@ export function relation<
   request?: Q | ((join: ScopedJoin<R>) => Q),
 ): Querier<
   ShapeFromQuery<Q, ResolveRelationModel<R>>,
-  WriteShapeFromQuery<Q, ResolveRelationModel<R>>,
+  // RequiredKeysOf<R> is passed explicitly : R (e.g. "hotel.properties") is split apart from `request`/Q above,
+  // so Q alone never carries the `relation`/`schema` fields WriteShapeFromQuery's own default would otherwise
+  // read a relation's required columns off of (see that type's own doc comment, shapes.ts).
+  WriteShapeFromQuery<Q, ResolveRelationModel<R>, RequiredKeysOf<R>>,
   Params<Q>
 > {
   const [schema, relation] = rel.split(".")

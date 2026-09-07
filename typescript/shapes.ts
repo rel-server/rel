@@ -9,6 +9,7 @@ import type {
   FunctionsByName,
   Relations,
   Relationships,
+  RequiredColumns,
   Wellknowns,
 } from "./schema.example"
 
@@ -86,6 +87,22 @@ export type ResolveModel<Node> = Node extends { shortcut: infer S extends string
             ? ResolveFunctionModel<F>
             : DefaultRow
           : DefaultRow
+
+// The literal "schema.table" key ResolveModel resolved a real relation's row shape from — needed to look up
+// RequiredColumns[key] (specs/required-fields.md) for write-shape required-ness, below. A join's `shortcut`
+// already spells this out as its own leading segment (querier.ts's own TargetRelationName does the identical
+// extraction for its recursive join scoping) ; `never` for a function-rooted node (a function's row was never
+// introspected as an insertable relation — functions.md : "always read-only") or an unrecognized name, the same
+// cases ResolveModel itself falls back to DefaultRow for.
+export type ResolveKey<Node> = Node extends { shortcut: infer S extends string }
+  ? S extends `${infer Key}${"<" | ">"}${string}`
+    ? Key
+    : never
+  : Node extends { schema: infer Sc extends string; relation: infer R extends string }
+    ? `${Sc}.${R}`
+    : Node extends { relation: infer R extends string }
+      ? R
+      : never
 
 // A function's embeddable row shape : its own `relation` (set-returning, joinable/selectable like a table) when
 // given, else its scalar `returns` type — a scalar function produces one bare value per row, not a row at all.
@@ -383,23 +400,80 @@ export type ShapeFromQuery<
 // are kept, matching "a physical column is writable iff referenced ... wrapped only by coalescing operators, or
 // by set/get-set ; get doesn't count toward this at all."
 //
+// A column named in RequiredColumns[key] (specs/required-fields.md — not nullable, no default, not
+// identity/generated) stays mandatory ; every other physical column — nullable, defaulted, or simply one a
+// hand-written select map chose not to include — is optional, matching what an actual INSERT can leave out.
+// This applies per relation reached in the tree, root and every joined relation alike (WriteJoinShapes below
+// recomputes it for each), and follows a column through a select map's own key rename (`{"renamed": "col"}"`) —
+// BackingColumnOf resolves each entry's own VALUE back to the physical column it names, independent of whatever
+// key it's filed under, so the association is never actually lost the way this spec's own `> Thoughts:` worried
+// it might be.
+//
 // NOT modeled, and left entirely to the server : the exactly-once occurrence rule, `insert_columns`/
 // `update_columns` allowlisting, identity-target writability, and write_mode-dependent required/optional columns
-// — specs/typescript.md ## Goals already calls out full expression/column type-checking as a separate, harder
-// (v2) concern, and this is the write-side instance of that same gap. This type is a best-effort narrowing, not
-// a validator ; the server remains the actual authority on what's writable.
+// (a column required for a fresh INSERT is still typed mandatory even when the actual write_mode in play is an
+// update-only one, where Postgres wouldn't need it at all) — specs/typescript.md ## Goals already calls out full
+// expression/column type-checking as a separate, harder (v2) concern, and this is the write-side instance of
+// that same gap. This type is a best-effort narrowing, not a validator ; the server remains the actual authority
+// on what's writable.
 
+// RequiredColumns[key], or `never` when key isn't a real, recognized relation (ResolveKey's own fallback) —
+// `never` indexed against RequiredColumns' own required `[schema.table]: ...` shape would otherwise be a type
+// error, not a graceful empty union, hence the guard.
+export type RequiredKeysOf<Key> = Key extends keyof RequiredColumns ? RequiredColumns[Key] : never
+
+// The single physical column name E refers to, when that's unambiguous — a bare column reference, or a
+// get-set/set field tag naming one (`get` is excluded : it's read-only, already dropped from the write shape
+// via Omitted before this is ever consulted). Anything else — own/full and their variants, a computed/call
+// expression, a container, `$param` — has no ONE backing column, so it's `never` ; IsRequiredEntry (below) reads
+// that as "can't be required," never as a false positive.
+type BackingColumnOf<E, Rel extends object> = E extends readonly [
+  infer Tag extends string,
+  infer Col,
+  ...unknown[],
+]
+  ? Tag extends "get-set" | "set"
+    ? Col extends keyof Rel
+      ? Col
+      : never
+    : never
+  : E extends keyof Rel
+    ? E
+    : never
+
+// Whether Obj[K]'s own expression, in WriteShapeFromExpressionMap below, must be marked mandatory — `false`,
+// not merely "not required," when there's no single backing column at all (the `[X] extends [never]` form,
+// rather than a bare `X extends never`, matters here : ReqCol can itself legitimately BE `never`, and a bare
+// `never extends never` would then read every entry as required instead of none).
+type IsRequiredEntry<E, Rel extends object, ReqCol extends string> = [
+  BackingColumnOf<E, Rel>,
+] extends [never]
+  ? false
+  : BackingColumnOf<E, Rel> extends ReqCol
+    ? true
+    : false
+
+// Each joined member carries its own `relation`/`schema`/`shortcut` fields on its own literal (unlike relation()/
+// func()'s root call — see WriteShapeFromQuery's own doc comment) — WriteShapeFromRelationQuery's own ReqCol
+// default (RequiredKeysOf<ResolveKey<Q>>) reads its required columns straight off that literal, same as
+// ResolveModel<Join[A]> already does for its row shape ; no need to compute or pass it explicitly here.
 type WriteJoinShapes<Join extends { [name: string]: unknown }, Depth extends number> = {
   [A in keyof Join]: JoinCardinality<Join[A]> extends true
     ? WriteShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>
     : WriteShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>[]
 }
 
+// Same physical columns as OwnShape, but a column named in ReqCol (RequiredKeysOf<ResolveKey<Q>>, threaded down
+// from wherever this relation was reached in the tree) stays mandatory while everything else becomes optional.
+type WriteOwnShape<Rel extends object, ReqCol extends string> = Pick<Rel, ReqCol & keyof Rel> &
+  Partial<Omit<Rel, ReqCol>>
+
 type WriteFullShape<
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
-> = OwnShape<Rel> & WriteJoinShapes<Join, Depth>
+  ReqCol extends string = never,
+> = WriteOwnShape<Rel, ReqCol> & WriteJoinShapes<Join, Depth>
 
 // get is dropped (read-only) ; get-set/set are writable, same underlying column type as the read side.
 type WriteShapeFromFieldTag<
@@ -420,41 +494,44 @@ type WriteShapeFromOwnFullTag<
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
+  ReqCol extends string = never,
 > = Tag extends "own"
-  ? OwnShape<Rel>
+  ? WriteOwnShape<Rel, ReqCol>
   : Tag extends "full"
-    ? WriteFullShape<Rel, Join, Depth>
+    ? WriteFullShape<Rel, Join, Depth, ReqCol>
     : Tag extends "own_except"
       ? Rest extends readonly [infer Ex extends readonly string[]]
-        ? Omit<Rel, Ex[number]>
+        ? Omit<WriteOwnShape<Rel, ReqCol>, Ex[number]>
         : never
       : Tag extends "full_except"
         ? Rest extends readonly [infer Ex extends readonly string[]]
-          ? Omit<WriteFullShape<Rel, Join, Depth>, Ex[number]>
+          ? Omit<WriteFullShape<Rel, Join, Depth, ReqCol>, Ex[number]>
           : never
         : Tag extends "own_and"
           ? Rest extends readonly [infer And extends { [name: string]: unknown }]
-            ? OwnShape<Rel> & WriteShapeFromExpressionMap<And, Rel, Join, Depth>
+            ? WriteOwnShape<Rel, ReqCol> &
+                WriteShapeFromExpressionMap<And, Rel, Join, Depth, ReqCol>
             : never
           : Tag extends "full_and"
             ? Rest extends readonly [infer And extends { [name: string]: unknown }]
-              ? WriteFullShape<Rel, Join, Depth> &
-                  WriteShapeFromExpressionMap<And, Rel, Join, Depth>
+              ? WriteFullShape<Rel, Join, Depth, ReqCol> &
+                  WriteShapeFromExpressionMap<And, Rel, Join, Depth, ReqCol>
               : never
             : Tag extends "own_except_and"
               ? Rest extends readonly [
                   infer Ex extends readonly string[],
                   infer And extends { [name: string]: unknown },
                 ]
-                ? Omit<Rel, Ex[number]> & WriteShapeFromExpressionMap<And, Rel, Join, Depth>
+                ? Omit<WriteOwnShape<Rel, ReqCol>, Ex[number]> &
+                    WriteShapeFromExpressionMap<And, Rel, Join, Depth, ReqCol>
                 : never
               : // "full_except_and", the only tag left once every branch above is excluded
                 Rest extends readonly [
                     infer Ex extends readonly string[],
                     infer And extends { [name: string]: unknown },
                   ]
-                ? Omit<WriteFullShape<Rel, Join, Depth>, Ex[number]> &
-                    WriteShapeFromExpressionMap<And, Rel, Join, Depth>
+                ? Omit<WriteFullShape<Rel, Join, Depth, ReqCol>, Ex[number]> &
+                    WriteShapeFromExpressionMap<And, Rel, Join, Depth, ReqCol>
                 : never
 
 type WriteShapeFromContainerTag<
@@ -463,38 +540,54 @@ type WriteShapeFromContainerTag<
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
+  ReqCol extends string = never,
 > = Tag extends "coalesce"
-  ? WriteShapeFromExpression<Items[number], Rel, Join, Depth>
-  : { [I in keyof Items]: WriteShapeFromExpression<Items[I], Rel, Join, Depth> }
+  ? WriteShapeFromExpression<Items[number], Rel, Join, Depth, ReqCol>
+  : { [I in keyof Items]: WriteShapeFromExpression<Items[I], Rel, Join, Depth, ReqCol> }
 
-// Same key-remap as ShapeFromExpressionMap, dropping `Omitted` entries — here that's a `get` tag instead of `set`.
+// Same key-remap as ShapeFromExpressionMap, dropping `Omitted` entries (here that's a `get` tag instead of
+// `set`) — plus a required/optional split on top, via IsRequiredEntry : a key backed by a column ReqCol names
+// (BackingColumnOf) stays mandatory ; every other key, including one with no single backing column at all
+// (own/full never reach here — see WriteShapeFromOwnFullTag — but a computed/container value can), is optional.
 type WriteShapeFromExpressionMap<
   Obj extends { [name: string]: unknown },
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
-> = {
-  [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth> extends Omitted
-    ? never
-    : K]: WriteShapeFromExpression<Obj[K], Rel, Join, Depth>
-}
+  ReqCol extends string = never,
+> = Flatten<
+  {
+    [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
+      ? never
+      : IsRequiredEntry<Obj[K], Rel, ReqCol> extends true
+        ? never
+        : K]?: WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol>
+  } & {
+    [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
+      ? never
+      : IsRequiredEntry<Obj[K], Rel, ReqCol> extends true
+        ? K
+        : never]: WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol>
+  }
+>
 
 type WriteShapeFromExpression<
   E,
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number = 12,
+  ReqCol extends string = never,
 > = Depth extends 0
   ? unknown
   : E extends readonly [infer Tag extends string, ...infer Rest extends readonly unknown[]]
     ? Tag extends OwnFullTag
-      ? WriteShapeFromOwnFullTag<Tag, Rest, Rel, Join, Digits[Depth]>
+      ? WriteShapeFromOwnFullTag<Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
       : Tag extends "get" | "get-set" | "set"
         ? WriteShapeFromFieldTag<Tag, Rest, Rel>
         : Tag extends "$param"
           ? ShapeFromParamTag<Rest>
           : Tag extends ContainerTag
-            ? WriteShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth]>
+            ? WriteShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
             : Tag extends "call"
               ? Omitted // never a real column (query-engine.md : "never a candidate for writability") ; dropped
               : // from the write shape entirely, same as `get` above, rather than kept with a nonsensical type.
@@ -502,29 +595,37 @@ type WriteShapeFromExpression<
                 ? Tag
                 : unknown
     : E extends { [name: string]: unknown }
-      ? WriteShapeFromExpressionMap<E, Rel, Join, Digits[Depth]>
+      ? WriteShapeFromExpressionMap<E, Rel, Join, Digits[Depth], ReqCol>
       : ShapeFromLeaf<E, Rel, Join, Digits[Depth]>
 
 // A bare top-level `get` has nowhere to drop its own key, same edge case ShapeFromRelationQuery guards against
-// for a bare top-level `set` — falls back to `unknown` rather than leaking `Omitted`.
+// for a bare top-level `set` — falls back to `unknown` rather than leaking `Omitted`. ReqCol defaults to
+// RequiredKeysOf<ResolveKey<Q>> — Q's OWN `relation`/`schema`/`shortcut` fields, when it carries them (a join
+// member's literal, or a Wellknowns entry's embedded query literal) — so a direct caller never has to compute or
+// pass it itself. relation()/func() (querier.ts) are the one exception : they split the relation/function name
+// out from the request object entirely, so Q alone never carries it — WriteShapeFromQuery's own explicit ReqCol
+// parameter exists specifically for relation() to pass RequiredKeysOf<R> in from the name string it still has.
 export type WriteShapeFromRelationQuery<
   Q,
   Rel extends object,
   Depth extends number = 12,
+  ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
 > = Depth extends 0
   ? unknown
   : Q extends { select: infer Sel }
     ? [Sel] extends [undefined]
-      ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
-      : WriteShapeFromExpression<Sel, Rel, ExtractJoinMap<Q>, Digits[Depth]> extends infer S
+      ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
+      : WriteShapeFromExpression<Sel, Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol> extends infer S
         ? S extends Omitted
           ? unknown
           : S
         : never
-    : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
+    : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
 
-// Public entry point, mirroring ShapeFromQuery.
+// Public entry point, mirroring ShapeFromQuery. ReqCol's default mirrors WriteShapeFromRelationQuery's own —
+// see that type's doc comment for why relation() (querier.ts) is the one caller that overrides it explicitly.
 export type WriteShapeFromQuery<
   Q extends RelationQuery<Rel>,
   Rel extends object = { [name: string]: unknown },
-> = WriteShapeFromRelationQuery<Q, Rel>
+  ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
+> = WriteShapeFromRelationQuery<Q, Rel, 12, ReqCol>
