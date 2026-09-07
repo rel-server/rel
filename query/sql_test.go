@@ -17,6 +17,15 @@ func mustCompileSelect(t *testing.T, node *QueryNode) (string, []any) {
 	return w.String(), w.Args()
 }
 
+func runCount(t *testing.T, sql string, args []any) int {
+	t.Helper()
+	var n int
+	if err := testDb.Pool.QueryRow(context.Background(), sql, args...).Scan(&n); err != nil {
+		t.Fatalf("query: %v\nsql: %s", err, sql)
+	}
+	return n
+}
+
 // runSelect executes the compiled SQL against testDb.Pool and decodes the
 // single "json" column of each returned row.
 func runSelect(t *testing.T, sql string, args []any) []map[string]any {
@@ -348,6 +357,66 @@ func TestCompileSelect_Cast_RejectsInjectedTypeName(t *testing.T) {
 	_, err := CompileSelect(node)
 	if err == nil {
 		t.Fatalf("expected CompileSelect to reject an invalid cast type name, got success")
+	}
+}
+
+// TestCompileCount_IgnoresLimit proves count reports the total matching
+// row count, not the paginated page size (specs/complex-query.md ## count).
+func TestCompileCount_IgnoresLimit(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Count Director A'), ('Count Director B'), ('Count Director C')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "where": ["like", "name", ["Count Director%"]], "limit": 1}`)
+
+	sql, args := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, args)
+	if len(rows) != 1 {
+		t.Fatalf("expected the paginated select to return 1 row, got %d", len(rows))
+	}
+
+	cw, err := CompileCount(node)
+	if err != nil {
+		t.Fatalf("CompileCount: %v", err)
+	}
+	n := runCount(t, cw.String(), cw.Args())
+	if n != 3 {
+		t.Fatalf("expected count 3 (ignoring limit 1), got %d : %s", n, cw.String())
+	}
+}
+
+// TestCompileCount_WhereReferencingJoin proves count's WHERE compiles
+// correctly when it references a joined relation (an agg, correlated
+// subquery — see query/sql_expr.go's compileAgg) even though count never
+// compiles root's own select list/lateral joins.
+func TestCompileCount_WhereReferencingJoin(t *testing.T) {
+	ctx := context.Background()
+	var dirWithMovies, dirWithout int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Count Join Director With') returning id`).Scan(&dirWithMovies); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Count Join Director Without') returning id`).Scan(&dirWithout); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Count Join Movie')`, dirWithMovies); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": ["own"],
+		"where": ["and", ["like", "name", ["Count Join Director%"]], [">", ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]], 0]],
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
+	}`)
+
+	cw, err := CompileCount(node)
+	if err != nil {
+		t.Fatalf("CompileCount: %v", err)
+	}
+	n := runCount(t, cw.String(), cw.Args())
+	if n != 1 {
+		t.Fatalf("expected count 1 (only the director with a movie), got %d : %s", n, cw.String())
 	}
 }
 

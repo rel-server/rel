@@ -43,6 +43,13 @@ var Options = []Option{
 	// ---- dev : top-level, ungrouped ----
 	{"dev", "false", "Development mode : shows the real Postgres error text/stack trace on an otherwise-generic 5xx, and the real message on a permission-denied error, instead of a safe generic one. See error-handling.md ## Postgres error detail / ## Stack traces."},
 
+	// ---- allow_* : ComplexQuery flag availability, top-level, ungrouped ----
+	{"allow_count", "same as dev", "Enables ComplexQuery's \"count\" flag. See specs/complex-query.md ## Availability."},
+	{"allow_stats", "same as dev", "Enables ComplexQuery's \"stats\" flag. See specs/complex-query.md ## Availability."},
+	{"allow_query_plan", "same as dev", "Enables ComplexQuery's \"query_plan\" flag. See specs/complex-query.md ## Availability."},
+	{"allow_sql", "same as dev", "Enables ComplexQuery's \"sql\" flag. See specs/complex-query.md ## Availability."},
+	{"allow_rollback", "same as dev", "Enables ComplexQuery's \"rollback\" flag ; ungranted is a hard error, not a silent degrade. See specs/complex-query.md ## Availability."},
+
 	// ---- pg.* : Postgres connection ----
 	{"pg.uri", "", "Full \"postgres://user:pass@host:port/db\" connection string. Takes precedence when set, populating pg.host/pg.port/pg.database itself — setting them alongside pg.uri is an error. --pg.uri alone is enough to run rel."},
 	{"pg.user", "", "Primary login username, used when pg.uri is unset — for introspection, reload.cmd, and serving requests alike."},

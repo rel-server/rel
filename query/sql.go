@@ -30,6 +30,11 @@ type sqlCompiler struct {
 	dataScopeRoot   *QueryNode
 	dataScopeNodeID int
 	dataScopeAlias  string
+
+	// countMode is CompileCount's own flag : compileNodeCorrelated emits
+	// "select 1" and skips distinct/order-by/limit-offset/lateral-join-into-FROM,
+	// keeping FROM/WHERE identical to CompileSelect's (specs/complex-query.md ## count).
+	countMode bool
 }
 
 func newSQLCompiler() *sqlCompiler {
@@ -75,6 +80,32 @@ func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 
 	alias := c.allocAlias()
 	c.w.Write("select ").Write(wrapNodeAsValue(root, alias)).Write(" from (\n")
+	c.w.Indent()
+	err := c.compileNode(root, alias)
+	c.w.Unindent()
+	if err != nil {
+		return nil, err
+	}
+	c.w.Write("\n) ").Write(alias)
+	return c.w, nil
+}
+
+// CompileCount compiles root into "select count(*) from (<FROM/WHERE>) t" —
+// the same FROM/JOIN/WHERE CompileSelect would emit for root (a WHERE
+// referencing a join always compiles as its own correlated subquery,
+// regardless of root's own select list — see compileAgg/compileScalarHop),
+// but no SELECT projection, ORDER BY, LIMIT, or OFFSET. Rejects a genuinely
+// scalar function root (specs/complex-query.md ## count only defines this
+// for a relation-shaped query) — mirrors CompileSelect's own special case.
+func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
+	if root.IsFunction() && !root.Function.ReturnsSet && root.Relation == nil {
+		return nil, fmt.Errorf("sql: count is not meaningful on a scalar function root")
+	}
+
+	c := newSQLCompiler()
+	c.countMode = true
+	alias := c.allocAlias()
+	c.w.Write("select count(*) from (\n")
 	c.w.Indent()
 	err := c.compileNode(root, alias)
 	c.w.Unindent()
@@ -137,42 +168,46 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 	defer func() { c.laterals = prevLaterals }()
 
 	c.w.Write("select ")
-	if node.Distinct {
-		c.w.Write("distinct ")
-	} else if len(node.DistinctOn) > 0 {
-		c.w.Write("distinct on ")
-		if err := c.compileExprParenList(node.DistinctOn, node); err != nil {
-			return err
-		}
-		c.w.Write(" ")
-	}
-
-	if isShapeProducingSelect(node.Select) {
-		fields, err := selectFieldsFor(node)
-		if err != nil {
-			return err
-		}
-		if len(fields) == 0 {
-			return fmt.Errorf("sql: node has no select fields to emit")
-		}
-		for i, f := range fields {
-			if i > 0 {
-				c.w.Write(", ")
-			}
-			if err := c.compileSelectField(node, alias, f); err != nil {
+	if c.countMode {
+		c.w.Write("1")
+	} else {
+		if node.Distinct {
+			c.w.Write("distinct ")
+		} else if len(node.DistinctOn) > 0 {
+			c.w.Write("distinct on ")
+			if err := c.compileExprParenList(node.DistinctOn, node); err != nil {
 				return err
 			}
-			c.w.Write(" as ")
-			c.w.Id(f.key)
+			c.w.Write(" ")
 		}
-	} else {
-		// ## Reading Algorithm ### Scalar-selected nodes : to_jsonb(...),
-		// not a bare emission, since streamRows writes this column raw.
-		c.w.Write("to_jsonb(")
-		if err := c.compileExpr(node.Select, node); err != nil {
-			return err
+
+		if isShapeProducingSelect(node.Select) {
+			fields, err := selectFieldsFor(node)
+			if err != nil {
+				return err
+			}
+			if len(fields) == 0 {
+				return fmt.Errorf("sql: node has no select fields to emit")
+			}
+			for i, f := range fields {
+				if i > 0 {
+					c.w.Write(", ")
+				}
+				if err := c.compileSelectField(node, alias, f); err != nil {
+					return err
+				}
+				c.w.Write(" as ")
+				c.w.Id(f.key)
+			}
+		} else {
+			// ## Reading Algorithm ### Scalar-selected nodes : to_jsonb(...),
+			// not a bare emission, since streamRows writes this column raw.
+			c.w.Write("to_jsonb(")
+			if err := c.compileExpr(node.Select, node); err != nil {
+				return err
+			}
+			c.w.Write(") as __scalar")
 		}
-		c.w.Write(") as __scalar")
 	}
 
 	c.w.Write(" from ")
@@ -180,23 +215,27 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 		return err
 	}
 
-	for _, child := range node.IncomingNodes {
-		plan, shared := laterals[child]
-		if !shared {
-			continue
-		}
-		if err := c.compileLateralJoin(child, alias, plan); err != nil {
-			return err
+	if !c.countMode {
+		for _, child := range node.IncomingNodes {
+			plan, shared := laterals[child]
+			if !shared {
+				continue
+			}
+			if err := c.compileLateralJoin(child, alias, plan); err != nil {
+				return err
+			}
 		}
 	}
 
 	if err := c.compileWhere(node, alias, onParentAlias); err != nil {
 		return err
 	}
-	if err := c.compileOrderBy(node); err != nil {
-		return err
+	if !c.countMode {
+		if err := c.compileOrderBy(node); err != nil {
+			return err
+		}
+		c.compileLimitOffset(node)
 	}
-	c.compileLimitOffset(node)
 
 	return nil
 }

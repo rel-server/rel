@@ -254,9 +254,68 @@ func TestParseQuery_TopLevelWrongType(t *testing.T) {
 	}
 }
 
-func TestParseQuery_WriteQuery_MissingData(t *testing.T) {
-	if _, err := ParseQuery([]byte(`{"query": {"relation": "movie"}}`)); err == nil {
-		t.Fatalf("expected a WriteQuery without \"data\" to be rejected")
+// TestParseQuery_ComplexQuery_MissingData_IsARead proves
+// specs/complex-query.md ## Parsing : a ComplexQuery with no "data" is a
+// valid read, not rejected like a pre-ComplexQuery WriteQuery was.
+func TestParseQuery_ComplexQuery_MissingData_IsARead(t *testing.T) {
+	pq, err := ParseQuery([]byte(`{"query": {"relation": "movie"}}`))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if pq.Write == nil {
+		t.Fatalf("expected a Write ParsedQuery, got %#v", pq)
+	}
+	if pq.Write.Data != nil {
+		t.Fatalf("expected Data to stay nil when absent, got %q", pq.Write.Data)
+	}
+}
+
+// TestParseQuery_ComplexQuery_ExplicitNullData_DiffersFromAbsent proves the
+// nil-vs-"null" distinction specs/complex-query.md ## Parsing relies on
+// instead of a separate HasData field.
+func TestParseQuery_ComplexQuery_ExplicitNullData_DiffersFromAbsent(t *testing.T) {
+	pq, err := ParseQuery([]byte(`{"query": {"relation": "movie"}, "data": null}`))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if pq.Write.Data == nil {
+		t.Fatalf("expected Data to be non-nil for an explicit JSON null")
+	}
+	if string(pq.Write.Data) != "null" {
+		t.Fatalf("expected Data to be the literal \"null\", got %q", pq.Write.Data)
+	}
+}
+
+// TestParseQuery_ComplexQuery_Flags proves the six new ComplexQuery fields
+// decode off the same object as query/data (specs/complex-query.md ## Parsing).
+func TestParseQuery_ComplexQuery_Flags(t *testing.T) {
+	pq, err := ParseQuery([]byte(`{
+		"query": {"relation": "movie"},
+		"returns": "none",
+		"count": true,
+		"stats": true,
+		"query_plan": true,
+		"sql": true,
+		"rollback": true
+	}`))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	rq := pq.Write
+	if rq.Returns != "none" || !rq.Count || !rq.Stats || !rq.QueryPlan || !rq.Sql || !rq.Rollback {
+		t.Fatalf("expected every flag decoded, got %#v", rq)
+	}
+}
+
+// TestParseQuery_ComplexQuery_InvalidReturns proves an unrecognized
+// "returns" value is a QUERY_INVALID_RETURNS error, not a silent no-op.
+func TestParseQuery_ComplexQuery_InvalidReturns(t *testing.T) {
+	rq := &rawWriteQuery{Returns: "bogus"}
+	if err := rq.ValidateReturns(); err == nil {
+		t.Fatalf("expected an invalid \"returns\" value to be rejected")
+	}
+	if _, err := ParseQuery([]byte(`{"query": {"relation": "movie"}, "returns": "bogus"}`)); err == nil {
+		t.Fatalf("expected ParseQuery to reject an invalid \"returns\" value")
 	}
 }
 

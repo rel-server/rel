@@ -6,8 +6,10 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/writer"
 )
@@ -23,6 +25,200 @@ type dmlCompiler struct {
 	// Node IDs that received a "_data" row from denormalize ; absent means
 	// unpopulated (## Writing Algorithm's noop-skipping note).
 	populated map[int]bool
+
+	// collectStats/submitted/statsByNode/statOrder back specs/complex-query.md
+	// ## stats ; submitted is keyed by __node_id, precomputed once in
+	// write.go from denormalize's own row output. statOrder preserves
+	// first-touch order across phase1/phase2, since a Stat is one entry per
+	// node even when both phases touch it (e.g. MERGE's upsert then delete).
+	collectStats bool
+	submitted    map[int]int
+	statsByNode  map[*QueryNode]*Stat
+	statOrder    []*QueryNode
+
+	// collectSQL/sqlByNode/sqlOrder back specs/complex-query.md ## sql :
+	// every DML statement's already-compiled text, collected instead of
+	// only executed — never an extra round trip.
+	collectSQL bool
+	sqlByNode  map[*QueryNode]*SqlResult
+	sqlOrder   []*QueryNode
+
+	// explainAnalyze/planByNode/planOrder back specs/complex-query.md ##
+	// query_plan : true wraps every DML statement in EXPLAIN (ANALYZE,
+	// FORMAT JSON), executed for real, instead of running it plainly.
+	// Mutually exclusive with collectStats — server/rel.go's own job to
+	// reject that combination before calling in.
+	explainAnalyze bool
+	planByNode     map[*QueryNode]*PlanResult
+	planOrder      []*QueryNode
+}
+
+// sqlEntry get-or-creates node's SqlResult entry.
+func (dc *dmlCompiler) sqlEntry(node *QueryNode) *SqlResult {
+	if s, ok := dc.sqlByNode[node]; ok {
+		return s
+	}
+	s := &SqlResult{Path: nodeStatPath(node)}
+	if dc.sqlByNode == nil {
+		dc.sqlByNode = map[*QueryNode]*SqlResult{}
+	}
+	dc.sqlByNode[node] = s
+	dc.sqlOrder = append(dc.sqlOrder, node)
+	return s
+}
+
+// finalSQL orders sqlByNode by first-touch ; nil when collectSQL was never set.
+func (dc *dmlCompiler) finalSQL() []SqlResult {
+	if !dc.collectSQL {
+		return nil
+	}
+	out := make([]SqlResult, len(dc.sqlOrder))
+	for i, n := range dc.sqlOrder {
+		out[i] = *dc.sqlByNode[n]
+	}
+	return out
+}
+
+// planEntry get-or-creates node's PlanResult entry.
+func (dc *dmlCompiler) planEntry(node *QueryNode) *PlanResult {
+	if p, ok := dc.planByNode[node]; ok {
+		return p
+	}
+	p := &PlanResult{Path: nodeStatPath(node)}
+	if dc.planByNode == nil {
+		dc.planByNode = map[*QueryNode]*PlanResult{}
+	}
+	dc.planByNode[node] = p
+	dc.planOrder = append(dc.planOrder, node)
+	return p
+}
+
+// finalPlans orders planByNode by first-touch ; nil when explainAnalyze was never set.
+func (dc *dmlCompiler) finalPlans() []PlanResult {
+	if !dc.explainAnalyze {
+		return nil
+	}
+	out := make([]PlanResult, len(dc.planOrder))
+	for i, n := range dc.planOrder {
+		out[i] = *dc.planByNode[n]
+	}
+	return out
+}
+
+// exec is every run*'s single execution point for its main DML statement
+// (never _data-only housekeeping, which stays a bare dc.conn.Exec — same
+// exclusion ## stats already draws) : records kind's compiled text under
+// node when collectSQL, and — mutually exclusively with collectStats —
+// substitutes EXPLAIN (ANALYZE, FORMAT JSON) for the statement itself when
+// explainAnalyze, since the Writing Algorithm's later statements depend on
+// this one's real side effects having already happened (specs/complex-query.md
+// ## query_plan).
+func (dc *dmlCompiler) exec(ctx context.Context, node *QueryNode, kind string, w *writer.SQLWriter, args []any) (pgconn.CommandTag, error) {
+	if dc.collectSQL {
+		dc.recordSQL(node, kind, w.String())
+	}
+	if dc.explainAnalyze {
+		raw, err := dc.runExplainAnalyze(ctx, w.String(), args)
+		if err != nil {
+			return pgconn.CommandTag{}, err
+		}
+		dc.recordPlan(node, kind, raw)
+		return pgconn.CommandTag{}, nil
+	}
+	return dc.conn.Exec(ctx, w.String(), args...)
+}
+
+// recordSQL assigns raw to kind's field on node's SqlResult.
+func (dc *dmlCompiler) recordSQL(node *QueryNode, kind, raw string) {
+	e := dc.sqlEntry(node)
+	switch kind {
+	case "insert":
+		e.Insert = raw
+	case "update":
+		e.Update = raw
+	case "upsert":
+		e.Upsert = raw
+	case "delete":
+		e.Delete = raw
+	}
+}
+
+// recordPlan assigns raw to kind's field on node's PlanResult.
+func (dc *dmlCompiler) recordPlan(node *QueryNode, kind string, raw json.RawMessage) {
+	e := dc.planEntry(node)
+	switch kind {
+	case "insert":
+		e.Insert = raw
+	case "update":
+		e.Update = raw
+	case "upsert":
+		e.Upsert = raw
+	case "delete":
+		e.Delete = raw
+	}
+}
+
+// runExplainAnalyze runs sql (with args) wrapped in EXPLAIN (ANALYZE, FORMAT
+// JSON) — for real, side effects included — and returns the single JSON
+// value Postgres reports (an array holding one plan object).
+func (dc *dmlCompiler) runExplainAnalyze(ctx context.Context, sql string, args []any) (json.RawMessage, error) {
+	rows, err := dc.conn.Query(ctx, "explain (analyze, format json)\n"+sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("explain analyze: %w\nsql: %s", err, sql)
+	}
+	defer rows.Close()
+	var raw []byte
+	if rows.Next() {
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("explain analyze: scanning plan: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("explain analyze: %w", err)
+	}
+	return json.RawMessage(raw), nil
+}
+
+// nodeStatPath is the chain of join-alias keys from root down to node — []
+// for the root itself (specs/complex-query.md ## stats's Stat.path).
+func nodeStatPath(node *QueryNode) []string {
+	var path []string
+	for n := node; n.Parent != nil; n = n.Parent {
+		path = append([]string{n.OuterAlias}, path...)
+	}
+	return path
+}
+
+// stat get-or-creates node's Stat entry — called only when collectStats,
+// since it's also what marks a node as "touched" for stats purposes.
+func (dc *dmlCompiler) stat(node *QueryNode) *Stat {
+	if s, ok := dc.statsByNode[node]; ok {
+		return s
+	}
+	s := &Stat{
+		Path:      nodeStatPath(node),
+		Table:     node.Relation.Identifier.String(),
+		Submitted: dc.submitted[dc.ids[node]],
+	}
+	if dc.statsByNode == nil {
+		dc.statsByNode = map[*QueryNode]*Stat{}
+	}
+	dc.statsByNode[node] = s
+	dc.statOrder = append(dc.statOrder, node)
+	return s
+}
+
+// finalStats orders statsByNode by first-touch (statOrder) into the slice
+// WriteResult.Stats reports ; nil when collectStats was never set.
+func (dc *dmlCompiler) finalStats() []Stat {
+	if !dc.collectStats {
+		return nil
+	}
+	out := make([]Stat, len(dc.statOrder))
+	for i, n := range dc.statOrder {
+		out[i] = *dc.statsByNode[n]
+	}
+	return out
 }
 
 // ---- traversal --------------------------------------------------------------------
@@ -477,8 +673,15 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	if err != nil {
 		return err
 	}
-	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
+	tag, err := dc.exec(ctx, node, "insert", w, args)
+	if err != nil {
 		return fmt.Errorf("insert: %w\nsql: %s", err, w.String())
+	}
+	if dc.collectStats {
+		// The trailing "update _data" only ever joins actually-inserted
+		// rows (via "ins" in the doNothing branch, or unconditionally
+		// otherwise) — its RowsAffected() is exactly the insert count.
+		dc.stat(node).Inserted += int(tag.RowsAffected())
 	}
 
 	if doNothing {
@@ -551,7 +754,8 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	if err := dc.writeResolvedCTE(w, node, dedupeColumnPaths(cols, wrapColumns(node, identCols))); err != nil {
 		return err
 	}
-	w.Write("\n")
+	w.Write(",\ndml as (\n")
+	w.Indent()
 	w.Write("update ")
 	w.Write(node.Relation.Identifier.EscapedString())
 	w.Write(" t\n")
@@ -582,37 +786,27 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	w.Write("returning resolved.__row_id, ")
 	writeKeysObject(w, node, "t")
 	w.Write(" as keys")
+	w.Unindent()
+	w.Write("\n)\n")
+	// Folded into "dml" itself (like runUpsert), not a separate per-row Go
+	// round trip : keeps this EXPLAIN-ANALYZE-safe for query_plan, since
+	// nothing downstream needs RETURNING back in Go (specs/complex-query.md
+	// ## query_plan).
+	w.Write("update _data\n")
+	w.Write("set keys = dml.keys\n")
+	w.Write("from dml\n")
+	w.Write("where _data.__row_id = dml.__row_id")
 
 	args, err := dc.args(w)
 	if err != nil {
 		return err
 	}
-	rows, err := dc.conn.Query(ctx, w.String(), args...)
+	tag, err := dc.exec(ctx, node, "update", w, args)
 	if err != nil {
 		return fmt.Errorf("update: %w\nsql: %s", err, w.String())
 	}
-	type kv struct {
-		rowID int
-		keys  []byte
-	}
-	var results []kv
-	for rows.Next() {
-		var rowID int
-		var keys []byte
-		if err := rows.Scan(&rowID, &keys); err != nil {
-			rows.Close()
-			return err
-		}
-		results = append(results, kv{rowID, keys})
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, r := range results {
-		if _, err := dc.conn.Exec(ctx, `update _data set keys = $1 where __row_id = $2`, r.keys, r.rowID); err != nil {
-			return fmt.Errorf("writing back update keys: %w", err)
-		}
+	if dc.collectStats {
+		dc.stat(node).Updated += int(tag.RowsAffected())
 	}
 	return nil
 }
@@ -706,8 +900,73 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		}
 		w.Id(col.Name)
 	}
+	// "one CommandTag can't tell an insert from an update on its own" —
+	// specs/complex-query.md ## stats. Always present (negligible cost) ;
+	// only consumed by the collectStats branch below.
+	w.Write(", (xmax = 0) as __inserted")
+	w.Unindent()
+	w.Write("\n)")
+
+	if !dc.collectStats {
+		w.Write("\n")
+		writeUpsertDataUpdate(w, node, identCols)
+		args, err := dc.args(w)
+		if err != nil {
+			return err
+		}
+		if _, err := dc.exec(ctx, node, "upsert", w, args); err != nil {
+			return fmt.Errorf("upsert: %w\nsql: %s", err, w.String())
+		}
+		return nil
+	}
+
+	// collectStats : the "_data" write-back becomes its own CTE ("upd"), so
+	// the outermost statement can be a plain SELECT reading dml's __inserted
+	// split — a data-modifying CTE only executes when referenced downstream,
+	// so "upd" is force-referenced via a scalar subquery in that SELECT.
+	w.Write(",\nupd as (\n")
+	w.Indent()
+	writeUpsertDataUpdate(w, node, identCols)
+	w.Write("\nreturning 1")
 	w.Unindent()
 	w.Write("\n)\n")
+	w.Write("select\n")
+	w.Write("  (select count(*) from upd) as touched,\n")
+	w.Write("  (select count(*) filter (where __inserted) from dml) as inserted,\n")
+	w.Write("  (select count(*) filter (where not __inserted) from dml) as updated")
+
+	if dc.collectSQL {
+		dc.recordSQL(node, "upsert", w.String())
+	}
+	args, err := dc.args(w)
+	if err != nil {
+		return err
+	}
+	rows, err := dc.conn.Query(ctx, w.String(), args...)
+	if err != nil {
+		return fmt.Errorf("upsert: %w\nsql: %s", err, w.String())
+	}
+	var touched, inserted, updated int
+	if rows.Next() {
+		if err := rows.Scan(&touched, &inserted, &updated); err != nil {
+			rows.Close()
+			return fmt.Errorf("upsert: scanning counts: %w", err)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("upsert: %w\nsql: %s", err, w.String())
+	}
+	s := dc.stat(node)
+	s.Inserted += inserted
+	s.Updated += updated
+	return nil
+}
+
+// writeUpsertDataUpdate writes the "_data" keys write-back shared by
+// runUpsert's stats and non-stats tails — identical either way, only where
+// it's embedded (a bare statement vs. a "upd as (...)" CTE) differs.
+func writeUpsertDataUpdate(w *writer.SQLWriter, node *QueryNode, identCols []*pg.Column) {
 	w.Write("update _data\n")
 	w.Write("set keys = ")
 	writeKeysObject(w, node, "dml")
@@ -725,15 +984,6 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	}
 	w.Write("\n")
 	w.Write("where _data.__row_id = resolved.__row_id")
-
-	args, err := dc.args(w)
-	if err != nil {
-		return err
-	}
-	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
-		return fmt.Errorf("upsert: %w\nsql: %s", err, w.String())
-	}
-	return nil
 }
 
 // dedupeColumnPaths dedupes by ColumnPath.Key(), not the terminal *pg.Column
@@ -860,8 +1110,12 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 	if err != nil {
 		return err
 	}
-	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
+	tag, err := dc.exec(ctx, node, "delete", w, args)
+	if err != nil {
 		return fmt.Errorf("delete: %w\nsql: %s", err, w.String())
+	}
+	if dc.collectStats {
+		dc.stat(node).Deleted += int(tag.RowsAffected())
 	}
 	return nil
 }

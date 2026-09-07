@@ -71,7 +71,7 @@ was declared above.
 ## Calling one over `POST /rel`
 
 A well-known query occupies exactly the slot a plain `Relation` would, in either position: bare
-for a read, wrapped in `WriteQuery.query` for a write.
+for a read, wrapped in `ComplexQuery.query` for a write.
 
 ```json
 POST /rel

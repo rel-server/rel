@@ -519,6 +519,14 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// be toggled independently.
 	cfg.Dev = root.GetBoolOrDefault("dev", false)
 
+	// specs/complex-query.md ## Availability : each defaults to Dev, same
+	// "true if dev enabled" rule as http.typescript.enable below.
+	cfg.AllowCount = root.GetBoolOrDefault("allow_count", cfg.Dev)
+	cfg.AllowStats = root.GetBoolOrDefault("allow_stats", cfg.Dev)
+	cfg.AllowQueryPlan = root.GetBoolOrDefault("allow_query_plan", cfg.Dev)
+	cfg.AllowSql = root.GetBoolOrDefault("allow_sql", cfg.Dev)
+	cfg.AllowRollback = root.GetBoolOrDefault("allow_rollback", cfg.Dev)
+
 	cfg.Logging.Handler = root.GetStringOrDefault("logging.handler", DefaultLoggingHandler)
 	cfg.Logging.Level = root.GetStringOrDefault("logging.level", DefaultLoggingLevel)
 	cfg.Logging.Filter = readStringMap(root, "logging.filter")

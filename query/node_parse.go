@@ -26,6 +26,8 @@ import (
 	"fmt"
 
 	"github.com/bytedance/sonic/ast"
+	"github.com/rel-server/rel/errcode"
+	"github.com/samber/oops"
 )
 
 // ParsedQuery is the decoded (not yet DB-resolved) form of query.ts's
@@ -43,12 +45,39 @@ type ParsedQuery struct {
 	Sequence  []ParsedQuery
 }
 
-// rawWriteQuery is query.ts's WriteQuery ; exactly one of Query/WellKnown
-// is set. Data stays raw JSON, walked later by the writing algorithm.
+// rawWriteQuery is query.ts's ComplexQuery ; exactly one of Query/WellKnown
+// is set. Data stays raw JSON, walked later by the writing algorithm ; nil
+// means a read (specs/complex-query.md ## Parsing), distinguished from an
+// explicit JSON "data": null by Data being a non-nil 4-byte "null" slice.
 type rawWriteQuery struct {
 	Query     *rawRelation  // nil if WellKnown is set instead
 	WellKnown *rawWellKnown // nil if Query is set instead
 	Data      []byte
+
+	// Returns/Count/Stats/QueryPlan/Sql/Rollback are ComplexQuery's own
+	// response-shaping flags (specs/complex-query.md), decoded off the same
+	// object as Query/WellKnown/Data. Returns is "" when absent (defaults
+	// to "results" downstream), never validated to a known value here — see
+	// ValidateReturns.
+	Returns   string
+	Count     bool
+	Stats     bool
+	QueryPlan bool
+	Sql       bool
+	Rollback  bool
+}
+
+// validReturnsValues is query.ts's ComplexQuery.returns union.
+var validReturnsValues = map[string]bool{"": true, "none": true, "results": true}
+
+// ValidateReturns rejects an unrecognized "returns" value — parseQueryNode
+// only decodes the raw string, since query.ts's returns union isn't
+// otherwise structurally distinguishable from a typo at decode time.
+func (rq *rawWriteQuery) ValidateReturns() error {
+	if !validReturnsValues[rq.Returns] {
+		return oops.Code(errcode.QueryInvalidReturns).Errorf(`query: "returns" must be "none" or "results", got %q`, rq.Returns)
+	}
+	return nil
 }
 
 // rawWellKnown is query.ts's WellKnownQuery, no "data" of its own — written
@@ -113,15 +142,58 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 				}
 				rawWQ.Query = rel
 			}
-			d := n.Get("data")
-			if !d.Exists() {
-				return ParsedQuery{}, fmt.Errorf(`query: a WriteQuery needs "data"`)
+			if d := n.Get("data"); d.Exists() {
+				raw, err := d.Raw()
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "data": %w`, err)
+				}
+				rawWQ.Data = []byte(raw)
 			}
-			raw, err := d.Raw()
-			if err != nil {
-				return ParsedQuery{}, fmt.Errorf(`query: "data": %w`, err)
+			if ret := n.Get("returns"); ret.Exists() {
+				s, err := ret.StrictString()
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "returns" must be a string: %w`, err)
+				}
+				rawWQ.Returns = s
 			}
-			rawWQ.Data = []byte(raw)
+			if c := n.Get("count"); c.Exists() {
+				b, err := c.StrictBool()
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "count" must be a boolean: %w`, err)
+				}
+				rawWQ.Count = b
+			}
+			if s := n.Get("stats"); s.Exists() {
+				b, err := s.StrictBool()
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "stats" must be a boolean: %w`, err)
+				}
+				rawWQ.Stats = b
+			}
+			if qp := n.Get("query_plan"); qp.Exists() {
+				b, err := qp.StrictBool()
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "query_plan" must be a boolean: %w`, err)
+				}
+				rawWQ.QueryPlan = b
+			}
+			if sq := n.Get("sql"); sq.Exists() {
+				b, err := sq.StrictBool()
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "sql" must be a boolean: %w`, err)
+				}
+				rawWQ.Sql = b
+			}
+			if rb := n.Get("rollback"); rb.Exists() {
+				b, err := rb.StrictBool()
+				if err != nil {
+					return ParsedQuery{}, fmt.Errorf(`query: "rollback" must be a boolean: %w`, err)
+				}
+				rawWQ.Rollback = b
+			}
+			if err := rawWQ.ValidateReturns(); err != nil {
+				return ParsedQuery{}, err
+			}
 			return ParsedQuery{Write: rawWQ}, nil
 		}
 

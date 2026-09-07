@@ -14,6 +14,11 @@ the binary itself, if you want it without leaving a terminal.
 | Key | Default | What it does |
 |---|---|---|
 | `dev` | `false` | Adds the real Postgres error text and a stack trace to an otherwise generic error response. See [Development mode](index.md#development-mode). |
+| `allow_count` | same as `dev` | Enables `ComplexQuery`'s `count` flag. See [Complex queries](../query-language/complex-query.md#availability). |
+| `allow_stats` | same as `dev` | Enables `ComplexQuery`'s `stats` flag. |
+| `allow_query_plan` | same as `dev` | Enables `ComplexQuery`'s `query_plan` flag. |
+| `allow_sql` | same as `dev` | Enables `ComplexQuery`'s `sql` flag. |
+| `allow_rollback` | same as `dev` | Enables `ComplexQuery`'s `rollback` flag ; ungranted is a hard error, not a silent degrade. |
 
 ## Postgres connection
 

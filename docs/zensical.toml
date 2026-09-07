@@ -28,6 +28,7 @@ nav = [
       { "Ordering and pagination" = "query-language/ordering-pagination.md" },
       { "Distinctness" = "query-language/distinctness.md" },
       { "Writing data back" = "query-language/writing.md" },
+      { "Complex queries" = "query-language/complex-query.md" },
       { "Batching queries" = "query-language/batching.md" },
       { "Querying with GET" = "query-language/get-requests.md" },
   ] },

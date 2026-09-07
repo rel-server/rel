@@ -4,7 +4,7 @@ This file specifies the shape of the JSON queries that rel is to understand.
 
 // A query is one query, or a sequence run in order in one transaction ; any failure fails the whole transaction.
 // For more complex needs, use a function instead.
-export type Query = WriteQuery | RelationQuery | WellKnownQuery | Query[]
+export type Query = ComplexQuery | RelationQuery | WellKnownQuery | Query[]
 
 /* Call a query that's registered in rel. This can be seen as a view, except it's a rel's signature bi-directional query that's both readable and writable. */
 export interface WellKnownQuery {
@@ -12,13 +12,85 @@ export interface WellKnownQuery {
   params?: unknown
 }
 
-export interface WriteQuery {
+/**
+ Wraps a `RelationQuery`/`WellKnownQuery`, optionally writing to it and/or shaping the response beyond the plain
+ selection. See `specs/complex-query.md`.
+ */
+export interface ComplexQuery {
   query: RelationQuery | WellKnownQuery
 
   /**
-  The data to modify the database with. It must conform to the shape of the query.
+  The data to modify the database with. It must conform to the shape of the query. Present : `query` is written.
+  Absent : `query` is read exactly as a bare `RelationQuery`/`WellKnownQuery` would be.
   */
-  data: unknown
+  data?: unknown
+
+  /** "none" skips streaming `result` back ; a write additionally skips the read-back `SELECT` entirely. Defaults to "results". */
+  returns?: "none" | "results"
+
+  /** Read-only. Reports the total row count of the query's own where/joins, ignoring its own limit/offset. */
+  count?: boolean
+
+  /** Write-only. Reports rows submitted/inserted/updated/deleted per writable node touched. */
+  stats?: boolean
+
+  /** The query plan(s) of every statement this request runs. Mutually exclusive with `stats` on a write. */
+  query_plan?: boolean
+
+  /** The already-compiled SQL text of every statement this request runs. */
+  sql?: boolean
+
+  /** Runs this item inside its own SAVEPOINT, rolled back right after execution — the rest of the request is unaffected. */
+  rollback?: boolean
+}
+
+/** One writable node's row counts from a `stats` request. */
+export interface Stat {
+  /** Join-alias path from the root down to this node ; `[]` for the root relation itself. */
+  path: string[]
+  /** Fully-qualified relation name, "schema.table". */
+  table: string
+  submitted: number
+  inserted: number
+  updated: number
+  deleted: number
+}
+
+/** One node's query plan(s) from a `query_plan` request. */
+export interface PlanResult {
+  /** Join-alias path from the root down to this node ; `[]` for the root relation itself. */
+  path: string[]
+  select?: unknown
+  insert?: unknown
+  update?: unknown
+  upsert?: unknown
+  delete?: unknown
+}
+
+/** One node's compiled SQL statement text(s) from a `sql` request. */
+export interface SqlResult {
+  /** Join-alias path from the root down to this node ; `[]` for the root relation itself. */
+  path: string[]
+  select?: string
+  insert?: string
+  update?: string
+  upsert?: string
+  delete?: string
+}
+
+/** The envelope shape a `ComplexQuery` response takes once any flag is set — see `specs/complex-query.md ## Response shape`. */
+export interface ComplexResult {
+  /** The plain selection ; absent iff `returns == "none"`. */
+  result?: unknown
+  /** Present iff `count == true`. */
+  count?: number
+  /** Present iff `count == true` ; echoes the query's own offset (0 if unset). */
+  offset?: number
+  /** Present iff `count == true` ; echoes the query's own limit (absent if unset). */
+  limit?: number
+  stats?: Stat[]
+  query_plan?: PlanResult[]
+  sql?: SqlResult[]
 }
 
 export type Keys<T> = Extract<keyof T, string>

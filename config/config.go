@@ -36,6 +36,16 @@ type Config struct {
 	// Postgres error detail and ## Stack traces add to error responses.
 	Dev bool
 
+	// AllowCount/AllowStats/AllowQueryPlan/AllowSql/AllowRollback are
+	// specs/complex-query.md ## Availability's allow_count/allow_stats/
+	// allow_query_plan/allow_sql/allow_rollback : server-wide switches for
+	// ComplexQuery's matching flags, each defaulting to Dev.
+	AllowCount     bool
+	AllowStats     bool
+	AllowQueryPlan bool
+	AllowSql       bool
+	AllowRollback  bool
+
 	// Raw is every dotted config key actually resolved at load time (loader.go's
 	// assemble()), for reload.cmd's `{name}` interpolation (specs/reload.md) —
 	// whatever was explicitly set via file/env/flag, plus pg.uri/pg.host/

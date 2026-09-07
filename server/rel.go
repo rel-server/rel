@@ -44,6 +44,17 @@ type resolvedItem struct {
 	// Non-nil only for a well-known READ item, reusing the statement
 	// compiled once at load time (well-known-queries.md ## Behaviour).
 	precompiledRead *writer.SQLWriter
+
+	// returns/count/stats/queryPlan/sql/rollback are ComplexQuery's own
+	// response-shaping flags (specs/complex-query.md) — zero values (no
+	// flag set) for a bare RelationQuery/WellKnownQuery item, since a bare
+	// "wellknown" object never takes them directly.
+	returns   string
+	count     bool
+	stats     bool
+	queryPlan bool
+	sql       bool
+	rollback  bool
 }
 
 // NewRelHandler serves POST/GET /rel per specs/query-engine.md's
@@ -183,6 +194,13 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		writeError(w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
 		return
 	}
+	// specs/complex-query.md ## rollback's GET rule : a ComplexQuery
+	// wrapper (data present or not) is GET-ineligible, only a bare
+	// RelationQuery/WellKnownQuery is convenience-served there.
+	if r.Method == http.MethodGet && pq.Write != nil {
+		writeError(w, badRequest(errcode.QueryComplexNotAllowedOnGet, fmt.Errorf("/rel GET accepts only a bare relation or well-known query, not a ComplexQuery wrapper")), cfg.Dev)
+		return
+	}
 
 	items := pq.Sequence
 	if items == nil {
@@ -212,13 +230,26 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 				writeError(w, badRequest(codeOrUnclassified(wkErr), fmt.Errorf("item %d: %w", i, wkErr)), cfg.Dev)
 				return
 			}
+			ri.returns, ri.count, ri.stats, ri.queryPlan, ri.sql, ri.rollback =
+				item.Write.Returns, item.Write.Count, item.Write.Stats, item.Write.QueryPlan, item.Write.Sql, item.Write.Rollback
+			if verr := validateComplexFlags(&ri); verr != nil {
+				writeError(w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
+				return
+			}
+			if verr := checkRollbackGrant(&ri, cfg); verr != nil {
+				writeError(w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
+				return
+			}
 			resolved = append(resolved, ri)
 			continue
 		}
 
 		var root *query.QueryNode
 		var rerr error
-		isWrite := item.Write != nil
+		// specs/complex-query.md ## Parsing : "data"'s presence, not
+		// item.Write's, decides whether this is a write — a ComplexQuery
+		// with no "data" is a valid read.
+		isWrite := item.Write != nil && item.Write.Data != nil
 		var data []byte
 		switch {
 		case item.Write != nil:
@@ -242,7 +273,20 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			writeError(w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
-		resolved = append(resolved, resolvedItem{root: root, isWrite: isWrite, data: data})
+		ri := resolvedItem{root: root, isWrite: isWrite, data: data}
+		if item.Write != nil {
+			ri.returns, ri.count, ri.stats, ri.queryPlan, ri.sql, ri.rollback =
+				item.Write.Returns, item.Write.Count, item.Write.Stats, item.Write.QueryPlan, item.Write.Sql, item.Write.Rollback
+		}
+		if verr := validateComplexFlags(&ri); verr != nil {
+			writeError(w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
+			return
+		}
+		if verr := checkRollbackGrant(&ri, cfg); verr != nil {
+			writeError(w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
+			return
+		}
+		resolved = append(resolved, ri)
 	}
 
 	conn, err := db.Pool.Acquire(ctx)
@@ -289,50 +333,148 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// must continue across items, or two writes in one Sequence collide.
 	state := &query.WriteState{}
 	nodeIDs := make([]int, len(resolved))
+	writeResults := make([]*query.WriteResult, len(resolved))
+	// bufferedResult holds a rolled-back write's own read-back rows,
+	// captured while its SAVEPOINT is still live — "result" must still
+	// reflect what happened (## rollback), but the physical rows (and this
+	// item's own "_data" rows, written inside the same savepoint scope) are
+	// gone the instant "rollback to savepoint" runs, so the read-back has to
+	// execute before that, not in the later per-item compile/stream loops.
+	bufferedResult := make([][][]byte, len(resolved))
 	for i, item := range resolved {
 		if !item.isWrite {
 			continue
 		}
-		result, err := query.ExecuteWriteStateParams(ctx, conn, item.root, item.data, state, item.paramValues)
+		spName := fmt.Sprintf("sp%d", i)
+		if item.rollback {
+			if _, err := conn.Exec(ctx, "savepoint "+spName); err != nil {
+				_, _ = conn.Exec(ctx, "rollback")
+				writeError(w, serverError(errcode.TransactionError, fmt.Errorf("item %d: savepoint: %w", i, err)), cfg.Dev)
+				return
+			}
+		}
+		opts := query.WriteOptions{
+			Stats:     item.stats && cfg.AllowStats,
+			QueryPlan: item.queryPlan && cfg.AllowQueryPlan,
+			Sql:       item.sql && cfg.AllowSql,
+		}
+		result, err := query.ExecuteWriteStateParamsOpts(ctx, conn, item.root, item.data, state, item.paramValues, opts)
 		if err != nil {
 			_, _ = conn.Exec(ctx, "rollback")
 			writeError(w, classifyWriteError(err, i), cfg.Dev)
 			return
 		}
 		nodeIDs[i] = result.NodeIDs[item.root]
+		writeResults[i] = result
+		if item.rollback {
+			if item.returns != "none" {
+				rows, berr := bufferReadback(ctx, conn, item.root, nodeIDs[i], item.paramValues)
+				if berr != nil {
+					_, _ = conn.Exec(ctx, "rollback")
+					writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: buffering read-back before rollback: %w", i, berr)), cfg.Dev)
+					return
+				}
+				bufferedResult[i] = rows
+			}
+			// server/rel.go ## rollback : undoes only this item's own
+			// effects, immediately after its own execution — the rest of
+			// the request's transaction is unaffected.
+			if _, err := conn.Exec(ctx, "rollback to savepoint "+spName); err != nil {
+				_, _ = conn.Exec(ctx, "rollback")
+				writeError(w, serverError(errcode.TransactionError, fmt.Errorf("item %d: rollback to savepoint: %w", i, err)), cfg.Dev)
+				return
+			}
+		}
 	}
 
 	// NO commit here : ## Transactions keeps the write phase and every
 	// item's read-back in one transaction, committed only at the very end.
 
-	// Compile every statement before writing any response bytes : once
-	// streaming starts there's no clean error envelope left to fall back to.
+	// Compile every statement, run "count", and collect sql/query_plan
+	// before writing any response bytes : once streaming starts there's no
+	// clean error envelope left to fall back to.
 	statements := make([]*writer.SQLWriter, len(resolved))
 	args := make([][]any, len(resolved))
+	envelopes := make([]envelopeData, len(resolved))
 	for i, item := range resolved {
-		var sw *writer.SQLWriter
-		var cerr error
-		switch {
-		case item.isWrite:
-			sw, cerr = query.CompileSelectForDataNode(item.root, nodeIDs[i])
-		case item.precompiledRead != nil:
-			sw = item.precompiledRead
-		default:
-			sw, cerr = query.CompileSelect(item.root)
+		// returns=="none" on a write skips compiling/running the read-back
+		// SELECT entirely (specs/complex-query.md ## Response shape).
+		skipReadback := item.isWrite && item.returns == "none"
+
+		if !skipReadback {
+			var sw *writer.SQLWriter
+			var cerr error
+			switch {
+			case item.isWrite:
+				sw, cerr = query.CompileSelectForDataNode(item.root, nodeIDs[i])
+			case item.precompiledRead != nil:
+				sw = item.precompiledRead
+			default:
+				sw, cerr = query.CompileSelect(item.root)
+			}
+			if cerr != nil {
+				writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: compiling response: %w", i, cerr)), cfg.Dev)
+				return
+			}
+			statements[i] = sw
+			// ResolveArgs, not Args() : degrades to Args() when paramValues is
+			// nil, but also resolves a well-known item's named $param slots.
+			a, aerr := sw.ResolveArgs(item.paramValues)
+			if aerr != nil {
+				writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: resolving params: %w", i, aerr)), cfg.Dev)
+				return
+			}
+			args[i] = a
 		}
-		if cerr != nil {
-			writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: compiling response: %w", i, cerr)), cfg.Dev)
-			return
+
+		if item.count {
+			if cfg.AllowCount {
+				n, cerr := runCount(ctx, conn, item.root, item.paramValues)
+				if cerr != nil {
+					_, _ = conn.Exec(ctx, "rollback")
+					writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: count: %w", i, cerr)), cfg.Dev)
+					return
+				}
+				envelopes[i].count = &n
+				envelopes[i].offset = item.root.Offset
+				envelopes[i].limit = item.root.Limit
+			}
 		}
-		statements[i] = sw
-		// ResolveArgs, not Args() : degrades to Args() when paramValues is
-		// nil, but also resolves a well-known item's named $param slots.
-		a, aerr := sw.ResolveArgs(item.paramValues)
-		if aerr != nil {
-			writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: resolving params: %w", i, aerr)), cfg.Dev)
-			return
+
+		if item.stats {
+			envelopes[i].stats = []query.Stat{}
+			if cfg.AllowStats && writeResults[i] != nil {
+				envelopes[i].stats = writeResults[i].Stats
+			}
 		}
-		args[i] = a
+		if item.sql {
+			envelopes[i].sql = []query.SqlResult{}
+			if cfg.AllowSql {
+				if writeResults[i] != nil {
+					envelopes[i].sql = append(envelopes[i].sql, writeResults[i].Sql...)
+				}
+				if !skipReadback {
+					envelopes[i].sql = append(envelopes[i].sql, query.SqlResult{Path: emptyPath, Select: statements[i].String()})
+				}
+			}
+		}
+		if item.queryPlan {
+			envelopes[i].queryPlan = []query.PlanResult{}
+			if cfg.AllowQueryPlan {
+				if writeResults[i] != nil {
+					envelopes[i].queryPlan = append(envelopes[i].queryPlan, writeResults[i].QueryPlan...)
+				}
+				if !skipReadback {
+					plan, perr := explainFormatJSON(ctx, conn, statements[i].String(), args[i])
+					if perr != nil {
+						_, _ = conn.Exec(ctx, "rollback")
+						writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: explain: %w", i, perr)), cfg.Dev)
+						return
+					}
+					envelopes[i].queryPlan = append(envelopes[i].queryPlan, query.PlanResult{Path: emptyPath, Select: plan})
+				}
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -344,10 +486,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		if multi && i > 0 {
 			_, _ = w.Write([]byte(","))
 		}
-		// A clean envelope is only possible for a single-item request's
-		// very first byte — see response.go's writeError doc comment.
-		cleanErrorPossible := !multi && i == 0
-		if err := streamItem(ctx, w, conn, item.root, statements[i], args[i], cleanErrorPossible); err != nil {
+		if err := writeItemResponse(ctx, w, conn, &item, statements[i], args[i], envelopes[i], bufferedResult[i], multi, i); err != nil {
 			// A read failing rolls back the whole transaction too (##
 			// Transactions) ; explicit, though pgxpool would discard it anyway.
 			_, _ = conn.Exec(ctx, "rollback")
@@ -378,9 +517,86 @@ type cleanStreamError struct{ err error }
 func (e *cleanStreamError) Error() string { return e.err.Error() }
 func (e *cleanStreamError) Unwrap() error { return e.err }
 
+// writeItemResponse is streamItem for the bare shape (## Response shape's
+// "no flag set"), or writeEnvelope wrapping it for any other shape. sw is
+// nil only for a write whose "returns": "none" skipped the read-back
+// entirely — nothing to execute or stream then. buffered is non-nil only
+// for a rolled-back write (## rollback) : its rows were already captured
+// before "rollback to savepoint" erased them, so they're replayed here
+// instead of re-querying.
+func writeItemResponse(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, item *resolvedItem, sw *writer.SQLWriter, args []any, env envelopeData, buffered [][]byte, multi bool, i int) error {
+	cleanErrorPossible := !multi && i == 0
+
+	if !item.usesEnvelope() {
+		if buffered != nil {
+			return writeBufferedRows(w, buffered)
+		}
+		return streamItem(ctx, w, conn, item.root, sw, args, cleanErrorPossible)
+	}
+
+	// A read's "returns": "none" still executes (a side-effecting function/
+	// view still runs), only suppressing "result" itself — unlike a write,
+	// where "returns": "none" already skipped compiling sw at all.
+	if item.returns == "none" && !item.isWrite && sw != nil {
+		if err := executeDiscard(ctx, conn, sw, args, cleanErrorPossible); err != nil {
+			return err
+		}
+	}
+
+	// Past this point, "{" is about to be written — no clean fallback survives it.
+	return writeEnvelope(w, item, env, func(rw io.Writer) error {
+		if buffered != nil {
+			return writeBufferedRows(rw, buffered)
+		}
+		return streamItem(ctx, rw, conn, item.root, sw, args, false)
+	})
+}
+
+// writeBufferedRows writes rows (captured by bufferReadback) as the same
+// manually-streamed JSON array streamRows produces for a live query.
+func writeBufferedRows(w io.Writer, rows [][]byte) error {
+	if _, err := io.WriteString(w, "["); err != nil {
+		return err
+	}
+	for i, raw := range rows {
+		if i > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		if _, err := w.Write(raw); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "]")
+	return err
+}
+
+// executeDiscard runs sw for its side effects only, scanning no column —
+// server/rel.go's own answer to a read's "returns": "none" + "rollback".
+func executeDiscard(ctx context.Context, conn *pgxpool.Conn, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
+	rows, err := conn.Query(ctx, sw.String(), args...)
+	if err != nil {
+		if cleanErrorPossible {
+			return &cleanStreamError{err}
+		}
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	if err := rows.Err(); err != nil {
+		if cleanErrorPossible {
+			return &cleanStreamError{err}
+		}
+		return err
+	}
+	return nil
+}
+
 // streamItem runs sw and streams the result : a bare scalar for a scalar
 // function root, a JSON array otherwise (## Response Shape).
-func streamItem(ctx context.Context, w http.ResponseWriter, conn *pgxpool.Conn, root *query.QueryNode, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
+func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, root *query.QueryNode, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
 	rows, err := conn.Query(ctx, sw.String(), args...)
 	if err != nil {
 		if cleanErrorPossible {

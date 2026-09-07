@@ -288,6 +288,236 @@ func TestExecuteWrite_Upsert(t *testing.T) {
 	}
 }
 
+// TestExecuteWriteStateParamsOpts_Sql proves `sql` collects each DML
+// statement's compiled text without needing execution to have been wrapped
+// in anything extra (specs/complex-query.md ## sql : "adds zero DB round trips").
+func TestExecuteWriteStateParamsOpts_Sql(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	payload := []byte(`[{"name": "Sql Insert Director"}]`)
+
+	result, err := ExecuteWriteStateParamsOpts(ctx, conn, node, payload, &WriteState{}, nil, WriteOptions{Sql: true})
+	if err != nil {
+		t.Fatalf("ExecuteWriteStateParamsOpts: %v", err)
+	}
+	if len(result.Sql) != 1 {
+		t.Fatalf("expected 1 SqlResult, got %d", len(result.Sql))
+	}
+	if result.Sql[0].Insert == "" {
+		t.Fatalf("expected Insert to carry the compiled statement text, got empty")
+	}
+	if result.Sql[0].Update != "" || result.Sql[0].Delete != "" || result.Sql[0].Upsert != "" {
+		t.Errorf("expected only Insert set, got %#v", result.Sql[0])
+	}
+}
+
+// TestExecuteWriteStateParamsOpts_QueryPlan proves `query_plan` runs the
+// DML statement for real (EXPLAIN ANALYZE), reporting a plan and leaving
+// the actual write in place — specs/complex-query.md ## query_plan.
+func TestExecuteWriteStateParamsOpts_QueryPlan(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	payload := []byte(`[{"name": "Query Plan Insert Director"}]`)
+
+	result, err := ExecuteWriteStateParamsOpts(ctx, conn, node, payload, &WriteState{}, nil, WriteOptions{QueryPlan: true})
+	if err != nil {
+		t.Fatalf("ExecuteWriteStateParamsOpts: %v", err)
+	}
+	if len(result.QueryPlan) != 1 {
+		t.Fatalf("expected 1 PlanResult, got %d", len(result.QueryPlan))
+	}
+	if len(result.QueryPlan[0].Insert) == 0 {
+		t.Fatalf("expected Insert to carry a plan, got empty")
+	}
+	var plan []map[string]any
+	if err := json.Unmarshal(result.QueryPlan[0].Insert, &plan); err != nil {
+		t.Fatalf("expected valid EXPLAIN JSON, got %s: %v", result.QueryPlan[0].Insert, err)
+	}
+	if len(plan) == 0 || plan[0]["Plan"] == nil {
+		t.Fatalf("expected a \"Plan\" key in the EXPLAIN output, got %s", result.QueryPlan[0].Insert)
+	}
+
+	// The statement still ran for real — its side effect persists.
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from director where name = 'Query Plan Insert Director'`).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected the row actually inserted despite EXPLAIN ANALYZE wrapping, got count=%d", count)
+	}
+}
+
+// TestExecuteWriteStateParamsStats_Insert proves stats reports the insert
+// count, and that collectStats=false leaves WriteResult.Stats nil
+// (specs/complex-query.md ## stats).
+func TestExecuteWriteStateParamsStats_Insert(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	payload := []byte(`[{"name": "Stats Insert A"}, {"name": "Stats Insert B"}]`)
+
+	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
+	if err != nil {
+		t.Fatalf("ExecuteWriteStateParamsStats: %v", err)
+	}
+	if len(result.Stats) != 1 {
+		t.Fatalf("expected 1 Stat, got %d : %#v", len(result.Stats), result.Stats)
+	}
+	s := result.Stats[0]
+	if len(s.Path) != 0 {
+		t.Errorf("expected root path [], got %#v", s.Path)
+	}
+	if s.Table != "public.director" {
+		t.Errorf("expected table public.director, got %q", s.Table)
+	}
+	if s.Submitted != 2 || s.Inserted != 2 || s.Updated != 0 || s.Deleted != 0 {
+		t.Errorf("expected submitted=2 inserted=2 updated=0 deleted=0, got %#v", s)
+	}
+
+	// collectStats=false is the default (ExecuteWrite/ExecuteWriteState/
+	// ExecuteWriteStateParams all route through it) — no stats collected.
+	conn2 := acquireWriteConn(t)
+	node2 := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	result2, err := ExecuteWrite(ctx, conn2, node2, []byte(`[{"name": "No Stats Director"}]`))
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+	if result2.Stats != nil {
+		t.Errorf("expected nil Stats when collectStats wasn't requested, got %#v", result2.Stats)
+	}
+}
+
+// TestExecuteWriteStateParamsStats_Update proves stats reports the actual
+// updated count, not the submitted count, when a row's identity doesn't match.
+func TestExecuteWriteStateParamsStats_Update(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var directorID int
+	if err := conn.QueryRow(ctx, `insert into director (name) values ('Stats Update Before') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "update"}`)
+	// One row matches an existing id (updates), one doesn't (affects 0 rows).
+	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "Stats Update After"}, {"id": 999999999, "name": "No Match"}]`)
+
+	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
+	if err != nil {
+		t.Fatalf("ExecuteWriteStateParamsStats: %v", err)
+	}
+	if len(result.Stats) != 1 {
+		t.Fatalf("expected 1 Stat, got %d : %#v", len(result.Stats), result.Stats)
+	}
+	s := result.Stats[0]
+	if s.Submitted != 2 {
+		t.Errorf("expected submitted=2, got %d", s.Submitted)
+	}
+	if s.Updated != 1 {
+		t.Errorf("expected updated=1 (only the matching row), got %d", s.Updated)
+	}
+
+	var name string
+	if err := conn.QueryRow(ctx, `select name from director where id = $1`, directorID).Scan(&name); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if name != "Stats Update After" {
+		t.Errorf("expected name=Stats Update After, got %q", name)
+	}
+}
+
+// TestExecuteWriteStateParamsStats_Upsert proves the xmax-based split
+// distinguishes inserted from updated rows within one upsert statement.
+func TestExecuteWriteStateParamsStats_Upsert(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var directorID int
+	if err := conn.QueryRow(ctx, `insert into director (name) values ('Stats Upsert Before') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "upsert"}`)
+	payload := []byte(`[
+		{"id": ` + itoa(directorID) + `, "name": "Stats Upsert After"},
+		{"name": "Stats Upsert Fresh"}
+	]`)
+
+	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
+	if err != nil {
+		t.Fatalf("ExecuteWriteStateParamsStats: %v", err)
+	}
+	if len(result.Stats) != 1 {
+		t.Fatalf("expected 1 Stat, got %d : %#v", len(result.Stats), result.Stats)
+	}
+	s := result.Stats[0]
+	if s.Submitted != 2 {
+		t.Errorf("expected submitted=2, got %d", s.Submitted)
+	}
+	if s.Inserted != 1 || s.Updated != 1 {
+		t.Errorf("expected inserted=1 updated=1, got %#v", s)
+	}
+
+	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	if len(keys) != 2 {
+		t.Fatalf("expected 2 keys rows (upsert side effects unaffected by stats collection), got %d", len(keys))
+	}
+}
+
+// TestExecuteWriteStateParamsStats_Delete proves a delete-bearing mode
+// reports its Deleted count.
+func TestExecuteWriteStateParamsStats_Delete(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var directorID int
+	if err := conn.QueryRow(ctx, `insert into director (name) values ('Stats Delete Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Stats Delete Movie A'), ($1, 'Stats Delete Movie B')`, directorID); err != nil {
+		t.Fatalf("insert movies: %v", err)
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "director", "schema": "public",
+		"select": ["own"],
+		"where": ["=", "id", %d],
+		"write_mode": "update",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "deleteonly"}}
+	}`, directorID))
+	// Payload carries no movies at all — deleteonly removes every existing one.
+	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "Stats Delete Director"}]`)
+
+	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
+	if err != nil {
+		t.Fatalf("ExecuteWriteStateParamsStats: %v", err)
+	}
+
+	var moviesStat *Stat
+	for i := range result.Stats {
+		if result.Stats[i].Table == "public.movie" {
+			moviesStat = &result.Stats[i]
+		}
+	}
+	if moviesStat == nil {
+		t.Fatalf("expected a Stat for public.movie, got %#v", result.Stats)
+	}
+	if len(moviesStat.Path) != 1 || moviesStat.Path[0] != "movies" {
+		t.Errorf(`expected path ["movies"], got %#v`, moviesStat.Path)
+	}
+	if moviesStat.Submitted != 0 {
+		t.Errorf("expected submitted=0 (unpopulated, deleted via parent's population), got %d", moviesStat.Submitted)
+	}
+	if moviesStat.Deleted != 2 {
+		t.Errorf("expected deleted=2, got %d", moviesStat.Deleted)
+	}
+}
+
 func TestExecuteWrite_MergeDeletesAbsentRows(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()

@@ -4,11 +4,15 @@ icon: material/pencil
 
 # Writing data back
 
-Send `{"query": <Relation>, "data": <payload>}` instead of a bare `Relation` to write. `data`
-must be shaped like what `query`'s own `select` would produce — the same object (or array of
-objects, for the root or an incoming join) you'd get back from reading, edited in place. rel
-denormalizes it back down to one row per relation the query touched and applies each relation's
-own `write_mode`:
+Send `{"query": <Relation>, "data": <payload>}` — a `ComplexQuery` — instead of a bare `Relation`
+to write. `data` must be shaped like what `query`'s own `select` would produce — the same object
+(or array of objects, for the root or an incoming join) you'd get back from reading, edited in
+place. rel denormalizes it back down to one row per relation the query touched and applies each
+relation's own `write_mode`:
+
+`ComplexQuery` also carries five flags — `returns`, `count`, `stats`, `query_plan`, `sql`, and
+`rollback` — that shape what the response carries beyond the written-back selection, and work on
+a plain read too (just omit `data`). See [Complex queries](complex-query.md).
 
 | `write_mode` | Behavior | Default for |
 |---|---|---|

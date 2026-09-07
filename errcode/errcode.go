@@ -62,6 +62,17 @@ const (
 	WriteForbiddenFunctionRoot Code = "WRITE_FORBIDDEN_FUNCTION_ROOT"
 )
 
+// ComplexQuery errors (specs/complex-query.md).
+const (
+	QueryInvalidReturns         Code = "QUERY_INVALID_RETURNS"
+	QueryUnsupportedReturns     Code = "QUERY_UNSUPPORTED_RETURNS"
+	QueryCountIsReadOnly        Code = "QUERY_COUNT_IS_READ_ONLY"
+	QueryStatsIsWriteOnly       Code = "QUERY_STATS_IS_WRITE_ONLY"
+	QueryStatsQueryPlanConflict Code = "QUERY_STATS_QUERY_PLAN_CONFLICT"
+	QueryRollbackNotGranted     Code = "QUERY_ROLLBACK_NOT_GRANTED"
+	QueryComplexNotAllowedOnGet Code = "QUERY_COMPLEX_NOT_ALLOWED_ON_GET"
+)
+
 // Well-known query compile errors (## Compilation Errors) — raised once,
 // at load/reload time, never re-checked per request.
 const (

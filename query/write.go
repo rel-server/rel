@@ -11,11 +11,12 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
-	"github.com/rel-server/rel/errcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rel-server/rel/errcode"
 	"github.com/samber/oops"
 )
 
@@ -59,6 +60,67 @@ type WriteResult struct {
 	// RowCount is the total number of "_data" rows this write produced,
 	// across every writable node.
 	RowCount int
+
+	// Stats is populated only when WriteOptions.Stats was set — one entry
+	// per writable node an insert/update/upsert/delete statement actually
+	// ran against (specs/complex-query.md ## stats). Nil otherwise.
+	Stats []Stat
+
+	// Sql is populated only when WriteOptions.Sql was set — one entry per
+	// writable node touched, the compiled text of whichever statement
+	// kind(s) it ran (specs/complex-query.md ## sql). Nil otherwise.
+	Sql []SqlResult
+
+	// QueryPlan is populated only when WriteOptions.QueryPlan was set —
+	// every DML statement ran as EXPLAIN (ANALYZE, FORMAT JSON) instead of
+	// plainly (specs/complex-query.md ## query_plan). Nil otherwise.
+	QueryPlan []PlanResult
+}
+
+// Stat is one writable node's row counts from a `stats` request
+// (specs/complex-query.md ## stats).
+type Stat struct {
+	// Path is the chain of join-alias keys from the root down to this node
+	// ; [] for the root relation itself.
+	Path      []string
+	Table     string // fully-qualified relation name, "schema.table"
+	Submitted int    // rows denormalized for this node, written or not
+	Inserted  int
+	Updated   int
+	Deleted   int
+}
+
+// SqlResult is one node's compiled statement text(s) from a `sql` request
+// (specs/complex-query.md ## sql) — at most one of Insert/Update/Upsert/
+// Delete is non-empty per statement kind the node actually ran ; Select is
+// left for server/rel.go to fill in separately (the read-back, outside this
+// package's scope).
+type SqlResult struct {
+	Path                           []string
+	Select                         string
+	Insert, Update, Upsert, Delete string
+}
+
+// PlanResult is one node's EXPLAIN (ANALYZE, FORMAT JSON) output(s) from a
+// `query_plan` request on a write (specs/complex-query.md ## query_plan) —
+// Select is left for server/rel.go (the read-back, outside this package's
+// scope).
+type PlanResult struct {
+	Path                           []string
+	Select                         json.RawMessage
+	Insert, Update, Upsert, Delete json.RawMessage
+}
+
+// WriteOptions augments ExecuteWriteStateParamsOpts with ComplexQuery's
+// write-side response-shaping flags (specs/complex-query.md). QueryPlan and
+// Stats are mutually exclusive — EXPLAIN ANALYZE's plan-row output leaves no
+// RowsAffected()/RETURNING data for Stats to read ; rejecting the
+// combination is the caller's responsibility (server/rel.go), not enforced
+// here.
+type WriteOptions struct {
+	Stats     bool
+	QueryPlan bool
+	Sql       bool
 }
 
 // assignNodeIDs walks root pre-order, pruning a READONLY node's whole
@@ -169,6 +231,20 @@ func ExecuteWriteState(ctx context.Context, conn Querier, root *QueryNode, paylo
 // own per-request params (specs/well-known-queries.md ## Definition). nil
 // for a plain /rel write, which never contains a ParamExpr to begin with.
 func ExecuteWriteStateParams(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState, paramValues map[string]any) (*WriteResult, error) {
+	return ExecuteWriteStateParamsStats(ctx, conn, root, payload, state, paramValues, false)
+}
+
+// ExecuteWriteStateParamsStats is ExecuteWriteStateParamsOpts with only
+// WriteOptions.Stats settable.
+func ExecuteWriteStateParamsStats(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState, paramValues map[string]any, collectStats bool) (*WriteResult, error) {
+	return ExecuteWriteStateParamsOpts(ctx, conn, root, payload, state, paramValues, WriteOptions{Stats: collectStats})
+}
+
+// ExecuteWriteStateParamsOpts is ExecuteWriteStateParams, additionally
+// shaping the response per opts (specs/complex-query.md) — an all-false
+// opts is a no-op : no extra statement, row-scan, or EXPLAIN wrapping runs,
+// per ## Availability's "flag off skips the work" rule.
+func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
 	ids, nextNodeID := assignNodeIDs(root, state.nextNodeID)
 	if _, ok := ids[root]; !ok {
 		return nil, oops.Code(errcode.WriteForbidden).Errorf("write: root node is readonly, nothing to write")
@@ -202,11 +278,16 @@ func ExecuteWriteStateParams(ctx context.Context, conn Querier, root *QueryNode,
 	}
 
 	populated := make(map[int]bool, len(ids))
+	submitted := make(map[int]int, len(ids))
 	for _, r := range rows {
 		populated[r.NodeID] = true
+		submitted[r.NodeID]++
 	}
 
-	dc := &dmlCompiler{conn: conn, ids: ids, populated: populated, paramValues: paramValues}
+	dc := &dmlCompiler{
+		conn: conn, ids: ids, populated: populated, paramValues: paramValues, submitted: submitted,
+		collectStats: opts.Stats, collectSQL: opts.Sql, explainAnalyze: opts.QueryPlan,
+	}
 	if err := dc.phase1(ctx, root); err != nil {
 		return nil, err
 	}
@@ -216,5 +297,8 @@ func ExecuteWriteStateParams(ctx context.Context, conn Querier, root *QueryNode,
 
 	state.nextNodeID = nextNodeID
 	state.nextRowID = nextRowID
-	return &WriteResult{NodeIDs: ids, RowCount: len(rows)}, nil
+	return &WriteResult{
+		NodeIDs: ids, RowCount: len(rows),
+		Stats: dc.finalStats(), Sql: dc.finalSQL(), QueryPlan: dc.finalPlans(),
+	}, nil
 }

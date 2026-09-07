@@ -14,14 +14,14 @@ come back to it once you know roughly what you're looking for and just need the 
 `POST /rel`'s body is one of these, at the top level:
 
 ```ts
-type Query = Relation | WriteQuery | WellKnownQuery | Query[]
+type Query = Relation | ComplexQuery | WellKnownQuery | Query[]
 ```
 
 | Form | Meaning |
 |---|---|
-| A `Relation` | A read (see [Shaping a query](shaping.md)), or, wrapped in a `WriteQuery`, a write. |
+| A `Relation` | A read (see [Shaping a query](shaping.md)), or, wrapped in a `ComplexQuery`, a write. |
 | A `WellKnownQuery` | A call to a named, pre-parsed query — see [Well-known queries](well-known-queries.md). |
-| A `WriteQuery` | Write `data` back through `query` (a `Relation` or a `WellKnownQuery`) — see [Writing data back](writing.md). |
+| A `ComplexQuery` | Optionally write `data` back through `query` (a `Relation` or a `WellKnownQuery`), and/or shape the response beyond the plain selection — see [Writing data back](writing.md) and [Complex queries](complex-query.md). |
 | `Query[]` | Several queries in one request, one transaction — see [Batching queries](batching.md). |
 
 ## `Relation`
@@ -78,7 +78,7 @@ interface Relation {
 | `offset` | [Ordering and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
 | `limit` | [Ordering and pagination](ordering-pagination.md) — per parent row, inside a `join`. |
 
-## `WellKnownQuery` and `WriteQuery`
+## `WellKnownQuery` and `ComplexQuery`
 
 ```ts
 interface WellKnownQuery {
@@ -86,9 +86,15 @@ interface WellKnownQuery {
   params?: any
 }
 
-interface WriteQuery {
+interface ComplexQuery {
   query: Relation | WellKnownQuery
-  data: any // shaped like `query`'s own `select`
+  data?: any // shaped like `query`'s own `select` ; write, if present, else a read
+  returns?: "none" | "results"
+  count?: boolean
+  stats?: boolean
+  query_plan?: boolean
+  sql?: boolean
+  rollback?: boolean
 }
 ```
 
@@ -96,8 +102,9 @@ interface WriteQuery {
 |---|---|---|
 | `WellKnownQuery` | `wellknown` | [Well-known queries](well-known-queries.md). |
 | `WellKnownQuery` | `params` | [Well-known queries ## Declaring and using parameters](well-known-queries.md#declaring-and-using-parameters). |
-| `WriteQuery` | `query` | [Writing data back](writing.md). |
-| `WriteQuery` | `data` | [Writing data back](writing.md). |
+| `ComplexQuery` | `query` | [Writing data back](writing.md). |
+| `ComplexQuery` | `data` | [Writing data back](writing.md) — omit it entirely for a read. |
+| `ComplexQuery` | `returns`, `count`, `stats`, `query_plan`, `sql`, `rollback` | [Complex queries](complex-query.md). |
 
 ## `Expression`
 
