@@ -169,6 +169,72 @@ func TestExecuteWrite_OutgoingChildFK(t *testing.T) {
 	}
 }
 
+func TestExecuteWrite_ThreeLevelNestedIncomingChildren(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	// studio -> director (incoming, director.studio_id) -> movie (incoming,
+	// movie.director_id) : every other nested-write test in this file goes
+	// exactly one join deep. 17b928b's own bug (an index on
+	// hotel.properties.chain_id blocked any write nested two levels under
+	// chains) was exactly this shape — a grandchild incoming relation whose
+	// own parent is itself an incoming child, not the root.
+	node := mustResolveQuery(t, `{
+		"relation": "studio", "schema": "public",
+		"select": {"id": "id", "name": "name", "directors": "directors"},
+		"write_mode": "insert",
+		"join": {"directors": {
+			"relation": "director", "schema": "public", "on": {"studio_id": "id"},
+			"write_mode": "insert",
+			"select": {"id": "id", "name": "name", "studio_id": "studio_id", "movies": "movies"},
+			"join": {"movies": {
+				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+				"write_mode": "insert", "select": ["own"]
+			}}
+		}}
+	}`)
+	directorNode := node.IncomingNodes[0]
+	movieNode := directorNode.IncomingNodes[0]
+
+	payload := []byte(`[{
+		"name": "Three-Level Studio",
+		"directors": [{
+			"name": "Three-Level Director",
+			"movies": [{"title": "Three-Level Movie One"}, {"title": "Three-Level Movie Two"}]
+		}]
+	}]`)
+	result, err := ExecuteWrite(ctx, conn, node, payload)
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	studioKeys := dataKeysFor(t, conn, result.NodeIDs[node])
+	directorKeys := dataKeysFor(t, conn, result.NodeIDs[directorNode])
+	movieKeys := dataKeysFor(t, conn, result.NodeIDs[movieNode])
+	if len(studioKeys) != 1 {
+		t.Fatalf("expected 1 studio keys row, got %d", len(studioKeys))
+	}
+	if len(directorKeys) != 1 {
+		t.Fatalf("expected 1 director keys row, got %d", len(directorKeys))
+	}
+	if len(movieKeys) != 2 {
+		t.Fatalf("expected 2 movie keys rows, got %d : %#v", len(movieKeys), movieKeys)
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `
+		select count(*) from movie mv
+		join director d on d.id = mv.director_id
+		join studio s on s.id = d.studio_id
+		where s.name = 'Three-Level Studio' and d.name = 'Three-Level Director'
+	`).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 movies correctly linked through director to studio, got %d", count)
+	}
+}
+
 func TestExecuteWrite_Update(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -1069,6 +1135,67 @@ func TestExecuteWrite_UpsertNonPKOnConflictPreservesRealKey(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected exactly 1 profile row (no duplicate inserted), got %d", count)
+	}
+}
+
+func TestExecuteWrite_UpsertMultiColumnOnConflict(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	// target_t has no primary key at all, only unique(x, y) — every
+	// upsert/merge test elsewhere in this file targets a single on_conflict
+	// column ; this is the one fixture exercising a genuinely composite
+	// on_conflict list, the shape write_dml.go's identCols/updateCols column
+	// lists (touched directly by 17b928b) are otherwise never run against
+	// Postgres with more than one column in play.
+	if _, err := conn.Exec(ctx, `delete from target_t where x = 1 and y = 2`); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "target_t", "schema": "public",
+		"select": {"x": "x", "y": "y", "z": "z"},
+		"write_mode": "upsert",
+		"on_conflict": ["x", "y"]
+	}`)
+
+	// First write : no existing (1, 2) row, so this is a genuine insert.
+	if _, err := conn.Exec(ctx, `truncate _data`); err != nil {
+		t.Fatalf("truncate _data: %v", err)
+	}
+	if _, err := ExecuteWrite(ctx, conn, node, []byte(`[{"x": 1, "y": 2, "z": 10}]`)); err != nil {
+		t.Fatalf("ExecuteWrite (insert): %v", err)
+	}
+	var z int
+	if err := conn.QueryRow(ctx, `select z from target_t where x = 1 and y = 2`).Scan(&z); err != nil {
+		t.Fatalf("select back after insert: %v", err)
+	}
+	if z != 10 {
+		t.Fatalf("expected z=10 after insert, got %d", z)
+	}
+
+	// Second write : same (x, y), different z — must hit the ON CONFLICT
+	// (x, y) DO UPDATE branch, updating z in place rather than erroring on a
+	// duplicate-key violation or inserting a second row.
+	if _, err := conn.Exec(ctx, `truncate _data`); err != nil {
+		t.Fatalf("truncate _data: %v", err)
+	}
+	if _, err := ExecuteWrite(ctx, conn, node, []byte(`[{"x": 1, "y": 2, "z": 99}]`)); err != nil {
+		t.Fatalf("ExecuteWrite (conflicting update): %v", err)
+	}
+	if err := conn.QueryRow(ctx, `select z from target_t where x = 1 and y = 2`).Scan(&z); err != nil {
+		t.Fatalf("select back after upsert: %v", err)
+	}
+	if z != 99 {
+		t.Errorf("expected z=99 after the conflicting upsert, got %d", z)
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from target_t where x = 1 and y = 2`).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 row for (x, y) = (1, 2), got %d (a duplicate was inserted instead of conflicting)", count)
 	}
 }
 
