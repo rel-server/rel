@@ -508,12 +508,13 @@ type PgQuery struct {
 // not required).
 type Pg struct {
 	// URI is pg.uri : a full "postgres://user:pass@host:port/db"
-	// connection string. When set, it is AUTHORITATIVE — User/Password/
-	// Host/Port/Database below are ignored entirely, not merged with it ;
-	// a partial URI plus partial granular fields has no clean precedence
-	// rule, so this is deliberately all-or-nothing. Composes naturally
-	// with $FILE$ (a single secrets file holding the whole URI, rather
-	// than five separate keys each behind their own $FILE$ reference).
+	// connection string. When set, it takes precedence : Host/Port/
+	// Database are derived FROM it (specs/pg-uri-precedence.md), and
+	// setting pg.host/pg.port/pg.database alongside pg.uri is a
+	// configuration error rather than a silently-ignored value. Composes
+	// naturally with $FILE$ (a single secrets file holding the whole URI,
+	// rather than five separate keys each behind their own $FILE$
+	// reference).
 	URI string
 
 	// User/Password are pg.user/pg.password — the primary login, used

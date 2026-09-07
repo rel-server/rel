@@ -80,6 +80,14 @@ func notFoundErr(path string) error {
 	return fmt.Errorf("config: %q: %w", path, errNotFound)
 }
 
+// Exists reports whether path is present in the merged configuration,
+// distinguishing "absent" from "present but equal to a default" — used
+// where precedence between two keys depends on which was actually set, not
+// merely on its resolved value (specs/pg-uri-precedence.md).
+func (r *ConfigReader) Exists(path string) bool {
+	return r.k.Exists(r.join(path))
+}
+
 // GetObject scopes to path, returning a ConfigReader over just that
 // sub-tree. An error, not an empty result, if path doesn't exist or isn't an
 // object.

@@ -159,14 +159,14 @@ user = "query_user"
 	}
 }
 
-// pg.uri, when set, wins outright over granular pg.host/port/user/... ;
-// pg.query.user (an independent optional override) must still apply on top.
-func TestLoad_PgURI_IsAuthoritative(t *testing.T) {
+// pg.uri, when set, takes precedence and populates pg.host/pg.port/
+// pg.database itself (specs/pg-uri-precedence.md) ; pg.query.user (an
+// independent optional override) must still apply on top.
+func TestLoad_PgURI_TakesPrecedence(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
 [pg]
-uri = "postgres://u:p@db.internal:5432/mydb"
-host = "should-be-ignored"
+uri = "postgres://u:p@db.internal:5433/mydb"
 user = "should-be-ignored"
 
 [pg.query]
@@ -176,11 +176,28 @@ user = "query_user"
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Pg.URI != "postgres://u:p@db.internal:5432/mydb" {
+	if cfg.Pg.URI != "postgres://u:p@db.internal:5433/mydb" {
 		t.Errorf("expected pg.uri read directly, got %q", cfg.Pg.URI)
+	}
+	if cfg.Pg.Host != "db.internal" || cfg.Pg.Port != 5433 || cfg.Pg.Database != "mydb" {
+		t.Errorf("expected pg.host/pg.port/pg.database derived from pg.uri, got %+v", cfg.Pg)
 	}
 	if cfg.Pg.Query.User != "query_user" {
 		t.Errorf("expected pg.query.user to still apply on top of pg.uri, got %q", cfg.Pg.Query.User)
+	}
+}
+
+// specs/pg-uri-precedence.md : pg.host/pg.port/pg.database set alongside
+// pg.uri is a configuration error, not a silently-ignored value.
+func TestLoad_PgURI_WithGranularFieldsIsFatal(t *testing.T) {
+	t.Chdir(t.TempDir())
+	p := writeFile(t, t.TempDir(), "rel.toml", `
+[pg]
+uri = "postgres://u:p@db.internal:5432/mydb"
+host = "conflicting-host"
+`)
+	if _, err := Load([]string{"--config=" + p}); err == nil {
+		t.Fatal("expected an error when pg.host is set alongside pg.uri")
 	}
 }
 
