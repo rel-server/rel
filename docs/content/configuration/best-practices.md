@@ -45,18 +45,19 @@ and it's especially worth doing for a `SECURITY DEFINER` function: one of those 
 `PUBLIC` default is callable by anyone with any authenticated role, running with the
 privileges of whoever owns it, not the caller's own.
 
-## Give requests a narrower Postgres role than migrations get
+## Keep pg.user's own privileges minimal
 
-`pg.query.user` (see [Configuration](index.md)) is a separate, optional login for the
-connection that actually serves requests, distinct from `pg.user` — the one rel uses for
-startup introspection and dmut migrations. Set it, and grant that role membership in only the
-application roles a request should ever `SET ROLE` into:
+`pg.user` (see [Configuration](index.md)) is the one login rel connects with — for startup
+introspection, [`reload.cmd`](reload.md), and serving requests alike. Grant it membership in
+only the application roles a request should ever `SET ROLE` into ; it doesn't need any DDL
+privilege of its own, even if `reload.cmd` runs a migration tool — that tool authenticates
+however its own command line says to, entirely independent of `pg.user`:
 
 ```sql
-create role query_user login password '...';
-grant "~anonymous" to query_user;
-grant "editor" to query_user;
-grant "admin" to query_user;
+create role rel_user login password '...';
+grant "~anonymous" to rel_user;
+grant "editor" to rel_user;
+grant "admin" to rel_user;
 ```
 
 Never make that role `postgres`, a superuser, or a member of `pg_read_server_files`,

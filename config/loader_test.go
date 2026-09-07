@@ -121,56 +121,13 @@ port = 1111
 	}
 }
 
-// Covers pg.query.user's cross-default onto pg.user — the default's VALUE
-// is another config key, not a constant, unlike ordinary *OrDefault keys.
-func TestLoad_QueryUserDefaultsToPgUser(t *testing.T) {
-	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
-	p := writeFile(t, t.TempDir(), "rel.toml", `
-[pg]
-user = "pg_user"
-password = "pg_pass"
-`)
-	cfg, err := Load([]string{"--config=" + p})
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.Pg.User != "pg_user" || cfg.Pg.Password != "pg_pass" {
-		t.Fatalf("expected pg.user/password read directly, got %+v", cfg.Pg)
-	}
-	if cfg.Pg.Query.User != "pg_user" || cfg.Pg.Query.Password != "pg_pass" {
-		t.Errorf("expected pg.query.user/password to default to pg.user/password, got %+v", cfg.Pg.Query.Login)
-	}
-
-	// pg.query.user, when explicitly set, must NOT be overridden by
-	// pg.user.
-	p2 := writeFile(t, t.TempDir(), "rel.toml", `
-[pg]
-user = "pg_user"
-
-[pg.query]
-user = "query_user"
-`)
-	cfg2, err := Load([]string{"--config=" + p2})
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg2.Pg.Query.User != "query_user" {
-		t.Errorf("expected explicit pg.query.user to win over pg.user's default, got %q", cfg2.Pg.Query.User)
-	}
-}
-
 // pg.uri, when set, takes precedence and populates pg.host/pg.port/
-// pg.database itself (specs/pg-uri-precedence.md) ; pg.query.user (an
-// independent optional override) must still apply on top.
+// pg.database itself (specs/pg-uri-precedence.md).
 func TestLoad_PgURI_TakesPrecedence(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
 [pg]
 uri = "postgres://u:p@db.internal:5433/mydb"
-user = "should-be-ignored"
-
-[pg.query]
-user = "query_user"
 `)
 	cfg, err := Load([]string{"--config=" + p})
 	if err != nil {
@@ -181,9 +138,6 @@ user = "query_user"
 	}
 	if cfg.Pg.Host != "db.internal" || cfg.Pg.Port != 5433 || cfg.Pg.Database != "mydb" {
 		t.Errorf("expected pg.host/pg.port/pg.database derived from pg.uri, got %+v", cfg.Pg)
-	}
-	if cfg.Pg.Query.User != "query_user" {
-		t.Errorf("expected pg.query.user to still apply on top of pg.uri, got %q", cfg.Pg.Query.User)
 	}
 }
 

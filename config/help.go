@@ -45,14 +45,12 @@ var Options = []Option{
 
 	// ---- pg.* : Postgres connection ----
 	{"pg.uri", "", "Full \"postgres://user:pass@host:port/db\" connection string. Takes precedence when set, populating pg.host/pg.port/pg.database itself — setting them alongside pg.uri is an error. --pg.uri alone is enough to run rel."},
-	{"pg.user", "", "Primary login username, used when pg.uri is unset. Falls back for pg.query.user."},
+	{"pg.user", "", "Primary login username, used when pg.uri is unset — for introspection, reload.cmd, and serving requests alike."},
 	{"pg.password", "", "Password for pg.user."},
 	{"pg.host", DefaultPgHost, "Postgres host, used when pg.uri is unset."},
 	{"pg.port", fmt.Sprint(DefaultPgPort), "Postgres port, used when pg.uri is unset."},
 	{"pg.database", "", "Database name, used when pg.uri is unset. Required one way or the other."},
 	{"pg.pool_size", fmt.Sprint(DefaultPgPoolSize), "Max connections in the pool that serves requests. Never affects startup introspection, which uses one short-lived connection regardless."},
-	{"pg.query.user", "= pg.user", "Narrower-scoped login used to serve requests. Optional — introspection and migrations always use pg.user/pg.uri regardless."},
-	{"pg.query.password", "= pg.password", "Password for pg.query.user."},
 	{"pg.query.anonymous_role", DefaultPgQueryAnonymousRole, "Role used for requests without a valid session."},
 	{"pg.query.max_depth", fmt.Sprint(DefaultMaxDepth), "Maximum nesting depth a query may specify."},
 	{"pg.query.wellknown_path", DefaultPgQueryWellKnownPath, "Colon-separated directories searched for well-known queries."},

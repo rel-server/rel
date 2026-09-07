@@ -21,8 +21,7 @@ the binary itself, if you want it without leaving a terminal.
 |---|---|---|
 | `pg.uri` | — | Full `postgres://user:pass@host:port/db`. Takes precedence when set — populates `pg.host`/`pg.port`/`pg.database` itself ; setting them alongside `pg.uri` is a configuration error. |
 | `pg.host` / `pg.port` / `pg.database` / `pg.user` / `pg.password` | `localhost` / `5432` / — / — / — | Granular connection fields, used only when `pg.uri` is unset. |
-| `pg.pool_size` | `10` | Max connections in the pool serving requests. Startup introspection and migrations each use one short-lived connection regardless. |
-| `pg.query.user` / `pg.query.password` | = `pg.user`/`pg.password` | An optional, narrower-scoped login for serving requests specifically — introspection and migrations still use `pg.user`. |
+| `pg.pool_size` | `10` | Max connections in the pool serving requests. Startup introspection uses one short-lived connection regardless. |
 | `pg.query.anonymous_role` | `~anonymous` | The role a request with no valid session runs as. See [Authentication](../http/authentication.md). |
 | `pg.query.max_depth` | `6` | Maximum join nesting a query may specify. |
 | `pg.query.wellknown_path` | `/wellknown` | Colon-separated directories, searched recursively for well-known query files. See [Well-known queries](../query-language/well-known-queries.md). |

@@ -301,27 +301,28 @@ switched to — grant it explicitly for every role any JWT in the deployment may
 including the anonymous one:
 
 ```sql
-grant "~anonymous" to query_user;
-grant "editor" to query_user;
-grant "admin" to query_user;
+grant "~anonymous" to rel_user;
+grant "editor" to rel_user;
+grant "admin" to rel_user;
 ```
 
-That grants `query_user` *membership* — the ability to `SET ROLE` into `~anonymous` at all. A
-route function still needs its own `EXECUTE` grant, directly to `~anonymous` (or to a role it
-belongs to), before an anonymous request can reach it:
+That grants `rel_user` (`pg.user` — see [Best practices ## Keep pg.user's own privileges
+minimal](../configuration/best-practices.md#keep-pguser's-own-privileges-minimal))
+*membership* — the ability to `SET ROLE` into `~anonymous` at all. A route function still
+needs its own `EXECUTE` grant, directly to `~anonymous` (or to a role it belongs to), before an
+anonymous request can reach it:
 
 ```sql
 grant execute on function guest_login(jsonb) to "~anonymous";
 ```
 
-Skipping a grant on a *route* doesn't fail at startup — introspection runs under the primary
-connection, not the query role — but it also isn't a runtime surprise: rel caches, once per
-discovered route at introspection/reload time, whether the anonymous role can actually reach
-it (see below), and rejects an anonymous request the anonymous role can't reach with `401`
-before the request body is even read. A **middleware** function has no such precheck, since
-it runs as the request's already-resolved role rather than the primary connection — a missing
-`EXECUTE` grant there surfaces as an ordinary Postgres permission-denied `403` on the first
-real request that reaches it, the same as any other route call missing a grant.
+Skipping a grant on a *route* doesn't fail at startup : rel caches, once per discovered route
+at introspection/reload time, whether the anonymous role can actually reach it (see below), and
+rejects an anonymous request the anonymous role can't reach with `401` before the request body
+is even read. A **middleware** function has no such precheck, since it runs as the request's
+already-resolved role rather than `pg.user` itself — a missing `EXECUTE` grant there surfaces as
+an ordinary Postgres permission-denied `403` on the first real request that reaches it, the
+same as any other route call missing a grant.
 
 When anonymous access is enabled, rel caches, once per discovered route or middleware at
 introspection/reload time, whether the anonymous role can actually reach it — schema `USAGE`
@@ -362,7 +363,7 @@ entirely.
 | `saml.certificate_path` / `saml.private_key_path` | generated on first boot | this deployment's SP certificate/key, shared across every `saml.<name>` entry |
 | `saml.<name>.certificate_path` / `saml.<name>.private_key_path` | unset, inherits the shared pair above | per-entry override, generated on first boot the same way if set and missing |
 
-See [Configuration](../configuration/index.md) for how these values, secrets included, get
+See [Configuration reference](../configuration/reference.md) for how these values, secrets included, get
 supplied across environment variables, config files, and generated files — including a couple
 of keys not repeated here (`openid.<name>.client_id`/`client_secret`,
 `openid.<name>.public_host`/`saml.<name>.public_host`) and every other key rel understands.

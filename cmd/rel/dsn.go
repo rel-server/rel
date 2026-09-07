@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -11,10 +10,10 @@ import (
 
 // postgresURI builds a pgx connection URI via net/url.URL (QueryEscape
 // mis-escapes userinfo) and net.JoinHostPort (IPv6 needs bracketing).
-func postgresURI(host string, port int, database string, login config.Login) string {
+func postgresURI(host string, port int, database, user, password string) string {
 	u := &url.URL{
 		Scheme: "postgres",
-		User:   url.UserPassword(login.User, login.Password),
+		User:   url.UserPassword(user, password),
 		Host:   net.JoinHostPort(host, strconv.Itoa(port)),
 		Path:   "/" + database,
 	}
@@ -31,28 +30,14 @@ func redactedTarget(uri string) string {
 	return u.Host + u.Path
 }
 
-// resolveConnectionURIs builds primaryURI (introspection/reload.cmd) and
-// queryURI (serving pool) ; queryURI falls back to primaryURI when unset.
-func resolveConnectionURIs(cfg config.Pg) (primaryURI, queryURI string, err error) {
+// resolveConnectionURI builds the single Postgres connection string used
+// for introspection, reload.cmd, AND serving requests alike (config.PgQuery's
+// own doc comment : there is no separate, narrower-scoped login) — pg.uri
+// as-is when set (preserving any query parameters, e.g. sslmode), otherwise
+// built from pg.host/pg.port/pg.database/pg.user/pg.password.
+func resolveConnectionURI(cfg config.Pg) string {
 	if cfg.URI != "" {
-		primaryURI = cfg.URI
-	} else {
-		primaryURI = postgresURI(cfg.Host, cfg.Port, cfg.Database, config.Login{User: cfg.User, Password: cfg.Password})
+		return cfg.URI
 	}
-
-	if cfg.Query.User == "" {
-		return primaryURI, primaryURI, nil
-	}
-
-	if cfg.URI == "" {
-		return primaryURI, postgresURI(cfg.Host, cfg.Port, cfg.Database, cfg.Query.Login), nil
-	}
-
-	// pg.uri AND pg.query.user set : swap just the userinfo, keep the rest.
-	u, perr := url.Parse(primaryURI)
-	if perr != nil {
-		return "", "", fmt.Errorf("parsing pg.uri to apply pg.query.user: %w", perr)
-	}
-	u.User = url.UserPassword(cfg.Query.User, cfg.Query.Password)
-	return primaryURI, u.String(), nil
+	return postgresURI(cfg.Host, cfg.Port, cfg.Database, cfg.User, cfg.Password)
 }

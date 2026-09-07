@@ -61,13 +61,9 @@ func main() {
 		return
 	}
 
-	// Introspection/reload.cmd use cfg.Pg's own primary login ; the serving pool
-	// uses pg.query.* instead, when set — see config.PgQuery's own doc comment.
-	primaryURI, queryURI, err := resolveConnectionURIs(cfg.Pg)
-	if err != nil {
-		logger.Error("resolving postgres connection", "error", err.Error())
-		os.Exit(1)
-	}
+	// Introspection, reload.cmd, and the serving pool all use this same URI
+	// — see config.PgQuery's own doc comment.
+	primaryURI := resolveConnectionURI(cfg.Pg)
 
 	// reload.cmd runs BEFORE introspection, always (specs/reload.md) ; a
 	// failed run is logged, startup continues regardless — same as a
@@ -76,7 +72,7 @@ func main() {
 		logger.Error("reload.cmd failed, continuing with the schema as it was before this attempt", "error", err.Error())
 	}
 
-	db, err := pg.NewInfosAdminQuery(primaryURI, queryURI, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole)
+	db, err := pg.NewInfosAdminQuery(primaryURI, primaryURI, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		logger.Error("connecting to postgres", "target", redactedTarget(primaryURI), "error", err.Error())
 		os.Exit(1)
@@ -209,10 +205,7 @@ func typescriptOutFlag(args []string) (path string, ok bool) {
 // file I/O + validation against db — no side effects, so building it here
 // doesn't carry the same objection.
 func runTypeScriptExport(cfg *config.Config, out string) error {
-	primaryURI, _, err := resolveConnectionURIs(cfg.Pg)
-	if err != nil {
-		return fmt.Errorf("resolving postgres connection: %w", err)
-	}
+	primaryURI := resolveConnectionURI(cfg.Pg)
 
 	db, err := pg.NewInfos(primaryURI)
 	if err != nil {

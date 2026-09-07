@@ -507,15 +507,6 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	}
 	cfg.Pg.PoolSize = root.GetIntOrDefault("pg.pool_size", DefaultPgPoolSize)
 
-	// pg.query.user/password default to pg.user/password ; left empty when
-	// pg.uri is set instead, since swapping URI userinfo is cmd/rel's job.
-	if cfg.Pg.URI == "" {
-		cfg.Pg.Query.User = root.GetStringOrDefault("pg.query.user", cfg.Pg.User)
-		cfg.Pg.Query.Password = root.GetStringOrDefault("pg.query.password", cfg.Pg.Password)
-	} else {
-		cfg.Pg.Query.User = root.GetStringOrDefault("pg.query.user", "")
-		cfg.Pg.Query.Password = root.GetStringOrDefault("pg.query.password", "")
-	}
 	cfg.Pg.Query.AnonymousRole = root.GetStringOrDefault("pg.query.anonymous_role", DefaultPgQueryAnonymousRole)
 
 	cfg.Pg.Query.MaxDepth = root.GetIntOrDefault("pg.query.max_depth", DefaultMaxDepth)

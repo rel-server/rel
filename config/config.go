@@ -467,35 +467,19 @@ const (
 	DefaultPgPoolSize = 10
 )
 
-type Login struct {
-	User     string
-	Password string
-}
-
-// PgQuery is pg.query.* : an OPTIONAL, narrower-scoped login for the
-// request-serving connection specifically (the base identity every
-// request's SET ROLE switches away from), plus the query-engine behavior
-// settings that only make sense in terms of that connection. Documented
-// and encouraged for a hardened deployment, never required : Pg's own
-// primary login already works for serving requests too (SET ROLE is what
-// actually restricts a request's data access, not the connecting login's
-// own privileges), so the simplest possible setup is just Pg.User/
-// Pg.Password/Pg.URI with PgQuery.Login left unset.
+// PgQuery is pg.query.* : the query-engine behavior settings for the
+// request-serving connection. rel connects with Pg's own primary login for
+// introspection, reload.cmd, AND serving requests alike — there is no
+// separate, narrower-scoped login (`set role` is what actually restricts a
+// request's data access, not the connecting login's own privileges ; see
+// specs/reload.md's Impacts section for why a second login stopped being
+// necessary once reload.cmd replaced dmut).
 type PgQuery struct {
-	// Login is pg.query.user / pg.query.password : if set, the login role
-	// rel connects with to serve requests (introspection and reload.cmd
-	// always use Pg's own primary login, never this one) — the
-	// role `set role` switches are executed from at request time. Falls
-	// back to Pg's own User/Password when unset. Embedded (not a named
-	// field) so cfg.Pg.Query.User/.Password read directly, matching the
-	// dotted key.
-	Login
-
 	// AnonymousRole is pg.query.anonymous_role (default "~anonymous",
 	// docs/content/configuration/index.md ### Postgres connection) : the
-	// role rel switches to, from Login, for requests with no credentials of
-	// their own — used both for /rel and JWT verification failures on
-	// /route (authentication.md ## Roles, which used to name this same
+	// role rel switches to, from Pg's own primary login, for requests with
+	// no credentials of their own — used both for /rel and JWT verification
+	// failures on /route (authentication.md ## Roles, which used to name this same
 	// setting jwt.anonrole ; reconciled onto query.anonymous_role, the name
 	// query-engine.md already used, itself later moved under pg.query.* for
 	// this same consistency pass).
@@ -532,7 +516,8 @@ type Pg struct {
 	URI string
 
 	// User/Password are pg.user/pg.password — the primary login, used
-	// when URI is unset. Also PgQuery.Login's own fallback.
+	// when URI is unset, for introspection, reload.cmd, AND serving
+	// requests alike.
 	User     string
 	Password string
 
