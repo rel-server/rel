@@ -14,7 +14,7 @@ everything else:
 
 rel compiles every well-known query to SQL once, at startup (and again on a schema reload),
 instead of parsing and planning it fresh on every request. It's also exported, fully typed, by
-rel's [generated TypeScript client](../typescript-client.md) — callers get real parameter and
+rel's [generated TypeScript client](../typescript/index.md) — callers get real parameter and
 result types for a well-known query the same way they would for a hand-written one.
 
 ## Defining one

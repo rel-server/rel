@@ -43,7 +43,7 @@ the binary itself, if you want it without leaving a terminal.
 | `http.max_part_count` | `100` | Max number of `multipart/form-data` parts a single declared-route request may contain. |
 | `http.static.path` | — | Colon-separated directories served at the router root, as the fallback for any path no declared route claims. See [Static files](../http/static-files.md). |
 | `http.templates.path` | `/template` | Directory Jet templates are loaded from, for a route's or middleware's own `template`. See [Requests and responses](../http/requests-responses.md#rendering-html-with-a-template). |
-| `http.typescript.enable` | `false` (`true` in dev) | Serve `GET /rel/database.ts`. See [TypeScript client](../typescript-client.md). |
+| `http.typescript.enable` | `false` (`true` in dev) | Serve `GET /rel/database.ts`. See [TypeScript client](../typescript/index.md). |
 | `http.typescript.schemas` | every schema but `pg_catalog` | Comma-separated whitelist of schemas `GET /rel/database.ts` may export; intersected with that request's own `?schemas=` param. |
 
 ## Route declaration and gating
@@ -156,4 +156,4 @@ dblink = "y"
 
 | Key | Default | What it does |
 |---|---|---|
-| `typescript.helper_path` | disabled | Filesystem path rel (re)writes `database.ts`'s content to directly, at startup and on every `SIGUSR1` reload — for an editor/LSP watching a real file on disk. See [TypeScript client](../typescript-client.md). |
+| `typescript.helper_path` | disabled | Filesystem path rel (re)writes `database.ts`'s content to directly, at startup and on every `SIGUSR1` reload — for an editor/LSP watching a real file on disk. See [TypeScript client](../typescript/index.md). |

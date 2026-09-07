@@ -42,7 +42,10 @@ nav = [
       { "CORS and CSP" = "http/cors-csp.md" },
       { "Authentication" = "http/authentication.md" },
   ] },
-  { "Typescript" = "typescript-client.md" },
+  { "Typescript" = [
+      { "Overview" = "typescript/index.md" },
+      { "database.json" = "typescript/database-json.md" },
+  ] },
   { "Configuration" = [
       { "Overview" = "configuration/index.md" },
       { "Configuration reference" = "configuration/reference.md" },
