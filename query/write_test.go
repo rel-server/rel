@@ -1182,6 +1182,35 @@ func TestExecuteWrite_MergeNewInsertsGenuinelyNewRow(t *testing.T) {
 	}
 }
 
+// TestExecuteWrite_OwnFullSkipsGeneratedColumn : ["own"]/["full"] must skip
+// a STORED GENERATED column the same way a computed field is never a write
+// target — flagged_columns.tax is generated always as (price * 0.2) stored.
+func TestExecuteWrite_OwnFullSkipsGeneratedColumn(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{"relation": "flagged_columns", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	payload := []byte(`[{"code": "OWN-SKIPS-GENERATED", "price": 100}]`)
+
+	result, err := ExecuteWrite(ctx, conn, node, payload)
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	if len(keys) != 1 || keys[0]["id"] == nil {
+		t.Fatalf("expected the new row's id recovered, got %#v", keys)
+	}
+
+	var tax float64
+	if err := conn.QueryRow(ctx, `select tax from flagged_columns where code = 'OWN-SKIPS-GENERATED'`).Scan(&tax); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if tax != 20 {
+		t.Errorf("expected tax computed as price*0.2=20, got %v", tax)
+	}
+}
+
 func TestKeysColumns_IncludesOutgoingChildsOwnJoinColumn(t *testing.T) {
 	// Symmetric to TestKeysColumns_IncludesChildTargetedColumnBeyondOnConflict :
 	// jc.Local must be in node's own keysColumns even when it isn't the PK.

@@ -365,7 +365,7 @@ func recordOwnColumns(node *QueryNode, except []string, jsonPath []string, accum
 		excluded[e] = true
 	}
 	for _, c := range node.Relation.Columns {
-		if excluded[c.Name] {
+		if excluded[c.Name] || c.IsGenerated {
 			continue
 		}
 		accum.record(ColumnPath{Node: node, Path: []*pg.Column{c}}, append(jsonPath, c.Name), true)

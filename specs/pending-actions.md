@@ -1,8 +1,7 @@
 # Pending actions
 
 Open items surfaced while writing the nested-write example in
-`docs/content/example-database/example-queries.md`. Three are fixed, code and tests included ;
-one is a genuine design decision for a future session.
+`docs/content/example-database/example-queries.md`. All fixed, code and tests included.
 
 ## Done : upsert on a non-PK `on_conflict` could corrupt or reject the primary key
 
@@ -89,47 +88,43 @@ docs is now one of those instead. The `stats` example's write additionally neede
 what its own expected response showed) and a real fixture id for the room type it reprices — both
 now fixed and verified live.
 
-## Needs a decision : `route/response.go`'s `writePlainError` still can't log its error
+## Done : `route/response.go`'s `writePlainError` couldn't log its error
 
-`writeErrorForPgErr` (fixed above) is one specific caller of `writePlainError` — the general
-plain-text error writer used throughout `route/handler.go`, `route/middleware.go`, and
-`route/upload_handler.go`. Its signature takes a plain message string, not an `error` : most call
-sites (`"acquiring connection"`, `"starting transaction"`, `"setting jwt claims"`, ...) already
-reduced the underlying error to a static string before calling it, so there's no `error` left for
-it to log even after `writePlainError` itself is taught to.
+`writeErrorForPgErr` (fixed above) was one specific caller of `writePlainError` — the general
+plain-text error writer used throughout `route/handler.go`, `route/middleware.go`,
+`route/upload_handler.go`, `route/requestbody.go`, and `route/encode.go`. Its signature took a
+plain message string, not an `error` : most call sites (`"acquiring connection"`, `"starting
+transaction"`, `"setting jwt claims"`, ...) already reduced the underlying error to a static
+string before calling it, so there was no `error` left for it to log even after `writePlainError`
+itself was taught to.
 
-What fixing it would actually take, concretely : `writePlainError` keeps writing the response
-exactly as it does today (a `message string`, not an `error`) — the change is at each of the
-~30 call sites. Each one currently looks like
-`writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")`,
-discarding the real `err` it already has in scope. Every 5xx call site would instead call a new
-sibling (`writeServerError(ctx, w, status, code, message, err)`, exact name TBD) that writes the
-identical response `writePlainError` does today, plus logs `err` in full the same way
-`writeErrorForPgErr` now does — same shape of change as that fix, just repeated at every one of
-those call sites instead of inside one function. A 4xx call site (`writePlainError`'s few
-non-500 uses) doesn't need this at all, same reasoning as `## Error logging` above.
+Fixed : `writePlainError` itself is unchanged (still just writes the response body from a plain
+message string) ; a new sibling, `writeServerError(ctx, w, status, code, message, err)`
+(`route/response.go`), writes that identical response and additionally logs `err` in full, the
+same way `writeErrorForPgErr` already does. Every 5xx call site across those five files that had
+a real `err` in scope now calls it instead of `writePlainError` directly — roughly twenty sites.
+A handful of `writePlainError` calls are left untouched on purpose : the few with no underlying
+`error` at all (`errcode.NoRoleConfigured`'s "no role configured" state, an anonymous-access
+rejection), and `route/templates.go`/some of `route/upload_handler.go`'s already log via their
+own `rlog.Error(...)` call immediately above, under the `route` module tag. Tests :
+`TestWriteServerError_LogsInFull`, `TestWriteErrorForPgErr_UnclassifiedLogsInFull`
+(`route/error_logging_test.go`).
 
-> Why flagged rather than fixed : ~30 call sites across three files is a bigger, more mechanical
-> change than this pass covered — worth doing for the same operator-visibility reason as the fix
-> above, but on its own.
-
-## Needs a decision : writing `["own"]`/`["full"]` on a relation with a stored generated column always fails
+## Done : writing `["own"]`/`["full"]` on a relation with a stored generated column always failed
 
 `hotel.properties.description_search` is `generated always as (...) stored` — a real, physical
 column, unlike a computed field (which is never a write target at all, per [Writability
 rules](../docs/content/query-language/writing.md#writability-rules)). `select: ["own"]` and
-`["full"]` (`## Column shapes`, `selecting.md`) both pull in every physical column indiscriminately,
-generated ones included, so either one on a write against `properties` always fails :
-`ERROR: cannot insert a non-DEFAULT value into column "description_search"` — confirmed live,
-both on `insert` and `upsert`. `insert_columns`/`update_columns` (`writing.md`) already exist as
-a documented way to narrow a write's columns, so today's workaround is an explicit `select`
-object or an `insert_columns`/`update_columns` list that excludes the generated column by name.
+`["full"]` (`## Column shapes`, `selecting.md`) both pulled in every physical column
+indiscriminately, generated ones included, so either one on a write against `properties` always
+failed : `ERROR: cannot insert a non-DEFAULT value into column "description_search"` — confirmed
+live, both on `insert` and `upsert`.
 
-The open question is whether that workaround should stay the only option, or whether
-`["own"]`/`["full"]` should silently skip a `STORED GENERATED` column on a write the same way a
-computed field is already skipped — introspection already flags one (`pg.Column.IsGenerated`,
-exercised by the `flagged_columns` fixture in `pg/testdata/schema.sql`), so the hook to key off
-of already exists if the engine fix is the one wanted. This may end up being a docs-only
-clarification instead (state the limitation, point at `insert_columns`/`update_columns`) rather
-than an engine change — worth a decision either way, not a default doc-fix, since it changes what
-a bare `["own"]`/`["full"]` silently does to a write.
+Fixed, the same way a computed field is already excluded : `recordOwnColumns` (`query/shape.go`)
+now skips any column with `IsGenerated` set (`pg.Column`, already populated by introspection —
+the `flagged_columns` fixture in `pg/testdata/schema.sql` already exercised the flag itself, just
+not this write path) when expanding `["own"]`/`["full"]` into writable columns. Naming a
+generated column explicitly in an object `select` is untouched — Postgres still rejects that
+write, same as before ; only the implicit, own/full-driven inclusion is now skipped. Regression
+test : `TestExecuteWrite_OwnFullSkipsGeneratedColumn` (`query/write_test.go`).
+>> do it like computed fields
