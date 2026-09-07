@@ -653,33 +653,7 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	}
 	w.Unindent()
 	w.Write(")\n")
-	if doNothing {
-		// "ins" only RETURNs actually-inserted rows ; joining on identity
-		// columns picks out genuinely-new ones. recoverKeys handles the rest.
-		w.Write("update _data\n")
-		w.Write("set keys = r.keys\n")
-		w.Write("from (select resolved.__row_id, ")
-		writeKeysObject(w, node, "ins")
-		w.Write(" as keys from resolved join ins on ")
-		for i, col := range identCols {
-			if i > 0 {
-				w.Write(" and ")
-			}
-			w.Write("ins.")
-			w.Id(col.Name)
-			w.Write(" = resolved.")
-			w.Id(col.Name)
-		}
-		w.Write(") r\n")
-		w.Write("where _data.__row_id = r.__row_id")
-	} else {
-		w.Write("update _data\n")
-		w.Write("set keys = r.keys\n")
-		w.Write("from (select __row_id, ")
-		writeKeysObject(w, node, "resolved")
-		w.Write(" as keys from resolved) r\n")
-		w.Write("where _data.__row_id = r.__row_id")
-	}
+	writeInsertDataUpdate(w, node, identCols, doNothing)
 
 	args, err := dc.args(w)
 	if err != nil {
@@ -999,6 +973,37 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	s.Inserted += inserted
 	s.Updated += updated
 	return nil
+}
+
+// writeInsertDataUpdate writes the "_data" keys write-back shared by
+// runInsert's doNothing and plain-insert branches — identical shape, only
+// the source of each row's keys value differs : "ins" joined by identity
+// columns (doNothing, since "ins" only RETURNs actually-inserted rows —
+// recoverKeys handles the rest) vs. "resolved" directly (plain insert,
+// every row was just inserted).
+func writeInsertDataUpdate(w *writer.SQLWriter, node *QueryNode, identCols []*pg.Column, doNothing bool) {
+	w.Write("update _data\n")
+	w.Write("set keys = r.keys\n")
+	if doNothing {
+		w.Write("from (select resolved.__row_id, ")
+		writeKeysObject(w, node, "ins")
+		w.Write(" as keys from resolved join ins on ")
+		for i, col := range identCols {
+			if i > 0 {
+				w.Write(" and ")
+			}
+			w.Write("ins.")
+			w.Id(col.Name)
+			w.Write(" = resolved.")
+			w.Id(col.Name)
+		}
+		w.Write(") r\n")
+	} else {
+		w.Write("from (select __row_id, ")
+		writeKeysObject(w, node, "resolved")
+		w.Write(" as keys from resolved) r\n")
+	}
+	w.Write("where _data.__row_id = r.__row_id")
 }
 
 // writeUpsertDataUpdate writes the "_data" keys write-back shared by
