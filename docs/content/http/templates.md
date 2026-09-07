@@ -4,26 +4,31 @@ icon: material/file-code-outline
 
 # Rendering HTML with templates
 
-A route can render server-side HTML instead of returning JSON, without giving up rel's own
-security posture: set `template` on the `RelHttpResponse` (see [Requests and
-responses](requests-responses.md)) and rel renders it with
-[Jet](https://github.com/CloudyKit/jet), a Go template engine, instead of serializing
-`content`.
+A route (or middleware) can render server-side HTML instead of returning its content
+directly: set `template` on a full-control response (see [Requests and
+responses](requests-responses.md#httpresponse)), or declare a default `template` on the route
+itself, and rel renders it with [Jet](https://github.com/CloudyKit/jet), a Go template engine,
+instead of serializing the second `OUT` column (or, for a plain-return route with a declared
+default `template`, its own return value).
 
 ```sql
-return jsonb_build_object(
-  'status', 200,
-  'content_type', 'text/html',
-  'template', 'booking-confirmed.jet',
-  'template_data', jsonb_build_object('guest_name', guest_row.first_name)
-);
+create function hotel.booking_confirmed(req jsonb, out resp jsonb, out content jsonb)
+returns record language plpgsql as $$
+begin
+  resp := jsonb_build_object('status', 200, 'content_type', 'text/html', 'template', 'booking-confirmed.jet');
+  content := jsonb_build_object('guest_name', 'Alex');
+end;
+$$;
 ```
 
 `template` is a path relative to `http.templates.path` (default `/template`; see
-[Configuration](../configuration/index.md)). `content` is ignored whenever `template` is set —
-not an error to set both, just pointless. A template that fails to load (missing file, parse
-error) or fails during execution (referencing a field `Data`/`Req` doesn't have) is a `500`,
-logged with the template path, never a silent fallback to `content`.
+[Configuration](../configuration/index.md)). `content_type` is never implied by `template` — a
+route rendering HTML via a template still sets `content_type: "text/html"` itself, the same
+as it would for any other response. A template that fails to load (missing file, parse error)
+or fails during execution (referencing a field `Data`/`Req` doesn't have) is a `500`, logged
+with the template path, never a silent fallback to the function's own return value. A route
+returning a `bytea`/binary mimetype domain must not also set `template` — rel disables it with
+a warning at discovery time, since Jet only ever renders text.
 
 ## What a template can see
 
@@ -31,12 +36,9 @@ The template executes with three named variables in scope:
 
 | Variable | Value |
 |---|---|
-| `Data` | `template_data` from the response, JSON `null` if unset. |
-| `Req` | The exact `RelHttpRequest` the route function itself received — `{{ Req.uri }}`, `{{ Req.jwt.role }}`. |
+| `Data` | The second `OUT` column (full-control), or the route's own return value (plain-return) — JSON `null` for a text/binary shape wraps into a plain string first, so `{{ Data }}` always reflects what the function actually returned. |
+| `Req` | The exact `HttpRequest` the function itself received — `{{ Req.uri }}`, `{{ Req.jwt.role }}`. |
 | `Nonce` | The request's CSP nonce (`Req.csp_nonce`) — see below. |
-
-`content_type` is never implied by `template` — a route rendering HTML via a template still
-sets `content_type: "text/html"` itself, the same as if it had built the HTML string by hand.
 
 ## `Nonce`: trusted inline scripts without loosening the CSP
 
@@ -53,8 +55,8 @@ policy for the whole response:
 ```
 
 rel appends `'nonce-<value>'` to the response's `script-src`/`style-src` CSP directives to
-match — the two always agree, so a nonce copied out of `Req.csp_nonce` into hand-built HTML and
-a nonce read from `{{ Nonce }}` in a template are equally valid. A `<script>`/`<style>` tag
+match — the two always agree, so a nonce read off `Req.csp_nonce` in hand-built HTML and a
+nonce read from `{{ Nonce }}` in a template are equally valid. A `<script>`/`<style>` tag
 without a matching nonce (or without `'unsafe-inline'` explicitly configured) simply doesn't
 run, browser-enforced — this is what makes returning raw HTML from a route safe by default
 even though the response is dynamic.
@@ -104,8 +106,8 @@ layout declares named blocks, and a page extending it overrides the ones it want
 `http.templates.path` — so a layout used by several routes' templates lives alongside them in
 that same directory tree, not somewhere separate. `Data`, `Req`, and `Nonce` stay in scope
 across the whole chain: a value read in a block inherited from the base layout is exactly the
-`template_data`/request the route itself set, not something the child template has to
-re-thread through.
+`Data`/request the function itself set, not something the child template has to re-thread
+through.
 
 `{{ import "partials.jet" }}` (reusable macros, shared across many templates without an
 inheritance relationship) and `{{ include "footer.jet" }}` (inline another template's full

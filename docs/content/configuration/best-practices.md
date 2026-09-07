@@ -83,10 +83,10 @@ server-side use, anything a client should never be able to name directly even un
 that can otherwise read a lot. See [Configuration ### Restricting what a query can
 reach](index.md#restricting-what-a-query-can-reach).
 
-Beyond the blacklist, gate which functions are reachable as routes at all with
-`http.functions.allowed_routes`, and which ones may mint or clear a session with
-`http.functions.allowed_auth` — see [HTTP layer](../http/index.md) and
-[Authentication](../http/authentication.md).
+Beyond the blacklist, every route/middleware function is reachable only at the path it's
+explicitly declared at (see [HTTP routes](../http/index.md#declaring-a-route)) — there's no
+separate "discovered at all" gate to configure. Restrict which ones may mint or clear a
+session with `http.functions.allowed_auth` — see [Authentication](../http/authentication.md).
 
 ## Leave expensive operators off unless you actually need them
 
@@ -104,7 +104,7 @@ reference](../query-language/operators.md).
   cross-origin caller anyway; it's only right for a genuinely public, anonymous-role-only API.
   See [CORS and CSP](../http/cors-csp.md).
 - **CSP** ships a real `default-src 'self'` policy even unconfigured. Reach for a route's own
-  `RelHttpResponse.csp` override or the per-request `Nonce` (see [Rendering HTML with
+  `HttpResponse.csp` override or the per-request `Nonce` (see [Rendering HTML with
   templates](../http/templates.md)) for a one-off trusted inline script, rather than loosening
   `http.csp.script_src`/`style_src` process-wide to accommodate it.
 - **Cookies** default to `secure`, `httponly`, `SameSite=Lax`. Widening `jwt.same_site` to
@@ -114,7 +114,7 @@ reference](../query-language/operators.md).
 
 ## Size the resource limits to real traffic, not the defaults
 
-`http.max_body_size` (10 MiB) and `http.max_part_count` (100) bound a single `/route` request;
+`http.max_body_size` (10 MiB) and `http.max_part_count` (100) bound a single declared-route request;
 `pg.query.max_depth` (6) bounds how deeply a query can nest joins; `pg.pool_size` (10) bounds
 how many connections actually serve requests concurrently. All four default to something
 reasonable for getting started, not to whatever your production traffic and payload sizes

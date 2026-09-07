@@ -18,13 +18,13 @@ database, or anonymous access is disabled outright and every unauthenticated req
 
 ## Minting a session
 
-Any function called through [`/route`](index.md) can start a session by setting a `jwt`
-field on its response. Like any other route, it takes a single `RelHttpRequest` argument (see
-[Requests and responses](requests-responses.md)) — there's no separate, credentials-shaped
-signature for a login function:
+Any full-control route or middleware function (the two-`OUT`-column shape — see [HTTP routes
+## Function prototype](index.md#function-prototype)) can start a session by setting a `jwt`
+field on its response:
 
 ```sql
-create function auth.login(req "RelHttpRequest") returns "RelHttpResponse"
+create function auth.login(req jsonb, out resp jsonb, out content jsonb)
+returns record
 language plpgsql
 security definer
 as $$
@@ -39,27 +39,39 @@ begin
     raise exception 'Invalid credentials' using errcode = 'RS401';
   end if;
 
-  return jsonb_build_object('jwt', jsonb_build_object(
+  resp := jsonb_build_object('jwt', jsonb_build_object(
     'role', matched_user.role,
     'user_id', matched_user.id,
     'plan', matched_user.plan
   ));
+  content := null;
 end;
 $$;
+comment on function auth.login(jsonb) is 'route:: path: "/auth/login", method: "POST"';
 ```
 
-Called as `POST /route/auth/login` with `{"username": "...", "password": "..."}` as the JSON
-body.
+Called with `{"username": "...", "password": "..."}` as the JSON body. (Naming the path
+`/auth/login` here is just an example, not special — actual `/auth/*` is a reserved prefix
+rel itself serves for OIDC/SAML, and a user-declared route can never sit there; a real login
+function lives at whatever path you choose.)
 
 `role` is the only claim rel itself reads back out of the JWT (to `SET ROLE` with); every other
 key in the object — `user_id`/`plan` above, or anything else — is just carried along as a
-custom claim, verbatim, for your own functions to read later via `req.jwt` or
-`http.functions.check_session`'s argument (see below). rel fills in `iat`, `exp`, and
-`auth_time` itself; setting either of those, or `auth_time`, on the response's `jwt` object has
-no effect — they're always overwritten. Setting `jwt: null` on a response clears the session
-(logout). By default, *any* route function can set `jwt` and authenticate the caller as any
-role; restrict that with `http.functions.allowed_auth` (a regexp against the function's fully
-qualified name) once you have real login functions to point it at — e.g. `^auth\.`.
+custom claim, verbatim, for your own functions to read later via `req.jwt`, or via a
+session-revocation [middleware](index.md#middleware) (see [Session
+lifecycle](#session-lifecycle) below). rel fills in `iat`, `exp`, and `auth_time` itself;
+setting either of those, or `auth_time`, on the response's `jwt` object has no effect —
+they're always overwritten. Setting `jwt: null` on a response clears the session (logout).
+
+By default, *any* route or middleware function can set `jwt` and authenticate the caller as
+any role; restrict that with `http.functions.allowed_auth` (a regexp against the function's
+fully qualified name) once you have real login functions to point it at — e.g. `^auth\.`. A
+*terminating* middleware setting `jwt` is gated by its own identifier; a *pass-through*
+middleware setting `jwt` ahead of a route is gated by that route's identifier instead (the
+route's own response is what actually renders) — and ahead of `/rel` or a static file, by no
+identifier at all, which `allowed_auth` can only ever match by being left unrestricted. Have
+a middleware gating those two paths terminate, rather than merely pass `jwt` through, if
+`allowed_auth` is restricted.
 
 ## OpenID Connect and SAML
 
@@ -86,11 +98,14 @@ just two differently-named entries. Each one gets its own routes:
 - `GET /auth/saml/{name}/login` / `POST /auth/saml/{name}/acs`
 - `GET /auth/saml/{name}/metadata` — this deployment's SP metadata, to hand to the IdP admin
 
-Both protocols converge on the same callback function signature — one `payload` argument, one
-`RelHttpResponse` return — regardless of which protocol produced it:
+Both protocols converge on the same callback function signature — one `payload` argument,
+returning a single `jsonb` value shaped like [`HttpResponse`](requests-responses.md#httpresponse)
+plus its own `content`/`template_data` keys (this one call site predates, and isn't a
+declared route itself, so it keeps its own single-envelope shape rather than the two-`OUT`-column
+one) — regardless of which protocol produced it:
 
 ```sql
-create function auth.sso_callback(payload jsonb) returns "RelHttpResponse"
+create function auth.sso_callback(payload jsonb) returns jsonb
 language plpgsql
 security definer
 as $$
@@ -227,36 +242,47 @@ can keep extending the session overall, measured from the original `auth_time` �
 exceeded, the session can't be renewed anymore and the user has to fully re-authenticate.
 
 For revocation before either of those would naturally expire it — a password change, a ban, an
-admin-triggered logout — configure `http.functions.check_session`. rel calls it once per
-authenticated request, before the role switch, with the full claims object as `jsonb`:
+admin-triggered logout — declare a session-checking [middleware](index.md#middleware) at
+whatever prefix needs it (`/` to cover everything, including `/rel`). Unlike the old
+`check_session` mechanism, middleware runs *after* the role switch, as the request's own
+already-resolved role — and terminates with `{status: 401, jwt: null}` to reject and clear
+the session in one step, rather than merely raising:
 
 ```sql
-create function auth.check_session(jwt jsonb) returns void
+create function auth.check_session(req jsonb, out resp jsonb, out content jsonb)
+returns record
 language plpgsql
 security definer
 as $$
 begin
-  if exists (select 1 from auth.revoked_sessions where user_id = (jwt->>'user_id')::bigint) then
-    raise exception 'Session revoked' using errcode = 'RS401';
+  if exists (select 1 from auth.revoked_sessions where user_id = (req->'jwt'->>'user_id')::bigint) then
+    resp := jsonb_build_object('status', 401, 'jwt', null);
+  else
+    resp := null;
   end if;
+  content := null;
 end;
 $$;
+comment on function auth.check_session(jsonb) is 'route:: path: "/", middleware: true';
 ```
 
-Rejecting (`raise exception ... using errcode = 'RSxxx'`) clears the session and forces
-re-authentication; returning normally lets it stand. rel doesn't require any particular claim
-(a `jti`, a session id) for this to work — how you identify "this session" in your own revoked-
-sessions table is up to whatever custom claims your login function put on the JWT.
+Terminating (`{status: 401, jwt: null}`) clears the session and forces re-authentication;
+returning `resp := null` (a genuine SQL `NULL`, not the JSON literal) lets the request proceed
+unchanged. rel doesn't require any particular claim (a `jti`, a session id) for this to work —
+how you identify "this session" in your own revoked-sessions table is up to whatever custom
+claims your login function put on the JWT. Since this middleware runs as the request's own
+role rather than the primary connection, grant it `EXECUTE` for every role that should reach
+anything under its prefix, including the anonymous role — see [Deployment
+checklist](#deployment-checklist) below.
 
 ### Claims as a Postgres setting
 
 The claims object is also available as a plain Postgres setting, `current_setting('rel.jwt.claims',
-true)::jsonb` — the same shape as `req.jwt`/`check_session`'s own `jwt` argument (`null` for an
-anonymous request), readable from any function that runs as part of handling the request: an
-RLS policy, a trigger, a function called deeper down that doesn't have the claims threaded
-through as an argument. It's set right alongside the role switch, so it's there for every route
-function, every `/rel` query/write, `check_session` itself, and a static file's own access-control
-function.
+true)::jsonb` — the same shape as `req.jwt` (`null` for an anonymous request), readable from
+any function that runs as part of handling the request: an RLS policy, a trigger, a function
+called deeper down that doesn't have the claims threaded through as an argument. It's set
+right alongside the role switch, so it's there for every route/middleware function and every
+`/rel` query/write.
 
 ```sql
 create policy own_rows_only on documents
@@ -285,19 +311,23 @@ route function still needs its own `EXECUTE` grant, directly to `~anonymous` (or
 belongs to), before an anonymous request can reach it:
 
 ```sql
-grant execute on function guest_login("RelHttpRequest") to "~anonymous";
+grant execute on function guest_login(jsonb) to "~anonymous";
 ```
 
-Skipping a grant doesn't fail at startup — introspection runs under the primary connection,
-not the query role — so it surfaces as a `500` ("permission denied to set role") on the first
-real request that needs it. A local superuser connection never hits this at all, which is why
-it's easy to miss until deploying somewhere with a properly scoped role.
+Skipping a grant on a *route* doesn't fail at startup — introspection runs under the primary
+connection, not the query role — but it also isn't a runtime surprise: rel caches, once per
+discovered route at introspection/reload time, whether the anonymous role can actually reach
+it (see below), and rejects an anonymous request the anonymous role can't reach with `401`
+before the request body is even read. A **middleware** function has no such precheck, since
+it runs as the request's already-resolved role rather than the primary connection — a missing
+`EXECUTE` grant there surfaces as an ordinary Postgres permission-denied `403` on the first
+real request that reaches it, the same as any other route call missing a grant.
 
-When anonymous access is enabled, rel also caches, once per discovered route at
+When anonymous access is enabled, rel caches, once per discovered route or middleware at
 introspection/reload time, whether the anonymous role can actually reach it — schema `USAGE`
 plus an **explicit** `EXECUTE` grant, to the anonymous role itself or to a role it belongs to.
-An anonymous request to a route the anonymous role can't reach this way is rejected with `401`
-before the request body is even read.
+(That cache backs the route-level `401` precheck above; middleware, as noted, isn't
+precomputed this way, since middleware permission failures show up as `403`s instead.)
 
 This check deliberately doesn't credit `EXECUTE` the moment it's merely inherited from a grant
 to `PUBLIC` — Postgres grants `EXECUTE` to `PUBLIC` by default on `create function` unless
@@ -305,8 +335,9 @@ default privileges were changed, so crediting it here would silently authorize a
 access to any route function nobody explicitly decided the anonymous role should reach. Grant
 `EXECUTE` on any route function you actually want the anonymous role to call, the same way you
 grant it any other role. Independently of this check, rel also warns (non-fatally) at
-introspection/reload for every route reachable by `PUBLIC` at all, regardless of caller — see
-[Best practices](../configuration/best-practices.md) for turning that default off entirely.
+introspection/reload for every route or middleware reachable by `PUBLIC` at all, regardless of
+caller — see [Best practices](../configuration/best-practices.md) for turning that default off
+entirely.
 
 ## Configuration reference
 
@@ -320,7 +351,6 @@ introspection/reload for every route reachable by `PUBLIC` at all, regardless of
 | `jwt.renew_after` | `0.5` | fraction of lifetime elapsed before auto-renewal |
 | `jwt.max_session_age` | `604800` (7 days) | hard ceiling on total session lifetime |
 | `pg.query.anonymous_role` | `~anonymous` | role for requests with no valid session |
-| `http.functions.check_session` | unset | function called per authenticated request to allow revocation |
 | `http.functions.allowed_auth` | unset (unrestricted) | regexp restricting which functions may set `jwt` |
 | `http.public_host` | unset | this deployment's externally-reachable host, required for OIDC/SAML |
 | `openid.<name>.issuer` | — | required; the OIDC issuer URL |

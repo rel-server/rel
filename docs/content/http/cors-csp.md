@@ -4,7 +4,7 @@ icon: material/web
 
 # CORS and CSP
 
-Both apply uniformly across `/rel`, `/route`, and `/static`.
+Both apply uniformly across `/rel`, every declared route, and the static fallback.
 
 ## CORS
 
@@ -33,7 +33,8 @@ only right for a genuinely public, anonymous-role-only API.
 
 A non-"simple" cross-origin request (a JSON body, a custom header, a method outside
 `GET`/`HEAD`/`POST`) triggers a browser preflight, answered entirely by rel itself — never by
-invoking a route function — whether or not a route actually exists at that path yet.
+invoking a route or middleware function — whether or not a route actually exists at that path
+yet.
 
 ## CSP
 
@@ -53,7 +54,7 @@ http.csp.img_src = "'self' data:"
 
 ### Nonce
 
-Every `/route` request — and every SSO callback (`/auth/oidc/{name}/callback`,
+Every declared-route request — and every SSO callback (`/auth/oidc/{name}/callback`,
 `/auth/saml/{name}/acs`; see [Authentication](authentication.md)) — gets a fresh, random nonce,
 automatically appended to that response's `script-src`/`style-src` as `'nonce-<value>'`: for
 trusted inline `<script>`/`<style>` blocks without loosening the policy for everything else. To
@@ -61,27 +62,28 @@ use it, put the exact same value in that tag's own `nonce` attribute:
 `<script nonce="<value>">...</script>`. A `<script>`/`<style>` tag without a matching `nonce`
 (and without `'unsafe-inline'` explicitly configured) simply doesn't run, browser-enforced.
 
-A `/route` function reaches the value two ways, both equally valid: `req.csp_nonce` on the
-`RelHttpRequest` it received (see [Requests and responses](requests-responses.md)) — usable in
+A route function reaches the value two ways, both equally valid: `req.csp_nonce` on the
+request it received (see [Requests and responses](requests-responses.md)) — usable in
 any hand-built HTML the route returns itself, no template involved — or `{{ Nonce }}` inside a
 Jet template (see [Rendering HTML with templates](templates.md) for the full mechanics and
 worked examples, including why dynamic data belongs in a JSON island rather than a direct
 interpolation). Either way it's the same nonce, so a value copied out of `req.csp_nonce` and one
 read from `{{ Nonce }}` always agree. An SSO callback function only has the template path: it
-never receives a `RelHttpRequest` argument at all (just the verified claims, as `jsonb`), so
+never receives a request object at all (just `{jwt, identity, state}`, as `jsonb`), so
 `{{ Nonce }}` inside a template its response points at is the only way it ever touches the
 nonce — the callback function doesn't need to read the value itself for this to work, since the
 template renderer resolves it from the request automatically.
 
-`/rel` and `/static` never get a nonce at all — not merely one that goes unused. `/rel` always
-answers JSON, never HTML, and `/static` serves files as-is with no per-request templating to
-inject a nonce into, so neither can ever have a use for one; their `Content-Security-Policy`
-header carries the configured policy with no nonce token appended.
+`/rel` and the static fallback never get a nonce at all — not merely one that goes unused.
+`/rel` always answers JSON, never HTML, and the static fallback serves files as-is with no
+per-request templating to inject a nonce into, so neither can ever have a use for one; their
+`Content-Security-Policy` header carries the configured policy with no nonce token appended.
 
 ### Per-response override
 
-A single route can override the whole policy for just its own response via
-`RelHttpResponse.csp` (see [Requests and responses](requests-responses.md)) — the same nonce
-rules apply, scoped to that response's own effective `default-src`. There is no equivalent
-override for CORS: a preflight is answered before any route function runs, so there's no
-response to read a per-route policy from — CORS policy is always static and process-wide.
+A single full-control route or middleware can override the whole policy for just its own
+response via `HttpResponse.csp` (see [Requests and responses](requests-responses.md)) — the
+same nonce rules apply, scoped to that response's own effective `default-src`. There is no
+equivalent override for CORS: a preflight is answered before any route function runs, so
+there's no response to read a per-route policy from — CORS policy is always static and
+process-wide.

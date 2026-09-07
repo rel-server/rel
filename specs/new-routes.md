@@ -180,7 +180,7 @@ Renew (session cookie renewal) always runs after the whole middleware chain has 
 
 > Thoughts: `stream_upload`'s middleware pass (see `## \`stream_upload\`` below) runs once, ahead of the first call only — its own accumulated cookies/headers/jwt/jwt_attrs/csp still apply to the second call's response, the one actually sent to the client, even though the chain itself never runs a second time.
 
-> Question: when a middleware sets `jwt` ahead of a route function that never itself sets `jwt`, which function's identifier gates `http.functions.allowed_auth` — the middleware's own, or the route's? Advise.
+A middleware terminating the request with `jwt` set is gated by its **own** identifier against `http.functions.allowed_auth` — the response is rendered directly off the terminating middleware's own call, the same as any other terminal response. A middleware that sets `jwt` on a *pass-through* response (one that lets the request continue) is instead gated by the identifier of whatever eventually renders the response: the route function's own identifier for a declared route, even one that never itself touches `jwt`; the empty identifier for `/rel` or a static file, which `allowed_auth` can only ever match by being unrestricted (empty) — a restricted `allowed_auth` silently drops a pass-through middleware's `jwt` ahead of `/rel`/static in that case. Scope `allowed_auth` accordingly, or have the middleware terminate instead of merely passing `jwt` through when gating those two paths.
 
 ## Templates
 

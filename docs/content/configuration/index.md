@@ -119,22 +119,24 @@ the binary itself, if you want it without leaving a terminal.
 | `http.host` / `http.port` | all interfaces / `8080` | Listen address. |
 | `http.public_host` | disabled | This deployment's externally-reachable domain (bare host, no scheme/port) — required for OpenID/SAML redirect URLs to resolve. See [Authentication](../http/authentication.md). |
 | `http.cookies_max_age` | `86400` (seconds) | Default max-age for a cookie set via a route response, when the response doesn't specify one. Doesn't apply to the JWT cookie — see `jwt.max_age` below. |
-| `http.max_body_size` | 10 MiB | Hard cap on a `/route` request's entire body (multipart envelope included). Rejected with `413` before any of it is buffered. |
-| `http.max_upload_size` | = `http.max_body_size` | Hard cap on a `__prepare`-based upload's streamed payload — separate from `http.max_body_size` since this path streams to disk instead of buffering in memory. See [File uploads](../http/uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
-| `http.max_part_count` | `100` | Max number of `multipart/form-data` parts a single `/route` request may contain. |
-| `http.static.path` | — | Colon-separated directories served under `/static/`. See [HTTP layer](../http/index.md). |
-| `http.templates.path` | `/template` | Directory Jet templates are loaded from, for a route's `RelHttpResponse.template`. See [Requests and responses](../http/requests-responses.md#rendering-html-with-a-template). |
+| `http.max_body_size` | 10 MiB | Hard cap on a declared route request's entire body (multipart envelope included). Rejected with `413` before any of it is buffered. |
+| `http.max_upload_size` | = `http.max_body_size` | Hard cap on a `stream_upload` route's streamed payload — separate from `http.max_body_size` since this path streams to disk instead of buffering in memory. See [File uploads](../http/uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
+| `http.max_part_count` | `100` | Max number of `multipart/form-data` parts a single declared-route request may contain. |
+| `http.static.path` | — | Colon-separated directories served at the router root, as the fallback for any path no declared route claims. See [Static files](../http/static-files.md). |
+| `http.templates.path` | `/template` | Directory Jet templates are loaded from, for a route's or middleware's own `template`. See [Requests and responses](../http/requests-responses.md#rendering-html-with-a-template). |
 | `http.typescript.enable` | `false` (`true` in dev) | Serve `GET /rel/database.ts`. See [TypeScript client](../typescript-client.md). |
 | `http.typescript.schemas` | every schema but `pg_catalog` | Comma-separated whitelist of schemas `GET /rel/database.ts` may export; intersected with that request's own `?schemas=` param. |
-| `http.request_domain_name` / `http.response_domain_name` / `http.upload_domain_name` | `RelHttpRequest` / `RelHttpResponse` / `RelUpload` | Name of the JSON domain identifying a route function's request/response/upload-destination argument type. Only worth changing if those names collide with something already in your schema. |
 
-### Route function gating
+### Route declaration and gating
 
 | Key | Default | What it does |
 |---|---|---|
-| `http.functions.allowed_routes` | unrestricted | Regexp restricting which functions are discovered on `/route` at all. See [HTTP layer](../http/index.md). |
-| `http.functions.allowed_auth` | unrestricted | Regexp restricting which route functions may mint or clear a session (set `jwt` on their response). See [Authentication](../http/authentication.md). |
-| `http.functions.check_session` | disabled | Function called on every authenticated request, letting the database reject a session early. See [Authentication](../http/authentication.md). |
+| `route.<schema>.<function>.path` | — (required) | Declares `<schema>.<function>` routable at this chi-syntax path. See [HTTP routes](../http/index.md#declaring-a-route). |
+| `route.<schema>.<function>.method` | inferred | Comma-separated accepted methods. |
+| `route.<schema>.<function>.template` | unset | Default Jet template, used when the response doesn't set its own. |
+| `route.<schema>.<function>.stream_upload` | `false` | Flags the two-call disk-streaming upload flow. See [File uploads](../http/uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
+| `route.<schema>.<function>.middleware` | `false` | Flags a middleware function, run ahead of every route/`/rel`/static file under its own path prefix. See [HTTP routes](../http/index.md#middleware). |
+| `http.functions.allowed_auth` | unrestricted | Regexp restricting which route/middleware functions may mint or clear a session (set `jwt` on their response). See [Authentication](../http/authentication.md). |
 | `http.functions.sso_callback` | disabled | Fallback callback function an `openid.<name>`/`saml.<name>` entry uses when it doesn't set its own `callback_function`. See [Authentication](../http/authentication.md). |
 
 ### CORS
@@ -155,7 +157,7 @@ the binary itself, if you want it without leaving a terminal.
 | `http.csp.policy` | unset | The full, raw `Content-Security-Policy` header value — replaces every individual `http.csp.*` directive above entirely when set. |
 
 See [CORS and CSP](../http/cors-csp.md) for how these compose with a
-per-response nonce and a route's own `RelHttpResponse.csp` override.
+per-response nonce and a route's own `HttpResponse.csp` override.
 
 ### Sessions (JWT)
 
@@ -169,7 +171,7 @@ per-response nonce and a route's own `RelHttpResponse.csp` override.
 | `jwt.renew_after` | `0.5` | Fraction of a token's own lifespan elapsed before it's renewed on next use. |
 | `jwt.max_session_age` | `604800` (7 days) | Hard ceiling on a session's total lifetime, regardless of renewal. |
 
-Full session lifecycle — minting, renewal, `check_session` — is [Authentication](../http/authentication.md).
+Full session lifecycle — minting, renewal, revocation via middleware — is [Authentication](../http/authentication.md).
 
 ### SAML (shared SP identity)
 
@@ -196,15 +198,6 @@ contract, worked examples); this is the exhaustive key list.
 | `saml.<name>.force_signed_requests` | `true` | Sign the outgoing `AuthnRequest` with the SP key. |
 | `saml.<name>.callback_function` | falls back to `http.functions.sso_callback` | Same as `openid.<name>.callback_function`. |
 | `saml.<name>.public_host` | falls back to `http.public_host` | Same as `openid.<name>.public_host`. |
-
-### Static file access control
-
-One named rule per gated subpath, layered on top of `http.static.path`:
-
-| Key pattern | Default | What it does |
-|---|---|---|
-| `http.static.access.<name>.prefix` | — (required) | The subpath, under `/static/`, this rule gates. |
-| `http.static.access.<name>.function` | — (required) | A Postgres function called before serving a matching path; raising rejects the request. See [HTTP layer](../http/index.md). |
 
 ### Logging
 
