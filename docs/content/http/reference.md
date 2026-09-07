@@ -1,5 +1,5 @@
 ---
-icon: material/format-list-bulleted
+icon: material/notebook
 ---
 
 # HTTP reference
@@ -53,10 +53,9 @@ function's second `OUT` column when its own response doesn't override `content_t
 ## Configuration
 
 Every `http.*`/`route.*`/`jwt.*` key, plus the handful of `pg.*`/`openid.*`/`saml.*` keys that
-are really part of the same HTTP-facing picture. [Configuration](../configuration/index.md) is
-the authoritative source for how any of these are actually supplied (env var, flag, or config
-file) and for every key rel understands, HTTP or not — this table is the HTTP-scoped subset,
-each row pointing at the page that explains the *behavior*, not just the key.
+are really part of the same HTTP-facing picture. [Configuration reference](../configuration/reference.md)
+is the authoritative source for every key rel understands, HTTP or not — this table is the
+HTTP-scoped subset, each row pointing at the page that explains the *behavior*, not just the key.
 
 ### Server and static files
 

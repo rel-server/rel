@@ -1,5 +1,5 @@
 ---
-icon: material/file-tree
+icon: material/notebook
 ---
 
 # Query shape reference

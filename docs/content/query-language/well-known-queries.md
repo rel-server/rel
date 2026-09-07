@@ -21,7 +21,7 @@ result types for a well-known query the same way they would for a hand-written o
 
 rel reads every `.json`, `.yml`, `.yaml`, and `.huml` file (skipping any name starting with
 `_`) under the directories listed in `pg.query.wellknown_path` (default `/wellknown`, a
-`:`-separated list — see [Configuration](../configuration/index.md)), recursively. A file's
+`:`-separated list — see [Configuration reference](../configuration/reference.md)), recursively. A file's
 location under that path is irrelevant; what identifies a well-known query is the `name`
 declared inside it.
 

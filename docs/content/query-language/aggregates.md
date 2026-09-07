@@ -11,7 +11,7 @@ conditions:
   [Joining and embedding relations](joining.md)), since aggregating only makes sense over rows
   the current row actually owns;
 - the aggregate function name is checked against the same function allowlist `call` is — see
-  [Computed fields](computed-fields.md) and [Configuration](../configuration/index.md).
+  [Computed fields](computed-fields.md) and [Configuration reference](../configuration/reference.md).
 
 ```json
 {

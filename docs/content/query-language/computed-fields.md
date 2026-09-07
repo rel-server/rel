@@ -70,7 +70,7 @@ instead, passing the relation's own declared `alias` as the row argument:
 
 `call`'s function name is either a bare, unqualified string (resolved via the search path) or
 an explicit `{"schema": ..., "name": ...}` object, and is checked against the same function
-allowlist a computed field's own function is — see [Configuration](../configuration/index.md).
+allowlist a computed field's own function is — see [Configuration reference](../configuration/reference.md).
 
 ## What a computed field returns
 

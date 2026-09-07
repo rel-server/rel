@@ -10,27 +10,29 @@
 - When replying or writing specs / docs / comments, use plain english over lingo and buzzwords ; stay clear and legible by non-senior developers.
 - When alerting me on problems or inconsistencies, use examples if the explanation is complex
 
-- ALWAYS Update docs as you work on the code : docs MUST always be relevant
+- ALWAYS Update docs as you work on the code : docs MUST always be relevant.
+- NEVER rm -rf previously produced docs when testing them with zensical ; it messes up the live server
 
 # When authoring
 
 The redactor(s) write specs with you as a mirror, to help shape them as best as possible for a prompt implementation by a low/medium thinking agent.
 
+In markdown, do not limit the line length to an arbitrary column size ; editors will soft-wrap. Editing \n wrapped paragraphs is a pain.
+
+With lines starting by `>>` The user is prompting you and/or answering your questions ; take it into account and remove it once handled.
+
 Spec language MUST be specification-only : no musing, rationale, or back-and-forth outside a blockquote. Everything outside a blockquote is a binding rule. A blockquote is optional context — skip it when implementing, and consult it only when a rule seems ambiguous or you want to check a judgment call. No remnant of our conversation may remain outside a blockquote ; code blocks are the one exception, where explanatory inline comments stay regardless.
 
 Blockquote types :
 
-- `> Why:` — rationale/justification for the rule immediately above it, only for rules that appear intentional or non-trivial that clearly raise eyebrows.
-- `> Question:` — a lingering question you need answered. Remove it once answered (in the text, or during conversation) ; amend it in place if the answer isn't sufficient yet.
-- `> Thoughts:` — your own scratch reasoning. The redactor deletes these by default ; delete one yourself only once it's gone obsolete (superseded, or its question already resolved elsewhere).
-- `> Advise:` — an explicit question from the redactor to you, however they label it (`Advise`, or whatever they happen to reach for in the moment — treat any clearly question-directed custom blockquote the same way). When you reply, delete the block itself, leaving the updated spec text in its place, plus any `> Thoughts:`/`> Question:` you want to leave behind.
-- >: the user is directly talking to you
-
-The redactor may also leave a question inline, outside any blockquote (e.g. a parenthetical) while redacting, for commodity. Address it like if it were `> Advise:`.
+- `> **Why:**` — rationale/justification for the rule immediately above it, only for rules that appear intentional or non-trivial that clearly raise eyebrows.
+- `> **Question:**` — a lingering question you need answered. Remove it once answered (in the text, or during conversation) ; amend it in place if the answer isn't sufficient yet.
+- `> **Thoughts:**` — your own scratch reasoning or advice. The redactor deletes these by default ; delete one yourself only once it's gone obsolete (superseded, or its question already resolved elsewhere).
 
 Style constraints on spec text (outside blockquotes):
 
 - **No self-narration.** Never describe how the spec came to say what it says — "this session's own convention," "an earlier draft had X," "corrected here rather than left to drift," "not an oversight." State the current rule only; don't narrate its history, not even in a `> Why:`.
+- DO NOT keep justifications about why a choice was made over an idea that is not and will not be implemented ; only keep _current_ and relevant information.
 - **One rule, one sentence.** If a bullet needs "not X, not Y either, but Z" hedging to land, the justification has leaked into the rule. Rewrite as a flat positive statement. Move the "why not X" reasoning to `> Why:`, or drop it if it isn't needed to resolve a real ambiguity.
 - **Rationale is opt-in reading, not load-bearing.** A rule must be fully implementable with every blockquote stripped from the doc. Test literally: if deleting all `>` blocks removes information needed to implement correctly, the split has failed — move that content out of the blockquote and into the rule, or accept it's optional context.
 - **Cross-references are citations, not sentences.** `` `specs/foo.md ## Bar` `` terminates a clause ; it doesn't spawn a subordinate clause explaining why that section is relevant.

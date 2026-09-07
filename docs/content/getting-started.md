@@ -140,8 +140,9 @@ or the seeded rows directly.
 
 ## Where to go next
 
-- [Configuration](configuration/index.md) — every setting beyond `pg.uri`: secrets, logging, pool
-  sizing, well-known-query directories.
+- [Configuration](configuration/index.md) — how settings are supplied and layered; the
+  [Configuration reference](configuration/reference.md) lists every setting beyond `pg.uri`:
+  secrets, logging, pool sizing, well-known-query directories.
 - [The query language](query-language/index.md) — the full shape of `where`/`select`/`join`,
   operators, aggregates, and every write mode.
 - [HTTP layer](http/index.md) — arbitrary server-side logic as a Postgres function: login

@@ -71,7 +71,7 @@ comment on function hotel.guest_login(jsonb) is 'route:: path: "/hotel/login", m
 
 By default, any route (or middleware) function can set `jwt` on its response and thereby
 authenticate the caller as any role. Restrict that with `http.functions.allowed_auth`, scoped
-to your actual login functions — see [Configuration](../configuration/index.md). The rest of
+to your actual login functions — see [Configuration reference](../configuration/reference.md). The rest of
 a session's lifecycle (claims, renewal, roles) is covered in
 [Authentication](authentication.md).
 
@@ -175,5 +175,5 @@ inner one.
 - **[CORS and CSP](cors-csp.md)** — cross-origin access and the response security policy.
 - **[Authentication](authentication.md)** — sessions, OpenID Connect, SAML, and roles.
 
-See [Configuration](../configuration/index.md) for the full list of `http.*` settings,
+See [Configuration reference](../configuration/reference.md) for the full list of `http.*` settings,
 including request size limits and the `route.<schema>.<function>.*` namespace.

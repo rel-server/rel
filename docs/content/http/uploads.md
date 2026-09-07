@@ -36,7 +36,7 @@ upload-less call; likewise a `bytea`-declaring route called with an empty body g
 byte string.
 
 Uploads received this way are bounded by `http.max_body_size` (10 MiB by default) and
-`http.max_part_count` (100) — see [Configuration](../configuration/index.md) to raise either.
+`http.max_part_count` (100) — see [Configuration reference](../configuration/reference.md) to raise either.
 Both bytes and parts must be fully received and held in memory before the route function
 runs; there is no streaming mechanism for genuinely large uploads (video, multi-GB archives)
 through this path. `stream_upload` below streams straight to disk instead, and is bounded by

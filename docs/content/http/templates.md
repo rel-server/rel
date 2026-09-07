@@ -22,7 +22,7 @@ $$;
 ```
 
 `template` is a path relative to `http.templates.path` (default `/template`; see
-[Configuration](../configuration/index.md)). `content_type` is never implied by `template` — a
+[Configuration reference](../configuration/reference.md)). `content_type` is never implied by `template` — a
 route rendering HTML via a template still sets `content_type: "text/html"` itself, the same
 as it would for any other response. A template that fails to load (missing file, parse error)
 or fails during execution (referencing a field `Data`/`Req` doesn't have) is a `500`, logged
