@@ -1683,10 +1683,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#route-function-gating" class="md-nav__link">
+  <a href="#route-declaration-and-gating" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Route function gating
+        Route declaration and gating
       </span>
     </span>
   </a>
@@ -1742,17 +1742,6 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         OpenID Connect and SAML providers
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#static-file-access-control" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Static file access control
       </span>
     </span>
   </a>
@@ -2083,27 +2072,27 @@ the binary itself, if you want it without leaving a terminal.</p>
 <tr>
 <td><code>http.max_body_size</code></td>
 <td>10 MiB</td>
-<td>Hard cap on a <code>/route</code> request's entire body (multipart envelope included). Rejected with <code>413</code> before any of it is buffered.</td>
+<td>Hard cap on a declared route request's entire body (multipart envelope included). Rejected with <code>413</code> before any of it is buffered.</td>
 </tr>
 <tr>
 <td><code>http.max_upload_size</code></td>
 <td>= <code>http.max_body_size</code></td>
-<td>Hard cap on a <code>__prepare</code>-based upload's streamed payload — separate from <code>http.max_body_size</code> since this path streams to disk instead of buffering in memory. See <a href="../http/uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
+<td>Hard cap on a <code>stream_upload</code> route's streamed payload — separate from <code>http.max_body_size</code> since this path streams to disk instead of buffering in memory. See <a href="../http/uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
 </tr>
 <tr>
 <td><code>http.max_part_count</code></td>
 <td><code>100</code></td>
-<td>Max number of <code>multipart/form-data</code> parts a single <code>/route</code> request may contain.</td>
+<td>Max number of <code>multipart/form-data</code> parts a single declared-route request may contain.</td>
 </tr>
 <tr>
 <td><code>http.static.path</code></td>
 <td>—</td>
-<td>Colon-separated directories served under <code>/static/</code>. See <a href="../http/">HTTP layer</a>.</td>
+<td>Colon-separated directories served at the router root, as the fallback for any path no declared route claims. See <a href="../http/static-files/">Static files</a>.</td>
 </tr>
 <tr>
 <td><code>http.templates.path</code></td>
 <td><code>/template</code></td>
-<td>Directory Jet templates are loaded from, for a route's <code>RelHttpResponse.template</code>. See <a href="../http/requests-responses/#rendering-html-with-a-template">Requests and responses</a>.</td>
+<td>Directory Jet templates are loaded from, for a route's or middleware's own <code>template</code>. See <a href="../http/requests-responses/#rendering-html-with-a-template">Requests and responses</a>.</td>
 </tr>
 <tr>
 <td><code>http.typescript.enable</code></td>
@@ -2115,14 +2104,9 @@ the binary itself, if you want it without leaving a terminal.</p>
 <td>every schema but <code>pg_catalog</code></td>
 <td>Comma-separated whitelist of schemas <code>GET /rel/database.ts</code> may export; intersected with that request's own <code>?schemas=</code> param.</td>
 </tr>
-<tr>
-<td><code>http.request_domain_name</code> / <code>http.response_domain_name</code> / <code>http.upload_domain_name</code></td>
-<td><code>RelHttpRequest</code> / <code>RelHttpResponse</code> / <code>RelUpload</code></td>
-<td>Name of the JSON domain identifying a route function's request/response/upload-destination argument type. Only worth changing if those names collide with something already in your schema.</td>
-</tr>
 </tbody>
 </table>
-<h3 id="route-function-gating">Route function gating<a class="headerlink" href="#route-function-gating" title="Permanent link">&para;</a></h3>
+<h3 id="route-declaration-and-gating">Route declaration and gating<a class="headerlink" href="#route-declaration-and-gating" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -2133,19 +2117,34 @@ the binary itself, if you want it without leaving a terminal.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>http.functions.allowed_routes</code></td>
-<td>unrestricted</td>
-<td>Regexp restricting which functions are discovered on <code>/route</code> at all. See <a href="../http/">HTTP layer</a>.</td>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.path</code></td>
+<td>— (required)</td>
+<td>Declares <code>&lt;schema&gt;.&lt;function&gt;</code> routable at this chi-syntax path. See <a href="../http/#declaring-a-route">HTTP routes</a>.</td>
+</tr>
+<tr>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.method</code></td>
+<td>inferred</td>
+<td>Comma-separated accepted methods.</td>
+</tr>
+<tr>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.template</code></td>
+<td>unset</td>
+<td>Default Jet template, used when the response doesn't set its own.</td>
+</tr>
+<tr>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.stream_upload</code></td>
+<td><code>false</code></td>
+<td>Flags the two-call disk-streaming upload flow. See <a href="../http/uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
+</tr>
+<tr>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.middleware</code></td>
+<td><code>false</code></td>
+<td>Flags a middleware function, run ahead of every route/<code>/rel</code>/static file under its own path prefix. See <a href="../http/#middleware">HTTP routes</a>.</td>
 </tr>
 <tr>
 <td><code>http.functions.allowed_auth</code></td>
 <td>unrestricted</td>
-<td>Regexp restricting which route functions may mint or clear a session (set <code>jwt</code> on their response). See <a href="../http/authentication/">Authentication</a>.</td>
-</tr>
-<tr>
-<td><code>http.functions.check_session</code></td>
-<td>disabled</td>
-<td>Function called on every authenticated request, letting the database reject a session early. See <a href="../http/authentication/">Authentication</a>.</td>
+<td>Regexp restricting which route/middleware functions may mint or clear a session (set <code>jwt</code> on their response). See <a href="../http/authentication/">Authentication</a>.</td>
 </tr>
 <tr>
 <td><code>http.functions.sso_callback</code></td>
@@ -2214,7 +2213,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 </tbody>
 </table>
 <p>See <a href="../http/cors-csp/">CORS and CSP</a> for how these compose with a
-per-response nonce and a route's own <code>RelHttpResponse.csp</code> override.</p>
+per-response nonce and a route's own <code>HttpResponse.csp</code> override.</p>
 <h3 id="sessions-jwt">Sessions (JWT)<a class="headerlink" href="#sessions-jwt" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -2262,7 +2261,7 @@ per-response nonce and a route's own <code>RelHttpResponse.csp</code> override.<
 </tr>
 </tbody>
 </table>
-<p>Full session lifecycle — minting, renewal, <code>check_session</code> — is <a href="../http/authentication/">Authentication</a>.</p>
+<p>Full session lifecycle — minting, renewal, revocation via middleware — is <a href="../http/authentication/">Authentication</a>.</p>
 <h3 id="saml-shared-sp-identity">SAML (shared SP identity)<a class="headerlink" href="#saml-shared-sp-identity" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -2347,29 +2346,6 @@ contract, worked examples); this is the exhaustive key list.</p>
 <td><code>saml.&lt;name&gt;.public_host</code></td>
 <td>falls back to <code>http.public_host</code></td>
 <td>Same as <code>openid.&lt;name&gt;.public_host</code>.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="static-file-access-control">Static file access control<a class="headerlink" href="#static-file-access-control" title="Permanent link">&para;</a></h3>
-<p>One named rule per gated subpath, layered on top of <code>http.static.path</code>:</p>
-<table>
-<thead>
-<tr>
-<th>Key pattern</th>
-<th>Default</th>
-<th>What it does</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>http.static.access.&lt;name&gt;.prefix</code></td>
-<td>— (required)</td>
-<td>The subpath, under <code>/static/</code>, this rule gates.</td>
-</tr>
-<tr>
-<td><code>http.static.access.&lt;name&gt;.function</code></td>
-<td>— (required)</td>
-<td>A Postgres function called before serving a matching path; raising rejects the request. See <a href="../http/">HTTP layer</a>.</td>
 </tr>
 </tbody>
 </table>

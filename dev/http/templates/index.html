@@ -1840,23 +1840,28 @@
 
 
 <h1 id="rendering-html-with-templates">Rendering HTML with templates<a class="headerlink" href="#rendering-html-with-templates" title="Permanent link">&para;</a></h1>
-<p>A route can render server-side HTML instead of returning JSON, without giving up rel's own
-security posture: set <code>template</code> on the <code>RelHttpResponse</code> (see <a href="../requests-responses/">Requests and
-responses</a>) and rel renders it with
-<a href="https://github.com/CloudyKit/jet">Jet</a>, a Go template engine, instead of serializing
-<code>content</code>.</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">return</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="s1">'status'</span><span class="p">,</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="s1">'content_type'</span><span class="p">,</span><span class="w"> </span><span class="s1">'text/html'</span><span class="p">,</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="s1">'template'</span><span class="p">,</span><span class="w"> </span><span class="s1">'booking-confirmed.jet'</span><span class="p">,</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="s1">'template_data'</span><span class="p">,</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'guest_name'</span><span class="p">,</span><span class="w"> </span><span class="n">guest_row</span><span class="p">.</span><span class="n">first_name</span><span class="p">)</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">);</span>
+<p>A route (or middleware) can render server-side HTML instead of returning its content
+directly: set <code>template</code> on a full-control response (see <a href="../requests-responses/#httpresponse">Requests and
+responses</a>), or declare a default <code>template</code> on the route
+itself, and rel renders it with <a href="https://github.com/CloudyKit/jet">Jet</a>, a Go template engine,
+instead of serializing the second <code>OUT</code> column (or, for a plain-return route with a declared
+default <code>template</code>, its own return value).</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">booking_confirmed</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">returns</span><span class="w"> </span><span class="n">record</span><span class="w"> </span><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">begin</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'status'</span><span class="p">,</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span><span class="w"> </span><span class="s1">'content_type'</span><span class="p">,</span><span class="w"> </span><span class="s1">'text/html'</span><span class="p">,</span><span class="w"> </span><span class="s1">'template'</span><span class="p">,</span><span class="w"> </span><span class="s1">'booking-confirmed.jet'</span><span class="p">);</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'guest_name'</span><span class="p">,</span><span class="w"> </span><span class="s1">'Alex'</span><span class="p">);</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="err">$$</span><span class="p">;</span>
 </span></code></pre></div>
 <p><code>template</code> is a path relative to <code>http.templates.path</code> (default <code>/template</code>; see
-<a href="../../configuration/">Configuration</a>). <code>content</code> is ignored whenever <code>template</code> is set —
-not an error to set both, just pointless. A template that fails to load (missing file, parse
-error) or fails during execution (referencing a field <code>Data</code>/<code>Req</code> doesn't have) is a <code>500</code>,
-logged with the template path, never a silent fallback to <code>content</code>.</p>
+<a href="../../configuration/">Configuration</a>). <code>content_type</code> is never implied by <code>template</code> — a
+route rendering HTML via a template still sets <code>content_type: "text/html"</code> itself, the same
+as it would for any other response. A template that fails to load (missing file, parse error)
+or fails during execution (referencing a field <code>Data</code>/<code>Req</code> doesn't have) is a <code>500</code>, logged
+with the template path, never a silent fallback to the function's own return value. A route
+returning a <code>bytea</code>/binary mimetype domain must not also set <code>template</code> — rel disables it with
+a warning at discovery time, since Jet only ever renders text.</p>
 <h2 id="what-a-template-can-see">What a template can see<a class="headerlink" href="#what-a-template-can-see" title="Permanent link">&para;</a></h2>
 <p>The template executes with three named variables in scope:</p>
 <table>
@@ -1869,11 +1874,11 @@ logged with the template path, never a silent fallback to <code>content</code>.<
 <tbody>
 <tr>
 <td><code>Data</code></td>
-<td><code>template_data</code> from the response, JSON <code>null</code> if unset.</td>
+<td>The second <code>OUT</code> column (full-control), or the route's own return value (plain-return) — JSON <code>null</code> for a text/binary shape wraps into a plain string first, so <code>{{ Data }}</code> always reflects what the function actually returned.</td>
 </tr>
 <tr>
 <td><code>Req</code></td>
-<td>The exact <code>RelHttpRequest</code> the route function itself received — <code>{{ Req.uri }}</code>, <code>{{ Req.jwt.role }}</code>.</td>
+<td>The exact <code>HttpRequest</code> the function itself received — <code>{{ Req.uri }}</code>, <code>{{ Req.jwt.role }}</code>.</td>
 </tr>
 <tr>
 <td><code>Nonce</code></td>
@@ -1881,8 +1886,6 @@ logged with the template path, never a silent fallback to <code>content</code>.<
 </tr>
 </tbody>
 </table>
-<p><code>content_type</code> is never implied by <code>template</code> — a route rendering HTML via a template still
-sets <code>content_type: "text/html"</code> itself, the same as if it had built the HTML string by hand.</p>
 <h2 id="nonce-trusted-inline-scripts-without-loosening-the-csp"><code>Nonce</code>: trusted inline scripts without loosening the CSP<a class="headerlink" href="#nonce-trusted-inline-scripts-without-loosening-the-csp" title="Permanent link">&para;</a></h2>
 <p>This is the reason templates exist as more than a convenience. rel generates a fresh,
 cryptographically random nonce for every request and enforces a <code>Content-Security-Policy</code> that
@@ -1894,8 +1897,8 @@ policy for the whole response:</p>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">&lt;</span><span class="nt">script</span> <span class="na">nonce</span><span class="o">=</span><span class="s">"{{ Nonce }}"</span><span class="p">&gt;</span><span class="cm">/* trusted inline code */</span><span class="p">&lt;/</span><span class="nt">script</span><span class="p">&gt;</span>
 </span></code></pre></div>
 <p>rel appends <code>'nonce-&lt;value&gt;'</code> to the response's <code>script-src</code>/<code>style-src</code> CSP directives to
-match — the two always agree, so a nonce copied out of <code>Req.csp_nonce</code> into hand-built HTML and
-a nonce read from <code>{{ Nonce }}</code> in a template are equally valid. A <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> tag
+match — the two always agree, so a nonce read off <code>Req.csp_nonce</code> in hand-built HTML and a
+nonce read from <code>{{ Nonce }}</code> in a template are equally valid. A <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> tag
 without a matching nonce (or without <code>'unsafe-inline'</code> explicitly configured) simply doesn't
 run, browser-enforced — this is what makes returning raw HTML from a route safe by default
 even though the response is dynamic.</p>
@@ -1934,8 +1937,8 @@ layout declares named blocks, and a page extending it overrides the ones it want
 <code>http.templates.path</code> — so a layout used by several routes' templates lives alongside them in
 that same directory tree, not somewhere separate. <code>Data</code>, <code>Req</code>, and <code>Nonce</code> stay in scope
 across the whole chain: a value read in a block inherited from the base layout is exactly the
-<code>template_data</code>/request the route itself set, not something the child template has to
-re-thread through.</p>
+<code>Data</code>/request the function itself set, not something the child template has to re-thread
+through.</p>
 <p><code>{{ import "partials.jet" }}</code> (reusable macros, shared across many templates without an
 inheritance relationship) and <code>{{ include "footer.jet" }}</code> (inline another template's full
 output at that point) are both available too, resolved the same way.</p>

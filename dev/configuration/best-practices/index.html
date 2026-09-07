@@ -1984,10 +1984,10 @@ internal audit table, a <code>dblink</code>/<code>postgres_fdw</code> connection
 server-side use, anything a client should never be able to name directly even under a role
 that can otherwise read a lot. See <a href="../#restricting-what-a-query-can-reach">Configuration ### Restricting what a query can
 reach</a>.</p>
-<p>Beyond the blacklist, gate which functions are reachable as routes at all with
-<code>http.functions.allowed_routes</code>, and which ones may mint or clear a session with
-<code>http.functions.allowed_auth</code> — see <a href="../../http/">HTTP layer</a> and
-<a href="../../http/authentication/">Authentication</a>.</p>
+<p>Beyond the blacklist, every route/middleware function is reachable only at the path it's
+explicitly declared at (see <a href="../../http/#declaring-a-route">HTTP routes</a>) — there's no
+separate "discovered at all" gate to configure. Restrict which ones may mint or clear a
+session with <code>http.functions.allowed_auth</code> — see <a href="../../http/authentication/">Authentication</a>.</p>
 <h2 id="leave-expensive-operators-off-unless-you-actually-need-them">Leave expensive operators off unless you actually need them<a class="headerlink" href="#leave-expensive-operators-off-unless-you-actually-need-them" title="Permanent link">&para;</a></h2>
 <p><code>like</code>/<code>ilike</code>, regex match (<code>~</code>/<code>~*</code>), and full-text search (<code>@@</code>) are disabled by default —
 each can be made to run pathologically slowly against an unindexed or adversarially-chosen
@@ -2002,7 +2002,7 @@ reference</a>.</p>
   cross-origin caller anyway; it's only right for a genuinely public, anonymous-role-only API.
   See <a href="../../http/cors-csp/">CORS and CSP</a>.</li>
 <li><strong>CSP</strong> ships a real <code>default-src 'self'</code> policy even unconfigured. Reach for a route's own
-  <code>RelHttpResponse.csp</code> override or the per-request <code>Nonce</code> (see <a href="../../http/templates/">Rendering HTML with
+  <code>HttpResponse.csp</code> override or the per-request <code>Nonce</code> (see <a href="../../http/templates/">Rendering HTML with
   templates</a>) for a one-off trusted inline script, rather than loosening
   <code>http.csp.script_src</code>/<code>style_src</code> process-wide to accommodate it.</li>
 <li><strong>Cookies</strong> default to <code>secure</code>, <code>httponly</code>, <code>SameSite=Lax</code>. Widening <code>jwt.same_site</code> to
@@ -2011,7 +2011,7 @@ reference</a>.</p>
   <a href="../#sessions-jwt">Configuration ### Sessions (JWT)</a>.</li>
 </ul>
 <h2 id="size-the-resource-limits-to-real-traffic-not-the-defaults">Size the resource limits to real traffic, not the defaults<a class="headerlink" href="#size-the-resource-limits-to-real-traffic-not-the-defaults" title="Permanent link">&para;</a></h2>
-<p><code>http.max_body_size</code> (10 MiB) and <code>http.max_part_count</code> (100) bound a single <code>/route</code> request;
+<p><code>http.max_body_size</code> (10 MiB) and <code>http.max_part_count</code> (100) bound a single declared-route request;
 <code>pg.query.max_depth</code> (6) bounds how deeply a query can nest joins; <code>pg.pool_size</code> (10) bounds
 how many connections actually serve requests concurrently. All four default to something
 reasonable for getting started, not to whatever your production traffic and payload sizes

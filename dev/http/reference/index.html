@@ -1242,17 +1242,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#domain-types" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Domain types
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#function-prototypes" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1265,10 +1254,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#routes" class="md-nav__link">
+  <a href="#declared-routes-and-middleware" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Routes
+        Declared routes and middleware
       </span>
     </span>
   </a>
@@ -1304,10 +1293,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#server-and-domains" class="md-nav__link">
+  <a href="#server-and-static-files" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Server and domains
+        Server and static files
       </span>
     </span>
   </a>
@@ -1315,10 +1304,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#route-function-gating" class="md-nav__link">
+  <a href="#route-declaration-and-gating" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Route function gating
+        Route declaration and gating
       </span>
     </span>
   </a>
@@ -1363,17 +1352,6 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         OpenID Connect and SAML
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#static-file-access-control" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Static file access control
       </span>
     </span>
   </a>
@@ -1798,17 +1776,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#domain-types" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Domain types
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#function-prototypes" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1821,10 +1788,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#routes" class="md-nav__link">
+  <a href="#declared-routes-and-middleware" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Routes
+        Declared routes and middleware
       </span>
     </span>
   </a>
@@ -1860,10 +1827,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#server-and-domains" class="md-nav__link">
+  <a href="#server-and-static-files" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Server and domains
+        Server and static files
       </span>
     </span>
   </a>
@@ -1871,10 +1838,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#route-function-gating" class="md-nav__link">
+  <a href="#route-declaration-and-gating" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Route function gating
+        Route declaration and gating
       </span>
     </span>
   </a>
@@ -1919,17 +1886,6 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         OpenID Connect and SAML
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#static-file-access-control" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Static file access control
       </span>
     </span>
   </a>
@@ -2041,61 +1997,16 @@
 
 <h1 id="http-reference">HTTP reference<a class="headerlink" href="#http-reference" title="Permanent link">&para;</a></h1>
 <p>Every other page in this section teaches one piece of the HTTP layer by example. This page is
-the other kind of reference: every domain name, every function signature rel recognizes, and
-every <code>http.*</code>/<code>jwt.*</code>/SSO configuration key, in one place, each linked to the page that
+the other kind of reference: every function signature rel recognizes, and every
+<code>http.*</code>/<code>route.*</code>/<code>jwt.*</code>/SSO configuration key, in one place, each linked to the page that
 explains it. Skim this first to see the whole surface at a glance, or come back to it once you
 know roughly what you're looking for and just need the exact name or default.</p>
-<h2 id="domain-types">Domain types<a class="headerlink" href="#domain-types" title="Permanent link">&para;</a></h2>
-<p>Four Postgres domains rel looks for by matching their bare name — each one's own resolution
-rule (unqualified search across every schema, more than one match across schemas is a fatal
-startup error, zero matches just disables whatever needs it) is covered on its own page, linked
-below. rel doesn't distribute a Postgres extension — there's no <code>CREATE EXTENSION</code> that installs
-these for you; each is a plain domain you create by hand, once, under whichever name its config
-key resolves to.</p>
-<table>
-<thead>
-<tr>
-<th>Domain</th>
-<th>Config key</th>
-<th>Default</th>
-<th>Underlying type</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="../requests-responses/#relhttprequest"><code>RelHttpRequest</code></a></td>
-<td><code>http.request_domain_name</code></td>
-<td><code>RelHttpRequest</code></td>
-<td><code>jsonb</code></td>
-</tr>
-<tr>
-<td><a href="../requests-responses/#relhttpresponse"><code>RelHttpResponse</code></a></td>
-<td><code>http.response_domain_name</code></td>
-<td><code>RelHttpResponse</code></td>
-<td><code>jsonb</code></td>
-</tr>
-<tr>
-<td><a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres"><code>RelUpload</code></a></td>
-<td><code>http.upload_domain_name</code></td>
-<td><code>RelUpload</code></td>
-<td><code>jsonb</code></td>
-</tr>
-<tr>
-<td><a href="../static-files/#returning-binary-or-text-content-directly">a mimetype domain</a>, e.g. <code>"image/png"</code></td>
-<td>not configurable; matched by name pattern (contains <code>/</code>) and underlying type</td>
-<td>—</td>
-<td><code>bytea</code> or <code>text</code>, nothing else</td>
-</tr>
-</tbody>
-</table>
 <h2 id="function-prototypes">Function prototypes<a class="headerlink" href="#function-prototypes" title="Permanent link">&para;</a></h2>
-<p>Every distinct callable-function shape the HTTP layer recognizes. The first five are <em>routes</em> —
-discovered automatically at <code>/route/&lt;schema&gt;/&lt;function&gt;</code>, subject to the <code>__VERB</code> suffix
-convention and <code>http.functions.allowed_routes</code> (see <a href="../#what-makes-a-function-a-route">HTTP routes ## What makes a function a
-route</a>). The rest are never routes — nothing calls them
-over <code>/route</code> directly, or discovers them by scanning the schema; rel invokes each one itself,
-by the exact name configured for its own purpose.</p>
-<h3 id="routes">Routes<a class="headerlink" href="#routes" title="Permanent link">&para;</a></h3>
+<p>Every distinct callable-function shape the HTTP layer recognizes, per <a href="../#function-prototype">HTTP routes ## Function
+prototype</a>.</p>
+<h3 id="declared-routes-and-middleware">Declared routes and middleware<a class="headerlink" href="#declared-routes-and-middleware" title="Permanent link">&para;</a></h3>
+<p>Discovered from a <code>route::</code>/<code>route:{...}</code> comment or a <code>route.&lt;schema&gt;.&lt;function&gt;.*</code> config
+entry — never by scanning the schema automatically.</p>
 <table>
 <thead>
 <tr>
@@ -2107,28 +2018,69 @@ by the exact name configured for its own purpose.</p>
 <tbody>
 <tr>
 <td><code>fn()</code></td>
-<td><code>RelHttpResponse</code> or a mimetype domain</td>
+<td>a plain type, per the mimetype table below</td>
 <td>A route needing nothing from the request itself.</td>
 </tr>
 <tr>
-<td><code>fn(req RelHttpRequest)</code></td>
-<td><code>RelHttpResponse</code> or a mimetype domain</td>
-<td>The common case — read <code>req.body</code>/<code>req.query</code>/<code>req.jwt</code>/etc., return a response. See <a href="../">HTTP routes</a> and <a href="../requests-responses/">Requests and responses</a>.</td>
+<td><code>fn(req jsonb)</code></td>
+<td>a plain type</td>
+<td>The common case — read <code>req.body</code>/<code>req.query</code>/<code>req.jwt</code>/etc., return a value directly. See <a href="../requests-responses/">Requests and responses</a>.</td>
 </tr>
 <tr>
-<td><code>fn(req RelHttpRequest, files bytea[])</code></td>
-<td><code>RelHttpResponse</code> or a mimetype domain</td>
-<td>Receive one or more uploaded parts' raw bytes. See <a href="../uploads/#receiving-raw-bytes">File uploads ## Receiving raw bytes</a>.</td>
+<td><code>fn(req jsonb, files bytea[])</code></td>
+<td>a plain type</td>
+<td>Receive one or more multipart parts' raw bytes. See <a href="../uploads/#receiving-raw-bytes">File uploads ## Receiving raw bytes</a>.</td>
 </tr>
 <tr>
-<td><code>fn(req RelHttpRequest, files bytea[], parts_headers jsonb)</code></td>
-<td><code>RelHttpResponse</code> or a mimetype domain</td>
-<td>Same, plus each part's own <code>name</code>/<code>filename</code>/<code>content_type</code>/<code>headers</code>. See <a href="../uploads/#receiving-raw-bytes">File uploads ## Receiving raw bytes</a>.</td>
+<td><code>fn(req jsonb, file bytea)</code></td>
+<td>a plain type</td>
+<td>Receive a single raw (non-multipart) request body's bytes. See <a href="../uploads/#receiving-raw-bytes">File uploads ## Receiving raw bytes</a>.</td>
 </tr>
 <tr>
-<td><code>&lt;name&gt;__prepare(req RelHttpRequest, part jsonb)</code> and, alongside it, <code>&lt;name&gt;(req RelHttpRequest, upload RelUpload)</code></td>
-<td><code>RelUpload</code> (prepare) / <code>RelHttpResponse</code> (mandatory)</td>
-<td>A pair, both required, streaming an upload straight to disk without its bytes passing through Postgres. Never composes with a <code>__VERB</code> suffix. See <a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads ## Choosing a destination without routing bytes through Postgres</a>.</td>
+<td><code>fn(req jsonb, ..., out resp jsonb, out content &lt;type&gt;) returns record</code></td>
+<td><code>resp</code>'s own fields, <code>content</code> per the mimetype table</td>
+<td>Full control over the response — status, cookies, <code>jwt</code>, <code>template</code>, <code>static_file</code>. Mandatory for <code>middleware</code>/<code>stream_upload</code>. See <a href="../requests-responses/">Requests and responses</a>.</td>
+</tr>
+<tr>
+<td><code>fn(req jsonb, out resp jsonb, out content jsonb) returns record</code>, declared <code>stream_upload: true</code></td>
+<td>as above</td>
+<td>Streams a single upload straight to disk, called twice. Must not take a <code>bytea</code>/<code>bytea[]</code> argument. See <a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads ## Choosing a destination without routing bytes through Postgres</a>.</td>
+</tr>
+<tr>
+<td>Any of the above, declared <code>middleware: true</code></td>
+<td>full-control shape only</td>
+<td>Runs ahead of every route/<code>/rel</code>/static file under its own path prefix. See <a href="../#middleware">HTTP routes ## Middleware</a>.</td>
+</tr>
+</tbody>
+</table>
+<p>A function may also declare extra <code>text</code>-typed arguments, named after <code>{placeholder}</code>
+segments in its own declared path — see <a href="../#function-prototype">HTTP routes ## Function
+prototype</a>.</p>
+<p><strong>Single-return mimetype table</strong> — applies to a plain return type, or a full-control
+function's second <code>OUT</code> column when its own response doesn't override <code>content_type</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Return type</th>
+<th><code>Content-Type</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>text</code></td>
+<td><code>text/plain</code></td>
+</tr>
+<tr>
+<td><code>json</code>/<code>jsonb</code></td>
+<td><code>application/json</code></td>
+</tr>
+<tr>
+<td><code>bytea</code></td>
+<td><code>application/octet-stream</code></td>
+</tr>
+<tr>
+<td>a domain whose name contains <code>/</code> (over <code>bytea</code> or <code>text</code>)</td>
+<td>the domain's own name, e.g. <code>"image/png"</code></td>
 </tr>
 </tbody>
 </table>
@@ -2143,29 +2095,19 @@ by the exact name configured for its own purpose.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>fn(jwt jsonb) returns void</code></td>
-<td><code>http.functions.check_session</code></td>
-<td>Called once per authenticated request, before the role switch; raise to revoke the session early. See <a href="../authentication/#session-lifecycle">Authentication ## Session lifecycle</a>.</td>
-</tr>
-<tr>
-<td><code>fn(payload jsonb) returns RelHttpResponse</code></td>
+<td><code>fn(payload jsonb) returns jsonb</code> (full-control shape)</td>
 <td><code>http.functions.sso_callback</code>, or per-provider <code>openid.&lt;name&gt;.callback_function</code>/<code>saml.&lt;name&gt;.callback_function</code></td>
 <td>Turns a verified OIDC/SAML identity assertion into a role, the same way a login route mints a session. <code>payload</code> is <code>{jwt, identity, state}</code>. See <a href="../authentication/#openid-connect-and-saml">Authentication ## OpenID Connect and SAML</a>.</td>
-</tr>
-<tr>
-<td><code>fn(payload jsonb) returns void</code></td>
-<td><code>http.static.access.&lt;name&gt;.function</code></td>
-<td>Gates a subpath of <code>/static/*</code>; raise to reject. <code>payload</code> is <code>{path, jwt}</code>. See <a href="../static-files/#restricting-access-to-part-of-the-tree">Static files ## Restricting access to part of the tree</a>.</td>
 </tr>
 </tbody>
 </table>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
-<p>Every <code>http.*</code>/<code>jwt.*</code> key, plus the handful of <code>pg.*</code>/<code>openid.*</code>/<code>saml.*</code> keys that are really
-part of the same HTTP-facing picture. <a href="../../configuration/">Configuration</a> is the
-authoritative source for how any of these are actually supplied (env var, flag, or config
+<p>Every <code>http.*</code>/<code>route.*</code>/<code>jwt.*</code> key, plus the handful of <code>pg.*</code>/<code>openid.*</code>/<code>saml.*</code> keys that
+are really part of the same HTTP-facing picture. <a href="../../configuration/">Configuration</a> is
+the authoritative source for how any of these are actually supplied (env var, flag, or config
 file) and for every key rel understands, HTTP or not — this table is the HTTP-scoped subset,
 each row pointing at the page that explains the <em>behavior</em>, not just the key.</p>
-<h3 id="server-and-domains">Server and domains<a class="headerlink" href="#server-and-domains" title="Permanent link">&para;</a></h3>
+<h3 id="server-and-static-files">Server and static files<a class="headerlink" href="#server-and-static-files" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -2186,24 +2128,19 @@ each row pointing at the page that explains the <em>behavior</em>, not just the 
 <td>This deployment's externally-reachable host (bare, no scheme) — required for OIDC/SAML redirect URLs. See <a href="../authentication/">Authentication</a>.</td>
 </tr>
 <tr>
-<td><code>http.request_domain_name</code> / <code>http.response_domain_name</code> / <code>http.upload_domain_name</code></td>
-<td><code>RelHttpRequest</code> / <code>RelHttpResponse</code> / <code>RelUpload</code></td>
-<td>Domain types — see <a href="#domain-types">Domain types</a> above.</td>
-</tr>
-<tr>
 <td><code>http.cookies_max_age</code></td>
 <td><code>86400</code> (seconds)</td>
-<td>Default max-age for a cookie set via the generic <code>cookies</code> field. Never applies to the JWT cookie. See <a href="../requests-responses/#relhttpresponse">Requests and responses ## <code>RelHttpResponse</code></a>.</td>
+<td>Default max-age for a cookie set via the generic <code>cookies</code> field. Never applies to the JWT cookie. See <a href="../requests-responses/#httpresponse">Requests and responses</a>.</td>
 </tr>
 <tr>
 <td><code>http.max_body_size</code></td>
 <td>10 MiB</td>
-<td>Hard cap on a <code>/route</code> request's entire body. See <a href="../uploads/#receiving-raw-bytes">File uploads</a>.</td>
+<td>Hard cap on a declared route request's entire body. See <a href="../uploads/#receiving-raw-bytes">File uploads</a>.</td>
 </tr>
 <tr>
 <td><code>http.max_upload_size</code></td>
 <td>= <code>http.max_body_size</code></td>
-<td>Hard cap on the streamed payload of a <code>__prepare</code>-based upload — independent of <code>http.max_body_size</code> since this path streams to disk, not memory. See <a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
+<td>Hard cap on a <code>stream_upload</code> route's streamed payload — independent of <code>http.max_body_size</code> since this path streams to disk, not memory. See <a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
 </tr>
 <tr>
 <td><code>http.max_part_count</code></td>
@@ -2213,7 +2150,7 @@ each row pointing at the page that explains the <em>behavior</em>, not just the 
 <tr>
 <td><code>http.static.path</code></td>
 <td><code>/static</code></td>
-<td>Colon-separated directories served at <code>/static/*</code>. See <a href="../static-files/">Static files</a>.</td>
+<td>Colon-separated filesystem directories served at the router root, as the fallback for any path no declared route claims. See <a href="../static-files/">Static files</a>.</td>
 </tr>
 <tr>
 <td><code>http.templates.path</code></td>
@@ -2222,7 +2159,7 @@ each row pointing at the page that explains the <em>behavior</em>, not just the 
 </tr>
 </tbody>
 </table>
-<h3 id="route-function-gating">Route function gating<a class="headerlink" href="#route-function-gating" title="Permanent link">&para;</a></h3>
+<h3 id="route-declaration-and-gating">Route declaration and gating<a class="headerlink" href="#route-declaration-and-gating" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -2233,27 +2170,45 @@ each row pointing at the page that explains the <em>behavior</em>, not just the 
 </thead>
 <tbody>
 <tr>
-<td><code>http.functions.allowed_routes</code></td>
-<td>unrestricted</td>
-<td>Regexp restricting which functions are discovered as routes at all. See <a href="../#what-makes-a-function-a-route">HTTP routes</a>.</td>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.path</code></td>
+<td>— (required to make the function routable)</td>
+<td>The chi-syntax path. See <a href="../#declaring-a-route">HTTP routes ## Declaring a route</a>.</td>
+</tr>
+<tr>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.method</code></td>
+<td>inferred</td>
+<td>Comma-separated accepted methods. See <a href="../#function-prototype">HTTP routes ## Method inference</a>.</td>
+</tr>
+<tr>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.template</code></td>
+<td>unset</td>
+<td>Default Jet template, used when the response doesn't set its own. See <a href="../templates/">Templates</a>.</td>
+</tr>
+<tr>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.stream_upload</code></td>
+<td><code>false</code></td>
+<td>Flags the two-call disk-streaming upload flow. See <a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
+</tr>
+<tr>
+<td><code>route.&lt;schema&gt;.&lt;function&gt;.middleware</code></td>
+<td><code>false</code></td>
+<td>Flags a middleware function. See <a href="../#middleware">HTTP routes ## Middleware</a>.</td>
 </tr>
 <tr>
 <td><code>http.functions.allowed_auth</code></td>
 <td>unrestricted</td>
-<td>Regexp restricting which route functions may set <code>jwt</code> on their response. See <a href="../authentication/#minting-a-session">Authentication</a>.</td>
-</tr>
-<tr>
-<td><code>http.functions.check_session</code></td>
-<td>disabled</td>
-<td>See <a href="#function-prototypes">Function prototypes</a> above and <a href="../authentication/#session-lifecycle">Authentication</a>.</td>
+<td>Regexp restricting which route/middleware functions may set <code>jwt</code> on their response. See <a href="../authentication/#minting-a-session">Authentication</a>.</td>
 </tr>
 <tr>
 <td><code>http.functions.sso_callback</code></td>
 <td>disabled</td>
-<td>See <a href="#function-prototypes">Function prototypes</a> above and <a href="../authentication/#openid-connect-and-saml">Authentication</a>.</td>
+<td>See <a href="#invoked-directly-by-rel-never-discovered-as-routes">Function prototypes</a> above and <a href="../authentication/#openid-connect-and-saml">Authentication</a>.</td>
 </tr>
 </tbody>
 </table>
+<p>A route is declared either way — a <code>route::</code>/<code>route:{...}</code> comment on the function, or the
+config keys above; config overrides a comment declaration on the same function, with a
+warning. See <a href="../#declaring-a-route">HTTP routes ## Declaring a route</a>.</p>
 <h3 id="cors">CORS<a class="headerlink" href="#cors" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -2398,7 +2353,7 @@ each row pointing at the page that explains the <em>behavior</em>, not just the 
 <tr>
 <td><code>openid.&lt;name&gt;.callback_function</code></td>
 <td>falls back to <code>http.functions.sso_callback</code></td>
-<td>See <a href="#function-prototypes">Function prototypes</a> above.</td>
+<td>See <a href="#invoked-directly-by-rel-never-discovered-as-routes">Function prototypes</a> above.</td>
 </tr>
 <tr>
 <td><code>openid.&lt;name&gt;.public_host</code></td>
@@ -2434,28 +2389,6 @@ each row pointing at the page that explains the <em>behavior</em>, not just the 
 <td><code>saml.&lt;name&gt;.certificate_path</code> / <code>saml.&lt;name&gt;.private_key_path</code></td>
 <td>falls back to <code>saml.certificate_path</code> / <code>saml.private_key_path</code></td>
 <td>Per-entry override — same generate-if-missing behavior, scoped to this entry alone.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="static-file-access-control">Static file access control<a class="headerlink" href="#static-file-access-control" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Default</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>http.static.access.&lt;name&gt;.prefix</code></td>
-<td>— (required)</td>
-<td>Subpath, under <code>/static/</code>, this rule gates. See <a href="../static-files/#restricting-access-to-part-of-the-tree">Static files ## Restricting access to part of the tree</a>.</td>
-</tr>
-<tr>
-<td><code>http.static.access.&lt;name&gt;.function</code></td>
-<td>— (required)</td>
-<td>See <a href="#function-prototypes">Function prototypes</a> above.</td>
 </tr>
 </tbody>
 </table>

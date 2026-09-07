@@ -1852,7 +1852,7 @@
 
 
 <h1 id="cors-and-csp">CORS and CSP<a class="headerlink" href="#cors-and-csp" title="Permanent link">&para;</a></h1>
-<p>Both apply uniformly across <code>/rel</code>, <code>/route</code>, and <code>/static</code>.</p>
+<p>Both apply uniformly across <code>/rel</code>, every declared route, and the static fallback.</p>
 <h2 id="cors">CORS<a class="headerlink" href="#cors" title="Permanent link">&para;</a></h2>
 <p>CORS is closed by default — no <code>Access-Control-*</code> headers at all — until you list allowed
 origins:</p>
@@ -1876,7 +1876,8 @@ credentials in that mode — the JWT cookie becomes useless to a cross-origin ca
 only right for a genuinely public, anonymous-role-only API.</p>
 <p>A non-"simple" cross-origin request (a JSON body, a custom header, a method outside
 <code>GET</code>/<code>HEAD</code>/<code>POST</code>) triggers a browser preflight, answered entirely by rel itself — never by
-invoking a route function — whether or not a route actually exists at that path yet.</p>
+invoking a route or middleware function — whether or not a route actually exists at that path
+yet.</p>
 <h2 id="csp">CSP<a class="headerlink" href="#csp" title="Permanent link">&para;</a></h2>
 <p>A <code>Content-Security-Policy</code> header is sent on every response by default (<code>default-src 'self'</code>),
 even with no configuration at all. Tighten or loosen individual directives:</p>
@@ -1891,34 +1892,35 @@ even with no configuration at all. Tighten or loosen individual directives:</p>
   individual <code>http.csp.*</code> directive above entirely when set, rather than merging with them.</li>
 </ul>
 <h3 id="nonce">Nonce<a class="headerlink" href="#nonce" title="Permanent link">&para;</a></h3>
-<p>Every <code>/route</code> request — and every SSO callback (<code>/auth/oidc/{name}/callback</code>,
+<p>Every declared-route request — and every SSO callback (<code>/auth/oidc/{name}/callback</code>,
 <code>/auth/saml/{name}/acs</code>; see <a href="../authentication/">Authentication</a>) — gets a fresh, random nonce,
 automatically appended to that response's <code>script-src</code>/<code>style-src</code> as <code>'nonce-&lt;value&gt;'</code>: for
 trusted inline <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> blocks without loosening the policy for everything else. To
 use it, put the exact same value in that tag's own <code>nonce</code> attribute:
 <code>&lt;script nonce="&lt;value&gt;"&gt;...&lt;/script&gt;</code>. A <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> tag without a matching <code>nonce</code>
 (and without <code>'unsafe-inline'</code> explicitly configured) simply doesn't run, browser-enforced.</p>
-<p>A <code>/route</code> function reaches the value two ways, both equally valid: <code>req.csp_nonce</code> on the
-<code>RelHttpRequest</code> it received (see <a href="../requests-responses/">Requests and responses</a>) — usable in
+<p>A route function reaches the value two ways, both equally valid: <code>req.csp_nonce</code> on the
+request it received (see <a href="../requests-responses/">Requests and responses</a>) — usable in
 any hand-built HTML the route returns itself, no template involved — or <code>{{ Nonce }}</code> inside a
 Jet template (see <a href="../templates/">Rendering HTML with templates</a> for the full mechanics and
 worked examples, including why dynamic data belongs in a JSON island rather than a direct
 interpolation). Either way it's the same nonce, so a value copied out of <code>req.csp_nonce</code> and one
 read from <code>{{ Nonce }}</code> always agree. An SSO callback function only has the template path: it
-never receives a <code>RelHttpRequest</code> argument at all (just the verified claims, as <code>jsonb</code>), so
+never receives a request object at all (just <code>{jwt, identity, state}</code>, as <code>jsonb</code>), so
 <code>{{ Nonce }}</code> inside a template its response points at is the only way it ever touches the
 nonce — the callback function doesn't need to read the value itself for this to work, since the
 template renderer resolves it from the request automatically.</p>
-<p><code>/rel</code> and <code>/static</code> never get a nonce at all — not merely one that goes unused. <code>/rel</code> always
-answers JSON, never HTML, and <code>/static</code> serves files as-is with no per-request templating to
-inject a nonce into, so neither can ever have a use for one; their <code>Content-Security-Policy</code>
-header carries the configured policy with no nonce token appended.</p>
+<p><code>/rel</code> and the static fallback never get a nonce at all — not merely one that goes unused.
+<code>/rel</code> always answers JSON, never HTML, and the static fallback serves files as-is with no
+per-request templating to inject a nonce into, so neither can ever have a use for one; their
+<code>Content-Security-Policy</code> header carries the configured policy with no nonce token appended.</p>
 <h3 id="per-response-override">Per-response override<a class="headerlink" href="#per-response-override" title="Permanent link">&para;</a></h3>
-<p>A single route can override the whole policy for just its own response via
-<code>RelHttpResponse.csp</code> (see <a href="../requests-responses/">Requests and responses</a>) — the same nonce
-rules apply, scoped to that response's own effective <code>default-src</code>. There is no equivalent
-override for CORS: a preflight is answered before any route function runs, so there's no
-response to read a per-route policy from — CORS policy is always static and process-wide.</p>
+<p>A single full-control route or middleware can override the whole policy for just its own
+response via <code>HttpResponse.csp</code> (see <a href="../requests-responses/">Requests and responses</a>) — the
+same nonce rules apply, scoped to that response's own effective <code>default-src</code>. There is no
+equivalent override for CORS: a preflight is answered before any route function runs, so
+there's no response to read a per-route policy from — CORS policy is always static and
+process-wide.</p>
 
 
 

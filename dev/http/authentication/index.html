@@ -1427,6 +1427,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#function-prototypeindexmdfunction-prototype-can-start-a-session-by-setting-a-jwt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Function prototype](index.md#function-prototype)) can start a session by setting a <code>jwt</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#openid-connect-and-saml" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1776,6 +1787,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#function-prototypeindexmdfunction-prototype-can-start-a-session-by-setting-a-jwt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Function prototype](index.md#function-prototype)) can start a session by setting a <code>jwt</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#openid-connect-and-saml" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1985,44 +2007,55 @@ row-level security decide what the request can actually do.</p>
 database, or anonymous access is disabled outright and every unauthenticated request gets
 <code>401</code>. There's no implicit "public" state in between.</p>
 <h2 id="minting-a-session">Minting a session<a class="headerlink" href="#minting-a-session" title="Permanent link">&para;</a></h2>
-<p>Any function called through <a href="../"><code>/route</code></a> can start a session by setting a <code>jwt</code>
-field on its response. Like any other route, it takes a single <code>RelHttpRequest</code> argument (see
-<a href="../requests-responses/">Requests and responses</a>) — there's no separate, credentials-shaped
-signature for a login function:</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">login</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="ss">"RelHttpRequest"</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="ss">"RelHttpResponse"</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">declare</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="n">matched_user</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">;</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="k">begin</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">into</span><span class="w"> </span><span class="n">matched_user</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="k">where</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">username</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'body'</span><span class="p">)</span><span class="o">-&gt;&gt;</span><span class="s1">'username'</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="k">and</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">password_hash</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">crypt</span><span class="p">((</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'body'</span><span class="p">)</span><span class="o">-&gt;&gt;</span><span class="s1">'password'</span><span class="p">,</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">password_hash</span><span class="p">);</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="n">matched_user</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="k">null</span><span class="w"> </span><span class="k">then</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Invalid credentials'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'jwt'</span><span class="p">,</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">    </span><span class="s1">'role'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="k">role</span><span class="p">,</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">    </span><span class="s1">'user_id'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="n">id</span><span class="p">,</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">    </span><span class="s1">'plan'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="n">plan</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">  </span><span class="p">));</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="k">end</span><span class="p">;</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="err">$$</span><span class="p">;</span>
+<p>Any full-control route or middleware function (the two-<code>OUT</code>-column shape — see [HTTP routes</p>
+<h2 id="function-prototypeindexmdfunction-prototype-can-start-a-session-by-setting-a-jwt">Function prototype](index.md#function-prototype)) can start a session by setting a <code>jwt</code><a class="headerlink" href="#function-prototypeindexmdfunction-prototype-can-start-a-session-by-setting-a-jwt" title="Permanent link">&para;</a></h2>
+<p>field on its response:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">login</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">returns</span><span class="w"> </span><span class="n">record</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">declare</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="n">matched_user</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">;</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="k">begin</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">into</span><span class="w"> </span><span class="n">matched_user</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="k">where</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">username</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'body'</span><span class="p">)</span><span class="o">-&gt;&gt;</span><span class="s1">'username'</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="k">and</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">password_hash</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">crypt</span><span class="p">((</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'body'</span><span class="p">)</span><span class="o">-&gt;&gt;</span><span class="s1">'password'</span><span class="p">,</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">password_hash</span><span class="p">);</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="n">matched_user</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="k">null</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Invalid credentials'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'jwt'</span><span class="p">,</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">    </span><span class="s1">'role'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="k">role</span><span class="p">,</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">    </span><span class="s1">'user_id'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="n">id</span><span class="p">,</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">    </span><span class="s1">'plan'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="n">plan</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">  </span><span class="p">));</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">  </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="err">$$</span><span class="p">;</span>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/auth/login", method: "POST"'</span><span class="p">;</span>
 </span></code></pre></div>
-<p>Called as <code>POST /route/auth/login</code> with <code>{"username": "...", "password": "..."}</code> as the JSON
-body.</p>
+<p>Called with <code>{"username": "...", "password": "..."}</code> as the JSON body. (Naming the path
+<code>/auth/login</code> here is just an example, not special — actual <code>/auth/*</code> is a reserved prefix
+rel itself serves for OIDC/SAML, and a user-declared route can never sit there; a real login
+function lives at whatever path you choose.)</p>
 <p><code>role</code> is the only claim rel itself reads back out of the JWT (to <code>SET ROLE</code> with); every other
 key in the object — <code>user_id</code>/<code>plan</code> above, or anything else — is just carried along as a
-custom claim, verbatim, for your own functions to read later via <code>req.jwt</code> or
-<code>http.functions.check_session</code>'s argument (see below). rel fills in <code>iat</code>, <code>exp</code>, and
-<code>auth_time</code> itself; setting either of those, or <code>auth_time</code>, on the response's <code>jwt</code> object has
-no effect — they're always overwritten. Setting <code>jwt: null</code> on a response clears the session
-(logout). By default, <em>any</em> route function can set <code>jwt</code> and authenticate the caller as any
-role; restrict that with <code>http.functions.allowed_auth</code> (a regexp against the function's fully
-qualified name) once you have real login functions to point it at — e.g. <code>^auth\.</code>.</p>
+custom claim, verbatim, for your own functions to read later via <code>req.jwt</code>, or via a
+session-revocation <a href="../#middleware">middleware</a> (see <a href="#session-lifecycle">Session
+lifecycle</a> below). rel fills in <code>iat</code>, <code>exp</code>, and <code>auth_time</code> itself;
+setting either of those, or <code>auth_time</code>, on the response's <code>jwt</code> object has no effect —
+they're always overwritten. Setting <code>jwt: null</code> on a response clears the session (logout).</p>
+<p>By default, <em>any</em> route or middleware function can set <code>jwt</code> and authenticate the caller as
+any role; restrict that with <code>http.functions.allowed_auth</code> (a regexp against the function's
+fully qualified name) once you have real login functions to point it at — e.g. <code>^auth\.</code>. A
+<em>terminating</em> middleware setting <code>jwt</code> is gated by its own identifier; a <em>pass-through</em>
+middleware setting <code>jwt</code> ahead of a route is gated by that route's identifier instead (the
+route's own response is what actually renders) — and ahead of <code>/rel</code> or a static file, by no
+identifier at all, which <code>allowed_auth</code> can only ever match by being left unrestricted. Have
+a middleware gating those two paths terminate, rather than merely pass <code>jwt</code> through, if
+<code>allowed_auth</code> is restricted.</p>
 <h2 id="openid-connect-and-saml">OpenID Connect and SAML<a class="headerlink" href="#openid-connect-and-saml" title="Permanent link">&para;</a></h2>
 <p>For OIDC and SAML, rel drives the protocol itself — you only write the function that turns a
 verified identity assertion into a role. Configure one named entry per provider:</p>
@@ -2044,9 +2077,12 @@ just two differently-named entries. Each one gets its own routes:</p>
 <li><code>GET /auth/saml/{name}/login</code> / <code>POST /auth/saml/{name}/acs</code></li>
 <li><code>GET /auth/saml/{name}/metadata</code> — this deployment's SP metadata, to hand to the IdP admin</li>
 </ul>
-<p>Both protocols converge on the same callback function signature — one <code>payload</code> argument, one
-<code>RelHttpResponse</code> return — regardless of which protocol produced it:</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">sso_callback</span><span class="p">(</span><span class="n">payload</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="ss">"RelHttpResponse"</span>
+<p>Both protocols converge on the same callback function signature — one <code>payload</code> argument,
+returning a single <code>jsonb</code> value shaped like <a href="../requests-responses/#httpresponse"><code>HttpResponse</code></a>
+plus its own <code>content</code>/<code>template_data</code> keys (this one call site predates, and isn't a
+declared route itself, so it keeps its own single-envelope shape rather than the two-<code>OUT</code>-column
+one) — regardless of which protocol produced it:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">sso_callback</span><span class="p">(</span><span class="n">payload</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="n">jsonb</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
@@ -2218,31 +2254,42 @@ so a stolen cookie is only useful briefly), and <code>jwt.max_session_age</code>
 can keep extending the session overall, measured from the original <code>auth_time</code> — once it's
 exceeded, the session can't be renewed anymore and the user has to fully re-authenticate.</p>
 <p>For revocation before either of those would naturally expire it — a password change, a ban, an
-admin-triggered logout — configure <code>http.functions.check_session</code>. rel calls it once per
-authenticated request, before the role switch, with the full claims object as <code>jsonb</code>:</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">check_session</span><span class="p">(</span><span class="n">jwt</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="n">void</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">begin</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="k">exists</span><span class="w"> </span><span class="p">(</span><span class="k">select</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">revoked_sessions</span><span class="w"> </span><span class="k">where</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">jwt</span><span class="o">-&gt;&gt;</span><span class="s1">'user_id'</span><span class="p">)::</span><span class="nb">bigint</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Session revoked'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="k">end</span><span class="p">;</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="err">$$</span><span class="p">;</span>
+admin-triggered logout — declare a session-checking <a href="../#middleware">middleware</a> at
+whatever prefix needs it (<code>/</code> to cover everything, including <code>/rel</code>). Unlike the old
+<code>check_session</code> mechanism, middleware runs <em>after</em> the role switch, as the request's own
+already-resolved role — and terminates with <code>{status: 401, jwt: null}</code> to reject and clear
+the session in one step, rather than merely raising:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">check_session</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">returns</span><span class="w"> </span><span class="n">record</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="k">begin</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="k">exists</span><span class="w"> </span><span class="p">(</span><span class="k">select</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">revoked_sessions</span><span class="w"> </span><span class="k">where</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'jwt'</span><span class="o">-&gt;&gt;</span><span class="s1">'user_id'</span><span class="p">)::</span><span class="nb">bigint</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'status'</span><span class="p">,</span><span class="w"> </span><span class="mi">401</span><span class="p">,</span><span class="w"> </span><span class="s1">'jwt'</span><span class="p">,</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">  </span><span class="k">else</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">  </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="err">$$</span><span class="p">;</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">check_session</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/", middleware: true'</span><span class="p">;</span>
 </span></code></pre></div>
-<p>Rejecting (<code>raise exception ... using errcode = 'RSxxx'</code>) clears the session and forces
-re-authentication; returning normally lets it stand. rel doesn't require any particular claim
-(a <code>jti</code>, a session id) for this to work — how you identify "this session" in your own revoked-
-sessions table is up to whatever custom claims your login function put on the JWT.</p>
+<p>Terminating (<code>{status: 401, jwt: null}</code>) clears the session and forces re-authentication;
+returning <code>resp := null</code> (a genuine SQL <code>NULL</code>, not the JSON literal) lets the request proceed
+unchanged. rel doesn't require any particular claim (a <code>jti</code>, a session id) for this to work —
+how you identify "this session" in your own revoked-sessions table is up to whatever custom
+claims your login function put on the JWT. Since this middleware runs as the request's own
+role rather than the primary connection, grant it <code>EXECUTE</code> for every role that should reach
+anything under its prefix, including the anonymous role — see <a href="#deployment-checklist">Deployment
+checklist</a> below.</p>
 <h3 id="claims-as-a-postgres-setting">Claims as a Postgres setting<a class="headerlink" href="#claims-as-a-postgres-setting" title="Permanent link">&para;</a></h3>
 <p>The claims object is also available as a plain Postgres setting, <code>current_setting('rel.jwt.claims',
-true)::jsonb</code> — the same shape as <code>req.jwt</code>/<code>check_session</code>'s own <code>jwt</code> argument (<code>null</code> for an
-anonymous request), readable from any function that runs as part of handling the request: an
-RLS policy, a trigger, a function called deeper down that doesn't have the claims threaded
-through as an argument. It's set right alongside the role switch, so it's there for every route
-function, every <code>/rel</code> query/write, <code>check_session</code> itself, and a static file's own access-control
-function.</p>
+true)::jsonb</code> — the same shape as <code>req.jwt</code> (<code>null</code> for an anonymous request), readable from
+any function that runs as part of handling the request: an RLS policy, a trigger, a function
+called deeper down that doesn't have the claims threaded through as an argument. It's set
+right alongside the role switch, so it's there for every route/middleware function and every
+<code>/rel</code> query/write.</p>
 <div class="language-sql highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">create</span><span class="w"> </span><span class="n">policy</span><span class="w"> </span><span class="n">own_rows_only</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="n">documents</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="k">using</span><span class="w"> </span><span class="p">(</span><span class="n">owner_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">current_setting</span><span class="p">(</span><span class="s1">'rel.jwt.claims'</span><span class="p">,</span><span class="w"> </span><span class="k">true</span><span class="p">)::</span><span class="n">jsonb</span><span class="o">-&gt;&gt;</span><span class="s1">'user_id'</span><span class="p">)::</span><span class="nb">bigint</span><span class="p">);</span>
 </span></code></pre></div>
@@ -2261,25 +2308,30 @@ including the anonymous one:</p>
 <p>That grants <code>query_user</code> <em>membership</em> — the ability to <code>SET ROLE</code> into <code>~anonymous</code> at all. A
 route function still needs its own <code>EXECUTE</code> grant, directly to <code>~anonymous</code> (or to a role it
 belongs to), before an anonymous request can reach it:</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">grant</span><span class="w"> </span><span class="k">execute</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">guest_login</span><span class="p">(</span><span class="ss">"RelHttpRequest"</span><span class="p">)</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="ss">"~anonymous"</span><span class="p">;</span>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">grant</span><span class="w"> </span><span class="k">execute</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">guest_login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="ss">"~anonymous"</span><span class="p">;</span>
 </span></code></pre></div>
-<p>Skipping a grant doesn't fail at startup — introspection runs under the primary connection,
-not the query role — so it surfaces as a <code>500</code> ("permission denied to set role") on the first
-real request that needs it. A local superuser connection never hits this at all, which is why
-it's easy to miss until deploying somewhere with a properly scoped role.</p>
-<p>When anonymous access is enabled, rel also caches, once per discovered route at
+<p>Skipping a grant on a <em>route</em> doesn't fail at startup — introspection runs under the primary
+connection, not the query role — but it also isn't a runtime surprise: rel caches, once per
+discovered route at introspection/reload time, whether the anonymous role can actually reach
+it (see below), and rejects an anonymous request the anonymous role can't reach with <code>401</code>
+before the request body is even read. A <strong>middleware</strong> function has no such precheck, since
+it runs as the request's already-resolved role rather than the primary connection — a missing
+<code>EXECUTE</code> grant there surfaces as an ordinary Postgres permission-denied <code>403</code> on the first
+real request that reaches it, the same as any other route call missing a grant.</p>
+<p>When anonymous access is enabled, rel caches, once per discovered route or middleware at
 introspection/reload time, whether the anonymous role can actually reach it — schema <code>USAGE</code>
 plus an <strong>explicit</strong> <code>EXECUTE</code> grant, to the anonymous role itself or to a role it belongs to.
-An anonymous request to a route the anonymous role can't reach this way is rejected with <code>401</code>
-before the request body is even read.</p>
+(That cache backs the route-level <code>401</code> precheck above; middleware, as noted, isn't
+precomputed this way, since middleware permission failures show up as <code>403</code>s instead.)</p>
 <p>This check deliberately doesn't credit <code>EXECUTE</code> the moment it's merely inherited from a grant
 to <code>PUBLIC</code> — Postgres grants <code>EXECUTE</code> to <code>PUBLIC</code> by default on <code>create function</code> unless
 default privileges were changed, so crediting it here would silently authorize anonymous
 access to any route function nobody explicitly decided the anonymous role should reach. Grant
 <code>EXECUTE</code> on any route function you actually want the anonymous role to call, the same way you
 grant it any other role. Independently of this check, rel also warns (non-fatally) at
-introspection/reload for every route reachable by <code>PUBLIC</code> at all, regardless of caller — see
-<a href="../../configuration/best-practices/">Best practices</a> for turning that default off entirely.</p>
+introspection/reload for every route or middleware reachable by <code>PUBLIC</code> at all, regardless of
+caller — see <a href="../../configuration/best-practices/">Best practices</a> for turning that default off
+entirely.</p>
 <h2 id="configuration-reference">Configuration reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2329,11 +2381,6 @@ introspection/reload for every route reachable by <code>PUBLIC</code> at all, re
 <td><code>pg.query.anonymous_role</code></td>
 <td><code>~anonymous</code></td>
 <td>role for requests with no valid session</td>
-</tr>
-<tr>
-<td><code>http.functions.check_session</code></td>
-<td>unset</td>
-<td>function called per authenticated request to allow revocation</td>
 </tr>
 <tr>
 <td><code>http.functions.allowed_auth</code></td>

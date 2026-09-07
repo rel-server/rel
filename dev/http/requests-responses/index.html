@@ -1271,10 +1271,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#relhttprequest" class="md-nav__link">
+  <a href="#httprequest" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>RelHttpRequest</code>
+        <code>HttpRequest</code>
       </span>
     </span>
   </a>
@@ -1282,10 +1282,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#relhttpresponse" class="md-nav__link">
+  <a href="#httpresponse" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>RelHttpResponse</code>
+        <code>HttpResponse</code>
       </span>
     </span>
   </a>
@@ -1687,10 +1687,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#relhttprequest" class="md-nav__link">
+  <a href="#httprequest" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>RelHttpRequest</code>
+        <code>HttpRequest</code>
       </span>
     </span>
   </a>
@@ -1698,10 +1698,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#relhttpresponse" class="md-nav__link">
+  <a href="#httpresponse" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>RelHttpResponse</code>
+        <code>HttpResponse</code>
       </span>
     </span>
   </a>
@@ -1818,41 +1818,36 @@
 
 
 <h1 id="requests-and-responses">Requests and responses<a class="headerlink" href="#requests-and-responses" title="Permanent link">&para;</a></h1>
-<p>A route function talks to rel through two Postgres domains, <code>RelHttpRequest</code> and
-<code>RelHttpResponse</code> — plain <code>jsonb</code> underneath, with a name rel recognizes rather than a type
-it builds in for you. Nothing about the routing mechanism works until both exist in your
-database.</p>
-<h2 id="relhttprequest"><code>RelHttpRequest</code><a class="headerlink" href="#relhttprequest" title="Permanent link">&para;</a></h2>
-<p>Create the domain once, in any schema:</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">create</span><span class="w"> </span><span class="k">domain</span><span class="w"> </span><span class="ss">"RelHttpRequest"</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="n">jsonb</span><span class="p">;</span>
-</span></code></pre></div>
-<ul>
-<li><strong>Name</strong>: configurable via <code>http.request_domain_name</code> (default <code>RelHttpRequest</code>) — see
-  <a href="../../configuration/">Configuration</a>.</li>
-<li><strong>Resolution</strong>: rel matches this setting against the domain's bare name. A value containing
-  a <code>.</code> is treated as already schema-qualified and matched exactly; otherwise rel searches
-  every schema for a domain with that bare name. Zero matches only logs a warning — routes
-  needing <code>RelHttpRequest</code> simply aren't discovered, not a fatal error. More than one match
-  across different schemas <strong>is</strong> a fatal startup error, naming every schema the domain was
-  found in — a multi-schema project can't have two distinct <code>RelHttpRequest</code> domains active
-  at once.</li>
-<li><strong>Underlying type</strong>: rel does not check that the domain is actually built on <code>jsonb</code> — it
-  only matches the type by name. Use <code>jsonb</code> anyway; anything else won't decode the way this
-  page describes.</li>
-</ul>
-<p>A function that declares a <code>RelHttpRequest</code> argument (alone, or alongside one of the
-<a href="../uploads/#receiving-raw-bytes">upload shapes</a>) receives the request as this shape:</p>
-<div class="language-typescript highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">RelHttpRequest</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nx">uri</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nx">content_type</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nx">cookies</span><span class="o">:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">  </span><span class="nx">jwt</span><span class="o">:</span><span class="w"> </span><span class="kt">JWT</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="nx">csp_nonce</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="p">}</span>
+<p>A route or middleware function talks to rel through two plain JSON shapes — no domain type to
+create, no name to configure. A function declaring a <code>json</code>/<code>jsonb</code> first argument receives
+<code>HttpRequest</code> there; a function using the full-control, two-<code>OUT</code>-column shape (see <a href="../#function-prototype">HTTP
+routes ## Function prototype</a>) returns <code>HttpResponse</code> as its
+first <code>OUT</code> column.</p>
+<h2 id="httprequest"><code>HttpRequest</code><a class="headerlink" href="#httprequest" title="Permanent link">&para;</a></h2>
+<div class="language-typescript highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">HttpRequest</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nx">uri</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nx">content_type</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">              </span><span class="c1">// as claimed by the client</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nx">sniffed_content_type?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">     </span><span class="c1">// as detected by rel from the body's bytes ; present whenever the request carried a body</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nx">cookies</span><span class="o">:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nx">parts?</span><span class="o">:</span><span class="w"> </span><span class="kt">Part</span><span class="p">[]</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nx">jwt</span><span class="o">:</span><span class="w"> </span><span class="kt">JWT</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nx">csp_nonce</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nx">context?</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="w">          </span><span class="c1">// shallow-merged in by any middleware that ran first ; absent if none did</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span><span class="k">static</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">exists</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">,</span><span class="w"> </span><span class="nx">size?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">,</span><span class="w"> </span><span class="nx">modified_at?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">}</span><span class="w">  </span><span class="c1">// what would be served at this path under http.static.path — see Static files ## Static path masking</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span><span class="nx">upload?</span><span class="o">:</span><span class="w"> </span><span class="kt">Upload</span><span class="w">             </span><span class="c1">// stream_upload routes only</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="p">}</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Part</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">  </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">  </span><span class="nx">filename</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">  </span><span class="nx">content_type</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="w">       </span><span class="c1">// as claimed by the client</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">  </span><span class="nx">sniffed_content_type?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">     </span><span class="c1">// as detected by rel from the bytes themselves ; absent when the bytes haven't been received yet (stream_upload's first call)</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">  </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="p">}</span>
 </span></code></pre></div>
 <p><code>body</code> is decoded according to <code>content_type</code>:</p>
 <table>
@@ -1885,43 +1880,71 @@ database.</p>
 </tr>
 </tbody>
 </table>
-<p>A route declaring the <code>files bytea[]</code> upload parameter always gets <code>body: null</code> instead,
-regardless of <code>content_type</code> — the payload arrives exclusively through <code>files</code>/
-<code>parts_headers</code>, never duplicated into <code>body</code> as well. See <a href="../uploads/">File uploads</a>.</p>
-<h2 id="relhttpresponse"><code>RelHttpResponse</code><a class="headerlink" href="#relhttpresponse" title="Permanent link">&para;</a></h2>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">create</span><span class="w"> </span><span class="k">domain</span><span class="w"> </span><span class="ss">"RelHttpResponse"</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="n">jsonb</span><span class="p">;</span>
-</span></code></pre></div>
-<ul>
-<li><strong>Name</strong>: <code>http.response_domain_name</code> (default <code>RelHttpResponse</code>); same resolution and
-  underlying-type rules as <code>RelHttpRequest</code> above. An unresolved <code>RelHttpResponse</code> domain
-  disables every route that would return it — including every login function — so rel warns
-  loudly when it can't find one.</li>
-</ul>
-<div class="language-typescript highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">RelHttpResponse</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w">         </span><span class="c1">// 200 if unset</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nx">content_type</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nx">headers</span><span class="o">?:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="nx">cookies</span><span class="o">?:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="nx">Cookie</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nx">jwt?</span><span class="o">:</span><span class="w"> </span><span class="kt">JWT</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="w">       </span><span class="c1">// set a session ; null clears it (logout)</span>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="nx">jwt_attrs</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">samesite?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">maxage?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="p">}</span>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="nx">csp?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">           </span><span class="c1">// override the process-wide CSP for this one response</span>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">  </span><span class="nx">template?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">          </span><span class="c1">// render via a Jet template instead of `content`</span>
-</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">  </span><span class="nx">template_data?</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span>
-</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="p">}</span>
+<p>A route declaring a <code>bytea</code>/<code>bytea[]</code> second argument always gets <code>body: null</code> instead,
+regardless of <code>content_type</code> — the payload arrives exclusively through the dedicated
+argument(s), never duplicated into <code>body</code> as well. <code>parts</code> is always filled in for a
+multipart request, regardless of whether the route even declares <code>bytea[]</code> — a route that
+doesn't still sees each part's metadata, just not its bytes. See <a href="../uploads/">File
+uploads</a>.</p>
+<p><code>static</code> is computed once per request, before any route runs — see <a href="../static-files/#static-path-masking">Static files ## Static
+path masking</a>. <code>context</code> is only ever set once a
+middleware ahead of this function has actually merged something in — see <a href="../#middleware">HTTP routes ##
+Middleware</a>.</p>
+<h2 id="httpresponse"><code>HttpResponse</code><a class="headerlink" href="#httpresponse" title="Permanent link">&para;</a></h2>
+<p>Only a full-control function (the two-<code>OUT</code>-column shape) can return this — a plain-return
+function's value is sent as the body directly, per the mimetype table in <a href="../reference/#function-prototypes">HTTP
+reference</a>.</p>
+<div class="language-typescript highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">HttpResponse</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nx">status?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w">         </span><span class="c1">// 200 if unset</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nx">headers</span><span class="o">?:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nx">cookies</span><span class="o">?:</span><span class="w"> </span><span class="p">{[</span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="nx">Cookie</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">}</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nx">jwt?</span><span class="o">:</span><span class="w"> </span><span class="kt">JWT</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="w">       </span><span class="c1">// set a session ; null clears it (logout)</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nx">jwt_attrs</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">samesite?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">maxage?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nx">csp?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">           </span><span class="c1">// override the process-wide CSP for this one response</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="nx">template?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">          </span><span class="c1">// render via a Jet template, the second OUT column is then used as Data</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span><span class="nx">static_file?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">       </span><span class="c1">// if the second OUT column is null and this is set, reply with the static file at that path instead</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span><span class="nx">content_type?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">      </span><span class="c1">// overrides the second OUT column's own resolved mimetype</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">  </span><span class="nx">upload?</span><span class="o">:</span><span class="w"> </span><span class="kt">Upload</span><span class="w">             </span><span class="c1">// stream_upload routes only, first call</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="p">}</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Cookie</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">  </span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">  </span><span class="nx">httponly?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">   </span><span class="c1">// default true</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span><span class="nx">secure?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">     </span><span class="c1">// default true</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">  </span><span class="nx">samesite?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">    </span><span class="c1">// default "Lax"</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">  </span><span class="nx">maxage?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w">      </span><span class="c1">// default http.cookies_max_age ; setting the cookie to null instead clears it</span>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="p">}</span>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Upload</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="w">  </span><span class="nx">path?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                      </span><span class="c1">// relative to http.static.path's first directory ; omitted = discard the upload once received</span>
+</span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="w">  </span><span class="nx">mkdir?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">                    </span><span class="c1">// create path's parent directory if missing</span>
+</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="w">  </span><span class="nx">overwrite</span><span class="o">?:</span><span class="w"> </span><span class="s1">'allow'</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">'disallow'</span><span class="w">   </span><span class="c1">// default 'disallow'</span>
+</span><span id="__span-1-29"><a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="w">  </span><span class="nx">max_size?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w">                  </span><span class="c1">// tighten http.max_upload_size for this request only ; can only lower it, never raise it</span>
+</span><span id="__span-1-30"><a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="w">  </span><span class="nx">part?</span><span class="o">:</span><span class="w"> </span><span class="kt">Part</span><span class="w">                        </span><span class="c1">// filled in by rel before the function runs</span>
+</span><span id="__span-1-31"><a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="w">  </span><span class="nx">size?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w">                      </span><span class="c1">// rel-filled, post-stream, the actual observed byte count ; absent on the first call</span>
+</span><span id="__span-1-32"><a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>Setting <code>cookies.&lt;name&gt;</code> to a plain string is shorthand for rel's own defaults (<code>secure</code>,
 <code>httponly</code>, <code>SameSite=Lax</code>, <code>http.cookies_max_age</code>); pass the full <code>Cookie</code> object
-(<code>{value, httponly, secure, samesite, maxage}</code>) to override any of them. <code>jwt_attrs.maxage</code>
-overrides the session's own lifetime for this login only, without changing
+(<code>{value, httponly, secure, samesite, maxage}</code>) to override any of them. Setting a cookie to
+<code>null</code> clears it (<code>MaxAge: -1</code>), rather than setting an empty, persistent value.
+<code>jwt_attrs.maxage</code> overrides the session's own lifetime for this login only, without changing
 <code>jwt.max_age</code> process-wide.</p>
+<p>A route or middleware ahead of it can also mint/clear a session by setting <code>jwt</code> — see
+<a href="../authentication/#minting-a-session">Authentication ## Minting a session</a> for the full rules,
+including <code>http.functions.allowed_auth</code>.</p>
 <h2 id="rendering-html-with-a-template">Rendering HTML with a template<a class="headerlink" href="#rendering-html-with-a-template" title="Permanent link">&para;</a></h2>
-<p>Set <code>template</code> (a path relative to <code>http.templates.path</code>) instead of building <code>content</code>
-yourself, and rel renders it server-side with <a href="https://github.com/CloudyKit/jet">Jet</a> —
-including trusted inline <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> via the per-request CSP nonce, and layouts via
-<code>extends</code>/<code>block</code>. See <a href="../templates/">Rendering HTML with templates</a> for the full mechanism.</p>
+<p>Set <code>template</code> (a path relative to <code>http.templates.path</code>) instead of building the second
+<code>OUT</code> column yourself as HTML, and rel renders it server-side with
+<a href="https://github.com/CloudyKit/jet">Jet</a> — including trusted inline <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> via
+the per-request CSP nonce, and layouts via <code>extends</code>/<code>block</code>. A route's own declaration can
+also set a default <code>template</code>, rendered whenever the function's response doesn't set one
+itself — the only way to render a template from a plain-return function at all, since it
+never returns an envelope to set <code>template</code> on. See <a href="../templates/">Rendering HTML with
+templates</a> for the full mechanism.</p>
 
 
 

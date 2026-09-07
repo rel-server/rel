@@ -1358,6 +1358,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#static-path-masking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Static path masking
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#restricting-access-to-part-of-the-tree" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1676,6 +1687,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#static-path-masking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Static path masking
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#restricting-access-to-part-of-the-tree" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1797,42 +1819,75 @@
 
 <h1 id="static-files">Static files<a class="headerlink" href="#static-files" title="Permanent link">&para;</a></h1>
 <p>Files placed under any directory listed in <code>http.static.path</code> (colon-separated, default
-<code>/static</code>) are served at <code>/static/*</code> automatically — no route function needed. A path is
-searched across every listed directory in order, first match wins; a directory that doesn't
-exist is silently skipped.</p>
+<code>/static</code>) are served at the <strong>router root</strong> — <code>/</code>, not a fixed <code>/static/*</code> prefix — as the
+fallback for any path no declared route claims. A path is searched across every listed
+directory in order, first match wins; a directory that doesn't exist is silently skipped, and
+the fallback isn't mounted at all if every listed directory is missing.</p>
 <ul>
 <li><strong>No directory listing.</strong> A directory with no <code>index.html</code> inside it is a <code>404</code>, never a
-  generated listing page. A directory <em>with</em> an <code>index.html</code> serves it automatically.</li>
+  generated listing page. A directory <em>with</em> an <code>index.html</code> serves it automatically —
+  including at <code>/</code> itself, the default index.</li>
 <li><strong>No dotfile is ever served</strong>, regardless of what exists on disk — a request for <code>.env</code>,
   <code>.git/config</code>, or anything else with a <code>.</code>-prefixed path segment is a <code>404</code>.</li>
 <li>By default, no authentication or role check applies here — files under <code>http.static.path</code>
-  are meant to be publicly reachable. Gate part of the tree with the access-control rules
-  below for anything that shouldn't be.</li>
+  are meant to be publicly reachable. Gate part of the tree with <a href="#restricting-access-to-part-of-the-tree">middleware</a>
+  for anything that shouldn't be.</li>
 </ul>
-<h2 id="restricting-access-to-part-of-the-tree">Restricting access to part of the tree<a class="headerlink" href="#restricting-access-to-part-of-the-tree" title="Permanent link">&para;</a></h2>
-<p>Gate a subpath behind a database check by naming a prefix and a Postgres function:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>http.static.access.private_docs.prefix = "private/"
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>http.static.access.private_docs.function = "hotel.check_private_access"
+<h2 id="static-path-masking">Static path masking<a class="headerlink" href="#static-path-masking" title="Permanent link">&para;</a></h2>
+<p>A declared route at an exact path always takes priority over a static file at that same
+path — chi tries every registered route before falling back to a static file, so a route
+masking <code>/</code> overrides the default index entirely.</p>
+<p>For every request, rel <code>os.Stat</code>s the path that would be served under <code>http.static.path</code> (one
+stat call, negligible cost) and includes the result as <code>request.static</code>:</p>
+<div class="language-typescript highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="w"> </span><span class="nx">exists</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">,</span><span class="w"> </span><span class="nx">size?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">,</span><span class="w"> </span><span class="nx">modified_at?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">check_private_access</span><span class="p">(</span><span class="n">payload</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="n">void</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span><span class="w"> </span><span class="k">security</span><span class="w"> </span><span class="k">definer</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+<p><code>exists: false</code> when nothing is there, or when the path fails traversal validation. There is
+no implicit fallback to the static file when a masking route returns neither content nor
+<code>static_file</code> — with <code>request.static</code> available, the function has what it needs to decide
+explicitly, including returning <code>static_file</code> itself to defer to disk:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">gallery_photo</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">bytea</span><span class="p">)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">returns</span><span class="w"> </span><span class="n">record</span><span class="w"> </span><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">begin</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">payload</span><span class="o">-&gt;</span><span class="s1">'jwt'</span><span class="o">-&gt;&gt;</span><span class="s1">'role'</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="k">distinct</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="s1">'staff'</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'static'</span><span class="o">-&gt;&gt;</span><span class="s1">'exists'</span><span class="p">)::</span><span class="nb">boolean</span><span class="w"> </span><span class="k">then</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Not found'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS404'</span><span class="p">;</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="k">end</span><span class="p">;</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="err">$$</span><span class="p">;</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'static_file'</span><span class="p">,</span><span class="w"> </span><span class="n">req</span><span class="o">-&gt;&gt;</span><span class="s1">'uri'</span><span class="p">);</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="err">$$</span><span class="p">;</span>
 </span></code></pre></div>
-<p><code>payload</code> is <code>{"path": "&lt;request path, relative to http.static.path&gt;", "jwt": JWT | null}</code>.
-The same <code>jwt</code> value is also available as <code>current_setting('rel.jwt.claims', true)::jsonb</code>
-inside this function (see <a href="../authentication/#session-lifecycle">Authentication ## Session
-lifecycle</a>) — useful for a nested function call that
-doesn't have <code>payload</code> in scope, without threading it through as an extra argument.
-Any number of these rules can coexist, each scoped to its own prefix (<code>&lt;name&gt;</code> above is
-yours to choose); a path outside every configured prefix is served exactly as before.
-Existence is checked first: a request for a path that doesn't exist anywhere under
-<code>http.static.path</code> is a plain <code>404</code>, before the configured function ever runs — which means
-a file's mere existence under a gated prefix is not itself kept private by this mechanism.</p>
+<p>Returning <code>static_file</code> in the response serves that file instead of the second <code>OUT</code> column's
+own content; returning neither serves a <code>404</code> — but only when <code>status</code> is <em>also</em> unset. A
+response with an explicit <code>status</code> (a middleware terminating with <code>{status: 401}</code>, say) and no
+content/<code>static_file</code> is a real, deliberate answer, not a masking no-op, and is sent as that
+status with an empty body. <code>static_file</code> resolves under the same traversal rules as
+<code>http.static.path</code> and a <code>stream_upload</code> route's own <code>path</code> — no <code>..</code>, no dotfile path
+segment, nothing outside the configured static directories.</p>
+<h2 id="restricting-access-to-part-of-the-tree">Restricting access to part of the tree<a class="headerlink" href="#restricting-access-to-part-of-the-tree" title="Permanent link">&para;</a></h2>
+<p>Gate a subpath by declaring a <a href="../#middleware">middleware</a> at the covering prefix — this
+fully supersedes the old, database-backed <code>http.static.access.*</code> mechanism:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">gate_private_docs</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">returns</span><span class="w"> </span><span class="n">record</span><span class="w"> </span><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span><span class="w"> </span><span class="k">security</span><span class="w"> </span><span class="k">definer</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">begin</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'jwt'</span><span class="o">-&gt;&gt;</span><span class="s1">'role'</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="k">distinct</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="s1">'staff'</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'status'</span><span class="p">,</span><span class="w"> </span><span class="mi">404</span><span class="p">);</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="k">return</span><span class="p">;</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="err">$$</span><span class="p">;</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">gate_private_docs</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/private", middleware: true'</span><span class="p">;</span>
+</span></code></pre></div>
+<p><code>req.jwt</code> is the same session claims object any other route/middleware sees — see
+<a href="../authentication/">Authentication</a> — also available as
+<code>current_setting('rel.jwt.claims', true)::jsonb</code> inside a nested function call that doesn't
+have <code>req</code> in scope. A middleware declared at <code>/private</code> applies to every request under that
+prefix, static file or declared route alike — grant it <code>EXECUTE</code> for every role that should
+reach anything under that prefix, including the anonymous role, or those requests fail with an
+ordinary Postgres permission-denied <code>403</code> (session-checking middleware runs as the request's
+already-resolved role, so a missing grant is a real authorization gap, not a silent no-op).</p>
 <h2 id="returning-binary-or-text-content-directly">Returning binary or text content directly<a class="headerlink" href="#returning-binary-or-text-content-directly" title="Permanent link">&para;</a></h2>
 <p>A route function can return raw binary or text content directly, instead of JSON, by
 declaring its return type as a domain named after a MIME type — necessary conditions:</p>
@@ -1840,15 +1895,18 @@ declaring its return type as a domain named after a MIME type — necessary cond
 <li>its underlying type is <code>bytea</code> or <code>text</code>, nothing else;</li>
 <li>its name contains a <code>/</code>, the same way a real MIME type does.</li>
 </ul>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">create</span><span class="w"> </span><span class="k">domain</span><span class="w"> </span><span class="ss">"image/png"</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="n">bytea</span><span class="p">;</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">property_photo</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="ss">"RelHttpRequest"</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="ss">"image/png"</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="err">$$</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="err">$$</span><span class="p">;</span>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">create</span><span class="w"> </span><span class="k">domain</span><span class="w"> </span><span class="ss">"image/png"</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="n">bytea</span><span class="p">;</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">property_photo</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="ss">"image/png"</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="err">$$</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="err">$$</span><span class="p">;</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">property_photo</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/hotel/photo"'</span><span class="p">;</span>
 </span></code></pre></div>
 <p>The function's return value becomes the response body verbatim, with that domain's name as
-<code>Content-Type</code> — no <code>RelHttpResponse</code> wrapper needed. A <code>bytea</code>-underlying domain's return
-value is the raw bytes directly; a <code>text</code>-underlying one's return value is the raw string
-directly — neither is base64-encoded the way a plain <code>RelHttpRequest.body</code> binary payload is.</p>
+<code>Content-Type</code>. A <code>bytea</code>-underlying domain's return value is the raw bytes directly; a
+<code>text</code>-underlying one's return value is the raw string directly — neither is base64-encoded
+the way a plain <code>HttpRequest.body</code> binary payload is. A route returning a <code>bytea</code>/binary
+mimetype domain must not also declare a <code>template</code> — rel disables it with a warning at
+discovery time, since Jet only ever renders text.</p>
 
 
 

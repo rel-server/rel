@@ -1605,10 +1605,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-makes-a-function-a-route" class="md-nav__link">
+  <a href="#declaring-a-route" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        What makes a function a route
+        Declaring a route
       </span>
     </span>
   </a>
@@ -1616,10 +1616,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#restricting-a-route-to-one-http-verb" class="md-nav__link">
+  <a href="#function-prototype" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Restricting a route to one HTTP verb
+        Function prototype
       </span>
     </span>
   </a>
@@ -1627,10 +1627,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#ambiguous-routes" class="md-nav__link">
+  <a href="#middleware" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Ambiguous routes
+        Middleware
       </span>
     </span>
   </a>
@@ -1642,6 +1642,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Errors are just exceptions
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-routes-are-matched" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        How routes are matched
       </span>
     </span>
   </a>
@@ -1760,91 +1771,148 @@
 <h1 id="http-routes">HTTP routes<a class="headerlink" href="#http-routes" title="Permanent link">&para;</a></h1>
 <p><code>/rel</code> answers one shape: a query tree, read or written back. Anything that doesn't fit that
 shape — logging a guest in, sending a confirmation email, running a multi-step booking
-workflow with real side effects — goes through <code>/route</code> instead. A route is an ordinary
-Postgres function, written in whatever language Postgres supports (<code>plpgsql</code>, <code>sql</code>, <code>plv8</code>,
-...), that rel discovers and calls directly over HTTP.</p>
-<h2 id="what-makes-a-function-a-route">What makes a function a route<a class="headerlink" href="#what-makes-a-function-a-route" title="Permanent link">&para;</a></h2>
-<p>A Postgres function is discovered as a route, reachable at <code>/route/&lt;schema&gt;/&lt;function_name&gt;</code>,
-when all of the following hold:</p>
-<ul>
-<li>its name does not start with <code>_</code>;</li>
-<li>its arguments are one of the recognized shapes — no arguments, a single
-  <a href="requests-responses/"><code>RelHttpRequest</code></a> argument, or <code>RelHttpRequest</code> plus one of the
-  extra body-parameter shapes described in <a href="uploads/#receiving-raw-bytes">File uploads</a>;</li>
-<li>its return type is <a href="requests-responses/"><code>RelHttpResponse</code></a> or a
-  <a href="static-files/#returning-binary-or-text-content-directly">mimetype domain</a>;</li>
-<li>if <code>http.functions.allowed_routes</code> is set, its fully qualified name matches that regexp
-  (see <a href="../configuration/">Configuration</a>).</li>
-</ul>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guest_login</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="ss">"RelHttpRequest"</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="ss">"RelHttpResponse"</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">declare</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="n">guest_row</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guests</span><span class="p">;</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">begin</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">into</span><span class="w"> </span><span class="n">guest_row</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guests</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="k">where</span><span class="w"> </span><span class="n">email</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'body'</span><span class="p">)</span><span class="o">-&gt;&gt;</span><span class="s1">'email'</span><span class="p">;</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">found</span><span class="w"> </span><span class="k">then</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Invalid credentials'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="s1">'status'</span><span class="p">,</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="s1">'content_type'</span><span class="p">,</span><span class="w"> </span><span class="s1">'application/json'</span><span class="p">,</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="s1">'content'</span><span class="p">,</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'id'</span><span class="p">,</span><span class="w"> </span><span class="n">guest_row</span><span class="p">.</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="s1">'name'</span><span class="p">,</span><span class="w"> </span><span class="n">guest_row</span><span class="p">.</span><span class="n">first_name</span><span class="p">),</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">    </span><span class="s1">'jwt'</span><span class="p">,</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'role'</span><span class="p">,</span><span class="w"> </span><span class="s1">'guest'</span><span class="p">,</span><span class="w"> </span><span class="s1">'guest_id'</span><span class="p">,</span><span class="w"> </span><span class="n">guest_row</span><span class="p">.</span><span class="n">id</span><span class="p">)</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">  </span><span class="p">);</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="k">end</span><span class="p">;</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="err">$$</span><span class="p">;</span>
+workflow with real side effects — goes through a declared route instead. A route is an
+ordinary Postgres function, written in whatever language Postgres supports (<code>plpgsql</code>, <code>sql</code>,
+<code>plv8</code>, ...), that you explicitly declare at a path and rel calls directly over HTTP.</p>
+<h2 id="declaring-a-route">Declaring a route<a class="headerlink" href="#declaring-a-route" title="Permanent link">&para;</a></h2>
+<p>A route is declared one of two ways: a <code>COMMENT ON FUNCTION</code> on the function itself, or a
+<code>route.&lt;schema&gt;.&lt;function&gt;.*</code> entry in configuration. Either way, the declaration names the
+path (chi syntax — <code>{name}</code> placeholders, <code>{name:regexp}</code> constraints) and, optionally, the
+accepted HTTP method(s), a default template, and whether the function is <code>stream_upload</code> or
+<code>middleware</code> (see <a href="uploads/">File uploads</a>, <a href="templates/">Templates</a>, and
+<a href="#middleware">Middleware</a> below).</p>
+<p>The comment form uses HUML (a leading <code>route::</code>) or JSON (a leading <code>route:</code> followed by <code>{</code>)
+— pick whichever you reach for:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guest_login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/hotel/login", method: "POST"'</span><span class="p">;</span>
 </span></code></pre></div>
-<p><code>hotel.guest_login</code> becomes reachable at <code>POST /route/hotel/guest_login</code> (or any verb — see
-below). A function name starting with <code>_</code> is never discovered as a route at all — the way to
-write a private helper a route function calls internally without exposing it.</p>
-<p>By default, any route function can set <code>jwt</code> on its response and thereby authenticate the
-caller as any role. Restrict that with <code>http.functions.allowed_auth</code>, scoped to your actual
-login functions — see <a href="../configuration/">Configuration</a>. The rest of a session's
-lifecycle (claims, renewal, roles) is covered in <a href="authentication/">Authentication</a>.</p>
-<h2 id="restricting-a-route-to-one-http-verb">Restricting a route to one HTTP verb<a class="headerlink" href="#restricting-a-route-to-one-http-verb" title="Permanent link">&para;</a></h2>
-<p>Suffix a function name with <code>__GET</code>, <code>__POST</code>, <code>__PUT</code>, <code>__PATCH</code>, or <code>__DELETE</code> (case
-doesn't matter) to restrict it to that one HTTP verb:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guest_login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route: {"path": "/hotel/login", "method": "POST"}'</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Or entirely in configuration, with no comment on the function at all:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">[route.hotel.guest_login]</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"/hotel/login"</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"POST"</span>
+</span></code></pre></div>
+<p>A config-declared route overrides a comment-declared one on the same function, with a
+warning — the function only needs a <code>path</code>; <code>schema</code> and <code>function</code> are inferred from the
+config key itself. Two functions colliding on the same anonymized path (see <a href="#how-routes-are-matched">How routes are
+matched</a> below) with an overlapping method are both disabled, with
+an error naming both; the same path with disjoint methods (one <code>GET</code>, one <code>POST</code>) is fine —
+both are registered, dispatched by method. <code>/auth/*</code>, <code>/rel</code>, and anything else rel itself
+serves are reserved: a route or middleware can never be declared there, from either source.</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guest_login</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">returns</span><span class="w"> </span><span class="n">record</span><span class="w"> </span><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">declare</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="n">guest_row</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guests</span><span class="p">;</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">begin</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">into</span><span class="w"> </span><span class="n">guest_row</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guests</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="k">where</span><span class="w"> </span><span class="n">email</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'body'</span><span class="p">)</span><span class="o">-&gt;&gt;</span><span class="s1">'email'</span><span class="p">;</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">found</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Invalid credentials'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">  </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">    </span><span class="s1">'status'</span><span class="p">,</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="s1">'jwt'</span><span class="p">,</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'role'</span><span class="p">,</span><span class="w"> </span><span class="s1">'guest'</span><span class="p">,</span><span class="w"> </span><span class="s1">'guest_id'</span><span class="p">,</span><span class="w"> </span><span class="n">guest_row</span><span class="p">.</span><span class="n">id</span><span class="p">)</span>
+</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">  </span><span class="p">);</span>
+</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">  </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'id'</span><span class="p">,</span><span class="w"> </span><span class="n">guest_row</span><span class="p">.</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="s1">'name'</span><span class="p">,</span><span class="w"> </span><span class="n">guest_row</span><span class="p">.</span><span class="n">first_name</span><span class="p">);</span>
+</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="err">$$</span><span class="p">;</span>
+</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">guest_login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/hotel/login", method: "POST"'</span><span class="p">;</span>
+</span></code></pre></div>
+<p>By default, any route (or middleware) function can set <code>jwt</code> on its response and thereby
+authenticate the caller as any role. Restrict that with <code>http.functions.allowed_auth</code>, scoped
+to your actual login functions — see <a href="../configuration/">Configuration</a>. The rest of
+a session's lifecycle (claims, renewal, roles) is covered in
+<a href="authentication/">Authentication</a>.</p>
+<h2 id="function-prototype">Function prototype<a class="headerlink" href="#function-prototype" title="Permanent link">&para;</a></h2>
 <ul>
-<li>an unsuffixed function is the fallback for any verb without a more specific, suffixed match;</li>
-<li>conforming to web semantics — a <code>__GET</code> route must not mutate state — is the function
-  author's responsibility; rel does not enforce it, but does rely on it for its own CSRF
-  posture (<code>SameSite=Lax</code> cookies, see <a href="authentication/">Authentication</a>).</li>
+<li>The <strong>first</strong> argument may be <code>json</code>/<code>jsonb</code>, in which case it always receives the request
+  object (see <a href="requests-responses/">Requests and responses</a>). A route needing nothing from
+  the request may omit it entirely.</li>
+<li>The <strong>second</strong> argument may be <code>bytea</code> or <code>bytea[]</code>, enabling uploads directly in Postgres —
+  see <a href="uploads/">File uploads</a> for the full mismatch/sizing rules. A <code>stream_upload</code>
+  function must not declare either.</li>
+<li>Any other "IN" argument must be named and typed <code>text</code>; it receives whatever the
+  correspondingly-named <code>{placeholder}</code> in the path matched. An extra <code>text</code> argument with no
+  matching placeholder — or any argument of another type past this point — disables the
+  function with a discovery-time error.</li>
 </ul>
-<h2 id="ambiguous-routes">Ambiguous routes<a class="headerlink" href="#ambiguous-routes" title="Permanent link">&para;</a></h2>
-<p>Two or more discovered functions sharing the same schema, base name (once any <code>__VERB</code>
-suffix is stripped), and resolved verb collide — neither becomes the registered route at that
-key. Route discovery logs an error naming every colliding function; this is a discovery-time
-warning, not a fatal error, but the affected key stays unroutable until the collision is
-resolved in the schema itself.</p>
+<p>Returning a single type replies <code>200</code> with a mimetype resolved structurally, same as ever:
+<code>text</code> → <code>text/plain</code>, <code>json</code>/<code>jsonb</code> → <code>application/json</code>, <code>bytea</code> → <code>application/octet-stream</code>,
+and a domain whose name contains <code>/</code> (over <code>bytea</code> or <code>text</code>) → that name as <code>Content-Type</code> —
+see <a href="static-files/#returning-binary-or-text-content-directly">Static files ## Returning binary or text content
+directly</a>.</p>
+<p>For control over the response itself — status, cookies, <code>jwt</code>, a template, deferring to a
+static file — declare two trailing <code>OUT</code> columns instead: <code>..., OUT resp JSON/JSONB, OUT
+content &lt;type&gt;) returns record</code>. <code>resp</code> carries every side-effecting field (see <a href="requests-responses/">Requests and
+responses</a>); <code>content</code> behaves like the single-return value above,
+except <code>resp.content_type</code> can override its resolved mimetype. This "full-control" shape is
+mandatory for a <code>middleware</code> or <code>stream_upload</code> function, and the only way for any function to
+set <code>jwt</code>, override <code>status</code>, or render a <code>template</code>.</p>
+<h2 id="middleware">Middleware<a class="headerlink" href="#middleware" title="Permanent link">&para;</a></h2>
+<p>A function declared with <code>middleware: true</code> runs ahead of every route (and, for a <code>/</code>-rooted
+one, <code>/rel</code> and static files too) whose path it prefixes — the anonymized-path prefix match is
+segment by segment, so <code>/api/{tenant}</code> covers <code>/api/{tenant}/orders</code> but not <code>/api2/...</code>. When
+more than one middleware applies, they run shortest-prefix-first, then alphabetically by
+<code>schema.function</code>, each as one more function call in the request's own transaction.</p>
+<p>A middleware function takes the same request shape and the same full-control return shape as
+any other route. Its response may:</p>
+<ul>
+<li>return nothing (<code>NULL</code>) — proceed unchanged;</li>
+<li>raise an <code>RSxxx</code> exception — short-circuit exactly like a route's own would;</li>
+<li>return a response with none of <code>status</code>/<code>template</code>/<code>content_type</code>/<code>static_file</code> set — its
+  <code>content</code> (if any) is shallow-merged into <code>request.context</code> for the next middleware or the
+  route function, later keys winning on conflict;</li>
+<li>return a response with any of those four set — terminate the request immediately, sent as-is.</li>
+</ul>
+<p>Any middleware, terminating or not, may also set <code>cookies</code>/<code>headers</code>/<code>jwt</code>/<code>jwt_attrs</code>/<code>csp</code> —
+merged per-key across the chain and into whatever eventually renders the response, later
+values winning. This is what supersedes the old <code>check_session</code> function and
+<code>http.static.access.*</code> rules — see <a href="authentication/#session-lifecycle">Authentication ## Session
+lifecycle</a> and <a href="static-files/#restricting-access-to-part-of-the-tree">Static files ## Restricting access to
+part of the tree</a>.</p>
+<p><code>/auth/*</code> is exempt from all middleware, unconditionally — a session-checking middleware there
+could make login unrecoverable, since the callback that would restore a valid session is
+itself blocked by the check meant to detect the lack of one. <code>/rel</code> itself is a reserved path,
+so a middleware can never be declared directly there; gate it by declaring at <code>/</code> (or any
+other prefix that still covers it) instead.</p>
+<p>Session-checking middleware runs <em>as the request's already-resolved role</em>, unlike
+<code>check_session</code> used to (which ran on the primary connection, before the role switch). Grant
+<code>EXECUTE</code> on every middleware function to every role that should reach the paths it covers —
+including the anonymous role — or those requests fail with an ordinary Postgres
+permission-denied <code>403</code>, the same as any other route call missing a grant.</p>
 <h2 id="errors-are-just-exceptions">Errors are just exceptions<a class="headerlink" href="#errors-are-just-exceptions" title="Permanent link">&para;</a></h2>
 <p>Raise a Postgres exception with an <code>RSxxx</code> error code and rel turns it directly into that HTTP
 status, with the raised message as the body — no separate error-response plumbing to write:</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Access denied'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Room not found'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS404'</span><span class="p">;</span>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Access denied'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Room not found'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS404'</span><span class="p">;</span>
 </span></code></pre></div>
 <p>Any other error surfaces as a <code>500</code>, unless it's a Postgres error code rel already maps to an
-obvious HTTP status (a permission-denied error becomes <code>401</code>, for instance).</p>
+obvious HTTP status (a permission-denied error becomes <code>403</code>, for instance).</p>
+<h2 id="how-routes-are-matched">How routes are matched<a class="headerlink" href="#how-routes-are-matched" title="Permanent link">&para;</a></h2>
+<p>Every <code>{name}</code>/<code>{name:regexp}</code> placeholder in a path is replaced with the literal <code>{}</code> to
+produce that path's anonymized form — the key routes are sorted and compared by. Routes sort
+longest-anonymized-path-first (so a more specific path wins over a <code>*</code>-style catch-all);
+middleware sorts the opposite way, shortest-prefix-first, so an outer gate runs before an
+inner one.</p>
 <h2 id="in-this-section">In this section<a class="headerlink" href="#in-this-section" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><a href="reference/">HTTP reference</a></strong> — every domain name, function signature, and
-  configuration key in this section, in one place.</li>
-<li><strong><a href="requests-responses/">Requests and responses</a></strong> — the <code>RelHttpRequest</code>/<code>RelHttpResponse</code>
-  domains.</li>
+<li><strong><a href="reference/">HTTP reference</a></strong> — every function signature and configuration key in this
+  section, in one place.</li>
+<li><strong><a href="requests-responses/">Requests and responses</a></strong> — the request/response JSON shapes every
+  route and middleware function sees.</li>
 <li><strong><a href="templates/">Rendering HTML with templates</a></strong> — server-side Jet templates, the CSP
   nonce for trusted inline scripts, and <code>extends</code>/<code>block</code> layouts.</li>
-<li><strong><a href="uploads/">File uploads</a></strong> — receiving raw bytes, or choosing where an upload lands on
+<li><strong><a href="uploads/">File uploads</a></strong> — receiving raw bytes, or streaming an upload straight to
   disk without routing its bytes through Postgres.</li>
-<li><strong><a href="static-files/">Static files</a></strong> — serving a directory at <code>/static/*</code>, gating part of it
-  behind a database check, and returning binary/text content directly from a route.</li>
+<li><strong><a href="static-files/">Static files</a></strong> — the root-level static fallback, masking it with a
+  declared route, and returning binary/text content directly from a route.</li>
 <li><strong><a href="cors-csp/">CORS and CSP</a></strong> — cross-origin access and the response security policy.</li>
 <li><strong><a href="authentication/">Authentication</a></strong> — sessions, OpenID Connect, SAML, and roles.</li>
 </ul>
 <p>See <a href="../configuration/">Configuration</a> for the full list of <code>http.*</code> settings,
-including request size limits and the domain names rel looks for if you ever need to rename
-them.</p>
+including request size limits and the <code>route.&lt;schema&gt;.&lt;function&gt;.*</code> namespace.</p>
 
 
 
