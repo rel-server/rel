@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	jwtpkg "github.com/rel-server/rel/jwt"
+	"github.com/rel-server/rel/pg"
 )
 
 // Execer is the common subset of pgx.Tx and *pgxpool.Conn this package
@@ -114,10 +115,9 @@ func CallJSONBFunctionReturningJSON(ctx context.Context, q Querier, qualifiedNam
 	return raw, nil
 }
 
-// EscapeIdentifier doubles embedded double-quotes and wraps in "..." — the
-// same rule pg.SqlIdentifier.EscapedString() uses, reimplemented locally
-// for a single bare identifier (a role name, or one half of a schema-
-// qualified pair built up by hand), not a schema-qualified pair.
+// EscapeIdentifier doubles embedded double-quotes and wraps in "..." — for a
+// single bare identifier (a role name, or one half of a schema-qualified
+// pair built up by hand), not a schema-qualified pair.
 func EscapeIdentifier(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	return pg.EscapeIdentifierPart(name)
 }

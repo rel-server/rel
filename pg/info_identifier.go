@@ -33,8 +33,16 @@ func (f *SqlIdentifier) EscapedString() string {
 		return f.escapedName
 	}
 
-	f.escapedName = fmt.Sprintf("\"%s\".\"%s\"", escapeQuotes(f.Schema), escapeQuotes(f.Name))
+	f.escapedName = fmt.Sprintf("%s.%s", EscapeIdentifierPart(f.Schema), EscapeIdentifierPart(f.Name))
 	return f.escapedName
+}
+
+// EscapeIdentifierPart doubles embedded double-quotes and wraps name in
+// "..." — the one rule for escaping a single bare SQL identifier part,
+// shared by SqlIdentifier.EscapedString above and by dbauth.EscapeIdentifier
+// (a role name, or one half of a schema-qualified pair built up by hand).
+func EscapeIdentifierPart(name string) string {
+	return `"` + escapeQuotes(name) + `"`
 }
 
 // String returns the plain, unescaped "schema.name" form — used as a Go
