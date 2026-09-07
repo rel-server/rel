@@ -20,9 +20,9 @@ import (
 
 	"github.com/rel-server/rel/boot"
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dmut"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/reloadcmd"
 	"github.com/rel-server/rel/route"
 	"github.com/rel-server/rel/tsgen"
 	"github.com/rel-server/rel/wellknown"
@@ -49,10 +49,10 @@ func main() {
 	}
 
 	// --typescript-out is a one-shot action, not the server : introspects
-	// and writes database.ts, then exits — no dmut, no route/well-known
-	// registries, no mux, no listener. See runTypeScriptExport's own doc
-	// comment for why dmut is skipped here even though the server always
-	// runs it before introspecting.
+	// and writes database.ts, then exits — no reload.cmd, no route/
+	// well-known registries, no mux, no listener. See runTypeScriptExport's
+	// own doc comment for why reload.cmd is skipped here even though the
+	// server always runs it before introspecting.
 	if out, ok := typescriptOutFlag(os.Args[1:]); ok {
 		if err := runTypeScriptExport(cfg, out); err != nil {
 			logger.Error("typescript export failed", "error", err.Error())
@@ -61,7 +61,7 @@ func main() {
 		return
 	}
 
-	// Introspection/dmut use cfg.Pg's own primary login ; the serving pool
+	// Introspection/reload.cmd use cfg.Pg's own primary login ; the serving pool
 	// uses pg.query.* instead, when set — see config.PgQuery's own doc comment.
 	primaryURI, queryURI, err := resolveConnectionURIs(cfg.Pg)
 	if err != nil {
@@ -69,10 +69,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// dmut runs BEFORE introspection, always (specs/migrations.md ##
-	// Execution) ; a failed run is logged, startup continues regardless.
-	if _, err := dmut.Run(context.Background(), primaryURI, cfg.Dmut, logger.With("module", "dmut")); err != nil {
-		logger.Error("dmut run failed, continuing with the schema as it was before this attempt", "error", err.Error())
+	// reload.cmd runs BEFORE introspection, always (specs/reload.md) ; a
+	// failed run is logged, startup continues regardless — same as a
+	// failure during a SIGUSR1 reload (boot/reload.go's Reload).
+	if _, err := reloadcmd.Run(context.Background(), cfg, logger.With("module", "reloadcmd")); err != nil {
+		logger.Error("reload.cmd failed, continuing with the schema as it was before this attempt", "error", err.Error())
 	}
 
 	db, err := pg.NewInfosAdminQuery(primaryURI, queryURI, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole)
@@ -132,7 +133,7 @@ func main() {
 	go func() {
 		defer close(reloadDone)
 		for range sigusr1 {
-			logger.Info("received SIGUSR1, reloading dmut mutations")
+			logger.Info("received SIGUSR1, reloading")
 			reloader.Reload(context.Background())
 		}
 	}()
@@ -199,13 +200,14 @@ func typescriptOutFlag(args []string) (path string, ok bool) {
 
 // runTypeScriptExport is --typescript-out's entire body : introspect, build
 // the well-known registry (Wellknowns generation needs it), generate,
-// write, done — no dmut, no /route registry, no mux, no HTTP listener.
-// dmut is deliberately skipped here, unlike the server's own startup
-// sequence (specs/migrations.md ## Execution) : running migrations as a
-// side effect of "print me the current types" would be a surprising thing
-// for a read-only inspection command to do. The well-known registry, unlike
-// dmut/route, does its own read-only file I/O + validation against db — no
-// side effects, so building it here doesn't carry the same objection.
+// write, done — no reload.cmd, no /route registry, no mux, no HTTP
+// listener. reload.cmd is deliberately skipped here, unlike the server's
+// own startup sequence (specs/reload.md) : running an arbitrary migration
+// command as a side effect of "print me the current types" would be a
+// surprising thing for a read-only inspection command to do. The
+// well-known registry, unlike reload.cmd/route, does its own read-only
+// file I/O + validation against db — no side effects, so building it here
+// doesn't carry the same objection.
 func runTypeScriptExport(cfg *config.Config, out string) error {
 	primaryURI, _, err := resolveConnectionURIs(cfg.Pg)
 	if err != nil {

@@ -1,6 +1,6 @@
 // Benchmarks for the READ path (query.CompileSelect + execution) — the
 // companion to query/write_bench_test.go's write-path benchmarks, but
-// against the hotel/booking fixture (test/dmut, test/seed/seed — see
+// against the hotel/booking fixture (test/hotel, test/seed/seed — see
 // test/README.md) rather than the flat movie/director schema, since the
 // whole point of the hotel fixture is to be a realistic volume/shape for
 // exactly this kind of measurement (test/README.md's own "Why a hotel/

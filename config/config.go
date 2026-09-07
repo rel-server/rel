@@ -12,7 +12,7 @@ type Config struct {
 	Logging Logging
 	Http    Http
 	Jwt     Jwt
-	Dmut    Dmut
+	Reload  Reload
 
 	// Openid/Saml are specs/oauth-saml.md's openid.<name>.*/saml.* :
 	// the /auth/oidc/{name}/* and /auth/saml/{name}/* endpoints.
@@ -35,6 +35,15 @@ type Config struct {
 	// key, default false : gates the extra detail error-handling.md ##
 	// Postgres error detail and ## Stack traces add to error responses.
 	Dev bool
+
+	// Raw is every dotted config key actually resolved at load time (loader.go's
+	// assemble()), for reload.cmd's `{name}` interpolation (specs/reload.md) —
+	// whatever was explicitly set via file/env/flag, plus pg.uri/pg.host/
+	// pg.port/pg.database/pg.user/pg.password specifically (always kept in
+	// sync, defaulted or not, since composing a database connection string
+	// is interpolation's primary use case). Not a complete mirror of every
+	// default value assemble() applies elsewhere.
+	Raw map[string]any
 }
 
 // TypeScript is specs/typescript.md ## Configuration's typescript.* namespace.
@@ -46,24 +55,29 @@ type TypeScript struct {
 	HelperPath string
 }
 
-// Dmut is specs/migrations.md ## Configuration : dmut.path/reload_drain_timeout.
-type Dmut struct {
-	// Path is dmut.path, default "/dmut" : directory containing the
-	// mutation files dmut reads recursively. Missing directory means dmut
-	// is skipped entirely, not an error — see specs/migrations.md ## Execution.
-	Path string
-	// ReloadDrainTimeout is dmut.reload_drain_timeout, default 30
-	// (seconds) : how long a SIGUSR1 reload waits for in-flight requests
-	// to finish before cancelling their contexts and proceeding anyway —
-	// see specs/migrations.md ## Reloading.
-	ReloadDrainTimeout int
+// Reload is specs/reload.md's reload.* namespace : the external command rel
+// runs before every reload (SIGUSR1 or startup), decoupled from any
+// specific migration tool.
+type Reload struct {
+	// Cmd is reload.cmd, default "" : the command line rel runs before
+	// every reload. Empty skips this step entirely — no error, nothing to
+	// run. Interpolated ({name}/{name:default}, specs/reload.md), then
+	// split with shell-style word-splitting/quoting rules only.
+	Cmd string
+	// Timeout is reload.timeout, default 120 (seconds) : Cmd is aborted
+	// and considered failed once this elapses.
+	Timeout int
+	// DrainTimeout is reload.drain_timeout, default 30 (seconds) : how
+	// long a reload waits for in-flight requests to finish, before Cmd
+	// runs, cancelling their contexts and proceeding anyway past this.
+	DrainTimeout int
 }
 
-// DefaultDmutPath/DefaultDmutReloadDrainTimeout are specs/migrations.md ##
-// Configuration's own stated defaults.
+// DefaultReloadTimeout/DefaultReloadDrainTimeout are specs/reload.md's own
+// stated defaults.
 const (
-	DefaultDmutPath               = "/dmut"
-	DefaultDmutReloadDrainTimeout = 30
+	DefaultReloadTimeout      = 120
+	DefaultReloadDrainTimeout = 30
 )
 
 // Jwt is authentication.md ## Configuration : jwt.secret/cookie_name/
@@ -469,8 +483,8 @@ type Login struct {
 // Pg.Password/Pg.URI with PgQuery.Login left unset.
 type PgQuery struct {
 	// Login is pg.query.user / pg.query.password : if set, the login role
-	// rel connects with to serve requests (introspection and dmut
-	// migrations always use Pg's own primary login, never this one) — the
+	// rel connects with to serve requests (introspection and reload.cmd
+	// always use Pg's own primary login, never this one) — the
 	// role `set role` switches are executed from at request time. Falls
 	// back to Pg's own User/Password when unset. Embedded (not a named
 	// field) so cfg.Pg.Query.User/.Password read directly, matching the
@@ -502,7 +516,7 @@ type PgQuery struct {
 // Pg is the primary Postgres connection — the one thing every deployment
 // MUST configure, deliberately kept as the simplest possible surface
 // (pg.uri alone, or the granular fields below) rather than requiring a
-// separate "admin" login. Used directly for dmut migrations and startup
+// separate "admin" login. Used directly for reload.cmd and startup
 // introspection, and as the request-serving connection's own fallback
 // (see PgQuery's doc comment for why a second, narrower login is optional,
 // not required).
@@ -536,7 +550,7 @@ type Pg struct {
 	// PoolSize is pg.pool_size (default DefaultPgPoolSize) : the max number
 	// of connections in the pool that serves requests (pg.NewInfosAdminQuery's
 	// queryURI pool) — never the short-lived, single-connection introspection
-	// pool used once at startup for dmut/schema reading.
+	// pool used once at startup for reload.cmd/schema reading.
 	PoolSize int
 
 	// Query is pg.query.* — see PgQuery's own doc comment.

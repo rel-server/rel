@@ -37,7 +37,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// Run seeds the test/dmut hotel schema (already applied to pool's database)
+// Run seeds the test/hotel schema (already applied to pool's database)
 // with fake data, deterministically derived from seedValue — the same
 // seedValue always produces the same data. Returns an error rather than
 // calling os.Exit, so callers (the main.go wrapper, or a benchmark's setup)

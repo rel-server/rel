@@ -131,8 +131,8 @@ func TestReloadableHandler_SwapAndEndMaintenanceResumeAgainstNewHandler(t *testi
 	}
 }
 
-// Without a Swap call (e.g. dmut failed before step 6), resuming serves
-// the ORIGINAL handler — see EndMaintenance's own doc comment.
+// Without a Swap call (e.g. reload.cmd failed before the mux swap), resuming
+// serves the ORIGINAL handler — see EndMaintenance's own doc comment.
 func TestReloadableHandler_EndMaintenanceWithoutSwapResumesOldHandler(t *testing.T) {
 	h := NewReloadableHandler(handlerReturning("original"))
 	h.BeginMaintenance()

@@ -16,6 +16,7 @@ package boot
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -47,7 +48,7 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 		t.Fatalf("connection string: %v", err)
 	}
 
-	// Base schema set up directly, outside dmut : a fixed precondition,
+	// Base schema set up directly, outside reload.cmd : a fixed precondition,
 	// not part of what this test is migrating.
 	setupPool, err := pg.NewInfos(uri)
 	if err != nil {
@@ -60,8 +61,12 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
-	cfg.Dmut.Path = "testdata/reload_fixture"
-	cfg.Dmut.ReloadDrainTimeout = 5
+	// reload.cmd, not a dmut fixture (specs/reload.md) : psql applying a
+	// plain SQL script proves the generic reload.cmd exec path, not any
+	// particular migration tool's own mechanics.
+	cfg.Reload.Cmd = fmt.Sprintf("psql %q -v ON_ERROR_STOP=1 -f testdata/reload_fixture.sql", uri)
+	cfg.Reload.Timeout = 30
+	cfg.Reload.DrainTimeout = 5
 
 	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
 	if err != nil {

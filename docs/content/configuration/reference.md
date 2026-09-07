@@ -140,12 +140,13 @@ orders = "y"
 dblink = "y"
 ```
 
-## Migrations
+## Reload
 
 | Key | Default | What it does |
 |---|---|---|
-| `dmut.path` | — | Directory of dmut migration files, read recursively. A missing directory just skips migrations — not an error. |
-| `dmut.reload_drain_timeout` | `30` (seconds) | How long a `SIGUSR1` reload waits for in-flight requests to finish before cancelling their contexts and proceeding anyway. See [Operations](operations.md). |
+| `reload.cmd` | — | Command line rel runs before every reload (startup and every `SIGUSR1`). Empty skips this step entirely. See [Reload](reload.md) for the interpolation syntax. |
+| `reload.timeout` | `120` (seconds) | `reload.cmd` is aborted and considered failed once this elapses. |
+| `reload.drain_timeout` | `30` (seconds) | How long a reload waits for in-flight requests to finish, before `reload.cmd` runs, before cancelling their contexts and proceeding anyway. |
 
 ## TypeScript export
 

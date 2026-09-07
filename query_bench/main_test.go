@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package query_bench holds READ-path benchmarks (query.CompileSelect +
-// execution) against the hotel/booking fixture (test/dmut, test/seed/seed —
+// execution) against the hotel/booking fixture (test/hotel, test/seed/seed —
 // see test/README.md), at a realistic data volume : ~13 properties, ~195
 // rooms, 200 guests, 500 bookings, plus reviews/payments/staff.
 //
@@ -21,11 +21,9 @@
 // benchmarks : those exercise the WRITE path (ExecuteWrite) against the
 // flat movie/director fixture already wired up by query's own TestMain
 // (pg/testdata/schema.sql). This package needs its own container, its own
-// schema (applied via dmut, not a plain init script — the hotel fixture is
-// specified to use the same migration tool rel itself depends on), and a
-// seed pass — genuinely different setup, so a separate package/TestMain
-// keeps the two from being conflated, and keeps the (real) container+dmut+
-// seed cost isolated to benchmark runs of this package alone.
+// schema, and a seed pass — genuinely different setup, so a separate
+// package/TestMain keeps the two from being conflated, and keeps the (real)
+// container+seed cost isolated to benchmark runs of this package alone.
 //
 // Run with e.g.:
 //
@@ -34,12 +32,9 @@ package query_bench
 
 import (
 	"context"
-	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dmut"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/test/seed/seed"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -59,7 +54,8 @@ const fixedSeed = 42
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
-	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
+	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies(),
+		postgres.WithInitScripts("../test/hotel/schema.sql"))
 	if err != nil {
 		panic(err)
 	}
@@ -69,13 +65,6 @@ func TestMain(m *testing.M) {
 
 	uri, err := container.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		panic(err)
-	}
-
-	// The same migration mechanism rel itself uses (specs/migrations.md),
-	// not a parallel SQL script that could drift from it.
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	if _, err := dmut.Run(ctx, uri, config.Dmut{Path: "../test/dmut"}, logger); err != nil {
 		panic(err)
 	}
 

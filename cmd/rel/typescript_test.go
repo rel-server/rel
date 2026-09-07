@@ -36,7 +36,7 @@ func TestTypescriptOutFlag(t *testing.T) {
 
 // TestRunTypeScriptExport is an end-to-end check that --typescript-out's
 // entire body works against a real database, without going anywhere near
-// dmut, /route, well-known queries, or an HTTP listener.
+// reload.cmd, /route, well-known queries, or an HTTP listener.
 func TestRunTypeScriptExport(t *testing.T) {
 	ctx := context.Background()
 	container, err := postgres.Run(ctx, "postgres:16-alpine",

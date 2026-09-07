@@ -44,13 +44,13 @@ var Options = []Option{
 	{"dev", "false", "Development mode : shows the real Postgres error text/stack trace on an otherwise-generic 5xx, and the real message on a permission-denied error, instead of a safe generic one. See error-handling.md ## Postgres error detail / ## Stack traces."},
 
 	// ---- pg.* : Postgres connection ----
-	{"pg.uri", "", "Full \"postgres://user:pass@host:port/db\" connection string. Authoritative when set — pg.user/password/host/port/database below are ignored. --pg.uri alone is enough to run rel."},
+	{"pg.uri", "", "Full \"postgres://user:pass@host:port/db\" connection string. Takes precedence when set, populating pg.host/pg.port/pg.database itself — setting them alongside pg.uri is an error. --pg.uri alone is enough to run rel."},
 	{"pg.user", "", "Primary login username, used when pg.uri is unset. Falls back for pg.query.user."},
 	{"pg.password", "", "Password for pg.user."},
 	{"pg.host", DefaultPgHost, "Postgres host, used when pg.uri is unset."},
 	{"pg.port", fmt.Sprint(DefaultPgPort), "Postgres port, used when pg.uri is unset."},
 	{"pg.database", "", "Database name, used when pg.uri is unset. Required one way or the other."},
-	{"pg.pool_size", fmt.Sprint(DefaultPgPoolSize), "Max connections in the pool that serves requests. Never affects startup introspection or dmut migrations, which use one short-lived connection regardless."},
+	{"pg.pool_size", fmt.Sprint(DefaultPgPoolSize), "Max connections in the pool that serves requests. Never affects startup introspection, which uses one short-lived connection regardless."},
 	{"pg.query.user", "= pg.user", "Narrower-scoped login used to serve requests. Optional — introspection and migrations always use pg.user/pg.uri regardless."},
 	{"pg.query.password", "= pg.password", "Password for pg.query.user."},
 	{"pg.query.anonymous_role", DefaultPgQueryAnonymousRole, "Role used for requests without a valid session."},
@@ -107,9 +107,10 @@ var Options = []Option{
 	{"logging.handler", DefaultLoggingHandler, "Log output format : pretty or JSON."},
 	{"logging.level", DefaultLoggingLevel, "Minimum log level : debug, info, warn, or error."},
 
-	// ---- dmut.* ----
-	{"dmut.path", DefaultDmutPath, "Directory containing dmut mutation files, read recursively. A missing directory skips dmut entirely — not an error."},
-	{"dmut.reload_drain_timeout", fmt.Sprint(DefaultDmutReloadDrainTimeout) + " (seconds)", "How long a SIGUSR1 reload waits for in-flight requests to finish before cancelling their contexts and proceeding anyway."},
+	// ---- reload.* ----
+	{"reload.cmd", "", "Command line rel runs before every reload (SIGUSR1 or startup). Empty skips this step entirely. Interpolated ({name}/{name:default} against configuration keys and environment variables), then split with shell-style word-splitting/quoting rules."},
+	{"reload.timeout", fmt.Sprint(DefaultReloadTimeout) + " (seconds)", "reload.cmd is aborted and considered failed once this elapses."},
+	{"reload.drain_timeout", fmt.Sprint(DefaultReloadDrainTimeout) + " (seconds)", "How long a reload waits for in-flight requests to finish, before reload.cmd runs, before cancelling their contexts and proceeding anyway."},
 
 	// ---- typescript.* ----
 	{"typescript.helper_path", "(disabled)", "Filesystem path rel (re)writes database.ts's content to directly, at startup and on every SIGUSR1 reload — for an editor/LSP watching a real file on disk, without a request round-trip."},
@@ -125,7 +126,7 @@ var sections = []struct {
 	{"HTTP server / /route functions", "http."},
 	{"JWT sessions", "jwt."},
 	{"Logging", "logging."},
-	{"dmut migrations/mutations", "dmut."},
+	{"Reload", "reload."},
 	{"TypeScript export", "typescript."},
 }
 
@@ -160,7 +161,7 @@ Flags:
   -c, --config <path>          Load exactly this config file (same as REL_CONFIG).
   -h, --help                   Show this help and exit.
   --typescript-out <path>      Introspect, write database.ts to <path> (or "-" for stdout), and exit —
-                                no dmut, no /route or well-known registries, no HTTP listener. Honors
+                                no reload.cmd, no /route or well-known registries, no HTTP listener. Honors
                                 pg.*/http.typescript.schemas/blacklist.* from the loaded configuration.
 
 Any config key documented below can ALSO be set as a command-line flag :

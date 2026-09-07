@@ -98,27 +98,31 @@ A few things worth getting right:
   their `VIRTUAL_HOST`/`LETSENCRYPT_*` labels — that's what the `docker.sock` mount is for,
   not something rel itself needs or sees.
 
-## `/dmut`, `/wellknown`, `/static`, `/template`: build them into your own image
+## `/wellknown`, `/static`, `/template`, and reload.cmd: build them into your own image
 
-dmut migration files, well-known query definitions, static assets, and Jet templates aren't
-runtime state — they're part of what version of your app is running, exactly like the schema
-they query against. Bind-mounting them from the host (`./dmut:/dmut:ro`) works for local
-development, but for a real deployment, build your own image `FROM rel-server/rel` and `COPY`
-them in instead:
+Well-known query definitions, static assets, and Jet templates aren't runtime state — they're
+part of what version of your app is running, exactly like the schema they query against.
+Bind-mounting them from the host (`./wellknown:/wellknown:ro`) works for local development,
+but for a real deployment, build your own image `FROM rel-server/rel` and `COPY` them in
+instead:
 
 ```dockerfile
 FROM rel-server/rel:latest
-COPY dmut /dmut
 COPY wellknown /wellknown
 COPY static /static
 COPY template /template
 ```
 
+The same goes for whatever `reload.cmd` itself needs — a migration tool's binary and its own
+migration files, say. `reload.cmd` names its own path directly (see [Reload](reload.md)), so
+there's no fixed default directory to document here ; `COPY` it in at whatever path you choose,
+alongside `reload.cmd`'s own config value naming that path.
+
 Tag and deploy that image (`your-registry/your-app:<version>`) the same way you would any other
 build artifact — a redeploy rolls forward and back by changing one tag, and there's no separate
 "did the host's bind-mounted files actually match the image that's running" question to answer
 during an incident. The compose file above deploys this way: `image: your-registry/your-app`,
-not `rel-server/rel` directly, and no `/dmut`/`/wellknown`/`/static`/`/template` volumes at all.
+not `rel-server/rel` directly, and no `/wellknown`/`/static`/`/template` volumes at all.
 
 ## Combining baked-in static assets with writable uploads
 

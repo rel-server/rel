@@ -12,12 +12,14 @@ import (
 
 // WriteTypeScriptHelperFile is specs/typescript.md ## Reloading
 // `helper_path` : a no-op when typescript.helper_path is unset. Called at
-// startup (cmd/rel/main.go) and from Reload right after step 5 (route/
-// well-known registry rebuild) — using the SAME freshly reintrospected db
-// AND the freshly rebuilt *wellknown.Registry Wellknowns generation now
-// needs — never on a dmut/reintrospection/registry-rebuild failure, since
-// this step is never reached then (the file is left untouched, matching the
-// spec's own "left untouched" wording for the schema/registry themselves).
+// startup (cmd/rel/main.go) and from Reload right after the route/
+// well-known registry rebuild — using the SAME db (freshly reintrospected,
+// or the previous one when reload.cmd/reintrospection didn't succeed —
+// specs/reload.md) AND the freshly rebuilt *wellknown.Registry Wellknowns
+// generation needs. Never reached on a /route or well-known registry build
+// failure specifically, since Reload returns before this point then (the
+// file is left untouched, matching the spec's own "left untouched" wording
+// for the schema/registry themselves).
 func WriteTypeScriptHelperFile(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry, logger *slog.Logger) {
 	if cfg.TypeScript.HelperPath == "" {
 		return

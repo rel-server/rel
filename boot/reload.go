@@ -22,8 +22,8 @@ import (
 	"time"
 
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dmut"
 	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/reloadcmd"
 	"github.com/rel-server/rel/route"
 	"github.com/rel-server/rel/wellknown"
 )
@@ -64,69 +64,71 @@ func (rl *Reloader) CurrentDbInfos() *pg.DbInfos {
 	return rl.db
 }
 
-// Reload runs specs/migrations.md ## Reloading's 7 numbered steps exactly.
-// Step 3's dmut-failure branch, and the same log-and-continue policy
-// extended to a ReIntrospect/BuildRegistry failure (the spec doesn't say
-// what happens on THOSE failing mid-reload ; treated identically to a dmut
-// failure here — log, never Swap, flip back out of maintenance, resume
-// serving the OLD schema/registry, exactly as if the reload had never been
-// requested — since there is equally nothing new to pick up in either
-// case), both leave the wrapper serving the OLD handler/schema, never
-// half-swapped and never stuck in maintenance mode.
+// Reload runs specs/reload.md's reload sequence : begin maintenance, drain
+// in-flight requests, run reload.cmd, reintrospect (skipped when reload.cmd
+// failed), rebuild /route + well-known + the TypeScript helper file, swap
+// in a fresh mux, resume serving. A reload.cmd failure skips reintrospection
+// specifically (specs/reload.md : "the introspection reload is not
+// performed, but wellknown and templates still get updated, rebuilt against
+// the previous, still-loaded schema") — everything downstream of it still
+// runs, against the OLD *pg.DbInfos. Any other step failing (reintrospection
+// itself, /route or well-known registry build, mux build) logs and resumes
+// serving the OLD handler/schema entirely, never half-swapped and never
+// stuck in maintenance mode.
 func (rl *Reloader) Reload(ctx context.Context) {
-	// Step 1 : new requests stop being served immediately.
+	// New requests stop being served immediately.
 	rl.Wrapper.BeginMaintenance()
 
-	// Step 2 : wait for in-flight requests, bounded by
-	// dmut.reload_drain_timeout ; past that, their contexts are cancelled.
-	rl.Wrapper.Drain(time.Duration(rl.Cfg.Dmut.ReloadDrainTimeout) * time.Second)
-
-	// Step 3 : dmut runs again, same non-fatal failure handling as startup.
-	if _, err := dmut.Run(ctx, rl.PrimaryURI, rl.Cfg.Dmut, rl.Logger); err != nil {
-		rl.Logger.Error("reload: dmut run failed, resuming under the old schema", "error", err.Error())
-		rl.Wrapper.EndMaintenance()
-		return
-	}
+	// Wait for in-flight requests, bounded by reload.drain_timeout ; past
+	// that, their contexts are cancelled.
+	rl.Wrapper.Drain(time.Duration(rl.Cfg.Reload.DrainTimeout) * time.Second)
 
 	rl.mu.Lock()
 	oldDb := rl.db
 	rl.mu.Unlock()
 
-	// Step 4 : reintrospect, reusing the EXISTING request-serving pool
-	// (pg.ReIntrospect re-checks anonymous-role existence internally).
-	newDb, err := pg.ReIntrospect(ctx, rl.PrimaryURI, oldDb.Pool, rl.Cfg.Pg.Query.AnonymousRole)
-	if err != nil {
-		rl.Logger.Error("reload: reintrospection failed, resuming under the old schema", "error", err.Error())
-		rl.Wrapper.EndMaintenance()
-		return
-	}
-	if rl.Cfg.Pg.Query.AnonymousRole != "" && !newDb.AnonymousRoleExists {
-		rl.Logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", rl.Cfg.Pg.Query.AnonymousRole))
+	db := oldDb
+
+	if _, err := reloadcmd.Run(ctx, rl.Cfg, rl.Logger); err != nil {
+		rl.Logger.Error("reload: reload.cmd failed, skipping schema reintrospection", "error", err.Error())
+	} else {
+		// Reintrospect, reusing the EXISTING request-serving pool
+		// (pg.ReIntrospect re-checks anonymous-role existence internally).
+		newDb, err := pg.ReIntrospect(ctx, rl.PrimaryURI, oldDb.Pool, rl.Cfg.Pg.Query.AnonymousRole)
+		if err != nil {
+			rl.Logger.Error("reload: reintrospection failed, resuming under the old schema", "error", err.Error())
+		} else {
+			db = newDb
+			if rl.Cfg.Pg.Query.AnonymousRole != "" && !newDb.AnonymousRoleExists {
+				rl.Logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", rl.Cfg.Pg.Query.AnonymousRole))
+			}
+		}
 	}
 
-	// Step 5 : /route and well-known registries rebuild from the new schema ;
-	// either failing logs and resumes under the old schema, same as step 3/4.
-	reg, err := route.BuildRegistry(newDb, rl.Cfg)
+	// /route and well-known registries rebuild against db (the freshly
+	// reintrospected schema, or the old one when reload.cmd/reintrospection
+	// didn't succeed) ; either failing logs and resumes under the old schema.
+	reg, err := route.BuildRegistry(db, rl.Cfg)
 	if err != nil {
 		rl.Logger.Error("reload: building /route registry failed, resuming under the old schema", "error", err.Error())
 		rl.Wrapper.EndMaintenance()
 		return
 	}
-	wkReg, err := wellknown.BuildRegistry(newDb, rl.Cfg)
+	wkReg, err := wellknown.BuildRegistry(db, rl.Cfg)
 	if err != nil {
 		rl.Logger.Error("reload: building well-known query registry failed, resuming under the old schema", "error", err.Error())
 		rl.Wrapper.EndMaintenance()
 		return
 	}
 
-	// specs/typescript.md ## Reloading `helper_path` : right after step 5,
-	// using this same freshly reintrospected newDb AND the freshly rebuilt
-	// wkReg — Wellknowns generation needs both.
-	WriteTypeScriptHelperFile(newDb, rl.Cfg, wkReg, rl.Logger)
+	// specs/typescript.md ## Reloading `helper_path` : right after the
+	// registries above, using this same db AND the freshly rebuilt wkReg —
+	// Wellknowns generation needs both.
+	WriteTypeScriptHelperFile(db, rl.Cfg, wkReg, rl.Logger)
 
-	// Step 6 : a fresh mux (via the same BuildMux startup uses) is stored
-	// into the wrapper's atomic.Pointer, never written to Handler directly.
-	mux, err := BuildMux(newDb, rl.Cfg, reg, wkReg, rl.Logger)
+	// A fresh mux (via the same BuildMux startup uses) is stored into the
+	// wrapper's atomic.Pointer, never written to Handler directly.
+	mux, err := BuildMux(db, rl.Cfg, reg, wkReg, rl.Logger)
 	if err != nil {
 		rl.Logger.Error("reload: building mux failed, resuming under the old schema", "error", err.Error())
 		rl.Wrapper.EndMaintenance()
@@ -135,11 +137,11 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	rl.Wrapper.Swap(mux)
 
 	rl.mu.Lock()
-	rl.db = newDb
+	rl.db = db
 	rl.mu.Unlock()
 
-	rl.Logger.Info("reload: dmut + reintrospection succeeded, serving the new schema")
+	rl.Logger.Info("reload: succeeded")
 
-	// Step 7 : new requests resume being served, against the new inner mux.
+	// New requests resume being served, against the new inner mux.
 	rl.Wrapper.EndMaintenance()
 }

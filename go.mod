@@ -6,12 +6,12 @@ require (
 	github.com/CloudyKit/jet/v6 v6.3.2
 	github.com/brianvoe/gofakeit/v7 v7.15.0
 	github.com/bytedance/sonic v1.15.3
-	github.com/ceymard/dmut/v2 v2.0.5
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/crewjam/saml v0.5.1
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/goccy/go-yaml v1.19.2
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/russellhaering/goxmldsig v1.6.1
 	github.com/samber/oops v1.23.0
@@ -21,19 +21,11 @@ require (
 
 require (
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
-	github.com/Masterminds/goutils v1.1.1 // indirect
-	github.com/Masterminds/semver/v3 v3.3.0 // indirect
-	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
-	github.com/alecthomas/participle/v2 v2.1.4 // indirect
 	github.com/beevik/etree v1.7.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
-	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
-	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
-	github.com/shopspring/decimal v1.4.0 // indirect
-	github.com/spf13/cast v1.7.0 // indirect
-	github.com/ugurcsen/gods-generic v0.10.4 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 require (

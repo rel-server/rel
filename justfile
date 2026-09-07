@@ -40,9 +40,12 @@ test-db-down:
 test-db-uri:
     @docker inspect {{db_container}} --format 'postgres://{{db_user}}:{{db_password}}@{{"{{"}}.NetworkSettings.Networks.bridge.IPAddress}}/{{db_name}}?sslmode=disable'
 
-# Apply the dmut schema mutations (test/dmut) to the dev database
+# Apply the hotel schema (test/hotel) to the dev database — the same thing
+# a deployment's own reload.cmd would do, e.g.
+# reload.cmd = 'psql "{pg.uri}" -v ON_ERROR_STOP=1 -f test/hotel/schema.sql'
+# (see docs/content/configuration/reload.md).
 test-db-migrate:
-    dmut apply "$(just test-db-uri)" test/dmut
+    psql "$(just test-db-uri)" -v ON_ERROR_STOP=1 -f test/hotel/schema.sql
 
 # Seed the dev database with fake data (test/seed)
 test-db-seed:

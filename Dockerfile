@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # writes into its own writable layer instead of falling back to the
 # ephemeral, console-logged value (specs/configuration.md ## $GEN$
 # multi-path resolution).
-RUN mkdir -p /vol/static /vol/template /vol/dmut /vol/wellknown /vol/secrets/jwt && \
+RUN mkdir -p /vol/static /vol/template /vol/wellknown /vol/secrets/jwt && \
     chown -R 1000:1000 /vol
 
 FROM scratch
@@ -37,7 +37,6 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 COPY --from=build /out/rel /rel
 COPY --chown=1000:1000 --from=build /vol/static /static
 COPY --chown=1000:1000 --from=build /vol/template /template
-COPY --chown=1000:1000 --from=build /vol/dmut /dmut
 COPY --chown=1000:1000 --from=build /vol/wellknown /wellknown
 COPY --chown=1000:1000 --from=build /vol/secrets /secrets
 
@@ -45,8 +44,6 @@ COPY --chown=1000:1000 --from=build /vol/secrets /secrets
 VOLUME ["/static"]
 # http.templates.path
 VOLUME ["/template"]
-# dmut.path
-VOLUME ["/dmut"]
 # pg.query.wellknown_path
 VOLUME ["/wellknown"]
 # jwt.secret's default $GEN$ path (config.DefaultJwtSecret), and the future

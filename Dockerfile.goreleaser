@@ -8,7 +8,7 @@
 
 FROM alpine:3 AS prep
 RUN apk add --no-cache ca-certificates && \
-    mkdir -p /vol/static /vol/template /vol/dmut /vol/wellknown /vol/secrets/jwt && \
+    mkdir -p /vol/static /vol/template /vol/wellknown /vol/secrets/jwt && \
     chown -R 1000:1000 /vol
 
 FROM scratch
@@ -28,13 +28,11 @@ COPY --from=prep /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificat
 COPY ${TARGETOS}/${TARGETARCH}/rel /rel
 COPY --chown=1000:1000 --from=prep /vol/static /static
 COPY --chown=1000:1000 --from=prep /vol/template /template
-COPY --chown=1000:1000 --from=prep /vol/dmut /dmut
 COPY --chown=1000:1000 --from=prep /vol/wellknown /wellknown
 COPY --chown=1000:1000 --from=prep /vol/secrets /secrets
 
 VOLUME ["/static"]
 VOLUME ["/template"]
-VOLUME ["/dmut"]
 VOLUME ["/wellknown"]
 VOLUME ["/secrets"]
 

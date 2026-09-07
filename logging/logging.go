@@ -71,7 +71,7 @@ func Install(cfg config.Logging) (*slog.Logger, error) {
 // attribute means to a reader of the logs, specs/logging.md ## Domain
 // scoping for the attach-once-per-package mechanism. Convention : one
 // package-level `var log = logging.For("<name>")` per package, `<name>`
-// matching the package/directory name (query, route, pg, dmut, boot, ...),
+// matching the package/directory name (query, route, pg, reloadcmd, boot, ...),
 // used for every log call in that package instead of calling slog.Default()
 // or the slog package funcs directly.
 //

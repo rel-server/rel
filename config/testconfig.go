@@ -61,9 +61,9 @@ func Test() *Config {
 			RenewAfter:    DefaultJwtRenewAfter,
 			MaxSessionAge: DefaultJwtMaxSessionAge,
 		},
-		Dmut: Dmut{
-			Path:               DefaultDmutPath,
-			ReloadDrainTimeout: DefaultDmutReloadDrainTimeout,
+		Reload: Reload{
+			Timeout:      DefaultReloadTimeout,
+			DrainTimeout: DefaultReloadDrainTimeout,
 		},
 		Blacklist: DefaultBlacklist(),
 	}

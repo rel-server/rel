@@ -20,40 +20,30 @@ of those forced in.
 
 ```
 test/
-  dmut/                  schema mutations (github.com/ceymard/dmut/v2)
-    schema.yml           the `hotel` schema itself + the btree_gist extension
-    <table>.yml           one file per table (15 total)
-    functions/
-      <function>.yml      one file per function (10 total)
+  hotel/
+    schema.sql            the `hotel` schema, the btree_gist extension, every table/function
 ```
 
-Applied with `dmut`, not plain SQL scripts, because that's what rel itself is specified
-to use for migrations (`specs/migrations.md`) — this fixture exercises the same tool rel's
-own schema management depends on, not a parallel setup script that could drift from it.
+A single plain SQL script, applied via testcontainers' `postgres.WithInitScripts` — rel
+doesn't embed a migration tool itself (`specs/reload.md`), so this fixture only ever needed
+a schema to exist, not to exercise any particular tool's own migration mechanics. See "A
+dmut quirk found while writing this" below for how it was originally authored.
 
 ## Running
-
-```sh
-# validate every mutation in isolation, on a throwaway container-backed database ;
-# does not touch anything else, always rolls back
-dmut test test/dmut
-
-# actually apply to a real (dev/test) database
-dmut apply <postgres-uri> test/dmut
-```
-
-Or, via the `justfile` at the repo root :
 
 ```sh
 just test      # go test ./... — every package, including the testcontainer-backed ones
 ```
 
+`query_bench` applies `test/hotel/schema.sql` itself, in its own `TestMain` — nothing to
+run by hand first.
+
 ### Manual testing : a database that stays up
 
-The above are all throwaway — nothing to connect to afterwards. For poking around
-with `psql`, a GUI client, or rel itself once it runs, use the `justfile` at the repo
-root instead : it manages a **long-lived** dev database, separate from the ephemeral
-containers `go test`/`dmut test` create and tear down for themselves.
+`go test` is throwaway — nothing to connect to afterwards. For poking around with `psql`,
+a GUI client, or rel itself once it runs, use the `justfile` at the repo root instead : it
+manages a **long-lived** dev database, separate from the ephemeral containers `go test`
+creates and tears down for itself.
 
 ```sh
 just test-db-fresh   # tear down, bring up a fresh container, migrate, seed — left running
@@ -114,20 +104,24 @@ they filter on (`property_id`) — resolved by qualifying with the function's ow
 
 ## A dmut quirk found while writing this
 
-`dmut`'s auto-down for `CREATE FUNCTION` incorrectly includes `OUT`-mode parameters in
-the generated `DROP FUNCTION` signature — Postgres's actual function signature for `DROP`
-purposes only includes `IN`/`INOUT`/`VARIADIC` parameters. Verified directly (`dmut test`
-failed with `function ... does not exist` on `split_name`'s down step until this was
-worked around). This is a bug in `dmut` itself (`github.com/ceymard/dmut/v2`, a separate
-repo), not something to fix here — `split_name.yml` uses an explicit `up`/`down` pair to
-route around it rather than relying on auto-down.
+This schema was originally authored as a set of `github.com/ceymard/dmut/v2` migration
+files, one per table/function, before rel decoupled from dmut (`specs/reload.md`) and this
+fixture was converted to the flat `test/hotel/schema.sql` above. While it was still
+dmut-based, `dmut`'s auto-down for `CREATE FUNCTION` was found to incorrectly include
+`OUT`-mode parameters in the generated `DROP FUNCTION` signature — Postgres's actual
+function signature for `DROP` purposes only includes `IN`/`INOUT`/`VARIADIC` parameters.
+Verified directly (`dmut test` failed with `function ... does not exist` on `split_name`'s
+down step until this was worked around with an explicit `up`/`down` pair). Noted here as a
+still-relevant heads-up for anyone using dmut directly (e.g. via `reload.cmd`) — this is a
+bug in `dmut` itself (`github.com/ceymard/dmut/v2`, a separate repo), not something rel
+fixes or works around on your behalf.
 
 ## Fake data
 
 `test/seed/main.go` — a Go program (not SQL), run after the schema is in place :
 
 ```sh
-dmut apply <postgres-uri> test/dmut
+psql <postgres-uri> -v ON_ERROR_STOP=1 -f test/hotel/schema.sql
 go run ./test/seed <postgres-uri>          # or set DATABASE_URL instead of passing it
 ```
 

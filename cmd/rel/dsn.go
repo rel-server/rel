@@ -31,7 +31,7 @@ func redactedTarget(uri string) string {
 	return u.Host + u.Path
 }
 
-// resolveConnectionURIs builds primaryURI (introspection/dmut) and
+// resolveConnectionURIs builds primaryURI (introspection/reload.cmd) and
 // queryURI (serving pool) ; queryURI falls back to primaryURI when unset.
 func resolveConnectionURIs(cfg config.Pg) (primaryURI, queryURI string, err error) {
 	if cfg.URI != "" {

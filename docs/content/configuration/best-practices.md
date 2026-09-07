@@ -80,8 +80,8 @@ dangerous functions (`pg_sleep`, `pg_terminate_backend`, the `pg_advisory_*lock*
 `blacklist.relations.<schema>.<name>` / `blacklist.functions.<schema>.<name>` explicitly — an
 internal audit table, a `dblink`/`postgres_fdw` connection your app installs for its own
 server-side use, anything a client should never be able to name directly even under a role
-that can otherwise read a lot. See [Configuration ### Restricting what a query can
-reach](index.md#restricting-what-a-query-can-reach).
+that can otherwise read a lot. See [Configuration reference ## Restricting what a query can
+reach](reference.md#restricting-what-a-query-can-reach).
 
 Beyond the blacklist, every route/middleware function is reachable only at the path it's
 explicitly declared at (see [HTTP routes](../http/index.md#declaring-a-route)) — there's no
@@ -110,7 +110,7 @@ reference](../query-language/operators.md).
 - **Cookies** default to `secure`, `httponly`, `SameSite=Lax`. Widening `jwt.same_site` to
   `None` is only ever needed for a session cookie read across a genuine cross-site embed, and
   needs `secure` alongside it (browsers reject `SameSite=None` without it) — see
-  [Configuration ### Sessions (JWT)](index.md#sessions-jwt).
+  [Configuration reference ## Sessions (JWT)](reference.md#sessions-jwt).
 
 ## Size the resource limits to real traffic, not the defaults
 
@@ -130,9 +130,10 @@ environment. See [Configuration ## Development mode](index.md#development-mode).
 
 ## Package your own app as an image built `FROM` rel
 
-`rel-server/rel` ships as a generic, non-root, scratch-based binary — dmut migrations, well-known
-queries, static assets, and Jet templates are all *your* app's own versioned files, not
-something the base image carries. Build them into your own image rather than bind-mounting
-them from a host directory at deploy time, and keep `/secrets` as the one directory that lives
-on a persistent volume. See [Docker deployment ## `/dmut`, `/wellknown`, `/static`,
-`/template`: build them into your own image](docker-deployment.md#dmut-wellknown-static-template-build-them-into-your-own-image).
+`rel-server/rel` ships as a generic, non-root, scratch-based binary — whatever `reload.cmd`
+needs, well-known queries, static assets, and Jet templates are all *your* app's own versioned
+files, not something the base image carries. Build them into your own image rather than
+bind-mounting them from a host directory at deploy time, and keep `/secrets` as the one
+directory that lives on a persistent volume. See [Docker deployment ## `/wellknown`, `/static`,
+`/template`, and reload.cmd: build them into your own
+image](docker-deployment.md#wellknown-static-template-and-reloadcmd-build-them-into-your-own-image).

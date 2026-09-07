@@ -273,11 +273,14 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Jwt.MaxAge != 1800 || cfg.Jwt.RenewAfter != 0.5 || cfg.Jwt.MaxSessionAge != 604800 {
 		t.Errorf("expected default jwt maxage/renewafter/maxsessionage, got %+v", cfg.Jwt)
 	}
-	if cfg.Dmut.Path != DefaultDmutPath {
-		t.Errorf("expected default dmut.path=%q, got %q", DefaultDmutPath, cfg.Dmut.Path)
+	if cfg.Reload.Cmd != "" {
+		t.Errorf("expected default reload.cmd empty, got %q", cfg.Reload.Cmd)
 	}
-	if cfg.Dmut.ReloadDrainTimeout != DefaultDmutReloadDrainTimeout {
-		t.Errorf("expected default dmut.reload_drain_timeout=%d, got %d", DefaultDmutReloadDrainTimeout, cfg.Dmut.ReloadDrainTimeout)
+	if cfg.Reload.Timeout != DefaultReloadTimeout {
+		t.Errorf("expected default reload.timeout=%d, got %d", DefaultReloadTimeout, cfg.Reload.Timeout)
+	}
+	if cfg.Reload.DrainTimeout != DefaultReloadDrainTimeout {
+		t.Errorf("expected default reload.drain_timeout=%d, got %d", DefaultReloadDrainTimeout, cfg.Reload.DrainTimeout)
 	}
 	// Default blacklist must still be present when config doesn't touch it.
 	if !cfg.Blacklist.IsRelationBlacklisted("pg_catalog", "anything") {

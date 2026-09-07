@@ -13,10 +13,10 @@
 // limitations under the License.
 
 // Package boot houses the maintenance/reload mechanics that sit above
-// server+route, per specs/migrations.md ## Reloading : a permanent, reload-aware
+// server+route, per specs/reload.md : a permanent, reload-aware
 // http.Handler wrapper (ReloadableHandler) that becomes http.Server.Handler
 // exactly once, at startup, and the orchestration (RunReload) tying
-// together dmut.Run/pg.ReIntrospect/route.BuildRegistry/server.NewRelHandler/
+// together reloadcmd.Run/pg.ReIntrospect/route.BuildRegistry/server.NewRelHandler/
 // route.NewHandler for both the startup path and every subsequent SIGUSR1.
 package boot
 
@@ -118,12 +118,12 @@ func (h *ReloadableHandler) BeginMaintenance() {
 
 // Drain waits for every request that was already in flight when
 // BeginMaintenance was called to finish, up to timeout. Past that, it
-// cancels each still-running request's context (specs/migrations.md ##
-// Reloading step 2) and then waits for them to actually return : a
-// cancelled context only asks pgx/handlers to unwind, it doesn't force
-// ServeHTTP to return synchronously, and dmut's own DDL needs those
-// handlers to have actually released their locks before it starts, not
-// merely have been asked to.
+// cancels each still-running request's context (specs/reload.md) and then
+// waits for them to actually return : a cancelled context only asks
+// pgx/handlers to unwind, it doesn't force ServeHTTP to return
+// synchronously, and reload.cmd's own DDL needs those handlers to have
+// actually released their locks before it starts, not merely have been
+// asked to.
 func (h *ReloadableHandler) Drain(timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {
@@ -150,8 +150,8 @@ func (h *ReloadableHandler) Drain(timeout time.Duration) {
 
 // EndMaintenance flips back to normal serving against whatever the current
 // inner handler is — either the newly Swap-ed one, or the original one if
-// the caller never called Swap (e.g. dmut failed and reload aborted before
-// reaching step 6).
+// the caller never called Swap (e.g. reload.cmd failed and reload aborted
+// before reaching the mux swap).
 func (h *ReloadableHandler) EndMaintenance() {
 	h.mu.Lock()
 	h.maintenance = false

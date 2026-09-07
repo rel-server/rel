@@ -598,12 +598,24 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 
 	cfg.TypeScript.HelperPath = root.GetStringOrDefault("typescript.helper_path", "")
 
-	cfg.Dmut.Path = root.GetStringOrDefault("dmut.path", DefaultDmutPath)
-	cfg.Dmut.ReloadDrainTimeout = root.GetIntOrDefault("dmut.reload_drain_timeout", DefaultDmutReloadDrainTimeout)
+	cfg.Reload.Cmd = root.GetStringOrDefault("reload.cmd", "")
+	cfg.Reload.Timeout = root.GetIntOrDefault("reload.timeout", DefaultReloadTimeout)
+	cfg.Reload.DrainTimeout = root.GetIntOrDefault("reload.drain_timeout", DefaultReloadDrainTimeout)
 
 	def := DefaultBlacklist()
 	cfg.Blacklist.Functions = readBlacklist(root, "blacklist.functions", def.Functions)
 	cfg.Blacklist.Relations = readBlacklist(root, "blacklist.relations", def.Relations)
+
+	// Config.Raw's doc comment : reload.cmd's {name} interpolation needs
+	// pg.host/pg.port/pg.database/pg.uri/pg.user/pg.password kept in sync
+	// even when only defaulted/derived, not explicitly set by the user.
+	_ = k.Set("pg.uri", cfg.Pg.URI)
+	_ = k.Set("pg.host", cfg.Pg.Host)
+	_ = k.Set("pg.port", cfg.Pg.Port)
+	_ = k.Set("pg.database", cfg.Pg.Database)
+	_ = k.Set("pg.user", cfg.Pg.User)
+	_ = k.Set("pg.password", cfg.Pg.Password)
+	cfg.Raw = k.All()
 
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)

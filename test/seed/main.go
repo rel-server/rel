@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Seeds the test/dmut hotel schema with fake data — see test/README.md. The
+// Seeds the test/hotel schema with fake data — see test/README.md. The
 // actual seeding logic lives in test/seed/seed (package seed), so it can
 // also be imported directly (e.g. by the read-path benchmarks in
 // query_bench) instead of being duplicated here. This file is just a thin
