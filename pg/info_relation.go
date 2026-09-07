@@ -65,7 +65,12 @@ type Relation struct {
 
 	Type *Type // The related type
 
-	PrimaryKey          *Constraint
+	PrimaryKey *Constraint
+
+	// UniqueConstraints is every UNIQUE constraint on this relation, the
+	// primary key excluded (it's already its own field above) — populated
+	// alongside PrimaryKey by FillConstraintInformations' own "u" case.
+	UniqueConstraints   []*Constraint
 	IncomingForeignKeys []*Constraint
 	OutgoingForeignKeys []*Constraint
 

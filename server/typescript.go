@@ -39,6 +39,36 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 	})
 }
 
+// NewDatabaseJSONHandler serves GET /rel/database.json — specs/database-
+// json.md's own Endpoint section : the same schemas-param/whitelist/
+// blacklist gating as /rel/database.ts, just a different generator. Mounting
+// is conditional on http.typescript.enable too (boot/mux.go) — this handler
+// assumes it's already gated, and doesn't re-check the flag itself.
+func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			writeError(w, methodNotAllowed(fmt.Errorf("/rel/database.json only accepts GET")), cfg.Dev)
+			return
+		}
+
+		schemas, err := resolveTypeScriptSchemas(cfg.Http.TypeScript.Schemas, r.URL.Query().Get("schemas"))
+		if err != nil {
+			writeError(w, badRequest(errcode.Unclassified, err), cfg.Dev)
+			return
+		}
+
+		out, err := tsgen.GenerateDatabaseJSON(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist}, wkReg)
+		if err != nil {
+			writeError(w, serverError(errcode.Internal, err), cfg.Dev)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write(out)
+	})
+}
+
 // resolveTypeScriptSchemas is docs/content/typescript-client.md ## Fetching it's `schemas`
 // query param, intersected with http.typescript.schemas' own whitelist —
 // the redactor's own answer, during this feature's implementation, to how

@@ -56,8 +56,10 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	mux.Handle("/rel", route.GateMiddleware(db, cfg, reg, templates, staticSrv, server.NewRelHandler(db, cfg, wkReg)))
 	// specs/typescript.md ## Configuration : gated by http.typescript.enable,
 	// not mounted at all otherwise (no 404 handler needed for the disabled case).
+	// specs/database-json.md ## Endpoint shares the same gate.
 	if cfg.Http.TypeScript.Enable {
 		mux.Handle("/rel/database.ts", server.NewTypeScriptHandler(db, cfg, wkReg))
+		mux.Handle("/rel/database.json", server.NewDatabaseJSONHandler(db, cfg, wkReg))
 	}
 
 	mux.Group(func(r chi.Router) {

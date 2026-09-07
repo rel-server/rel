@@ -138,9 +138,12 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 	}
 
 	// hotel.rooms has two FKs (properties, room_types) -> a union, not a
-	// single bare variant, under its own key.
-	roomsKeyIdx := strings.Index(out, `"hotel.rooms":`)
-	if roomsKeyIdx < 0 || !strings.Contains(out[roomsKeyIdx:roomsKeyIdx+400], "| {") {
+	// single bare variant, under its own key. Scoped to the Relationships
+	// block (relStart/relEnd, above) — "hotel.rooms": also appears verbatim
+	// in the Relations map, earlier in the output.
+	relationshipsBlock := out[relStart : relStart+relEnd]
+	roomsKeyIdx := strings.Index(relationshipsBlock, `"hotel.rooms":`)
+	if roomsKeyIdx < 0 || !strings.Contains(relationshipsBlock[roomsKeyIdx:], "| {") {
 		t.Errorf("expected hotel.rooms' Relationships entry to be a union of two variants ; got:\n%s", out)
 	}
 

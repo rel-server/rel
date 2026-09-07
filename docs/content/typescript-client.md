@@ -92,10 +92,44 @@ own registered definition rather than from what you pass to `relation()`.
 
 ## database.json
 
-`GET /rel/database.json` is the same introspected structure — relations, columns, functions,
-relationships — as plain JSON instead of TypeScript types. Reach for it when you're not in a
-TypeScript project at all, or when you want to feed the schema into your own tooling (a
-generator, a schema browser, a non-JS client) rather than consume it as types directly.
+`GET /rel/database.json` is the same introspected structure — types, relations, columns,
+constraints, indexes, relationships, functions, computed properties, well-known queries — as
+plain JSON instead of TypeScript types, gated and filtered by the same `schemas` query param and
+`http.typescript.*` configuration as `database.ts`. Reach for it when you're not in a TypeScript
+project at all, when you want to feed the schema into your own tooling (a generator, a schema
+browser, a non-JS client), or when you're building something like an automatic admin UI that
+needs the raw introspected facts — constraint names, index coverage, nullability, every declared
+foreign key including one the query engine can't efficiently join — rather than `database.ts`'s
+already-collapsed TypeScript types.
+
+Unlike `database.ts`, which only lists a foreign key that's actually usable in a `join()`,
+`database.json`'s own `relationships` section lists every declared foreign key touching an
+exported relation, in both directions, with an `eligible` flag telling you which ones are
+join-safe — a relation-picker UI built off this export can still show every real relationship,
+even one it has to resolve with its own lookup instead of a `join()`.
+
+The top-level response has these sections, every object key keyed `"schema.name"` unless noted
+otherwise and repeating its own `schema`/`name` fields :
+
+- **`types`** — every scalar/enum/domain/array/composite type referenced by a column or function
+  argument/return type, transitively. A composite entry points at its backing relation by key ;
+  that relation is always present in `relations`, even from a schema `schemas` didn't whitelist.
+- **`relations`** — one entry per table/view/materialized view/standalone composite type (`kind`
+  says which), with its columns (type, nullability, identity/generated/updatable flags, default
+  presence), its primary key and unique constraints (both named), and its indexes.
+- **`relationships`** — every declared foreign key touching a relation, both directions, each with
+  the target relation, the join columns (`on`, in the same shape the query language's own join
+  `on` field takes), cardinality (`unique`), the backing constraint's name, and `eligible` (false
+  when the FK-holding side isn't indexed — still a real relationship, just not `join()`-safe).
+- **`functions`** / **`functions_by_name`** — every plain function, with every argument's mode
+  (`in`/`out`/`inout`/`variadic`/`table` — not just the callable subset `database.ts` renders),
+  its volatility/strictness, and its return shape (a `types` key, or `null` when the row shape is
+  built from its own `out`/`table` arguments instead).
+- **`computed_properties`** — the same per-relation computed-field discovery `database.ts`'s
+  `ComputedProperties` documents.
+- **`wellknowns`** — each well-known query's raw compiled query JSON and declared parameters.
+
+See `specs/database-json.md` for the exact shape of every field.
 
 ## Keeping it in sync
 

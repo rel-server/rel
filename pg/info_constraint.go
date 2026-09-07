@@ -18,8 +18,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rel-server/rel/errcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/rel-server/rel/errcode"
 	"github.com/samber/oops"
 )
 
@@ -161,6 +161,7 @@ func FillConstraintInformations(infos *DbInfos, conn *pgx.Conn) error {
 		case "u":
 			c.Type = ConstraintTypeUnique
 			relation.uniqueColumnGroups[sortedColumnKey(dbc.Columns)] = c
+			relation.UniqueConstraints = append(relation.UniqueConstraints, c)
 			for _, col := range c.Columns {
 				col.IsParOfUnique = true
 			}

@@ -74,6 +74,44 @@ create table hotel.staff (
 	property_id int not null references hotel.properties (id)
 );
 
+-- A UNIQUE constraint distinct from the primary key — regression for
+-- database.json's own unique_constraints (tsgen/json.go).
+alter table hotel.room_types add constraint room_types_name_key unique (name);
+
+-- A standalone composite type, referenced by a column — regression for
+-- TypeInfo's own "composite" kind (tsgen/json.go) : its backing relation
+-- must resolve in `relations` even though it isn't a queryable table.
+create type hotel.address as (street text, city text);
+
+create table hotel.suppliers (
+	id serial primary key,
+	name text not null,
+	mailing_address hotel.address
+);
+
+-- A RETURNS TABLE function — regression for FunctionInfo's own record-shape
+-- fallback (returns: null, its row shape carried by "out"/"table"-mode args
+-- instead — tsgen/json.go).
+create function hotel.property_summary(property_id int)
+	returns table(room_count bigint, avg_price numeric)
+	language sql as $$
+		select count(*), avg(base_price) from hotel.room_types
+	$$;
+
+-- A composite type living in a schema NEVER itself whitelisted by a test's
+-- own Options.Schemas — regression for the types registry's transitive
+-- closure staying schema-unfiltered (tsgen/json.go) : the column's own type,
+-- and the relation it backs, must both still resolve even though "hidden"
+-- is never an exported schema on its own.
+create schema hidden;
+create type hidden.coordinates as (lat numeric, lng numeric);
+
+create table hotel.landmarks (
+	id serial primary key,
+	name text not null,
+	location hidden.coordinates
+);
+
 -- A second schema whose OWN property_average_rating shadows hotel's for the
 -- BARE name, once search_path prefers it (below) — regression for
 -- bareNameWinners' schema-priority disambiguation (tsgen) : the bare name
