@@ -8,10 +8,10 @@ package query
 
 import (
 	"encoding/json"
-	"fmt"
 	"slices"
 
 	"github.com/bytedance/sonic/ast"
+	"github.com/samber/oops"
 )
 
 // dataRow is one row destined for "_data" ; Data is already-marshaled jsonb
@@ -28,12 +28,12 @@ type dataRow struct {
 func denormalize(root *QueryNode, ids map[*QueryNode]int, payload []byte, startRowID int) ([]dataRow, int, error) {
 	parsed, perr := ast.NewParser(string(payload)).Parse()
 	if perr != 0 {
-		return nil, startRowID, fmt.Errorf("write: invalid payload JSON: %w", perr)
+		return nil, startRowID, oops.Wrapf(perr, "write: invalid payload JSON")
 	}
 
 	items, err := parsed.ArrayUseNode()
 	if err != nil {
-		return nil, startRowID, fmt.Errorf("write: payload must be an array of root rows: %w", err)
+		return nil, startRowID, oops.Wrapf(err, "write: payload must be an array of root rows")
 	}
 
 	d := &denormalizer{ids: ids, nextID: startRowID}
@@ -85,7 +85,7 @@ func (d *denormalizer) walkNode(node *QueryNode, raw *ast.Node, parentID *int) e
 		if isIncoming(node, child) {
 			items, err := value.ArrayUseNode()
 			if err != nil {
-				return fmt.Errorf("write: %q: expected an array for incoming relation %q: %w", node.InnerName, f.key, err)
+				return oops.With("node", node.InnerName, "relation", f.key).Wrapf(err, "write: expected an array for incoming relation")
 			}
 			for i := range items {
 				if err := d.walkNode(child, &items[i], &myID); err != nil {
@@ -121,7 +121,7 @@ func extractRowData(node *QueryNode, raw *ast.Node) ([]byte, error) {
 		}
 		text, err := v.Raw()
 		if err != nil {
-			return nil, fmt.Errorf("write: %q: reading %v: %w", node.InnerName, ex.JsonPath, err)
+			return nil, oops.With("node", node.InnerName, "json_path", ex.JsonPath).Wrapf(err, "write: reading field")
 		}
 		flat[columnPathFlatName(ex.Path)] = json.RawMessage(text)
 	}

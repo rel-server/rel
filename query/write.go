@@ -12,7 +12,6 @@ package query
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -273,7 +272,7 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 				return []any{r.RowID, r.NodeID, r.ParentID, r.Data}, nil
 			}),
 		); err != nil {
-			return nil, fmt.Errorf("write: loading _data: %w", err)
+			return nil, oops.With("row_count", len(rows)).Wrapf(err, "write: loading _data")
 		}
 	}
 

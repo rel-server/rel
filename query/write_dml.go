@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/writer"
+	"github.com/samber/oops"
 )
 
 type dmlCompiler struct {
@@ -164,17 +165,17 @@ func (dc *dmlCompiler) recordPlan(node *QueryNode, kind string, raw json.RawMess
 func (dc *dmlCompiler) runExplainAnalyze(ctx context.Context, sql string, args []any) (json.RawMessage, error) {
 	rows, err := dc.conn.Query(ctx, "explain (analyze, format json)\n"+sql, args...)
 	if err != nil {
-		return nil, fmt.Errorf("explain analyze: %w\nsql: %s", err, sql)
+		return nil, oops.With("sql", sql).Wrapf(err, "explain analyze")
 	}
 	defer rows.Close()
 	var raw []byte
 	if rows.Next() {
 		if err := rows.Scan(&raw); err != nil {
-			return nil, fmt.Errorf("explain analyze: scanning plan: %w", err)
+			return nil, oops.Wrapf(err, "explain analyze: scanning plan")
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("explain analyze: %w", err)
+		return nil, oops.Wrapf(err, "explain analyze")
 	}
 	return json.RawMessage(raw), nil
 }
@@ -239,7 +240,7 @@ func (dc *dmlCompiler) phase1(ctx context.Context, node *QueryNode) error {
 		}
 	}
 	if err := dc.runPhase1Node(ctx, node); err != nil {
-		return fmt.Errorf("write: node %q: %w", node.InnerName, err)
+		return oops.With("node", node.InnerName).Wrapf(err, "write")
 	}
 	for _, c := range node.IncomingNodes {
 		if err := dc.phase1(ctx, c); err != nil {
@@ -271,7 +272,7 @@ func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *Quer
 	if hasDeleteComponent(node.WriteMode) {
 		if parent == nil || dc.populated[dc.ids[parent]] {
 			if err := dc.runDelete(ctx, node, parent); err != nil {
-				return fmt.Errorf("write: node %q: delete: %w", node.InnerName, err)
+				return oops.With("node", node.InnerName).Wrapf(err, "write: delete")
 			}
 		}
 	}
@@ -302,6 +303,17 @@ func identityColumns(node *QueryNode) []*pg.Column {
 		return node.Relation.PrimaryKey.Columns
 	}
 	return nil
+}
+
+// requireIdentityColumns is identityColumns, rejecting the empty result
+// runUpdate/runUpsert/runDelete all need an identity set for (op names the
+// operation in the resulting error, e.g. "update" or "deleteonly/merge").
+func requireIdentityColumns(node *QueryNode, op string) ([]*pg.Column, error) {
+	identCols := identityColumns(node)
+	if len(identCols) == 0 {
+		return nil, oops.With("relation", node.Relation.Identifier.String()).Errorf("%s requires an identity (on_conflict or primary key) column set", op)
+	}
+	return identCols, nil
 }
 
 // columnsFor applies an insert_columns/update_columns allowlist (empty = no
@@ -579,7 +591,7 @@ func (dc *dmlCompiler) runPhase1Node(ctx context.Context, node *QueryNode) error
 	case UPSERT, MERGE:
 		return dc.runUpsert(ctx, node)
 	default:
-		return fmt.Errorf("unhandled write_mode %v", node.WriteMode)
+		return oops.With("relation", node.Relation.Identifier.String()).Errorf("unhandled write_mode %v", node.WriteMode)
 	}
 }
 
@@ -675,7 +687,7 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	}
 	tag, err := dc.exec(ctx, node, "insert", w, args)
 	if err != nil {
-		return fmt.Errorf("insert: %w\nsql: %s", err, w.String())
+		return oops.With("sql", w.String()).Wrapf(err, "insert")
 	}
 	if dc.collectStats {
 		// The trailing "update _data" only ever joins actually-inserted
@@ -728,7 +740,7 @@ func (dc *dmlCompiler) recoverKeys(ctx context.Context, node *QueryNode) error {
 		return err
 	}
 	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
-		return fmt.Errorf("recovering merge-new keys: %w\nsql: %s", err, w.String())
+		return oops.With("sql", w.String()).Wrapf(err, "recovering merge-new keys")
 	}
 	return nil
 }
@@ -744,9 +756,9 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	if err != nil {
 		return err
 	}
-	identCols := identityColumns(node)
-	if len(identCols) == 0 {
-		return fmt.Errorf("update requires an identity (on_conflict or primary key) column set")
+	identCols, err := requireIdentityColumns(node, "update")
+	if err != nil {
+		return err
 	}
 
 	w := writer.NewSQL()
@@ -803,7 +815,7 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	}
 	tag, err := dc.exec(ctx, node, "update", w, args)
 	if err != nil {
-		return fmt.Errorf("update: %w\nsql: %s", err, w.String())
+		return oops.With("sql", w.String()).Wrapf(err, "update")
 	}
 	if dc.collectStats {
 		dc.stat(node).Updated += int(tag.RowsAffected())
@@ -814,9 +826,9 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 // runUpsert : insert ... on conflict (...) do update ... returning,
 // correlated back via on_conflict columns (known pre-insert, unlike a generated PK).
 func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
-	identCols := identityColumns(node)
-	if len(identCols) == 0 {
-		return fmt.Errorf("upsert requires an identity (on_conflict or primary key) column set")
+	identCols, err := requireIdentityColumns(node, "upsert")
+	if err != nil {
+		return err
 	}
 	insertCols, err := columnsFor(node, node.InsertColumns)
 	if err != nil {
@@ -897,7 +909,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		}
 		noop := firstColumnNotIn(node.Relation.Columns, pkOnly)
 		if noop == nil {
-			return fmt.Errorf("upsert on %s: every column is part of the primary key, leaving no column for a no-op ON CONFLICT DO UPDATE", node.Relation.Identifier.String())
+			return oops.With("relation", node.Relation.Identifier.String()).Errorf("upsert: every column is part of the primary key, leaving no column for a no-op ON CONFLICT DO UPDATE")
 		}
 		w.Write("update set ")
 		w.Id(noop.Name)
@@ -941,7 +953,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 			return err
 		}
 		if _, err := dc.exec(ctx, node, "upsert", w, args); err != nil {
-			return fmt.Errorf("upsert: %w\nsql: %s", err, w.String())
+			return oops.With("sql", w.String()).Wrapf(err, "upsert")
 		}
 		return nil
 	}
@@ -970,18 +982,18 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	}
 	rows, err := dc.conn.Query(ctx, w.String(), args...)
 	if err != nil {
-		return fmt.Errorf("upsert: %w\nsql: %s", err, w.String())
+		return oops.With("sql", w.String()).Wrapf(err, "upsert")
 	}
 	var touched, inserted, updated int
 	if rows.Next() {
 		if err := rows.Scan(&touched, &inserted, &updated); err != nil {
 			rows.Close()
-			return fmt.Errorf("upsert: scanning counts: %w", err)
+			return oops.Wrapf(err, "upsert: scanning counts")
 		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("upsert: %w\nsql: %s", err, w.String())
+		return oops.With("sql", w.String()).Wrapf(err, "upsert")
 	}
 	s := dc.stat(node)
 	s.Inserted += inserted
@@ -1082,9 +1094,9 @@ func writeTargetPath(w *writer.SQLWriter, cp ColumnPath) {
 // runDelete deletes node's rows absent from the payload, scoped to parent
 // (nil at root) via node's own FK-to-parent columns (### Definitions).
 func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *QueryNode) error {
-	identCols := identityColumns(node)
-	if len(identCols) == 0 {
-		return fmt.Errorf("deleteonly/merge requires an identity (on_conflict or primary key) column set")
+	identCols, err := requireIdentityColumns(node, "deleteonly/merge")
+	if err != nil {
+		return err
 	}
 
 	w := writer.NewSQL()
@@ -1142,7 +1154,7 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 		w.Write(" and (")
 		sc := &sqlCompiler{w: w, alias: map[*QueryNode]string{node: "t"}}
 		if err := sc.compileExpr(node.Where, node); err != nil {
-			return fmt.Errorf("compiling where: %w", err)
+			return oops.Wrapf(err, "compiling where")
 		}
 		w.Write(")")
 	}
@@ -1153,7 +1165,7 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 	}
 	tag, err := dc.exec(ctx, node, "delete", w, args)
 	if err != nil {
-		return fmt.Errorf("delete: %w\nsql: %s", err, w.String())
+		return oops.With("sql", w.String()).Wrapf(err, "delete")
 	}
 	if dc.collectStats {
 		dc.stat(node).Deleted += int(tag.RowsAffected())
