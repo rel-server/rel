@@ -88,6 +88,9 @@
         <loc>https://rel-server.github.io/rel/dev/configuration/</loc>
       </url>
       <url>
+        <loc>https://rel-server.github.io/rel/dev/configuration/reference/</loc>
+      </url>
+      <url>
         <loc>https://rel-server.github.io/rel/dev/configuration/best-practices/</loc>
       </url>
       <url>
@@ -95,5 +98,8 @@
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/configuration/operations/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/configuration/reload/</loc>
       </url>
 </urlset>
