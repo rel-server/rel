@@ -70,6 +70,30 @@ mimetype. This "full-control" shape is the only way for a function to set `jwt`,
 `status`, or render a `template`, and is mandatory for a `middleware`/`stream_upload`
 function.
 
+```sql
+create function hotel.checkin(req jsonb, id text, out resp jsonb, out content jsonb)
+returns record language plpgsql as $$
+begin
+  update hotel.bookings set checked_in_at = now() where booking_id = id;
+  if not found then
+    raise exception 'Booking not found' using errcode = 'RS404';
+  end if;
+
+  resp := jsonb_build_object(
+    'status', 201,
+    'headers', jsonb_build_object('X-Room-Ready', 'true')
+  );
+  content := jsonb_build_object('booking_id', id, 'checked_in', true);
+end;
+$$;
+comment on function hotel.checkin(jsonb, text) is 'route:: path: "/hotel/bookings/{id}/checkin", method: "POST"';
+```
+
+`resp` carries only the fields it needs — everything else on `HttpResponse` stays unset and
+falls back to its own default (`status` defaults to `200`, no cookies/`jwt`/`template` are
+touched). `content` is the second `OUT` column, sent as the body the same way a plain-return
+function's value would be — here `application/json`, since it's `jsonb`.
+
 ## `HttpRequest`
 
 ```typescript
