@@ -4,11 +4,71 @@ icon: material/swap-horizontal
 
 # Requests and responses
 
-A route or middleware function talks to rel through two plain JSON shapes — no domain type to
-create, no name to configure. A function declaring a `json`/`jsonb` first argument receives
-`HttpRequest` there; a function using the full-control, two-`OUT`-column shape (see [HTTP
-routes ## Function prototype](index.md#function-prototype)) returns `HttpResponse` as its
-first `OUT` column.
+A route is an ordinary Postgres function that rel calls over HTTP. Nothing about a function's
+own signature makes it a route automatically — it becomes one only once you declare it at a
+path, and rel then talks to it through the plain JSON shapes this page documents.
+
+## Declaring a route
+
+Declare a route one of two ways: a `COMMENT ON FUNCTION` on the function itself, or a
+`route.<schema>.<function>.*` entry in configuration. Either way, the declaration names the
+`path` (chi syntax — `{name}` placeholders, `{name:regexp}` constraints) and, optionally, the
+accepted HTTP `method`(s), a default `template`, and whether the function is `stream_upload`
+or `middleware` (a function that runs ahead of other routes — see [HTTP routes ##
+Middleware](index.md#middleware)).
+
+The comment form uses HUML (a leading `route::`) or JSON (a leading `route:` followed by `{`):
+
+```sql
+comment on function hotel.guest_login(jsonb) is 'route:: path: "/hotel/login", method: "POST"';
+```
+
+```sql
+comment on function hotel.guest_login(jsonb) is 'route: {"path": "/hotel/login", "method": "POST"}';
+```
+
+Or entirely in configuration, with no comment on the function at all — `schema` and
+`function` are inferred from the config key itself:
+
+```toml
+[route.hotel.guest_login]
+path = "/hotel/login"
+method = "POST"
+```
+
+A config-declared route overrides a comment-declared one on the same function, with a
+warning. `/auth/*`, `/rel`, and anything else rel itself serves are reserved — a route can
+never be declared there, from either source.
+
+## Function prototype
+
+- The **first** argument may be `json`/`jsonb`, in which case it always receives the
+  `HttpRequest` object below. A route needing nothing from the request may omit it entirely.
+- The **second** argument may be `bytea` or `bytea[]`, enabling uploads directly in Postgres —
+  see [File uploads](uploads.md) for the full mismatch/sizing rules.
+- Any other argument must be named and typed `text`; it receives whatever the
+  correspondingly-named `{placeholder}` in the path matched.
+
+```sql
+create function hotel.room(req jsonb, id text) returns jsonb language sql as $$
+  select jsonb_build_object('id', id, 'query', req->'query');
+$$;
+comment on function hotel.room(jsonb, text) is 'route:: path: "/hotel/rooms/{id}"';
+```
+
+Returning a single type replies `200` with a mimetype resolved structurally: `text` →
+`text/plain`, `json`/`jsonb` → `application/json`, `bytea` → `application/octet-stream`, and a
+domain whose name contains `/` (over `bytea` or `text`) → that name as `Content-Type` — see
+[Static files ## Returning binary or text content
+directly](static-files.md#returning-binary-or-text-content-directly).
+
+For control over the response itself — status, cookies, `jwt`, a template, deferring to a
+static file — declare two trailing `OUT` columns instead: `..., OUT resp JSON/JSONB, OUT
+content <type>) returns record`. `resp` receives `HttpResponse` (below); `content` behaves
+like the single-return value above, except `resp.content_type` can override its resolved
+mimetype. This "full-control" shape is the only way for a function to set `jwt`, override
+`status`, or render a `template`, and is mandatory for a `middleware`/`stream_upload`
+function.
 
 ## `HttpRequest`
 
