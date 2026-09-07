@@ -11,7 +11,29 @@ import (
 
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/writer"
+	"github.com/samber/oops"
 )
+
+// errNoAlias reports a node the compiler needed an alias for before it
+// assigned one — an ordering bug in the compiler itself, never a
+// user-facing input error. what, if non-empty, names what was being
+// reached off that node (e.g. `column "foo"`).
+func errNoAlias(what string) error {
+	if what == "" {
+		return oops.Errorf("sql: no alias assigned for node — compiled out of order")
+	}
+	return oops.Errorf("sql: no alias assigned for node owning %s — compiled out of order", what)
+}
+
+// errToManyRelation reports child being reached somewhere only a to-one
+// relation is valid ; verbPhrase completes "is a to-many relation — "
+// with the specific construct and reason (each call site's wording
+// differs slightly with what it was trying to do with child).
+func errToManyRelation(child *QueryNode, verbPhrase string) error {
+	return oops.With("relation", child.OuterAlias).Errorf(
+		"sql: %q is a to-many relation — %s (aggregate it with \"agg\" instead)",
+		child.OuterAlias, verbPhrase)
+}
 
 // compileExpr writes e's SQL text into c.w. n is the node e was resolved
 // against, needed for own/full's implicit column list and self-references.
@@ -54,10 +76,10 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 	case DefaultKeyword:
 		// Only ever reached via compileColumnRead ; reaching this generic
 		// case is a codegen bug, not a user-facing error.
-		return fmt.Errorf("sql: DefaultKeyword reached outside a get/get-set default position")
+		return oops.Errorf("sql: DefaultKeyword reached outside a get/get-set default position")
 
 	case Star:
-		return fmt.Errorf("sql: \"*\" is not a value-position expression")
+		return oops.Errorf("sql: \"*\" is not a value-position expression")
 
 	case *Identifier:
 		return c.compileResolvedField(v.Resolved, n)
@@ -109,7 +131,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 
 	case *CallExpr:
 		if v.ResolvedFunction == nil {
-			return fmt.Errorf("sql: call to %q has no resolved function", v.Identifier.Name)
+			return oops.Errorf("sql: call to %q has no resolved function", v.Identifier.Name)
 		}
 		c.w.Write(v.ResolvedFunction.Identifier.EscapedString())
 		return c.compileArgList(v.Arguments, n)
@@ -178,7 +200,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 		return nil
 
 	default:
-		return fmt.Errorf("sql: no codegen case for %T", e)
+		return oops.Errorf("sql: no codegen case for %T", e)
 	}
 }
 
@@ -194,7 +216,7 @@ func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) er
 			// (compileNodeCorrelated), so this is always already known.
 			alias, ok := c.alias[r]
 			if !ok {
-				return fmt.Errorf("sql: self-reference resolved to a node with no known alias yet (compiler ordering bug)")
+				return errNoAlias("")
 			}
 			c.w.Write(alias)
 			return nil
@@ -202,11 +224,11 @@ func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) er
 		// r is always a direct child of n (LookupInScope's own scope rule).
 		return c.compileChildRowValue(r, n)
 	case Shape:
-		return fmt.Errorf("sql: a literal-object landing reached as a bare expression value is not yet supported")
+		return oops.Errorf("sql: a literal-object landing reached as a bare expression value is not yet supported")
 	case ComputedFieldRef:
 		return c.compileComputedFieldRef(r, n)
 	default:
-		return fmt.Errorf("sql: identifier resolved to nothing (opaque), cannot compile as a value")
+		return oops.Errorf("sql: identifier resolved to nothing (opaque), cannot compile as a value")
 	}
 }
 
@@ -221,7 +243,7 @@ func (c *sqlCompiler) compileComputedFieldRef(r ComputedFieldRef, n *QueryNode) 
 	}
 	alias, ok := c.alias[r.Node]
 	if !ok {
-		return fmt.Errorf("sql: no alias assigned for node owning computed field %q — compiled out of order", r.Function.Identifier.Name)
+		return errNoAlias(fmt.Sprintf("computed field %q", r.Function.Identifier.Name))
 	}
 	c.w.Write(r.Function.Identifier.EscapedString())
 	c.w.Paren(func() { c.w.Write(alias) })
@@ -235,7 +257,7 @@ func (c *sqlCompiler) compileComputedFieldRef(r ComputedFieldRef, n *QueryNode) 
 func (c *sqlCompiler) compileScalarHopComputed(r ComputedFieldRef, n *QueryNode) error {
 	child := r.Node
 	if !isOutgoingOf(child.Parent, child) {
-		return fmt.Errorf("sql: %q is a to-many relation — a \".\" hop can only be compiled as a value when it reaches a to-one relation, since there is no single row to pick a field from otherwise (aggregate it with \"agg\" instead)", child.OuterAlias)
+		return errToManyRelation(child, `a "." hop can only be compiled as a value when it reaches a to-one relation, since there is no single row to pick a field from otherwise`)
 	}
 	alias := c.allocAlias()
 
@@ -264,7 +286,7 @@ func (c *sqlCompiler) compileColumnPath(cp ColumnPath, n *QueryNode) error {
 	}
 	alias, ok := c.alias[cp.Node]
 	if !ok {
-		return fmt.Errorf("sql: no alias assigned for node owning column %q — compiled out of order", cp.Path[0].Name)
+		return errNoAlias(fmt.Sprintf("column %q", cp.Path[0].Name))
 	}
 	c.compileColumnPathN(alias, cp.Path, len(cp.Path)-1)
 	return nil
@@ -281,7 +303,7 @@ func (c *sqlCompiler) compileScalarHop(cp ColumnPath, n *QueryNode) error {
 	if !isOutgoingOf(child.Parent, child) {
 		// Enforced here, not at resolution (resolveHopInto allows any child) :
 		// a to-many landing has no single row to pick a field from — use "agg".
-		return fmt.Errorf("sql: %q is a to-many relation — a \".\" hop can only be compiled as a value when it reaches a to-one relation, since there is no single row to pick a field from otherwise (aggregate it with \"agg\" instead)", child.OuterAlias)
+		return errToManyRelation(child, `a "." hop can only be compiled as a value when it reaches a to-one relation, since there is no single row to pick a field from otherwise`)
 	}
 	alias := c.allocAlias()
 
@@ -305,7 +327,7 @@ func (c *sqlCompiler) compileScalarHop(cp ColumnPath, n *QueryNode) error {
 // alias — compileScalarHop's counterpart, selecting the whole row.
 func (c *sqlCompiler) compileChildRowValue(child *QueryNode, n *QueryNode) error {
 	if !isOutgoingOf(child.Parent, child) {
-		return fmt.Errorf("sql: %q is a to-many relation — a child's own alias can only be compiled as a bare value when it's a to-one relation, since there is no single row to reference otherwise (aggregate it with \"agg\" instead)", child.OuterAlias)
+		return errToManyRelation(child, "a child's own alias can only be compiled as a bare value when it's a to-one relation, since there is no single row to reference otherwise")
 	}
 	alias := c.allocAlias()
 
@@ -331,7 +353,7 @@ func (c *sqlCompiler) compileScalarHopWhere(child *QueryNode, alias string, n *Q
 	if len(child.JoinColumns) == 0 {
 		// query.ts : `on` is mandatory on joined relations ; zero here means
 		// an earlier pass let an invalid tree through uncaught.
-		return fmt.Errorf("sql: %q has no join columns to correlate a \".\" hop by — compiled out of order", child.OuterAlias)
+		return oops.With("relation", child.OuterAlias).Errorf("sql: %q has no join columns to correlate a \".\" hop by — compiled out of order", child.OuterAlias)
 	}
 	c.w.Write(" where ")
 	for i, jc := range child.JoinColumns {
@@ -401,7 +423,7 @@ func (c *sqlCompiler) compileUnary(v UnaryExpr, n *QueryNode) error {
 	case UnaryIsNotFalse:
 		return c.compilePostfix(v.Expr, n, " is not false")
 	default:
-		return fmt.Errorf("sql: unknown unary operator %q", v.Op)
+		return oops.Errorf("sql: unknown unary operator %q", v.Op)
 	}
 }
 
@@ -429,7 +451,7 @@ func (c *sqlCompiler) compileFolded(v FoldedExpr, n *QueryNode) error {
 		// composite-path emission, never a recursive Left/Right compile.
 		id, ok := v.Right.(*Identifier)
 		if !ok {
-			return fmt.Errorf("sql: \".\" hop's right side is not an identifier (%T)", v.Right)
+			return oops.Errorf("sql: \".\" hop's right side is not an identifier (%T)", v.Right)
 		}
 		return c.compileResolvedField(id.Resolved, n)
 
@@ -492,10 +514,10 @@ func castTypeName(e Expression) (string, error) {
 	case StringLiteral:
 		name = v.Value
 	default:
-		return "", fmt.Errorf("sql: unsupported cast target %T — expected a bare type name", e)
+		return "", oops.Errorf("sql: unsupported cast target %T — expected a bare type name", e)
 	}
 	if !validCastTypeName.MatchString(name) {
-		return "", fmt.Errorf("sql: invalid cast type name %q", name)
+		return "", oops.With("type_name", name).Errorf("sql: invalid cast type name %q", name)
 	}
 	return name, nil
 }
@@ -599,11 +621,11 @@ func (c *sqlCompiler) compileExprParenList(args []Expression, n *QueryNode) erro
 // shared (analyzeLaterals), otherwise its own correlated scalar subquery.
 func (c *sqlCompiler) compileAgg(v *AggExpr, n *QueryNode) error {
 	if v.ResolvedFunction == nil {
-		return fmt.Errorf("sql: agg %q has no resolved function", v.Identifier.Name)
+		return oops.Errorf("sql: agg %q has no resolved function", v.Identifier.Name)
 	}
 	target := aggTargetChild(v)
 	if target == nil {
-		return fmt.Errorf("sql: agg %q's argument doesn't reference an incoming relation (query.ts : the expression to aggregate must be an incoming relation)", v.Identifier.Name)
+		return oops.Errorf("sql: agg %q's argument doesn't reference an incoming relation (query.ts : the expression to aggregate must be an incoming relation)", v.Identifier.Name)
 	}
 
 	if plan, shared := c.laterals[target]; shared {
@@ -615,12 +637,12 @@ func (c *sqlCompiler) compileAgg(v *AggExpr, n *QueryNode) error {
 				return nil
 			}
 		}
-		return fmt.Errorf("sql: internal error : agg not found in its own node's LATERAL plan")
+		return oops.Errorf("sql: internal error : agg not found in its own node's LATERAL plan")
 	}
 
 	parentAlias, ok := c.alias[n]
 	if !ok {
-		return fmt.Errorf("sql: no alias assigned for node — compiled out of order")
+		return errNoAlias("")
 	}
 	childAlias := c.allocAlias()
 	c.alias[target] = childAlias
@@ -772,7 +794,7 @@ func (c *sqlCompiler) compileShapeAsJsonObject(e Expression, n *QueryNode) error
 func (c *sqlCompiler) compileSelectFieldValue(n *QueryNode, f selectField) error {
 	alias, ok := c.alias[n]
 	if !ok {
-		return fmt.Errorf("sql: no alias assigned for node — compiled out of order")
+		return errNoAlias("")
 	}
 	return c.compileSelectField(n, alias, f)
 }
@@ -800,11 +822,11 @@ func (c *sqlCompiler) compileArray(items []Expression, n *QueryNode) error {
 // splices pg.Column.DefaultExpression verbatim (from pg_attrdef).
 func (c *sqlCompiler) compileColumnRead(col *pg.Column, n *QueryNode, def Expression) error {
 	if col == nil {
-		return fmt.Errorf("sql: get/get-set has no resolved column")
+		return oops.Errorf("sql: get/get-set has no resolved column")
 	}
 	alias, ok := c.alias[n]
 	if !ok {
-		return fmt.Errorf("sql: no alias assigned for node owning column %q — compiled out of order", col.Name)
+		return errNoAlias(fmt.Sprintf("column %q", col.Name))
 	}
 	if def == nil {
 		c.qualify(alias, col.Name)
@@ -817,7 +839,7 @@ func (c *sqlCompiler) compileColumnRead(col *pg.Column, n *QueryNode, def Expres
 		c.w.Write(", ")
 		if _, isDefault := def.(DefaultKeyword); isDefault {
 			if col.DefaultExpression == "" {
-				err = fmt.Errorf("sql: \"default\" keyword used on column %q, which has no DB-level default", col.Name)
+				err = oops.With("column", col.Name).Errorf("sql: \"default\" keyword used on column %q, which has no DB-level default", col.Name)
 				return
 			}
 			c.w.Write(col.DefaultExpression)

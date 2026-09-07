@@ -12,6 +12,7 @@ import (
 
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/writer"
+	"github.com/samber/oops"
 )
 
 // sqlCompiler carries state for one CompileSelect call : the writer, a
@@ -99,7 +100,7 @@ func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 // for a relation-shaped query) — mirrors CompileSelect's own special case.
 func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
 	if root.IsFunction() && !root.Function.ReturnsSet && root.Relation == nil {
-		return nil, fmt.Errorf("sql: count is not meaningful on a scalar function root")
+		return nil, oops.With("node", root.InnerName).Errorf("sql: count is not meaningful on a scalar function root")
 	}
 
 	c := newSQLCompiler()
@@ -130,7 +131,7 @@ func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
 // (query/node.go), so there's never a "_data" row for one to scope against.
 func CompileSelectForDataNode(root *QueryNode, nodeID int) (*writer.SQLWriter, error) {
 	if root.IsFunction() {
-		return nil, fmt.Errorf("sql: a function-rooted node can't be write-scoped — functions aren't writable")
+		return nil, oops.With("node", root.InnerName).Errorf("sql: a function-rooted node can't be write-scoped — functions aren't writable")
 	}
 
 	c := newSQLCompiler()
@@ -187,7 +188,7 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 				return err
 			}
 			if len(fields) == 0 {
-				return fmt.Errorf("sql: node has no select fields to emit")
+				return oops.With("node", node.InnerName).Errorf("sql: node has no select fields to emit")
 			}
 			for i, f := range fields {
 				if i > 0 {
@@ -250,7 +251,7 @@ func (c *sqlCompiler) compileFrom(node *QueryNode, alias string) error {
 		return nil
 	}
 	if node.Relation == nil {
-		return fmt.Errorf("sql: node has no relation to select from")
+		return oops.With("node", node.InnerName).Errorf("sql: node has no relation to select from")
 	}
 	c.w.Write(node.Relation.Identifier.EscapedString()).Write(" ").Write(alias)
 	if c.dataScopeRoot != nil && node == c.dataScopeRoot {
@@ -292,7 +293,7 @@ func (c *sqlCompiler) compileWhere(node *QueryNode, alias string, onParentAlias 
 		}
 		cols := identityColumns(node)
 		if len(cols) == 0 {
-			return fmt.Errorf("sql: %q has no identity (on_conflict or primary key) column set to scope the reread by", node.InnerName)
+			return oops.With("node", node.InnerName).Errorf("sql: has no identity (on_conflict or primary key) column set to scope the reread by")
 		}
 		for i, col := range cols {
 			if i > 0 {
