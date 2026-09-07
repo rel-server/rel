@@ -4,6 +4,7 @@ package route
 // and single-raw-binary-POST support, plus the 415 shape-mismatch rules.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -68,7 +69,7 @@ func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64, configKe
 
 // writeRequestBodyError : *requestBodyError carries its own status,
 // *badBodyError is always 400, anything else is a generic 500.
-func writeRequestBodyError(w http.ResponseWriter, err error) {
+func writeRequestBodyError(ctx context.Context, w http.ResponseWriter, err error) {
 	if rbe, ok := errors.AsType[*requestBodyError](err); ok {
 		writePlainError(w, rbe.status, rbe.code, rbe.message)
 		return
@@ -77,7 +78,7 @@ func writeRequestBodyError(w http.ResponseWriter, err error) {
 		writePlainError(w, http.StatusBadRequest, errcode.MalformedBody, bbe.Error())
 		return
 	}
-	writePlainError(w, http.StatusInternalServerError, errcode.Internal, "reading request body")
+	writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "reading request body", err)
 }
 
 // resolvedRequestBody is everything handleRoute needs to build

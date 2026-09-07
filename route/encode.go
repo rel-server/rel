@@ -199,7 +199,7 @@ type jwtAttrsPayload struct {
 func WriteRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, raw []byte, templates *TemplateSet) {
 	var resp relHttpResponsePayload
 	if err := sonic.Unmarshal(raw, &resp); err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding function response")
+		writeServerError(r.Context(), w, http.StatusInternalServerError, errcode.Internal, "decoding function response", err)
 		return
 	}
 	status := applyResponseSideEffects(w, r, cfg, functionIdent, resp)
@@ -288,7 +288,7 @@ func writeFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *confi
 	// rather than a decode error.
 	if len(envelopeRaw) > 0 {
 		if err := sonic.Unmarshal(envelopeRaw, &resp); err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding function response")
+			writeServerError(r.Context(), w, http.StatusInternalServerError, errcode.Internal, "decoding function response", err)
 			return
 		}
 	}

@@ -75,7 +75,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 
 	if err := tooLargeIfContentLengthExceeds(r, int64(cfg.Http.MaxUploadSize), "http.max_upload_size"); err != nil {
-		writeRequestBodyError(w, err)
+		writeRequestBodyError(ctx, w, err)
 		return
 	}
 	limitedBody := http.MaxBytesReader(w, r.Body, int64(cfg.Http.MaxUploadSize))
@@ -121,7 +121,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	firstUpload, err := sonic.Marshal(requestUploadPayload{Part: partJSON})
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
 		return
 	}
 	// buildFirstReq re-derives the first call's request JSON for a given
@@ -131,7 +131,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	reqJSON1, err := buildFirstReq(nil)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 		return
 	}
 	r = r.WithContext(withRequestJSON(ctx, reqJSON1))
@@ -142,20 +142,20 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// call itself, after the role switch, same as any other middleware.
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection", err)
 		return
 	}
 
 	tx1, err := conn.Begin(ctx)
 	if err != nil {
 		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction", err)
 		return
 	}
 	if err := dbauth.SetLocalClaims(ctx, tx1, claims); err != nil {
 		_ = tx1.Rollback(ctx)
 		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims", err)
 		return
 	}
 
@@ -184,7 +184,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	if handled {
 		if cerr := tx1.Commit(ctx); cerr != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", cerr)
 		}
 		conn.Release()
 		return
@@ -194,7 +194,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		if err != nil {
 			_ = tx1.Rollback(ctx)
 			conn.Release()
-			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 			return
 		}
 		r = r.WithContext(withRequestJSON(ctx, reqJSON1))
@@ -221,7 +221,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	if err := tx1.Commit(ctx); err != nil {
 		conn.Release()
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
 	conn.Release()
@@ -359,12 +359,12 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	secondUpload, err := sonic.Marshal(secondUploadPayload)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
 		return
 	}
 	reqJSON2, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, nil, secondUpload, "")
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 		return
 	}
 	r = r.WithContext(withRequestJSON(ctx, reqJSON2))
@@ -373,19 +373,19 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// once, before the first call, and aren't repeated.
 	conn2, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection", err)
 		return
 	}
 	defer conn2.Release()
 
 	tx2, err := conn2.Begin(ctx)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction", err)
 		return
 	}
 	if err := dbauth.SetLocalClaims(ctx, tx2, claims); err != nil {
 		_ = tx2.Rollback(ctx)
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims", err)
 		return
 	}
 	if err := dbauth.SetLocalRole(ctx, tx2, role); err != nil {
@@ -403,7 +403,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 	if err := tx2.Commit(ctx); err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
 

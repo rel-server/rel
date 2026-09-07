@@ -102,7 +102,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 
 	resolved, err := resolveRequestBody(w, r, route, int64(cfg.Http.MaxBodySize), cfg.Http.MaxPartCount)
 	if err != nil {
-		writeRequestBodyError(w, err)
+		writeRequestBodyError(ctx, w, err)
 		return
 	}
 
@@ -121,7 +121,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 			writePlainError(w, http.StatusBadRequest, errcode.QueryMalformedJSON, bqe.Error())
 			return
 		}
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 		return
 	}
 	// Stashed for ## Templates' "Req" var — the exact JSON the route
@@ -132,7 +132,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection", err)
 		return
 	}
 	defer conn.Release()
@@ -141,7 +141,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// transaction, so middleware/role-switch/the route call all share one.
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction", err)
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -149,7 +149,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// Exposed before middleware runs, so it (and the route function itself)
 	// can read it via current_setting('rel.jwt.claims', true).
 	if err := dbauth.SetLocalClaims(ctx, tx, claims); err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims", err)
 		return
 	}
 
@@ -179,7 +179,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	}
 	if handled {
 		if err := tx.Commit(ctx); err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 			return
 		}
 		return
@@ -198,7 +198,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	if mergedContext != nil {
 		reqJSON, err = buildReq(mergedContext)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 			return
 		}
 		r = r.WithContext(withRequestJSON(ctx, reqJSON))
@@ -216,7 +216,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 			return
 		}
 		if err := tx.Commit(ctx); err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 			return
 		}
 		writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, envelope, content, templates, staticSrv)
@@ -229,7 +229,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		return
 	}
 	if err := tx.Commit(ctx); err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
 	writeSingleReturnResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, raw, templates)

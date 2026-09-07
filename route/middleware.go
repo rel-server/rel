@@ -117,13 +117,13 @@ func runMiddlewareChain(
 		if len(contextFields) > 0 {
 			reqCtx, err = sonic.Marshal(contextFields)
 			if err != nil {
-				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request context")
+				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request context", err)
 				return true, nil, accumulated, err
 			}
 		}
 		reqJSON, err := buildReq(reqCtx)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 			return true, nil, accumulated, err
 		}
 
@@ -145,7 +145,7 @@ func runMiddlewareChain(
 		var resp relHttpResponsePayload
 		if len(envelope) > 0 {
 			if unmarshalErr := sonic.Unmarshal(envelope, &resp); unmarshalErr != nil {
-				writePlainError(w, http.StatusInternalServerError, errcode.Internal, "decoding middleware response")
+				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "decoding middleware response", unmarshalErr)
 				return true, nil, accumulated, unmarshalErr
 			}
 		}
@@ -158,7 +158,7 @@ func runMiddlewareChain(
 		}
 
 		if err := mergeContext(contextFields, resp.Content); err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "merging middleware response into request.context")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "merging middleware response into request.context", err)
 			return true, nil, accumulated, err
 		}
 	}
@@ -168,7 +168,7 @@ func runMiddlewareChain(
 	}
 	mergedContext, err = sonic.Marshal(contextFields)
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding request context")
+		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request context", err)
 		return true, nil, accumulated, err
 	}
 	return false, mergedContext, accumulated, nil
@@ -209,20 +209,20 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 		ctx := r.Context()
 		conn, err := db.Pool.Acquire(ctx)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.DBUnavailable, "acquiring connection", err)
 			return
 		}
 		defer conn.Release()
 
 		tx, err := conn.Begin(ctx)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "starting transaction", err)
 			return
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 
 		if err := dbauth.SetLocalClaims(ctx, tx, claims); err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "setting jwt claims", err)
 			return
 		}
 		// No renewal here : /rel's own applyRole renews after this gate
@@ -258,7 +258,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 			return
 		}
 		if err := tx.Commit(ctx); err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction")
+			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 			return
 		}
 		applyResponseSideEffects(w, r, cfg, "", accumulated)
