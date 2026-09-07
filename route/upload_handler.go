@@ -172,7 +172,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if err := dbauth.SetLocalRole(ctx, tx1, role); err != nil {
 		_ = tx1.Rollback(ctx)
 		conn.Release()
-		writeErrorForPgErr(w, err, cfg.Dev)
+		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
 	}
 
@@ -216,7 +216,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if err := frow.Scan(&firstEnvelope, &firstContent); err != nil {
 		_ = tx1.Rollback(ctx)
 		conn.Release()
-		writeErrorForPgErr(w, err, cfg.Dev)
+		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
 	}
 	if err := tx1.Commit(ctx); err != nil {
@@ -390,7 +390,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	if err := dbauth.SetLocalRole(ctx, tx2, role); err != nil {
 		_ = tx2.Rollback(ctx)
-		writeErrorForPgErr(w, err, cfg.Dev)
+		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
 	}
 
@@ -399,7 +399,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if err := mrow.Scan(&secondEnvelope, &secondContent); err != nil {
 		_ = tx2.Rollback(ctx)
 		// No commit : the temp file is deleted by the deferred cleanup above.
-		writeErrorForPgErr(w, err, cfg.Dev)
+		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
 	}
 	if err := tx2.Commit(ctx); err != nil {

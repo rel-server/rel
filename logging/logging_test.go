@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/rel-server/rel/config"
+	"github.com/samber/oops"
 )
 
 // buildTo is Build, but writing to buf instead of the hardcoded os.Stdout,
@@ -78,6 +79,38 @@ func TestFor_WithAttrsAccumulates(t *testing.T) {
 	}
 	if decoded["module"] != "route" || decoded["request_id"] != "abc123" {
 		t.Errorf("expected both module=route and request_id=abc123, got %v", decoded)
+	}
+}
+
+// TestError_FlattensOopsContextAsSiblingAttrs : ## Error integration with
+// samber/oops requires a key attached via .With(key, value) to stay
+// independently queryable, not nested under a group filter/exclude can't see.
+func TestError_FlattensOopsContextAsSiblingAttrs(t *testing.T) {
+	err := oops.Code("SOME_CODE").With("relation", "chains").With("attempt", 3).Errorf("boom")
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	logger.Error("request failed", Error(err)...)
+
+	var decoded map[string]any
+	if unmarshalErr := json.Unmarshal(buf.Bytes(), &decoded); unmarshalErr != nil {
+		t.Fatalf("unmarshal %q: %v", buf.String(), unmarshalErr)
+	}
+	if decoded["relation"] != "chains" {
+		t.Errorf("expected top-level relation=chains (not nested under a group), got %v", decoded)
+	}
+	if decoded["attempt"] != float64(3) {
+		t.Errorf("expected top-level attempt=3, got %v", decoded)
+	}
+	errText, _ := decoded["error"].(string)
+	if !strings.Contains(errText, "boom") {
+		t.Errorf("expected error to carry the message, got %q", errText)
+	}
+}
+
+func TestError_NilIsNil(t *testing.T) {
+	if got := Error(nil); got != nil {
+		t.Errorf("expected nil for a nil error, got %v", got)
 	}
 }
 

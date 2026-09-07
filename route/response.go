@@ -1,9 +1,11 @@
 package route
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pgerr"
 )
 
@@ -17,12 +19,22 @@ func writePlainError(w http.ResponseWriter, status int, code errcode.Code, messa
 }
 
 // writeErrorForPgErr classifies err and writes the tiered plain-text
-// response, falling back to a generic 500 when it doesn't classify.
-func writeErrorForPgErr(w http.ResponseWriter, err error, dev bool) {
+// response, falling back to a generic 500 when it doesn't classify. A 500
+// (classified or not) is always logged in full first — specs/logging.md
+// ## Error logging — independently of what dev/tier let the client itself see.
+func writeErrorForPgErr(ctx context.Context, w http.ResponseWriter, err error, dev bool) {
 	status, code, tier, detail, ok := pgerr.Classify(err)
 	if !ok {
+		logging.FromContext(ctx).Error("request failed", append([]any{"code", errcode.Internal, "status", http.StatusInternalServerError}, logging.Error(err)...)...)
 		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
+	}
+	if status >= 500 {
+		logAttrs := append([]any{"code", code, "status", status}, logging.Error(err)...)
+		if detail != nil {
+			logAttrs = append(logAttrs, "pg_error", detail)
+		}
+		logging.FromContext(ctx).Error("request failed", logAttrs...)
 	}
 	writePlainError(w, status, code, pgPlainText(code, tier, detail, dev))
 }

@@ -116,7 +116,18 @@ The existing `warn`/`error` lines for a rejected/disabled/colliding declaration 
 
 Per `AGENTS.md`'s Golang error-handling rule, errors are constructed/wrapped with `oops`, carrying structured context via its immutable `.With(key, value)` pattern.
 
-When an `oops` error is logged, its attached context MUST be flattened into `slog.Attr`s, not stringified into the message — the same key attached at the error site must be queryable in JSON logs. A helper (`logging.Error(err) slog.Attr`, exact shape TBD) is responsible for this conversion; call sites use it instead of `slog.Any("error", err)`.
+When an `oops` error is logged, its attached context MUST be flattened into sibling `slog` attributes, not stringified into the message and not nested under a group — the same key attached at the error site must be independently queryable in JSON logs, and `logging.filter`/`logging.exclude` (`## Configuration`) can't match a key hidden inside a group at all. `logging.Error(err) []any` (`logging/logging.go`) does this conversion : `"error"` holds `err.Error()` itself, followed by every `oops` `.With(key, value)` context entry attached anywhere in `err`'s chain, each as its own key/value pair. Call sites spread it into the log call (`logger.Error("...", logging.Error(err)...)`) instead of using `slog.Any("error", err)`.
+
+## Error logging
+
+A request that ends in a `5xx` is logged in full server-side, regardless of what the client-facing response itself shows — `dev`/tier gating (`## Postgres error detail`, `error-handling.md`) governs the *response* only, never whether the server records what actually happened.
+
+- `server/response.go`'s `writeError` and `route/response.go`'s `writeErrorForPgErr` each log one `error`-level `"request failed"` line, via `logging.FromContext(ctx)`, for every status `>= 500` they write — before composing the (possibly redacted) client response. Fields : `code`, `status`, `logging.Error(err)...`, plus `pg_error` (the full, untiered `pgerr.Detail`) when the error classified as a Postgres error, regardless of whether that detail was allowed into the response.
+- A `4xx` is not separately logged here — the response body already carries the full detail (`error-handling.md` : a `4xx` is always shown in full, never redacted), and `## Access logging`'s one line per request already records its `status`.
+
+> Why gated on status rather than always logging every `writeError`/`writeErrorForPgErr` call : a `4xx` is client input, not a server fault — logging it again would just duplicate what the response and the access log already carry, for every malformed request a client happens to send.
+
+`route/response.go`'s other error path, `writePlainError`, takes a plain message string rather than an `error` — most of its call sites (`route/handler.go`, `route/middleware.go`, `route/upload_handler.go`) already reduced the underlying error to a static string (`"acquiring connection"`, `"starting transaction"`, ...) before calling it, so there is no `error` left for it to log. Logging those in full would mean threading the original `error` through to each call site first, a larger, call-site-by-call-site change not made here.
 
 ## Redaction
 

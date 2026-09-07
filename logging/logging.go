@@ -4,15 +4,12 @@
 // RequestMiddleware, FromContext), and provides ResponseRecorder
 // (response_recorder.go), the http.ResponseWriter wrapper route/handler.go
 // and server/rel.go each use to build ## Access logging's own line —
-// ## Configuration, ## Logger construction, ## Domain scoping, and
-// ## Request-scoped logging live here ; the rest of specs/logging.md's
-// sections (## Access logging, ## Introspection logging, ## Route registry
-// logging) live in the packages they log (route, server, pg) instead,
-// since their fields are domain-specific.
-//
-// Deliberately NOT implemented here (documented, not silently dropped) :
-// ## Error integration with samber/oops (a logging.Error(err) slog.Attr
-// helper) — no concrete driving need for it yet.
+// ## Configuration, ## Logger construction, ## Domain scoping,
+// ## Request-scoped logging, and ## Error integration with samber/oops
+// (Error, below) live here ; the rest of specs/logging.md's sections
+// (## Access logging, ## Introspection logging, ## Route registry logging,
+// ## Error logging) live in the packages they log (route, server, pg)
+// instead, since their fields are domain-specific.
 package logging
 
 import (
@@ -25,7 +22,30 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/lmittmann/tint"
+	"github.com/samber/oops"
 )
+
+// Error returns err as a flat run of alternating key/value args, meant to be
+// spread into a slog call (logger.Error("...", logging.Error(err)...)) :
+// "error" holds err.Error() itself, followed by every oops .With(key, value)
+// context entry attached anywhere in err's chain, as its own sibling
+// key/value pair — never nested under an "error"/"context" group, since
+// specs/logging.md ## Error integration with samber/oops requires a key
+// attached at the error site to be independently queryable (and
+// logging.filter/logging.exclude, ## Configuration, can't match a key
+// hidden inside a group at all).
+func Error(err error) []any {
+	if err == nil {
+		return nil
+	}
+	attrs := []any{"error", err.Error()}
+	if oopsErr, ok := oops.AsOops(err); ok {
+		for k, v := range oopsErr.Context() {
+			attrs = append(attrs, k, v)
+		}
+	}
+	return attrs
+}
 
 // Build constructs the *slog.Logger described by cfg, without installing it
 // as the process default — see Install for that. Every field is validated :

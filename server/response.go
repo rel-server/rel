@@ -5,6 +5,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pgerr"
 	"github.com/samber/oops"
 )
@@ -69,7 +71,10 @@ func pgClassified(status int, code errcode.Code, tier pgerr.Tier, detail *pgerr.
 
 // writeError writes err as the RelErrorResponse envelope (error-handling.md) ;
 // only clean if nothing has been written to w yet, invalid JSON otherwise.
-func writeError(w http.ResponseWriter, err error, dev bool) {
+// Takes ctx solely to log a server-side (5xx) failure in full — specs/
+// logging.md ## Error logging — independently of what dev/tier let the
+// client itself see.
+func writeError(ctx context.Context, w http.ResponseWriter, err error, dev bool) {
 	status := http.StatusInternalServerError
 	code := errcode.Internal
 	var pgTier pgerr.Tier
@@ -80,6 +85,14 @@ func writeError(w http.ResponseWriter, err error, dev bool) {
 		code = reqErr.code
 		pgTier = reqErr.pgTier
 		pgDetail = reqErr.pgDetail
+	}
+
+	if status >= 500 {
+		logAttrs := append([]any{"code", code, "status", status}, logging.Error(err)...)
+		if pgDetail != nil {
+			logAttrs = append(logAttrs, "pg_error", pgDetail)
+		}
+		logging.FromContext(ctx).Error("request failed", logAttrs...)
 	}
 
 	resp := errorResponse{Status: "error", Code: code}

@@ -166,7 +166,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		return
 	}
 	if err := dbauth.SetLocalRole(ctx, tx, role); err != nil {
-		writeErrorForPgErr(w, err, cfg.Dev)
+		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
 	}
 
@@ -212,7 +212,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	if route.FullControl {
 		envelope, content, err := invokeFullControlRoute(ctx, tx, route, reqJSON, resolved, pathArgValues)
 		if err != nil {
-			writeErrorForPgErr(w, err, cfg.Dev)
+			writeErrorForPgErr(ctx, w, err, cfg.Dev)
 			return
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -225,7 +225,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 
 	raw, err := invokeSingleReturnRoute(ctx, tx, route, reqJSON, resolved, pathArgValues)
 	if err != nil {
-		writeErrorForPgErr(w, err, cfg.Dev)
+		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
 	}
 	if err := tx.Commit(ctx); err != nil {

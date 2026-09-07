@@ -134,7 +134,7 @@ func runMiddlewareChain(
 
 		envelope, content, callErr := invokeFullControlRoute(ctx, tx, mw, reqJSON, resolvedRequestBody{}, pathArgValues)
 		if callErr != nil {
-			writeErrorForPgErr(w, callErr, cfg.Dev)
+			writeErrorForPgErr(ctx, w, callErr, cfg.Dev)
 			return true, nil, accumulated, callErr
 		}
 
@@ -234,7 +234,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 			return
 		}
 		if err := dbauth.SetLocalRole(ctx, tx, role); err != nil {
-			writeErrorForPgErr(w, err, cfg.Dev)
+			writeErrorForPgErr(ctx, w, err, cfg.Dev)
 			return
 		}
 

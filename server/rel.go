@@ -70,7 +70,7 @@ func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET, POST")
-			writeError(w, methodNotAllowed(fmt.Errorf("/rel only accepts GET or POST")), cfg.Dev)
+			writeError(r.Context(), w, methodNotAllowed(fmt.Errorf("/rel only accepts GET or POST")), cfg.Dev)
 			return
 		}
 		handleRel(w, r, db, cfg, wkReg)
@@ -196,33 +196,33 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// authentication.md "## Roles ## Anonymous role existence" : reject
 	// before reading the body or acquiring a connection when disabled.
 	if _, verified := jwtpkg.FromContext(r.Context()); !verified && !db.AnonymousRoleExists {
-		writeError(w, unauthorized(errcode.AnonymousDisabled, fmt.Errorf("%s", errcode.AnonymousDisabledMessage)), cfg.Dev)
+		writeError(ctx, w, unauthorized(errcode.AnonymousDisabled, fmt.Errorf("%s", errcode.AnonymousDisabledMessage)), cfg.Dev)
 		return
 	}
 
 	body, err := relQueryBytes(r)
 	if err != nil {
-		writeError(w, badRequest(errcode.MalformedBody, err), cfg.Dev)
+		writeError(ctx, w, badRequest(errcode.MalformedBody, err), cfg.Dev)
 		return
 	}
 
 	pq, err := query.ParseQuery(body)
 	if err != nil {
-		writeError(w, badRequest(errcode.QueryMalformedJSON, err), cfg.Dev)
+		writeError(ctx, w, badRequest(errcode.QueryMalformedJSON, err), cfg.Dev)
 		return
 	}
 
 	// query-json.md ## Scope / ## Well-known queries on GET /rel : GET
 	// never decodes to a Sequence ; asserted explicitly, not just assumed.
 	if r.Method == http.MethodGet && pq.Sequence != nil {
-		writeError(w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
+		writeError(ctx, w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
 		return
 	}
 	// specs/complex-query.md ## rollback's GET rule : a ComplexQuery
 	// wrapper (data present or not) is GET-ineligible, only a bare
 	// RelationQuery/WellKnownQuery is convenience-served there.
 	if r.Method == http.MethodGet && pq.Write != nil {
-		writeError(w, badRequest(errcode.QueryComplexNotAllowedOnGet, fmt.Errorf("/rel GET accepts only a bare relation or well-known query, not a ComplexQuery wrapper")), cfg.Dev)
+		writeError(ctx, w, badRequest(errcode.QueryComplexNotAllowedOnGet, fmt.Errorf("/rel GET accepts only a bare relation or well-known query, not a ComplexQuery wrapper")), cfg.Dev)
 		return
 	}
 
@@ -242,7 +242,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		if wk := item.WellKnown; wk != nil {
 			ri, wkErr := resolveWellKnownItem(wkReg, wk.WellKnown, wk.Params, nil)
 			if wkErr != nil {
-				writeError(w, badRequest(codeOrUnclassified(wkErr), fmt.Errorf("item %d: %w", i, wkErr)), cfg.Dev)
+				writeError(ctx, w, badRequest(codeOrUnclassified(wkErr), fmt.Errorf("item %d: %w", i, wkErr)), cfg.Dev)
 				return
 			}
 			resolved = append(resolved, ri)
@@ -252,17 +252,17 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			wk := item.Write.WellKnown
 			ri, wkErr := resolveWellKnownItem(wkReg, wk.WellKnown, wk.Params, item.Write.Data)
 			if wkErr != nil {
-				writeError(w, badRequest(codeOrUnclassified(wkErr), fmt.Errorf("item %d: %w", i, wkErr)), cfg.Dev)
+				writeError(ctx, w, badRequest(codeOrUnclassified(wkErr), fmt.Errorf("item %d: %w", i, wkErr)), cfg.Dev)
 				return
 			}
 			ri.returns, ri.count, ri.stats, ri.queryPlan, ri.sql, ri.rollback =
 				item.Write.Returns, item.Write.Count, item.Write.Stats, item.Write.QueryPlan, item.Write.Sql, item.Write.Rollback
 			if verr := validateComplexFlags(&ri); verr != nil {
-				writeError(w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
+				writeError(ctx, w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
 				return
 			}
 			if verr := checkRollbackGrant(&ri, cfg); verr != nil {
-				writeError(w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
+				writeError(ctx, w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
 				return
 			}
 			resolved = append(resolved, ri)
@@ -283,19 +283,19 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		case item.Relation != nil:
 			root, rerr = rctx.ResolveQuery(item.Relation)
 		default:
-			writeError(w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("item %d: empty query", i)), cfg.Dev)
+			writeError(ctx, w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("item %d: empty query", i)), cfg.Dev)
 			return
 		}
 		if rerr != nil {
-			writeError(w, badRequest(codeOrUnclassified(rerr), fmt.Errorf("item %d: %w", i, rerr)), cfg.Dev)
+			writeError(ctx, w, badRequest(codeOrUnclassified(rerr), fmt.Errorf("item %d: %w", i, rerr)), cfg.Dev)
 			return
 		}
 		if err := rctx.ResolveExpressions(root); err != nil {
-			writeError(w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
+			writeError(ctx, w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
 		if err := rctx.DeriveShapes(root); err != nil {
-			writeError(w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
+			writeError(ctx, w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
 		ri := resolvedItem{root: root, isWrite: isWrite, data: data}
@@ -304,11 +304,11 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 				item.Write.Returns, item.Write.Count, item.Write.Stats, item.Write.QueryPlan, item.Write.Sql, item.Write.Rollback
 		}
 		if verr := validateComplexFlags(&ri); verr != nil {
-			writeError(w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
+			writeError(ctx, w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
 			return
 		}
 		if verr := checkRollbackGrant(&ri, cfg); verr != nil {
-			writeError(w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
+			writeError(ctx, w, badRequest(codeOrUnclassified(verr), fmt.Errorf("item %d: %w", i, verr)), cfg.Dev)
 			return
 		}
 		resolved = append(resolved, ri)
@@ -322,25 +322,25 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		writeError(w, serverError(errcode.DBUnavailable, fmt.Errorf("acquiring connection: %w", err)), cfg.Dev)
+		writeError(ctx, w, serverError(errcode.DBUnavailable, fmt.Errorf("acquiring connection: %w", err)), cfg.Dev)
 		return
 	}
 	defer conn.Release()
 
 	if _, err := conn.Exec(ctx, query.DataTableDDL); err != nil {
-		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("preparing _data: %w", err)), cfg.Dev)
+		writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("preparing _data: %w", err)), cfg.Dev)
 		return
 	}
 	// "_data" is per-connection ; granted to PUBLIC every request since a
 	// switched role (applyRole below) has no default privileges on it.
 	if _, err := conn.Exec(ctx, "grant all on _data to public"); err != nil {
-		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("granting _data: %w", err)), cfg.Dev)
+		writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("granting _data: %w", err)), cfg.Dev)
 		return
 	}
 	// Truncated before use too : a pooled connection may still hold a
 	// previous request's rows if the release-time truncate below never ran.
 	if _, err := conn.Exec(ctx, "truncate _data"); err != nil {
-		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("clearing _data: %w", err)), cfg.Dev)
+		writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("clearing _data: %w", err)), cfg.Dev)
 		return
 	}
 	// Also truncated after the response is fully sent — context.Background(),
@@ -348,7 +348,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	defer func() { _, _ = conn.Exec(context.Background(), "truncate _data") }()
 
 	if _, err := conn.Exec(ctx, "begin"); err != nil {
-		writeError(w, serverError(errcode.TransactionError, fmt.Errorf("begin: %w", err)), cfg.Dev)
+		writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("begin: %w", err)), cfg.Dev)
 		return
 	}
 
@@ -357,7 +357,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	role, err = applyRole(ctx, w, r, conn, cfg)
 	if err != nil {
 		_, _ = conn.Exec(ctx, "rollback")
-		writeError(w, err, cfg.Dev)
+		writeError(ctx, w, err, cfg.Dev)
 		return
 	}
 
@@ -381,7 +381,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		if item.rollback {
 			if _, err := conn.Exec(ctx, "savepoint "+spName); err != nil {
 				_, _ = conn.Exec(ctx, "rollback")
-				writeError(w, serverError(errcode.TransactionError, fmt.Errorf("item %d: savepoint: %w", i, err)), cfg.Dev)
+				writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("item %d: savepoint: %w", i, err)), cfg.Dev)
 				return
 			}
 		}
@@ -393,7 +393,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		result, err := query.ExecuteWriteStateParamsOpts(ctx, loggingQuerier{inner: conn}, item.root, item.data, state, item.paramValues, opts)
 		if err != nil {
 			_, _ = conn.Exec(ctx, "rollback")
-			writeError(w, classifyWriteError(err, i), cfg.Dev)
+			writeError(ctx, w, classifyWriteError(err, i), cfg.Dev)
 			return
 		}
 		nodeIDs[i] = result.NodeIDs[item.root]
@@ -403,7 +403,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 				rows, berr := bufferReadback(ctx, conn, item.root, nodeIDs[i], item.paramValues)
 				if berr != nil {
 					_, _ = conn.Exec(ctx, "rollback")
-					writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: buffering read-back before rollback: %w", i, berr)), cfg.Dev)
+					writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: buffering read-back before rollback: %w", i, berr)), cfg.Dev)
 					return
 				}
 				bufferedResult[i] = rows
@@ -413,7 +413,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			// the request's transaction is unaffected.
 			if _, err := conn.Exec(ctx, "rollback to savepoint "+spName); err != nil {
 				_, _ = conn.Exec(ctx, "rollback")
-				writeError(w, serverError(errcode.TransactionError, fmt.Errorf("item %d: rollback to savepoint: %w", i, err)), cfg.Dev)
+				writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("item %d: rollback to savepoint: %w", i, err)), cfg.Dev)
 				return
 			}
 		}
@@ -445,7 +445,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 				sw, cerr = query.CompileSelect(item.root)
 			}
 			if cerr != nil {
-				writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: compiling response: %w", i, cerr)), cfg.Dev)
+				writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: compiling response: %w", i, cerr)), cfg.Dev)
 				return
 			}
 			statements[i] = sw
@@ -453,7 +453,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			// nil, but also resolves a well-known item's named $param slots.
 			a, aerr := sw.ResolveArgs(item.paramValues)
 			if aerr != nil {
-				writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: resolving params: %w", i, aerr)), cfg.Dev)
+				writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: resolving params: %w", i, aerr)), cfg.Dev)
 				return
 			}
 			args[i] = a
@@ -464,7 +464,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 				n, cerr := runCount(ctx, conn, item.root, item.paramValues)
 				if cerr != nil {
 					_, _ = conn.Exec(ctx, "rollback")
-					writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: count: %w", i, cerr)), cfg.Dev)
+					writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: count: %w", i, cerr)), cfg.Dev)
 					return
 				}
 				envelopes[i].count = &n
@@ -500,7 +500,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 					plan, perr := explainFormatJSON(ctx, conn, statements[i].String(), args[i])
 					if perr != nil {
 						_, _ = conn.Exec(ctx, "rollback")
-						writeError(w, serverError(errcode.Internal, fmt.Errorf("item %d: explain: %w", i, perr)), cfg.Dev)
+						writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: explain: %w", i, perr)), cfg.Dev)
 						return
 					}
 					envelopes[i].queryPlan = append(envelopes[i].queryPlan, query.PlanResult{Path: emptyPath, Select: plan})
@@ -523,7 +523,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			// Transactions) ; explicit, though pgxpool would discard it anyway.
 			_, _ = conn.Exec(ctx, "rollback")
 			if cse, ok := errors.AsType[*cleanStreamError](err); ok {
-				writeError(w, classifyReadError(cse.Unwrap(), i), cfg.Dev)
+				writeError(ctx, w, classifyReadError(cse.Unwrap(), i), cfg.Dev)
 			}
 			// Otherwise streaming already started — truncated JSON is the
 			// only signal left (writeError's own doc comment covers this).

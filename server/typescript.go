@@ -22,13 +22,13 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")
-			writeError(w, methodNotAllowed(fmt.Errorf("/rel/database.ts only accepts GET")), cfg.Dev)
+			writeError(r.Context(), w, methodNotAllowed(fmt.Errorf("/rel/database.ts only accepts GET")), cfg.Dev)
 			return
 		}
 
 		schemas, err := resolveTypeScriptSchemas(cfg.Http.TypeScript.Schemas, r.URL.Query().Get("schemas"))
 		if err != nil {
-			writeError(w, badRequest(errcode.Unclassified, err), cfg.Dev)
+			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
 			return
 		}
 
@@ -48,19 +48,19 @@ func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")
-			writeError(w, methodNotAllowed(fmt.Errorf("/rel/database.json only accepts GET")), cfg.Dev)
+			writeError(r.Context(), w, methodNotAllowed(fmt.Errorf("/rel/database.json only accepts GET")), cfg.Dev)
 			return
 		}
 
 		schemas, err := resolveTypeScriptSchemas(cfg.Http.TypeScript.Schemas, r.URL.Query().Get("schemas"))
 		if err != nil {
-			writeError(w, badRequest(errcode.Unclassified, err), cfg.Dev)
+			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
 			return
 		}
 
 		out, err := tsgen.GenerateDatabaseJSON(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist}, wkReg)
 		if err != nil {
-			writeError(w, serverError(errcode.Internal, err), cfg.Dev)
+			writeError(r.Context(), w, serverError(errcode.Internal, err), cfg.Dev)
 			return
 		}
 
