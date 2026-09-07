@@ -43,19 +43,19 @@ type SafeRelationships<K extends string> = K extends keyof Relationships ? Relat
 // The target relation name embedded in a shortcut string itself : "hotel.rooms<;id:property_id" ->
 // "hotel.rooms". This is what lets a nested join's own callback re-scope itself to ITS target without a second
 // explicit argument — the shortcut the caller already had to type carries it.
-type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">"}${string}` ? Rel : never
+type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">"}${string}`
+  ? Rel
+  : never
 
-export interface ScopedJoin<K extends string> {
-  <
-    S extends SafeRelationships<K>["shortcut"],
-    const Q extends RelationQuery<
-      Extract<SafeRelationships<K>, { shortcut: S }>["relation"]
-    > = Record<string, never>,
-  >(
-    shortcut: S,
-    request?: Q | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
-  ): Q & { shortcut: S }
-}
+export type ScopedJoin<K extends string> = <
+  S extends SafeRelationships<K>["shortcut"],
+  const Q extends RelationQuery<
+    Extract<SafeRelationships<K>, { shortcut: S }>["relation"]
+  > = Record<string, never>,
+>(
+  shortcut: S,
+  request?: Q | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
+) => Q & { shortcut: S }
 
 // Builds the `(shortcut, request?) => ...` closure handed to a relation()/join() callback, scoped to `key` —
 // shared by relation() (scoped to the relation itself) and join()'s own recursive case (scoped to the shortcut's
@@ -166,9 +166,10 @@ function parseShortcut(shortcut: string): {
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
-  const Q extends RelationQuery<
-    Extract<Relationships[K], { shortcut: S }>["relation"]
-  > = Record<string, never>,
+  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]> = Record<
+    string,
+    never
+  >,
 >(
   _key: K,
   shortcut: S,
