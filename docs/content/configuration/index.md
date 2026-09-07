@@ -52,7 +52,7 @@ Without `--config`, rel searches, in order, and loads the first file it finds:
 Finding more than one recognized file at the same step (`rel.toml` *and* `rel.yaml` in the
 same directory, say) is a fatal error — rel never picks one silently. Finding no file at any
 step isn't an error either; rel runs on environment variables, flags, and built-in defaults
-alone, which is enough to start it (see [Getting started](../getting-started.md)).
+alone, which is enough to start it (see [Getting started](../getting-started/index.md)).
 
 ## Secrets and generated values
 

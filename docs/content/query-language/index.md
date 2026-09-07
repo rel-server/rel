@@ -8,7 +8,7 @@ A query is one JSON object, sent as `POST /rel`. Every page in this section cove
 that object — there's no separate "read" and "write" grammar; the same tree does both (see
 [Writing data back](writing.md)).
 
-Examples throughout use the hotel-booking schema from [Getting started](../getting-started.md):
+Examples throughout use the hotel-booking schema from [Getting started](../getting-started/index.md):
 `hotel.chains` → `hotel.properties` → `hotel.room_types` → `hotel.rooms`, and `hotel.guests` →
 `hotel.bookings` → `hotel.payments`. [Database reference](../example-database/reference.md) has the full
 diagram if you want the whole shape at a glance before diving in. [Query shape

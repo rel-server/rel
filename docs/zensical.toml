@@ -11,11 +11,16 @@ extra_css = ["stylesheets/extra.css"]
 
 nav = [
   { "Home" = "index.md" },
-  { "Getting started" = "getting-started.md" },
+  { "Getting started" = [
+      { "Overview" = "getting-started/index.md" },
+      { "Run it manually" = "getting-started/run-it-manually.md" },
+      { "Docker deployment" = "getting-started/docker-deployment.md" },
+  ] },
   { "Example Database" = [
       { "Overview" = "example-database/index.md" },
       { "Launch it yourself" = "example-database/launch-it-yourself.md" },
       { "Database reference" = "example-database/reference.md" },
+      { "Example queries" = "example-database/example-queries.md" },
       { "Tables" = [
           { "chains" = "example-database/tables/chains.md" },
           { "properties" = "example-database/tables/properties.md" },
@@ -71,7 +76,6 @@ nav = [
       { "Overview" = "configuration/index.md" },
       { "Configuration reference" = "configuration/reference.md" },
       { "Best practices" = "configuration/best-practices.md" },
-      { "Docker deployment" = "configuration/docker-deployment.md" },
       { "Operations" = "configuration/operations.md" },
       { "Reload" = "configuration/reload.md" },
   ] },

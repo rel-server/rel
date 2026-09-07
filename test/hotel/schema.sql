@@ -295,3 +295,18 @@ create table hotel.staff (
   role text not null
 );
 comment on table hotel.staff is 'Property staff, self-referencing via manager_id - kept as the fixture''s instance of the self-join case from query-engine.md''s own worked example.';
+
+-- ---- anonymous access ----
+
+-- Lets rel itself (not query_bench, which connects directly via pg and
+-- never role-switches) serve unauthenticated requests against this schema —
+-- docs/content/getting-started.md's curl examples, and every example
+-- throughout docs/content/example-database/, run with no session at all.
+-- See docs/content/http/authentication.md ## Roles : without a real
+-- pg.query.anonymous_role role in the database, anonymous access is
+-- disabled outright and every unauthenticated request gets 401.
+create role "~anonymous";
+grant usage on schema hotel to "~anonymous";
+grant select, insert, update, delete on all tables in schema hotel to "~anonymous";
+grant usage on all sequences in schema hotel to "~anonymous";
+grant execute on all functions in schema hotel to "~anonymous";

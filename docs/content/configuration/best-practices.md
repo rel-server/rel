@@ -137,4 +137,4 @@ files, not something the base image carries. Build them into your own image rath
 bind-mounting them from a host directory at deploy time, and keep `/secrets` as the one
 directory that lives on a persistent volume. See [Docker deployment ## `/wellknown`, `/static`,
 `/template`, and reload.cmd: build them into your own
-image](docker-deployment.md#wellknown-static-template-and-reloadcmd-build-them-into-your-own-image).
+image](../getting-started/docker-deployment.md#wellknown-static-template-and-reloadcmd-build-them-into-your-own-image).

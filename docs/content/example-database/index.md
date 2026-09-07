@@ -23,3 +23,5 @@ dev fixture, so once you have the code checked out, bringing it up locally is on
   contents for every table's own page.
 - **[Launch it yourself](launch-it-yourself.md)** — checking out the repo, building rel, and
   bringing up this exact database against it.
+- **[Example queries](example-queries.md)** — a `curl`-able tour of the query language's
+  capabilities, run against this same schema.

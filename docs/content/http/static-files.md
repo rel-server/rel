@@ -110,3 +110,70 @@ The function's return value becomes the response body verbatim, with that domain
 the way a plain `HttpRequest.body` binary payload is. A route returning a `bytea`/binary
 mimetype domain must not also declare a `template` — rel disables it with a warning at
 discovery time, since Jet only ever renders text.
+
+## Serving binary files from the DB
+
+A route reading its bytes from a table instead of the filesystem works the same way — there's
+nothing upload-specific about a `bytea` column. Take a table storing property photos, one known
+format per row, and one column recording what that format actually is:
+
+```sql
+create table hotel.property_photos (
+  id bigint generated always as identity primary key,
+  property_id bigint not null references hotel.properties (id),
+  mime_type text not null,
+  data bytea not null
+);
+```
+
+**With a domain type**, when the route's own content type is fixed and known ahead of time —
+every photo normalized to JPEG on the way in, say — a plain-return function is the whole thing:
+
+```sql
+create domain "image/jpeg" as bytea;
+
+create function hotel.property_photo(req jsonb, id bigint) returns "image/jpeg"
+language plpgsql as $$
+declare
+  photo_data bytea;
+begin
+  select data into photo_data from hotel.property_photos where property_photos.id = id;
+  if not found then
+    raise exception 'Photo not found' using errcode = 'RS404';
+  end if;
+  return photo_data;
+end;
+$$;
+comment on function hotel.property_photo(jsonb, bigint) is 'route:: path: "/hotel/photos/{id}"';
+```
+
+**Without a domain type**, when the content type varies per row — `mime_type` above is a real
+column, not always the same format — a fixed-return-type domain can't express that; declare the
+full-control, two-`OUT`-column shape instead and set `resp.content_type` from the row itself:
+
+```sql
+create function hotel.property_photo_raw(req jsonb, id bigint, out resp jsonb, out content bytea)
+returns record language plpgsql as $$
+declare
+  photo hotel.property_photos;
+begin
+  select * into photo from hotel.property_photos where property_photos.id = id;
+  if not found then
+    raise exception 'Photo not found' using errcode = 'RS404';
+  end if;
+
+  resp := jsonb_build_object('content_type', photo.mime_type);
+  content := photo.data;
+end;
+$$;
+comment on function hotel.property_photo_raw(jsonb, bigint) is 'route:: path: "/hotel/photos/{id}/raw"';
+```
+
+`content`'s declared type here is plain `bytea` — with no domain to name a fixed `Content-Type`,
+it would otherwise resolve to the generic `application/octet-stream` (see [HTTP
+reference](reference.md#function-prototypes)); `resp.content_type` overrides that per request,
+straight from `photo.mime_type`. This is also the shape to reach for the moment a binary route
+needs anything else full-control brings — a `404` via `status` when the row doesn't exist rather
+than an unhandled exception, a `Cache-Control` header, an ETag for conditional requests — none
+of which a plain-return domain route can set. See [Requests and responses ##
+`HttpResponse`](requests-responses.md#httpresponse).

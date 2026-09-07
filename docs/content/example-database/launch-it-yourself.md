@@ -64,7 +64,7 @@ above, rel doesn't read `DATABASE_URL` itself:
 REL_PG__URI="$DATABASE_URL" go run ./cmd/rel
 ```
 
-rel is now serving on `:8080` — see [Getting started](../getting-started.md) for a first query
+rel is now serving on `:8080` — see [Getting started](../getting-started/index.md) for a first query
 against it.
 
 ## Building a binary instead of `go run`
@@ -78,5 +78,7 @@ REL_PG__URI="$DATABASE_URL" ./rel
 ```
 
 There's no separate `go install`-able module path yet — building from the checked-out repo, as
-above, is the only supported source build. See [Docker deployment](../configuration/docker-deployment.md)
-if you'd rather run rel from the published image than build it yourself.
+above, is the only supported source build. See [Run it
+manually](../getting-started/run-it-manually.md) for downloading a prebuilt binary or running
+rel from its published Docker image instead of building it yourself, or [Docker
+deployment](../getting-started/docker-deployment.md) for a realistic production setup.

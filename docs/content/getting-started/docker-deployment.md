@@ -5,7 +5,7 @@ icon: material/docker
 # Docker deployment
 
 rel ships as a small, non-root, scratch-based image (`rel-server/rel`), listening on `8080` and
-reading every setting from the environment the way [Configuration](index.md) describes. This
+reading every setting from the environment the way [Configuration](../configuration/index.md) describes. This
 walks through a realistic deployment: rel and Postgres in Docker, fronted by
 `jwilder/nginx-proxy` — a reverse proxy that watches the Docker socket and routes by a
 container's own `VIRTUAL_HOST` label — with automatic TLS via its companion,
@@ -92,7 +92,7 @@ A few things worth getting right:
   `jwt.secret` (and the SAML SP certificate/key, if configured) into `/secrets` on first boot
   and reuses them after — losing that volume on a redeploy silently invalidates every session
   and, for SAML, every IdP trust relationship. See [Secrets and generated
-  values](index.md#secrets-and-generated-values). This is the *only* directory rel itself
+  values](../configuration/index.md#secrets-and-generated-values). This is the *only* directory rel itself
   writes runtime state to, and the only one that belongs on a volume — see below.
 - `nginx-proxy` and `acme-companion` need to see the Docker socket to discover containers and
   their `VIRTUAL_HOST`/`LETSENCRYPT_*` labels — that's what the `docker.sock` mount is for,
@@ -114,7 +114,7 @@ COPY template /template
 ```
 
 The same goes for whatever `reload.cmd` itself needs — a migration tool's binary and its own
-migration files, say. `reload.cmd` names its own path directly (see [Reload](reload.md)), so
+migration files, say. `reload.cmd` names its own path directly (see [Reload](../configuration/reload.md)), so
 there's no fixed default directory to document here ; `COPY` it in at whatever path you choose,
 alongside `reload.cmd`'s own config value naming that path.
 

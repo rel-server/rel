@@ -171,7 +171,8 @@ inner one.
 - **[File uploads](uploads.md)** — receiving raw bytes, or streaming an upload straight to
   disk without routing its bytes through Postgres.
 - **[Static files](static-files.md)** — the root-level static fallback, masking it with a
-  declared route, and returning binary/text content directly from a route.
+  declared route, and returning binary/text content directly from a route — from the
+  filesystem or straight out of a table.
 - **[CORS and CSP](cors-csp.md)** — cross-origin access and the response security policy.
 - **[Authentication](authentication.md)** — sessions, OpenID Connect, SAML, and roles.
 
