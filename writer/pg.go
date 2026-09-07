@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/samber/oops"
 )
 
 // SQLWriter wraps *Writer with the Postgres-specific pieces : Write/Indent/
@@ -130,7 +132,7 @@ func (w *SQLWriter) ResolveArgs(paramValues map[string]any) ([]any, error) {
 		}
 		v, ok := paramValues[s.name]
 		if !ok {
-			return nil, fmt.Errorf("writer: no value supplied for $param %q", s.name)
+			return nil, oops.With("param", s.name).Errorf("writer: no value supplied for $param %q", s.name)
 		}
 		out[i] = v
 	}

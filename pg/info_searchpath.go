@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/samber/oops"
 )
 
 // FillSearchPath introspects the connecting role's resolved search path
@@ -26,7 +27,10 @@ import (
 // connection's actual search path, never a switched-to role's own.
 func FillSearchPath(infos *DbInfos, conn *pgx.Conn) error {
 	row := conn.QueryRow(context.Background(), INFO_QUERY_SEARCH_PATH)
-	return row.Scan(&infos.SearchPath)
+	if err := row.Scan(&infos.SearchPath); err != nil {
+		return oops.With("query", INFO_QUERY_SEARCH_PATH).Wrapf(err, "failed to introspect search path")
+	}
+	return nil
 }
 
 // current_schemas(true) : the already-$user-expanded, existence-filtered
