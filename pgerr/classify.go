@@ -23,9 +23,10 @@ const (
 	// TierUnclassified is the conservative default : Detail is nil, a
 	// caller gets only a generic message unless dev mode is on.
 	TierUnclassified Tier = iota
-	// TierConstraintViolation is unique/foreign_key/not_null/check, or a
-	// value that doesn't parse as its column's type (22P02) : the client's
-	// own data triggered this, so Detail is always safe to send.
+	// TierConstraintViolation is unique/foreign_key/not_null/check, a value
+	// that doesn't parse as its column's type (22P02), or a write naming a
+	// GENERATED ALWAYS column (428C9) : the client's own request triggered
+	// this, so Detail is always safe to send.
 	TierConstraintViolation
 	// TierPermissionDenied is insufficient_privilege : the object name
 	// Postgres embeds is a fingerprinting risk, generic unless dev mode is on.
@@ -64,6 +65,7 @@ var pgClassTable = map[string]classified{
 	"23502": {400, "PG_NOT_NULL_VIOLATION", TierConstraintViolation},
 	"23514": {400, "PG_CHECK_VIOLATION", TierConstraintViolation},
 	"22P02": {400, "PG_INVALID_TEXT_REPRESENTATION", TierConstraintViolation},
+	"428C9": {400, "PG_GENERATED_ALWAYS_VIOLATION", TierConstraintViolation},
 	"42501": {403, "PG_PERMISSION_DENIED", TierPermissionDenied},
 }
 

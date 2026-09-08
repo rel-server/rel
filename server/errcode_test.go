@@ -104,6 +104,28 @@ func TestRelHandler_CheckViolation_AlwaysClassified(t *testing.T) {
 	}
 }
 
+// TestRelHandler_ExplicitGeneratedColumnWrite_Classified proves naming a
+// STORED GENERATED column explicitly in a write's select (as opposed to
+// f3368df's own fix, which only covers own/full's IMPLICIT inclusion of one)
+// still fails cleanly — flagged_columns.tax is generated always as
+// (price * 0.2) stored.
+func TestRelHandler_ExplicitGeneratedColumnWrite_Classified(t *testing.T) {
+	rec := postRel(t, `{
+		"query": {
+			"relation": "flagged_columns", "schema": "public",
+			"select": {"id": "id", "code": "code", "price": "price", "tax": "tax"},
+			"write_mode": "insert"
+		},
+		"data": [{"code": "EXPLICIT-GENERATED-WRITE", "price": 100, "tax": 5}]
+	}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get(errcode.Header); got != "PG_GENERATED_ALWAYS_VIOLATION" {
+		t.Errorf("X-Rel-Errorcode = %q, want PG_GENERATED_ALWAYS_VIOLATION", got)
+	}
+}
+
 // TestRelHandler_UnclassifiedInternalError_DevGated : an ordinary 5xx gets
 // a generic message in production, full detail only under dev.
 func TestRelHandler_UnclassifiedInternalError_DevGated(t *testing.T) {
