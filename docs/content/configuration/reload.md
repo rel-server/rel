@@ -1,3 +1,7 @@
+---
+icon: material/sync
+---
+
 # Reload
 
 rel doesn't embed a migration tool. `reload.cmd` names whatever command you want run before

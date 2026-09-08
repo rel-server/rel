@@ -4,7 +4,7 @@ db_name := "hotel"
 db_user := "hotel"
 db_password := "test"
 
-image_registry := "ceymard/rel"
+image_registry := "rel-server/rel"
 version := `git describe --tags --always --dirty`
 
 # Run the full test suite (testcontainers spins up its own throwaway Postgres
