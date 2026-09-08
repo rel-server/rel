@@ -777,6 +777,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#bundled-with-dmut" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bundled with dmut
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2698,6 +2709,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#bundled-with-dmut" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bundled with dmut
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2787,7 +2809,7 @@
 
 
 <h1 id="docker-deployment">Docker deployment<a class="headerlink" href="#docker-deployment" title="Permanent link">&para;</a></h1>
-<p>rel ships as a small, non-root, scratch-based image (<code>rel-server/rel</code>), listening on <code>8080</code> and
+<p>rel ships as a small, non-root, scratch-based image (<code>ghcr.io/rel-server/rel</code>), listening on <code>8080</code> and
 reading every setting from the environment the way <a href="../../configuration/">Configuration</a> describes. This
 walks through a realistic deployment: rel and Postgres in Docker, fronted by
 <code>jwilder/nginx-proxy</code> — a reverse proxy that watches the Docker socket and routes by a
@@ -2883,7 +2905,7 @@ part of what version of your app is running, exactly like the schema they query 
 Bind-mounting them from the host (<code>./wellknown:/wellknown:ro</code>) works for local development,
 but for a real deployment, build your own image <code>FROM rel-server/rel</code> and <code>COPY</code> them in
 instead:</p>
-<div class="language-dockerfile highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">FROM</span><span class="w"> </span><span class="s">rel-server/rel:latest</span>
+<div class="language-dockerfile highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">FROM</span><span class="w"> </span><span class="s">ghcr.io/rel-server/rel:latest</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">COPY</span><span class="w"> </span>wellknown<span class="w"> </span>/wellknown
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">COPY</span><span class="w"> </span>static<span class="w"> </span>/static
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">COPY</span><span class="w"> </span>template<span class="w"> </span>/template
@@ -2920,9 +2942,20 @@ image — which directory in the list is writable, if any, is a decision about y
 deployment, not something rel's base image should assume for you.</p>
 <p>The compose file above assumes <code>your-registry/your-app:latest</code> is already sitting in a registry
 <code>docker-compose pull</code>/<code>docker-compose up</code> can reach. <code>just image</code> builds the plain
-<code>rel-server/rel</code> base image (tags it <code>rel-server/rel:&lt;version&gt;</code> and <code>:latest</code>, <code>&lt;version&gt;</code> from <code>git
+<code>ghcr.io/rel-server/rel</code> base image (tags it <code>&lt;version&gt;</code> and <code>latest</code>, <code>&lt;version&gt;</code> from <code>git
 describe</code>) and <code>just upload</code> pushes it — useful as the <code>FROM</code> your own app's image builds on
 top of, not something you deploy directly once you have app-specific assets to bake in.</p>
+<p><code>ghcr.io/rel-server/rel</code> and <code>ghcr.io/rel-server/rel-dmut</code> also publish a rolling <code>main</code> tag,
+rebuilt on every push to this repo's <code>main</code> branch, alongside the version-tagged releases —
+useful for tracking the latest unreleased build, not recommended for production.</p>
+<h2 id="bundled-with-dmut">Bundled with dmut<a class="headerlink" href="#bundled-with-dmut" title="Permanent link">&para;</a></h2>
+<p><code>ghcr.io/rel-server/rel-dmut</code> (built from <code>Dockerfile.dmut</code>) bundles <a href="https://github.com/ceymard/dmut">dmut</a>
+alongside rel in the same image and presets <code>reload.cmd</code> to run <code>dmut apply</code> against <code>/sql</code> on
+every reload — see <a href="../../configuration/reload/#using-dmut">Reload</a>. Build your own image <code>FROM
+ghcr.io/rel-server/rel-dmut</code> and <code>COPY</code> your migration files to <code>/sql</code> (or wherever
+<code>DMUT_MUTATIONS_PATH</code> points), the same way the base <code>rel</code> image expects <code>/wellknown</code>,
+<code>/static</code>, and <code>/template</code> to be baked in above. <code>just image-dmut</code>/<code>just upload-dmut</code> build and
+push it the same way <code>just image</code>/<code>just upload</code> do for the base image.</p>
 
 
 

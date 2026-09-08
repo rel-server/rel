@@ -2848,13 +2848,18 @@ a straggler can't hold a Postgres lock indefinitely against <code>reload.cmd</co
 its registries, it just runs nothing beforehand.</p>
 <h2 id="command-line-and-interpolation">Command line and interpolation<a class="headerlink" href="#command-line-and-interpolation" title="Permanent link">&para;</a></h2>
 <p><code>reload.cmd</code> is a single string, split into arguments with shell-style word-splitting/quoting
-rules (so quote an argument that contains spaces). Before splitting, <code>{name}</code>/<code>{name:default}</code>
-placeholders are substituted :</p>
+rules (so quote an argument that contains spaces). Before splitting,
+<code>{name}</code>/<code>{name1:name2:...:default}</code> placeholders are substituted :</p>
 <ul>
 <li><code>{name}</code>, when <code>name</code> contains a <code>.</code>, resolves it as a configuration key — e.g. <code>{pg.uri}</code>.
   Otherwise it resolves as an environment variable — e.g. <code>{HOME}</code>.</li>
-<li><code>{name:default}</code> falls back to the literal <code>default</code> when <code>name</code> is unresolved.</li>
 <li><code>{name}</code> with no default and an unresolved <code>name</code> is an error — <code>reload.cmd</code> never runs.</li>
+<li><code>{name1:name2:...:default}</code> tries each <code>name</code> in order (same dotted-config-key/env-var rule as
+  above) and substitutes the first one that resolves to a non-empty value. An unset name, or one
+  that resolves to an empty string, is skipped in favor of the next candidate.</li>
+<li>The last segment is always a literal fallback, never resolved as a name — e.g. in
+  <code>{DMUT_USER:pg.user:user}</code>, <code>user</code> is used as-is if neither <code>DMUT_USER</code> nor <code>pg.user</code> resolve
+  to a non-empty value.</li>
 </ul>
 <p>A substituted value is inserted as raw text, not as a pre-quoted token — wrap it in quotes
 within <code>reload.cmd</code> if it may contain spaces:</p>
@@ -2895,6 +2900,9 @@ reload" model, since a run against an already-applied schema is a cheap no-op. A
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>just<span class="w"> </span>test-db-migrate<span class="w">   </span><span class="c1"># dmut apply against the dev database</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>just<span class="w"> </span>test-db-fresh<span class="w">     </span><span class="c1"># tear down, bring up Postgres, migrate, and seed in one shot</span>
 </span></code></pre></div>
+<p><code>ghcr.io/rel-server/rel-dmut</code> bundles dmut alongside rel in one image and presets <code>reload.cmd</code>
+to run it against <code>/sql</code> (override with <code>DMUT_MUTATIONS_PATH</code>) — see <a href="../../getting-started/docker-deployment/#bundled-with-dmut">Docker
+deployment</a>.</p>
 
 
 
