@@ -585,6 +585,41 @@ func TestExecuteWriteStateParamsStats_Delete(t *testing.T) {
 	}
 }
 
+// TestExecuteWrite_ReadonlyNestedChild_NeverWrittenOrInStats proves a
+// write_mode:"readonly" nested relation is skipped entirely — never written
+// to, and absent from stats — per complex-query.md ## stats's own rule
+// ("A relation marked write_mode: readonly (or nested under one) never
+// appears here, same as it never gets written to"), previously untested at
+// the nested level.
+func TestExecuteWrite_ReadonlyNestedChild_NeverWrittenOrInStats(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"write_mode": "insert",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "readonly", "select": ["own"]}}
+	}`)
+	payload := []byte(`[{"name": "Readonly Nested Director", "movies": [{"title": "Should Never Be Written"}]}]`)
+
+	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
+	if err != nil {
+		t.Fatalf("ExecuteWriteStateParamsStats: %v", err)
+	}
+	if len(result.Stats) != 1 || result.Stats[0].Table != "public.director" {
+		t.Fatalf("expected exactly 1 Stat (director only, readonly movies excluded), got %#v", result.Stats)
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from movie where title = 'Should Never Be Written'`).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected the readonly-nested payload to write nothing, got count=%d", count)
+	}
+}
+
 func TestExecuteWrite_MergeDeletesAbsentRows(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -775,6 +810,53 @@ func TestExecuteWrite_MergeNewLeavesExistingUntouched(t *testing.T) {
 	}
 }
 
+// TestExecuteWrite_UpsertParentInsertOnlyChild proves a parent/child
+// write_mode PAIR neither existing test uses — root "upsert" (rather than
+// plain insert/update) with a to-many child left at plain "insert" (rather
+// than merge/merge-new, so it neither dedupes against nor deletes an
+// existing sibling) — applies independently per level : the pre-existing
+// movie must survive untouched, and the payload's new movie must land
+// alongside it, not replace it.
+func TestExecuteWrite_UpsertParentInsertOnlyChild(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var directorID int
+	if err := conn.QueryRow(ctx, `insert into director (name) values ('Mixed Modes Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Pre-Existing Movie')`, directorID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"write_mode": "upsert",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"], "write_mode": "insert"}}
+	}`)
+	payload := fmt.Appendf(nil, `[{"id": %d, "name": "Mixed Modes Director", "movies": [{"title": "Newly Inserted Movie"}]}]`, directorID)
+
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `select count(*) from movie where director_id = $1`, directorID).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected both the pre-existing and the newly inserted movie (insert-only child never deletes absent rows), got count=%d", count)
+	}
+	var preExistingStillThere bool
+	if err := conn.QueryRow(ctx, `select exists(select 1 from movie where director_id = $1 and title = 'Pre-Existing Movie')`, directorID).Scan(&preExistingStillThere); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if !preExistingStillThere {
+		t.Error("expected the pre-existing movie left untouched by the insert-only child")
+	}
+}
+
 func TestExecuteWrite_DefaultValueOmitted(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -912,6 +994,52 @@ func TestExecuteWrite_CompositeSubFieldUpsert(t *testing.T) {
 
 // TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected proves a
 // composite column whole plus one of its own sub-fields is rejected by Postgres itself, not a check this package duplicates.
+// TestExecuteWrite_CompositeSubFieldWithNestedChild proves a composite
+// sub-field write (venue.home.city) and a nested to-many child in the same
+// request don't interfere with each other's column resolution — no
+// existing composite-sub-field test also writes a nested child.
+func TestExecuteWrite_CompositeSubFieldWithNestedChild(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{
+		"relation": "venue", "schema": "public",
+		"select": {"id": "id", "name": "name", "city": [".", "home", "city"], "amenities": "amenities"},
+		"write_mode": "insert",
+		"join": {"amenities": {"relation": "venue_amenity", "schema": "public", "on": {"venue_id": "id"}, "write_mode": "insert", "select": ["own"]}}
+	}`)
+	payload := []byte(`[{"name": "Composite Nested Venue", "city": "Nested City", "amenities": [{"name": "Pool"}, {"name": "Gym"}]}]`)
+
+	result, err := ExecuteWrite(ctx, conn, node, payload)
+	if err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+	amenityNode := node.IncomingNodes[0]
+	amenityKeys := dataKeysFor(t, conn, result.NodeIDs[amenityNode])
+	if len(amenityKeys) != 2 {
+		t.Fatalf("expected 2 amenity keys rows, got %d : %#v", len(amenityKeys), amenityKeys)
+	}
+
+	var city string
+	var amenityCount int
+	if err := conn.QueryRow(ctx, `select (home).city from venue where name = 'Composite Nested Venue'`).Scan(&city); err != nil {
+		t.Fatalf("select back venue: %v", err)
+	}
+	if err := conn.QueryRow(ctx, `
+		select count(*) from venue_amenity va
+		join venue v on v.id = va.venue_id
+		where v.name = 'Composite Nested Venue'
+	`).Scan(&amenityCount); err != nil {
+		t.Fatalf("select back amenities: %v", err)
+	}
+	if city != "Nested City" {
+		t.Errorf("expected home.city=\"Nested City\", got %q", city)
+	}
+	if amenityCount != 2 {
+		t.Errorf("expected 2 amenities linked to the new venue, got %d", amenityCount)
+	}
+}
+
 func TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()

@@ -200,6 +200,16 @@ create table venue (
 	metadata jsonb
 );
 
+-- venue's child, purely so a composite sub-field write (venue.home/work) can
+-- be exercised alongside a nested child in the same request — no fixture
+-- table combined the two before.
+create table venue_amenity (
+	id serial primary key,
+	venue_id int not null references venue (id),
+	name text not null
+);
+create index idx_venue_amenity_venue on venue_amenity (venue_id);
+
 -- domain over a composite type, used as a FIELD of another composite type
 -- (not a top-level table column) : information_schema.columns' udt_name
 -- already reports a domain-typed table COLUMN's base type directly, so
