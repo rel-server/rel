@@ -190,6 +190,65 @@ func TestComplexQuery_Stats_OnWrite(t *testing.T) {
 	}
 }
 
+// TestComplexQuery_Stats_OnNestedWrite proves `stats` reports one entry per
+// writable relation touched, each with its own join-key `path` — mirroring
+// specs/complex-query.md ## stats's own nested example (there, a two-level
+// hotel.properties/room_types upsert) — TestComplexQuery_Stats_OnWrite only
+// ever covers a single flat table, never a join.
+func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
+	rec := postRelTo(t, handler, `{
+		"query": {
+			"relation": "director", "schema": "public",
+			"select": {"id": "id", "name": "name", "movies": "movies"},
+			"write_mode": "insert",
+			"join": {"movies": {
+				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+				"write_mode": "insert", "select": ["own"]
+			}}
+		},
+		"data": [{"name": "Nested Stats Director", "movies": [{"title": "Nested Stats Movie"}]}],
+		"stats": true
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Stats []struct {
+			Path      []string `json:"path"`
+			Table     string   `json:"table"`
+			Submitted int      `json:"submitted"`
+			Inserted  int      `json:"inserted"`
+		} `json:"stats"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	}
+	if len(env.Stats) != 2 {
+		t.Fatalf("expected 2 Stat entries (director + movies), got %d : %#v", len(env.Stats), env.Stats)
+	}
+	byTable := map[string]struct {
+		Path      []string
+		Submitted int
+		Inserted  int
+	}{}
+	for _, s := range env.Stats {
+		byTable[s.Table] = struct {
+			Path      []string
+			Submitted int
+			Inserted  int
+		}{s.Path, s.Submitted, s.Inserted}
+	}
+	director, ok := byTable["public.director"]
+	if !ok || len(director.Path) != 0 || director.Submitted != 1 || director.Inserted != 1 {
+		t.Errorf("expected public.director stat with path=[] submitted=1 inserted=1, got %#v", byTable["public.director"])
+	}
+	movie, ok := byTable["public.movie"]
+	if !ok || len(movie.Path) != 1 || movie.Path[0] != "movies" || movie.Submitted != 1 || movie.Inserted != 1 {
+		t.Errorf(`expected public.movie stat with path=["movies"] submitted=1 inserted=1, got %#v`, byTable["public.movie"])
+	}
+}
+
 // TestComplexQuery_StatsQueryPlanConflict proves the two are rejected
 // together on a write.
 func TestComplexQuery_StatsQueryPlanConflict(t *testing.T) {
