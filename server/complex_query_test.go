@@ -249,6 +249,44 @@ func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
 	}
 }
 
+// TestComplexQuery_Write_ReturnsEmbeddedChild proves a write's read-back
+// result actually embeds a joined child relation, not just that the SQL
+// compiles (query.TestCompileSelectForDataNode_WithEmbeddedChild only
+// checks compilation) — end to end, through the real HTTP response.
+func TestComplexQuery_Write_ReturnsEmbeddedChild(t *testing.T) {
+	handler := complexHandler(t, nil)
+	rec := postRelTo(t, handler, `{
+		"query": {
+			"relation": "director", "schema": "public",
+			"select": {"id": "id", "name": "name", "movies": "movies"},
+			"write_mode": "insert",
+			"join": {"movies": {
+				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+				"write_mode": "insert", "select": ["own"]
+			}}
+		},
+		"data": [{"name": "Returns Expand Director", "movies": [{"title": "Returns Expand Movie"}]}]
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 result row, got %d : %s", len(rows), rec.Body.String())
+	}
+	if rows[0]["name"] != "Returns Expand Director" {
+		t.Fatalf("expected the written director's own name in the result, got %#v", rows[0])
+	}
+	movies, ok := rows[0]["movies"].([]any)
+	if !ok || len(movies) != 1 {
+		t.Fatalf("expected result[0].movies to embed 1 written movie, got %#v", rows[0]["movies"])
+	}
+	movie, ok := movies[0].(map[string]any)
+	if !ok || movie["title"] != "Returns Expand Movie" {
+		t.Fatalf("expected the embedded movie's own title, got %#v", movies[0])
+	}
+}
+
 // TestComplexQuery_StatsQueryPlanConflict proves the two are rejected
 // together on a write.
 func TestComplexQuery_StatsQueryPlanConflict(t *testing.T) {
@@ -351,6 +389,59 @@ func TestComplexQuery_Rollback_UndoesWrite(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected the row NOT persisted after rollback, got count=%d", count)
+	}
+}
+
+// TestComplexQuery_Rollback_UndoesNestedWrite proves rollback:true undoes
+// EVERY level of a nested write, not just the root — the existing rollback
+// test only ever writes a single flat table.
+func TestComplexQuery_Rollback_UndoesNestedWrite(t *testing.T) {
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowRollback, c.Pg.Query.AllowStats = true, true })
+	rec := postRelTo(t, handler, `{
+		"query": {
+			"relation": "director", "schema": "public",
+			"select": {"id": "id", "name": "name", "movies": "movies"},
+			"write_mode": "insert",
+			"join": {"movies": {
+				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
+				"write_mode": "insert", "select": ["own"]
+			}}
+		},
+		"data": [{"name": "Nested Rollback Director", "movies": [{"title": "Nested Rollback Movie"}]}],
+		"stats": true,
+		"rollback": true
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Stats []struct {
+			Table    string `json:"table"`
+			Inserted int    `json:"inserted"`
+		} `json:"stats"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	}
+	if len(env.Stats) != 2 {
+		t.Fatalf("expected stats to still report both levels despite the rollback, got %#v", env.Stats)
+	}
+	for _, s := range env.Stats {
+		if s.Inserted != 1 {
+			t.Errorf("expected inserted=1 for %s, got %#v", s.Table, s)
+		}
+	}
+
+	ctx := context.Background()
+	var directorCount, movieCount int
+	if err := testDb.Pool.QueryRow(ctx, `select count(*) from director where name = 'Nested Rollback Director'`).Scan(&directorCount); err != nil {
+		t.Fatalf("select back director: %v", err)
+	}
+	if err := testDb.Pool.QueryRow(ctx, `select count(*) from movie where title = 'Nested Rollback Movie'`).Scan(&movieCount); err != nil {
+		t.Fatalf("select back movie: %v", err)
+	}
+	if directorCount != 0 || movieCount != 0 {
+		t.Fatalf("expected neither level persisted after rollback, got director=%d movie=%d", directorCount, movieCount)
 	}
 }
 
