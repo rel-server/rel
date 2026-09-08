@@ -72,6 +72,38 @@ func TestRelHandler_UniqueViolation_AlwaysClassified(t *testing.T) {
 	}
 }
 
+// TestRelHandler_ForeignKeyViolation_AlwaysClassified proves a real FK
+// violation classifies end to end — pgerr/classify_test.go only ever checks
+// 23503 against a synthetic pgconn.PgError, never through an actual write.
+func TestRelHandler_ForeignKeyViolation_AlwaysClassified(t *testing.T) {
+	rec := postRel(t, `{
+		"query": {"relation": "movie", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"data": [{"title": "FK Violation Movie", "director_id": 999999999}]
+	}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get(errcode.Header); got != "PG_FOREIGN_KEY_VIOLATION" {
+		t.Errorf("X-Rel-Errorcode = %q, want PG_FOREIGN_KEY_VIOLATION", got)
+	}
+}
+
+// TestRelHandler_CheckViolation_AlwaysClassified proves a real CHECK
+// violation classifies end to end — pgerr/classify_test.go only ever checks
+// 23514 against a synthetic pgconn.PgError, never through an actual write.
+func TestRelHandler_CheckViolation_AlwaysClassified(t *testing.T) {
+	rec := postRel(t, `{
+		"query": {"relation": "checked_t", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"data": [{"amount": -1}]
+	}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get(errcode.Header); got != "PG_CHECK_VIOLATION" {
+		t.Errorf("X-Rel-Errorcode = %q, want PG_CHECK_VIOLATION", got)
+	}
+}
+
 // TestRelHandler_UnclassifiedInternalError_DevGated : an ordinary 5xx gets
 // a generic message in production, full detail only under dev.
 func TestRelHandler_UnclassifiedInternalError_DevGated(t *testing.T) {

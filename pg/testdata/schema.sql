@@ -181,6 +181,11 @@ as $$ select director_id, count(*) from movie group by director_id $$;
 -- when unspecified and there's no PK to default to
 create table no_pk_t (a int, b int);
 
+-- CHECK constraint fixture : no other table in this schema carries one, so
+-- a write's CHECK violation (23514) was previously only ever classified
+-- against a synthetic pgconn.PgError, never driven through a real write.
+create table checked_t (id serial primary key, amount int not null check (amount > 0));
+
 -- pass 2 fixtures : a composite type used by two distinct columns
 -- (regression : the same *pg.Column pointer is reachable via either
 -- column's composite navigation, so occurrence-counting/extraction must key
