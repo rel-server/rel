@@ -1054,6 +1054,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-three-level-nested-write-safe-to-run-over-and-over" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A three-level nested write, safe to run over and over
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#reaching-into-a-composite-typed-column" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2727,6 +2738,8 @@
         
   
   
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18a6 6 0 0 1-6-6c0-1 .25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12a8 8 0 0 0 8 8v3l4-4-4-4m0-11V1L8 5l4 4V6a6 6 0 0 1 6 6c0 1-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12a8 8 0 0 0-8-8"/></svg>
+  
   <span class="md-ellipsis">
     
   
@@ -2880,6 +2893,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Filtering an array column
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-three-level-nested-write-safe-to-run-over-and-over" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A three-level nested write, safe to run over and over
       </span>
     </span>
   </a>
@@ -3136,18 +3160,84 @@ array) or named (an object, as above), never both.</p>
 </span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="s1">    "select": { "id": "id", "room_number": "room_number", "features": "features" }</span>
 </span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="s1">  }'</span>
 </span></code></pre></div>
-<h2 id="reaching-into-a-composite-typed-column">Reaching into a composite-typed column<a class="headerlink" href="#reaching-into-a-composite-typed-column" title="Permanent link">&para;</a></h2>
-<p><code>guests.billing_address</code> is a composite column (<code>hotel.address</code>), not a join — <code>.</code> reaches into
-one of its fields the same way it flattens a joined relation's column:</p>
+<h2 id="a-three-level-nested-write-safe-to-run-over-and-over">A three-level nested write, safe to run over and over<a class="headerlink" href="#a-three-level-nested-write-safe-to-run-over-and-over" title="Permanent link">&para;</a></h2>
+<p>Create a chain, one of its properties, and that property's room types in a single request —
+<code>properties</code> and <code>room_types</code> carry no <code>id</code>, since neither exists yet. <code>chains</code> defaults to
+<code>insert</code>-only as the root relation, so it's overridden to <code>upsert</code>, matched by its unique <code>name</code>
+instead of the default primary key : a repeat of this exact request finds the same chain by name
+and updates it in place rather than hitting a duplicate-key error. <code>properties</code> is overridden to
+plain <code>insert</code> too, instead of its default <code>merge</code> — an incoming join's <code>merge</code> (and, despite the
+name, <code>merge-new</code> as well) deletes whatever the payload leaves out, which would wipe out every
+property already sitting under this chain from an earlier run ; plain <code>insert</code> has no delete
+component at all, so firing the same request any number of times never fails and never removes
+anything — it just adds one more property (and its own room types) under the same chain each
+time. <code>room_type_count</code> is a plain read alongside the write, aggregating over the very relation
+the request just inserted into:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>curl<span class="w"> </span>http://localhost:8080/rel<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="s1">    "relation": "guests",</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="s1">    "schema": "hotel",</span>
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="s1">    "where": ["is_not_null", "billing_address"],</span>
-</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="s1">    "limit": 3,</span>
-</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="s1">    "select": { "id": "id", "email": "email", "city": [".", "billing_address", "city"] }</span>
-</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="s1">  }'</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="s1">    "query": {</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="s1">      "relation": "chains",</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="s1">      "schema": "hotel",</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="s1">      "write_mode": "upsert",</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="s1">      "on_conflict": ["name"],</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="s1">      "join": {</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="s1">        "properties": {</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="s1">          "relation": "properties",</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="s1">          "schema": "hotel",</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="s1">          "on": { "chain_id": "id" },</span>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="s1">          "write_mode": "insert",</span>
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="s1">          "join": {</span>
+</span><span id="__span-10-16"><a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="s1">            "room_types": { "relation": "room_types", "schema": "hotel", "on": { "property_id": "id" } }</span>
+</span><span id="__span-10-17"><a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="s1">          },</span>
+</span><span id="__span-10-18"><a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a><span class="s1">          "select": {</span>
+</span><span id="__span-10-19"><a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="s1">            "id": "id",</span>
+</span><span id="__span-10-20"><a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a><span class="s1">            "chain_id": "chain_id",</span>
+</span><span id="__span-10-21"><a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a><span class="s1">            "name": "name",</span>
+</span><span id="__span-10-22"><a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a><span class="s1">            "star_rating": "star_rating",</span>
+</span><span id="__span-10-23"><a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a><span class="s1">            "room_types": "room_types",</span>
+</span><span id="__span-10-24"><a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a><span class="s1">            "room_type_count": ["agg", "count", [[".", "room_types", "id"]]]</span>
+</span><span id="__span-10-25"><a id="__codelineno-10-25" name="__codelineno-10-25" href="#__codelineno-10-25"></a><span class="s1">          }</span>
+</span><span id="__span-10-26"><a id="__codelineno-10-26" name="__codelineno-10-26" href="#__codelineno-10-26"></a><span class="s1">        }</span>
+</span><span id="__span-10-27"><a id="__codelineno-10-27" name="__codelineno-10-27" href="#__codelineno-10-27"></a><span class="s1">      },</span>
+</span><span id="__span-10-28"><a id="__codelineno-10-28" name="__codelineno-10-28" href="#__codelineno-10-28"></a><span class="s1">      "select": { "id": "id", "name": "name", "properties": "properties" }</span>
+</span><span id="__span-10-29"><a id="__codelineno-10-29" name="__codelineno-10-29" href="#__codelineno-10-29"></a><span class="s1">    },</span>
+</span><span id="__span-10-30"><a id="__codelineno-10-30" name="__codelineno-10-30" href="#__codelineno-10-30"></a><span class="s1">    "data": [{</span>
+</span><span id="__span-10-31"><a id="__codelineno-10-31" name="__codelineno-10-31" href="#__codelineno-10-31"></a><span class="s1">      "name": "Example Group",</span>
+</span><span id="__span-10-32"><a id="__codelineno-10-32" name="__codelineno-10-32" href="#__codelineno-10-32"></a><span class="s1">      "properties": [{</span>
+</span><span id="__span-10-33"><a id="__codelineno-10-33" name="__codelineno-10-33" href="#__codelineno-10-33"></a><span class="s1">        "name": "Example Group Riverside",</span>
+</span><span id="__span-10-34"><a id="__codelineno-10-34" name="__codelineno-10-34" href="#__codelineno-10-34"></a><span class="s1">        "star_rating": 4,</span>
+</span><span id="__span-10-35"><a id="__codelineno-10-35" name="__codelineno-10-35" href="#__codelineno-10-35"></a><span class="s1">        "room_types": [</span>
+</span><span id="__span-10-36"><a id="__codelineno-10-36" name="__codelineno-10-36" href="#__codelineno-10-36"></a><span class="s1">          { "name": "Standard", "base_price": "129.00", "capacity": 2 },</span>
+</span><span id="__span-10-37"><a id="__codelineno-10-37" name="__codelineno-10-37" href="#__codelineno-10-37"></a><span class="s1">          { "name": "Suite", "base_price": "249.00", "capacity": 4 }</span>
+</span><span id="__span-10-38"><a id="__codelineno-10-38" name="__codelineno-10-38" href="#__codelineno-10-38"></a><span class="s1">        ]</span>
+</span><span id="__span-10-39"><a id="__codelineno-10-39" name="__codelineno-10-39" href="#__codelineno-10-39"></a><span class="s1">      }]</span>
+</span><span id="__span-10-40"><a id="__codelineno-10-40" name="__codelineno-10-40" href="#__codelineno-10-40"></a><span class="s1">    }]</span>
+</span><span id="__span-10-41"><a id="__codelineno-10-41" name="__codelineno-10-41" href="#__codelineno-10-41"></a><span class="s1">  }'</span>
+</span></code></pre></div>
+<p><code>room_types</code> has no explicit <code>select</code>, so it defaults to every column (including its own <code>id</code>) —
+leaving <code>id</code> out, the way <a href="../../query-language/writing/#writability-rules">Writability rules</a>
+warns against, would make <code>room_types</code> unwritable and reject the whole request instead of only
+skipping that one relation. Run the request once and a brand-new chain, property, and pair of
+room types appear ; run it again — or ten more times — and it matches the existing chain by name,
+adds another <code>Example Group Riverside</code> under it with its own two room types, and reports
+<code>room_type_count: 2</code> every time, with nothing to clean up between runs. See <a href="../../query-language/writing/#write-order">Write
+order</a> for why a property's <code>id</code>, generated only during
+this same write, is already available to the <code>room_types</code> rows nested under it — the same
+mechanism that threads the chain's own <code>id</code> (freshly generated the first run, matched by name on
+every run after) down into <code>chain_id</code> on each property.</p>
+<h2 id="reaching-into-a-composite-typed-column">Reaching into a composite-typed column<a class="headerlink" href="#reaching-into-a-composite-typed-column" title="Permanent link">&para;</a></h2>
+<p><code>guests.billing_address</code> is a composite column (<code>hotel.address</code>), not a join — <code>.</code> reaches into
+one of its fields the same way it flattens a joined relation's column:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>curl<span class="w"> </span>http://localhost:8080/rel<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="s1">    "relation": "guests",</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="s1">    "schema": "hotel",</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="s1">    "where": ["is_not_null", "billing_address"],</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="s1">    "limit": 3,</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="s1">    "select": { "id": "id", "email": "email", "city": [".", "billing_address", "city"] }</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 
 

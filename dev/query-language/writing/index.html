@@ -2625,6 +2625,8 @@
         
   
   
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18a6 6 0 0 1-6-6c0-1 .25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12a8 8 0 0 0 8 8v3l4-4-4-4m0-11V1L8 5l4 4V6a6 6 0 0 1 6 6c0 1-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12a8 8 0 0 0-8-8"/></svg>
+  
   <span class="md-ellipsis">
     
   
@@ -2814,9 +2816,10 @@
 
 <h1 id="writing-data-back">Writing data back<a class="headerlink" href="#writing-data-back" title="Permanent link">&para;</a></h1>
 <p>Send <code>{"query": &lt;Relation&gt;, "data": &lt;payload&gt;}</code> — a <code>ComplexQuery</code> — instead of a bare <code>Relation</code>
-to write. <code>data</code> must be shaped like what <code>query</code>'s own <code>select</code> would produce — the same object
-(or array of objects, for the root or an incoming join) you'd get back from reading, edited in
-place. rel denormalizes it back down to one row per relation the query touched and applies each
+to write. <code>data</code> must be shaped like what <code>query</code>'s own <code>select</code> would produce, edited in place :
+an array of rows at the root and at any incoming join (reading either back always returns an
+array), a single object at an outgoing join (reading it back returns one row, never an array).
+rel denormalizes it back down to one row per relation the query touched and applies each
 relation's own <code>write_mode</code>:</p>
 <p><code>ComplexQuery</code> also carries five flags — <code>returns</code>, <code>count</code>, <code>stats</code>, <code>query_plan</code>, <code>sql</code>, and
 <code>rollback</code> — that shape what the response carries beyond the written-back selection, and work on
@@ -2832,7 +2835,7 @@ a plain read too (just omit <code>data</code>). See <a href="../complex-query/">
 <tbody>
 <tr>
 <td><code>insert</code></td>
-<td>insert new rows only</td>
+<td>insert new rows only, never update or delete</td>
 <td>the root relation</td>
 </tr>
 <tr>
@@ -2847,12 +2850,12 @@ a plain read too (just omit <code>data</code>). See <a href="../complex-query/">
 </tr>
 <tr>
 <td><code>merge-new</code></td>
-<td>insert new only, ignore rows that already exist</td>
+<td>insert new, ignore rows that already exist, delete rows missing from the payload</td>
 <td>—</td>
 </tr>
 <tr>
 <td><code>merge-update</code></td>
-<td>update matching only, ignore new rows</td>
+<td>update matching rows, ignore new rows, delete rows missing from the payload</td>
 <td>—</td>
 </tr>
 <tr>
@@ -2875,7 +2878,9 @@ a plain read too (just omit <code>data</code>). See <a href="../complex-query/">
 <p><code>merge</code>/<code>merge-new</code>/<code>merge-update</code>/<code>deleteonly</code> all delete rows the payload didn't mention, so
 they're only legal on an incoming relation (see <a href="../joining/">Joining and embedding
 relations</a>) — there's no coherent "rows missing from the payload" for an outgoing
-one, since the referenced row isn't exclusively owned by the one pointing at it. <code>on_conflict</code>
+one, since the referenced row isn't exclusively owned by the one pointing at it. <code>insert</code> is the
+only mode in this table with no delete component at all — reach for it, not <code>merge-new</code>, when a
+nested write must never remove a sibling row it didn't mention. <code>on_conflict</code>
 names the constraint (by name, or by its column list) used to detect an existing row on
 insert/upsert/merge; it defaults to the relation's primary key. <code>insert_columns</code>/
 <code>update_columns</code> narrow which columns a write actually touches, beyond whatever <code>select</code>
@@ -2952,11 +2957,11 @@ is to rename a property and reprice one of its room types:</p>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="p">},</span>
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">"select"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"id"</span><span class="p">,</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"name"</span><span class="p">,</span><span class="w"> </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="s2">"room_types"</span><span class="w"> </span><span class="p">}</span>
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nt">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nt">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
 </span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
 </span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span>
 </span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Deluxe"</span><span class="p">,</span><span class="w"> </span><span class="nt">"base_price"</span><span class="p">:</span><span class="w"> </span><span class="s2">"219.00"</span><span class="w"> </span><span class="p">}]</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="p">}]</span>
 </span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="p">}</span>
 </span></code></pre></div>
 <p><code>room_types.select</code> never includes <code>id</code> — its identity column — so <code>room_types</code> isn't writable
