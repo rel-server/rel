@@ -16,13 +16,13 @@ REL_RELOAD__CMD=/dmut apply "postgres://{DMUT_USER:pg.user:user}:{DMUT_PASSWORD:
 
 `DMUT_MUTATIONS_PATH` (default `/sql`) holds the migration files dmut applies. It is not declared as a Dockerfile `VOLUME` : bind-mounted over during development, its contents are copied into the image for deployment. dmut only reads from it and only opens outbound network connections to Postgres — no other filesystem writes — so it runs as the same non-root `USER 1000:1000` as rel.
 
-The image is published to `ghcr.io/rel-server/rel-dmut`, not Docker Hub. It is wired into `.goreleaser.yaml`'s `dockers:` section, using `docker buildx build --platform=$BUILDPLATFORM` with `GOOS=$TARGETOS`/`GOARCH=$TARGETARCH` inside the build stage for multi-arch cross-compilation, rather than `Dockerfile.goreleaser`'s pattern of taking a precompiled `rel` binary as build context. A `justfile` command also builds and pushes it.
+The image is published to `ghcr.io/rel-server/rel-dmut`, not Docker Hub, using `docker buildx build --platform=$BUILDPLATFORM` with `GOOS=$TARGETOS`/`GOARCH=$TARGETARCH` inside the build stage for multi-arch cross-compilation. A `justfile` command also builds and pushes it.
+
+> **Why not GoReleaser's `dockers_v2`:** its build context only contains the Dockerfile and the platform-specific prebuilt binaries listed under `ids` — never the full repo — so a Dockerfile that does its own `COPY . .` and `go build` (as `Dockerfile.dmut` does, per Option A) can't be driven through it. `rel-dmut` is instead built and pushed directly with `docker buildx build --push` in `.github/workflows/release.yml`, alongside the GoReleaser step, not through it.
 
 Both `ghcr.io/rel-server/rel` and `ghcr.io/rel-server/rel-dmut` publish on two triggers:
 
-- Pushing a `v*` git tag runs the existing GoReleaser release pipeline, tagging both images `{{.Version}}` and `latest`.
+- Pushing a `v*` git tag: `rel` publishes through the existing GoReleaser release pipeline (`Dockerfile.goreleaser`, precompiled binary) ; `rel-dmut` publishes via a plain `docker buildx build --push` step in the same job, using `Dockerfile.dmut`. Both are tagged with the version (`v` prefix stripped, matching GoReleaser's own `{{.Version}}`) and `latest`.
 - Pushing to the `main` branch builds both images directly with `docker buildx build --push`, from `Dockerfile` and `Dockerfile.dmut` respectively (no GoReleaser involved), tagging them `main`. Each push to `main` overwrites that same tag, so there is always exactly one rolling `main` image per repo, never one per commit.
-
-`rel`'s own image keeps using `Dockerfile.goreleaser` (precompiled binary from GoReleaser's own cross-compiled build) for the tag-triggered path, since that avoids rebuilding `rel` a second time there ; the `main`-triggered path uses the plain `Dockerfile` instead, since it isn't running inside GoReleaser.
 
 `.github/workflows/release.yml` authenticates to `ghcr.io` (via `GITHUB_TOKEN`, `packages: write` permission) instead of Docker Hub.

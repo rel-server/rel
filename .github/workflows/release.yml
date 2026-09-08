@@ -33,6 +33,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Matches GoReleaser's own {{ .Version }} templating (v-prefix stripped)
+      - name: Compute version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -40,6 +44,23 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # rel-dmut builds both rel and dmut from source itself (Dockerfile.dmut,
+      # specs/dmut.md) rather than taking a prebuilt rel binary the way
+      # GoReleaser's own dockers_v2 step does for the "rel" image above — its
+      # build context needs the full repo, which GoReleaser's dockers_v2
+      # doesn't provide, so it's built here directly instead.
+      - name: Build and push rel-dmut
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.dmut
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ env.VERSION }}
+          tags: |
+            ghcr.io/rel-server/rel-dmut:${{ env.VERSION }}
+            ghcr.io/rel-server/rel-dmut:latest
 
   # Rolling "main" tag (specs/dmut.md) : one image per repo, overwritten on
   # every push to main, not one per commit. Bypasses GoReleaser entirely —

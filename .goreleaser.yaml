@@ -59,27 +59,6 @@ dockers_v2:
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.source: "https://github.com/rel-server/rel"
 
-  # Builds both rel and dmut from source itself (specs/dmut.md) rather than
-  # taking rel as a prebuilt artifact like the "rel" entry above — so ids is
-  # empty, there's nothing from `builds:` to copy in.
-  - id: rel-dmut
-    ids: []
-    dockerfile: Dockerfile.dmut
-    images:
-      - ghcr.io/rel-server/rel-dmut
-    tags:
-      - "{{ .Version }}"
-      - latest
-    platforms:
-      - linux/amd64
-      - linux/arm64
-    build_args:
-      VERSION: "{{ .Version }}"
-    labels:
-      org.opencontainers.image.title: "rel-dmut"
-      org.opencontainers.image.version: "{{ .Version }}"
-      org.opencontainers.image.source: "https://github.com/rel-server/rel"
-
 release:
   github:
     owner: rel-server
