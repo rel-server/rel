@@ -6,8 +6,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/rel-server/rel/errcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rel-server/rel/errcode"
 )
 
 func TestClassify_NotAPgError(t *testing.T) {
@@ -46,6 +46,7 @@ func TestClassify_ConstraintViolations(t *testing.T) {
 		{"23503", "PG_FOREIGN_KEY_VIOLATION", TierConstraintViolation},
 		{"23502", "PG_NOT_NULL_VIOLATION", TierConstraintViolation},
 		{"23514", "PG_CHECK_VIOLATION", TierConstraintViolation},
+		{"22P02", "PG_INVALID_TEXT_REPRESENTATION", TierConstraintViolation},
 	}
 	for _, tt := range tests {
 		t.Run(tt.sqlstate, func(t *testing.T) {

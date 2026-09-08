@@ -10,8 +10,8 @@ package pgerr
 import (
 	"errors"
 
-	"github.com/rel-server/rel/errcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rel-server/rel/errcode"
 )
 
 // Tier is specs/error-handling.md ## Postgres error detail's three-way
@@ -23,8 +23,9 @@ const (
 	// TierUnclassified is the conservative default : Detail is nil, a
 	// caller gets only a generic message unless dev mode is on.
 	TierUnclassified Tier = iota
-	// TierConstraintViolation is unique/foreign_key/not_null/check : the
-	// client's own data triggered this, so Detail is always safe to send.
+	// TierConstraintViolation is unique/foreign_key/not_null/check, or a
+	// value that doesn't parse as its column's type (22P02) : the client's
+	// own data triggered this, so Detail is always safe to send.
 	TierConstraintViolation
 	// TierPermissionDenied is insufficient_privilege : the object name
 	// Postgres embeds is a fingerprinting risk, generic unless dev mode is on.
@@ -62,6 +63,7 @@ var pgClassTable = map[string]classified{
 	"23503": {409, "PG_FOREIGN_KEY_VIOLATION", TierConstraintViolation},
 	"23502": {400, "PG_NOT_NULL_VIOLATION", TierConstraintViolation},
 	"23514": {400, "PG_CHECK_VIOLATION", TierConstraintViolation},
+	"22P02": {400, "PG_INVALID_TEXT_REPRESENTATION", TierConstraintViolation},
 	"42501": {403, "PG_PERMISSION_DENIED", TierPermissionDenied},
 }
 
