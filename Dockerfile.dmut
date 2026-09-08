@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1
+#
+# rel + github.com/ceymard/dmut/v2, bundled together (specs/dmut.md). Builds
+# both from source and cross-compiles via GOOS/GOARCH so a single build
+# stage, run natively on $BUILDPLATFORM, produces the $TARGETPLATFORM
+# binaries buildx asks for — no QEMU emulation needed since both are
+# CGO_ENABLED=0. Buildable standalone (`docker build -f Dockerfile.dmut .`),
+# independently of GoReleaser.
+
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+RUN apk add --no-cache ca-certificates
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/rel \
+    ./cmd/rel
+
+# `go install` refuses to cross-compile with GOBIN set, so it's left unset
+# here : the binary lands under $GOPATH/bin/$GOOS_$GOARCH/ when cross-
+# compiling, or directly under $GOPATH/bin/ when TARGETOS/TARGETARCH match
+# the build platform — handle both.
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go install \
+    -trimpath \
+    -ldflags="-s -w" \
+    github.com/ceymard/dmut/v2@v2.0.5 && \
+    mv "$(go env GOPATH)/bin/${TARGETOS}_${TARGETARCH}/dmut" /out/dmut 2>/dev/null || \
+    mv "$(go env GOPATH)/bin/dmut" /out/dmut
+
+# See ./Dockerfile's own comment on why this is pre-created and chowned.
+RUN mkdir -p /vol/static /vol/template /vol/wellknown /vol/secrets/jwt && \
+    chown -R 1000:1000 /vol
+
+FROM scratch
+
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="rel-dmut" \
+    org.opencontainers.image.version="${VERSION}" \
+    org.opencontainers.image.source="https://github.com/rel-server/rel"
+
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /out/rel /rel
+COPY --from=build /out/dmut /dmut
+COPY --chown=1000:1000 --from=build /vol/static /static
+COPY --chown=1000:1000 --from=build /vol/template /template
+COPY --chown=1000:1000 --from=build /vol/wellknown /wellknown
+COPY --chown=1000:1000 --from=build /vol/secrets /secrets
+
+# http.static.path (first entry is also the upload-destination write target)
+VOLUME ["/static"]
+# http.templates.path
+VOLUME ["/template"]
+# pg.query.wellknown_path
+VOLUME ["/wellknown"]
+# jwt.secret's default $GEN$ path (config.DefaultJwtSecret)
+VOLUME ["/secrets"]
+
+# specs/dmut.md : DMUT_MUTATIONS_PATH defaults to /sql — not a VOLUME, since
+# a deployment image is expected to COPY its migration files in rather than
+# mount them (dev instead bind-mounts over this path).
+ENV REL_RELOAD__CMD="/dmut apply \"postgres://{DMUT_USER:pg.user:user}:{DMUT_PASSWORD:pg.password:password}@{pg.host}/{pg.database}\" \"{DMUT_MUTATIONS_PATH:/sql}\""
+
+EXPOSE 8080
+
+USER 1000:1000
+
+ENTRYPOINT ["/rel"]

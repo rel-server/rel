@@ -162,6 +162,40 @@ func TestInterpolate_BareNameResolvesAsEnvVar(t *testing.T) {
 	}
 }
 
+func TestInterpolate_ChainFallsThroughUnsetAndEmptyCandidates(t *testing.T) {
+	t.Setenv("DMUT_USER_EMPTY", "")
+	raw := map[string]any{"pg.user": "pguser"}
+
+	got, err := interpolate("{DMUT_USER_UNSET:DMUT_USER_EMPTY:pg.user:fallback}", raw)
+	if err != nil {
+		t.Fatalf("interpolate: %v", err)
+	}
+	if got != "pguser" {
+		t.Errorf("expected the chain to skip the unset and empty candidates and resolve pg.user, got %q", got)
+	}
+}
+
+func TestInterpolate_ChainFallsBackToLiteral(t *testing.T) {
+	got, err := interpolate("{DMUT_USER_UNSET:pg.user_unset:fallback}", nil)
+	if err != nil {
+		t.Fatalf("interpolate: %v", err)
+	}
+	if got != "fallback" {
+		t.Errorf("expected the trailing literal, got %q", got)
+	}
+}
+
+func TestInterpolate_ChainLiteralIsNeverResolvedAsAName(t *testing.T) {
+	t.Setenv("user", "should-not-be-used")
+	got, err := interpolate("{DMUT_USER_UNSET:user}", nil)
+	if err != nil {
+		t.Fatalf("interpolate: %v", err)
+	}
+	if got != "user" {
+		t.Errorf("expected the literal string %q, got %q", "user", got)
+	}
+}
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 }

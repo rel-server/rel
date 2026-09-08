@@ -4,7 +4,8 @@ db_name := "hotel"
 db_user := "hotel"
 db_password := "test"
 
-image_registry := "rel-server/rel"
+image_registry := "ghcr.io/rel-server/rel"
+dmut_image_registry := "ghcr.io/rel-server/rel-dmut"
 version := `git describe --tags --always --dirty`
 
 # Run the full test suite (testcontainers spins up its own throwaway Postgres
@@ -73,6 +74,20 @@ image:
 upload: image
     docker push {{image_registry}}:{{version}}
     docker push {{image_registry}}:latest
+
+# Build the rel+dmut image (Dockerfile.dmut, specs/dmut.md), tagged with the
+# current git version and "latest".
+image-dmut:
+    docker build --build-arg VERSION={{version}} \
+        -f Dockerfile.dmut \
+        -t {{dmut_image_registry}}:{{version}} \
+        -t {{dmut_image_registry}}:latest \
+        .
+
+# Push the image built by `just image-dmut` (both tags) to dmut_image_registry
+upload-dmut: image-dmut
+    docker push {{dmut_image_registry}}:{{version}}
+    docker push {{dmut_image_registry}}:latest
 
 # --- Documentation (zensical, versioned with the Zensical fork of mike) ---
 # The whole doc site — config, content, template overrides — lives under

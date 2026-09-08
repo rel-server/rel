@@ -27,13 +27,18 @@ its registries, it just runs nothing beforehand.
 ## Command line and interpolation
 
 `reload.cmd` is a single string, split into arguments with shell-style word-splitting/quoting
-rules (so quote an argument that contains spaces). Before splitting, `{name}`/`{name:default}`
-placeholders are substituted :
+rules (so quote an argument that contains spaces). Before splitting,
+`{name}`/`{name1:name2:...:default}` placeholders are substituted :
 
 - `{name}`, when `name` contains a `.`, resolves it as a configuration key — e.g. `{pg.uri}`.
   Otherwise it resolves as an environment variable — e.g. `{HOME}`.
-- `{name:default}` falls back to the literal `default` when `name` is unresolved.
 - `{name}` with no default and an unresolved `name` is an error — `reload.cmd` never runs.
+- `{name1:name2:...:default}` tries each `name` in order (same dotted-config-key/env-var rule as
+  above) and substitutes the first one that resolves to a non-empty value. An unset name, or one
+  that resolves to an empty string, is skipped in favor of the next candidate.
+- The last segment is always a literal fallback, never resolved as a name — e.g. in
+  `{DMUT_USER:pg.user:user}`, `user` is used as-is if neither `DMUT_USER` nor `pg.user` resolve
+  to a non-empty value.
 
 A substituted value is inserted as raw text, not as a pre-quoted token — wrap it in quotes
 within `reload.cmd` if it may contain spaces:
@@ -88,3 +93,7 @@ This repo's own dev database uses it locally :
 just test-db-migrate   # dmut apply against the dev database
 just test-db-fresh     # tear down, bring up Postgres, migrate, and seed in one shot
 ```
+
+`ghcr.io/rel-server/rel-dmut` bundles dmut alongside rel in one image and presets `reload.cmd`
+to run it against `/sql` (override with `DMUT_MUTATIONS_PATH`) — see [Docker
+deployment](../getting-started/docker-deployment.md#bundled-with-dmut).

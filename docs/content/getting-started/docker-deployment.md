@@ -4,7 +4,7 @@ icon: material/docker
 
 # Docker deployment
 
-rel ships as a small, non-root, scratch-based image (`rel-server/rel`), listening on `8080` and
+rel ships as a small, non-root, scratch-based image (`ghcr.io/rel-server/rel`), listening on `8080` and
 reading every setting from the environment the way [Configuration](../configuration/index.md) describes. This
 walks through a realistic deployment: rel and Postgres in Docker, fronted by
 `jwilder/nginx-proxy` — a reverse proxy that watches the Docker socket and routes by a
@@ -107,7 +107,7 @@ but for a real deployment, build your own image `FROM rel-server/rel` and `COPY`
 instead:
 
 ```dockerfile
-FROM rel-server/rel:latest
+FROM ghcr.io/rel-server/rel:latest
 COPY wellknown /wellknown
 COPY static /static
 COPY template /template
@@ -154,6 +154,20 @@ deployment, not something rel's base image should assume for you.
 
 The compose file above assumes `your-registry/your-app:latest` is already sitting in a registry
 `docker-compose pull`/`docker-compose up` can reach. `just image` builds the plain
-`rel-server/rel` base image (tags it `rel-server/rel:<version>` and `:latest`, `<version>` from `git
+`ghcr.io/rel-server/rel` base image (tags it `<version>` and `latest`, `<version>` from `git
 describe`) and `just upload` pushes it — useful as the `FROM` your own app's image builds on
 top of, not something you deploy directly once you have app-specific assets to bake in.
+
+`ghcr.io/rel-server/rel` and `ghcr.io/rel-server/rel-dmut` also publish a rolling `main` tag,
+rebuilt on every push to this repo's `main` branch, alongside the version-tagged releases —
+useful for tracking the latest unreleased build, not recommended for production.
+
+## Bundled with dmut
+
+`ghcr.io/rel-server/rel-dmut` (built from `Dockerfile.dmut`) bundles [dmut](https://github.com/ceymard/dmut)
+alongside rel in the same image and presets `reload.cmd` to run `dmut apply` against `/sql` on
+every reload — see [Reload](../configuration/reload.md#using-dmut). Build your own image `FROM
+ghcr.io/rel-server/rel-dmut` and `COPY` your migration files to `/sql` (or wherever
+`DMUT_MUTATIONS_PATH` points), the same way the base `rel` image expects `/wellknown`,
+`/static`, and `/template` to be baked in above. `just image-dmut`/`just upload-dmut` build and
+push it the same way `just image`/`just upload` do for the base image.

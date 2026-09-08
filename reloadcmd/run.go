@@ -103,18 +103,19 @@ func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran bool
 	return true, nil
 }
 
-// placeholderRe matches specs/reload.md's `{name}`/`{name:default}`
-// interpolation syntax. name (and default) may not contain "{", "}", or
-// ":" — the only ambiguity that would introduce is between "no default"
-// and "default present", already resolved by checking for ":" in the whole
-// match rather than relying on submatch-participation semantics.
-var placeholderRe = regexp.MustCompile(`\{([^{}:]*)(?::([^{}]*))?\}`)
+// placeholderRe matches specs/dmut.md's `{name}`/`{name:...:default}`
+// interpolation syntax : brace-delimited content, split into `:`-separated
+// segments by interpolate itself. Content may not contain "{" or "}".
+var placeholderRe = regexp.MustCompile(`\{([^{}]*)\}`)
 
-// interpolate resolves every `{name}`/`{name:default}` placeholder in s
-// against raw (a dotted configuration key, when name contains ".") or the
-// process environment (otherwise), per specs/reload.md. An unresolved name
-// with no default is an error — aborting before reload.cmd ever runs,
-// rather than silently substituting an empty string.
+// interpolate resolves every `{name}`/`{name1:name2:...:default}` placeholder
+// in s against raw (a dotted configuration key, when a name contains ".") or
+// the process environment (otherwise), per specs/dmut.md. All but the last
+// `:`-separated segment are names tried in order ; the first that resolves
+// to a non-empty value wins. The last segment is always a literal default,
+// never resolved as a name. A single-segment placeholder (no default) whose
+// name is unset is an error — aborting before reload.cmd ever runs, rather
+// than silently substituting an empty string.
 func interpolate(s string, raw map[string]any) (string, error) {
 	var firstErr error
 	result := placeholderRe.ReplaceAllStringFunc(s, func(match string) string {
@@ -122,16 +123,24 @@ func interpolate(s string, raw map[string]any) (string, error) {
 			return match
 		}
 		sub := placeholderRe.FindStringSubmatch(match)
-		name, def, hasDefault := sub[1], sub[2], strings.Contains(match, ":")
+		segments := strings.Split(sub[1], ":")
 
-		if val, ok := resolve(name, raw); ok {
-			return val
+		if len(segments) == 1 {
+			name := segments[0]
+			if val, ok := resolve(name, raw); ok {
+				return val
+			}
+			firstErr = oops.Errorf("%s: not set, and no default given", name)
+			return match
 		}
-		if hasDefault {
-			return def
+
+		candidates, literal := segments[:len(segments)-1], segments[len(segments)-1]
+		for _, name := range candidates {
+			if val, ok := resolve(name, raw); ok && val != "" {
+				return val
+			}
 		}
-		firstErr = oops.Errorf("%s: not set, and no default given", name)
-		return match
+		return literal
 	})
 	if firstErr != nil {
 		return "", firstErr
