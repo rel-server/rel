@@ -18,6 +18,7 @@ COPY . .
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG DMUT_VERSION=v2.1.0
 
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -trimpath \
@@ -32,7 +33,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go install \
     -trimpath \
     -ldflags="-s -w" \
-    github.com/ceymard/dmut/v2@v2.0.5 && \
+    github.com/ceymard/dmut/v2@${DMUT_VERSION} && \
     mv "$(go env GOPATH)/bin/${TARGETOS}_${TARGETARCH}/dmut" /out/dmut 2>/dev/null || \
     mv "$(go env GOPATH)/bin/dmut" /out/dmut
 
