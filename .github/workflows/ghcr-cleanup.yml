@@ -1,0 +1,30 @@
+name: Clean up untagged ghcr images
+
+# Multi-platform pushes (dockers_v2 in .goreleaser.yaml, and the
+# docker/build-push-action steps in release.yml) leave untagged per-platform
+# manifests behind in each package alongside the tagged manifest list. This
+# prunes those so no one ends up depending on them long term.
+# Each package's Actions access must be set to Admin under
+# ghcr.io/rel-server/<package> -> Package settings -> Manage Actions access,
+# otherwise the default GITHUB_TOKEN can't delete versions.
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [rel, rel-dmut]
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          package: ${{ matrix.package }}
+          delete-untagged: true
+          older-than: 7 days
+          token: ${{ secrets.GITHUB_TOKEN }}
