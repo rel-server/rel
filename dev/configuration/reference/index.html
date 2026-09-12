@@ -3042,6 +3042,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3049,6 +3050,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <tbody>
 <tr>
 <td><code>dev</code></td>
+<td><code>REL_DEV</code></td>
 <td><code>false</code></td>
 <td>Adds the real Postgres error text and a stack trace to an otherwise generic error response. See <a href="../#development-mode">Development mode</a>.</td>
 </tr>
@@ -3059,6 +3061,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3066,56 +3069,67 @@ the binary itself, if you want it without leaving a terminal.</p>
 <tbody>
 <tr>
 <td><code>pg.uri</code></td>
-<td>—</td>
-<td>Full <code>postgres://user:pass@host:port/db</code>. Takes precedence when set — populates <code>pg.host</code>/<code>pg.port</code>/<code>pg.database</code> itself ; setting them alongside <code>pg.uri</code> is a configuration error.</td>
+<td><code>REL_PG__URI</code></td>
+<td>derived from the granular fields below when unset</td>
+<td>Full <code>postgres://user:pass@host:port/db</code>. Takes precedence when set — populates <code>pg.host</code>/<code>pg.port</code>/<code>pg.database</code>/<code>pg.user</code>/<code>pg.password</code> itself ; setting any of them alongside <code>pg.uri</code> is a configuration error. When <code>pg.uri</code> isn't set, it's built from the granular fields instead (defaults included), so it's never left blank.</td>
 </tr>
 <tr>
 <td><code>pg.host</code> / <code>pg.port</code> / <code>pg.database</code> / <code>pg.user</code> / <code>pg.password</code></td>
+<td><code>REL_PG__HOST</code> / <code>REL_PG__PORT</code> / <code>REL_PG__DATABASE</code> / <code>REL_PG__USER</code> / <code>REL_PG__PASSWORD</code></td>
 <td><code>localhost</code> / <code>5432</code> / — / — / —</td>
-<td>Granular connection fields, used only when <code>pg.uri</code> is unset.</td>
+<td>Granular connection fields, used only when <code>pg.uri</code> is unset — otherwise derived from <code>pg.uri</code> itself.</td>
 </tr>
 <tr>
 <td><code>pg.pool_size</code></td>
+<td><code>REL_PG__POOL_SIZE</code></td>
 <td><code>10</code></td>
 <td>Max connections in the pool serving requests. Startup introspection uses one short-lived connection regardless.</td>
 </tr>
 <tr>
 <td><code>pg.query.anonymous_role</code></td>
+<td><code>REL_PG__QUERY__ANONYMOUS_ROLE</code></td>
 <td><code>~anonymous</code></td>
 <td>The role a request with no valid session runs as. See <a href="../../http/authentication/">Authentication</a>.</td>
 </tr>
 <tr>
 <td><code>pg.query.max_depth</code></td>
+<td><code>REL_PG__QUERY__MAX_DEPTH</code></td>
 <td><code>6</code></td>
 <td>Maximum join nesting a query may specify.</td>
 </tr>
 <tr>
 <td><code>pg.query.wellknown_path</code></td>
+<td><code>REL_PG__QUERY__WELLKNOWN_PATH</code></td>
 <td><code>/wellknown</code></td>
 <td>Colon-separated directories, searched recursively for well-known query files. See <a href="../../query-language/well-known-queries/">Well-known queries</a>.</td>
 </tr>
 <tr>
 <td><code>pg.query.allow_count</code></td>
+<td><code>REL_PG__QUERY__ALLOW_COUNT</code></td>
 <td>same as <code>dev</code></td>
 <td>Enables <code>ComplexQuery</code>'s <code>count</code> flag. See <a href="../../query-language/complex-query/#availability">Complex queries</a>.</td>
 </tr>
 <tr>
 <td><code>pg.query.allow_stats</code></td>
+<td><code>REL_PG__QUERY__ALLOW_STATS</code></td>
 <td>same as <code>dev</code></td>
 <td>Enables <code>ComplexQuery</code>'s <code>stats</code> flag.</td>
 </tr>
 <tr>
 <td><code>pg.query.allow_query_plan</code></td>
+<td><code>REL_PG__QUERY__ALLOW_QUERY_PLAN</code></td>
 <td>same as <code>dev</code></td>
 <td>Enables <code>ComplexQuery</code>'s <code>query_plan</code> flag.</td>
 </tr>
 <tr>
 <td><code>pg.query.allow_sql</code></td>
+<td><code>REL_PG__QUERY__ALLOW_SQL</code></td>
 <td>same as <code>dev</code></td>
 <td>Enables <code>ComplexQuery</code>'s <code>sql</code> flag.</td>
 </tr>
 <tr>
 <td><code>pg.query.allow_rollback</code></td>
+<td><code>REL_PG__QUERY__ALLOW_ROLLBACK</code></td>
 <td>same as <code>dev</code></td>
 <td>Enables <code>ComplexQuery</code>'s <code>rollback</code> flag ; ungranted is a hard error, not a silent degrade.</td>
 </tr>
@@ -3126,6 +3140,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3133,51 +3148,61 @@ the binary itself, if you want it without leaving a terminal.</p>
 <tbody>
 <tr>
 <td><code>http.host</code> / <code>http.port</code></td>
+<td><code>REL_HTTP__HOST</code> / <code>REL_HTTP__PORT</code></td>
 <td>all interfaces / <code>8080</code></td>
 <td>Listen address.</td>
 </tr>
 <tr>
 <td><code>http.public_host</code></td>
+<td><code>REL_HTTP__PUBLIC_HOST</code></td>
 <td>disabled</td>
 <td>This deployment's externally-reachable domain (bare host, no scheme/port) — required for OpenID/SAML redirect URLs to resolve. See <a href="../../http/authentication/">Authentication</a>.</td>
 </tr>
 <tr>
 <td><code>http.cookies_max_age</code></td>
+<td><code>REL_HTTP__COOKIES_MAX_AGE</code></td>
 <td><code>86400</code> (seconds)</td>
 <td>Default max-age for a cookie set via a route response, when the response doesn't specify one. Doesn't apply to the JWT cookie — see <code>jwt.max_age</code> below.</td>
 </tr>
 <tr>
 <td><code>http.max_body_size</code></td>
+<td><code>REL_HTTP__MAX_BODY_SIZE</code></td>
 <td>10 MiB</td>
 <td>Hard cap on a declared route request's entire body (multipart envelope included). Rejected with <code>413</code> before any of it is buffered.</td>
 </tr>
 <tr>
 <td><code>http.max_upload_size</code></td>
+<td><code>REL_HTTP__MAX_UPLOAD_SIZE</code></td>
 <td>= <code>http.max_body_size</code></td>
 <td>Hard cap on a <code>stream_upload</code> route's streamed payload — separate from <code>http.max_body_size</code> since this path streams to disk instead of buffering in memory. See <a href="../../http/uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
 </tr>
 <tr>
 <td><code>http.max_part_count</code></td>
+<td><code>REL_HTTP__MAX_PART_COUNT</code></td>
 <td><code>100</code></td>
 <td>Max number of <code>multipart/form-data</code> parts a single declared-route request may contain.</td>
 </tr>
 <tr>
 <td><code>http.static.path</code></td>
+<td><code>REL_HTTP__STATIC__PATH</code></td>
 <td>—</td>
 <td>Colon-separated directories served at the router root, as the fallback for any path no declared route claims. See <a href="../../http/static-files/">Static files</a>.</td>
 </tr>
 <tr>
 <td><code>http.templates.path</code></td>
+<td><code>REL_HTTP__TEMPLATES__PATH</code></td>
 <td><code>/template</code></td>
 <td>Directory Jet templates are loaded from, for a route's or middleware's own <code>template</code>. See <a href="../../http/requests-responses/#rendering-html-with-a-template">Requests and responses</a>.</td>
 </tr>
 <tr>
 <td><code>http.typescript.enable</code></td>
+<td><code>REL_HTTP__TYPESCRIPT__ENABLE</code></td>
 <td><code>false</code> (<code>true</code> in dev)</td>
 <td>Serve <code>GET /rel/database.ts</code>. See <a href="../../typescript/">TypeScript client</a>.</td>
 </tr>
 <tr>
 <td><code>http.typescript.schemas</code></td>
+<td><code>REL_HTTP__TYPESCRIPT__SCHEMAS</code></td>
 <td>every schema but <code>pg_catalog</code></td>
 <td>Comma-separated whitelist of schemas <code>GET /rel/database.ts</code> may export; intersected with that request's own <code>?schemas=</code> param.</td>
 </tr>
@@ -3188,6 +3213,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3195,36 +3221,43 @@ the binary itself, if you want it without leaving a terminal.</p>
 <tbody>
 <tr>
 <td><code>route.&lt;schema&gt;.&lt;function&gt;.path</code></td>
+<td><code>REL_ROUTE__&lt;SCHEMA&gt;__&lt;FUNCTION&gt;__PATH</code></td>
 <td>— (required)</td>
 <td>Declares <code>&lt;schema&gt;.&lt;function&gt;</code> routable at this chi-syntax path. See <a href="../../http/#declaring-a-route">HTTP routes</a>.</td>
 </tr>
 <tr>
 <td><code>route.&lt;schema&gt;.&lt;function&gt;.method</code></td>
+<td><code>REL_ROUTE__&lt;SCHEMA&gt;__&lt;FUNCTION&gt;__METHOD</code></td>
 <td>inferred</td>
 <td>Comma-separated accepted methods.</td>
 </tr>
 <tr>
 <td><code>route.&lt;schema&gt;.&lt;function&gt;.template</code></td>
+<td><code>REL_ROUTE__&lt;SCHEMA&gt;__&lt;FUNCTION&gt;__TEMPLATE</code></td>
 <td>unset</td>
 <td>Default Jet template, used when the response doesn't set its own.</td>
 </tr>
 <tr>
 <td><code>route.&lt;schema&gt;.&lt;function&gt;.stream_upload</code></td>
+<td><code>REL_ROUTE__&lt;SCHEMA&gt;__&lt;FUNCTION&gt;__STREAM_UPLOAD</code></td>
 <td><code>false</code></td>
 <td>Flags the two-call disk-streaming upload flow. See <a href="../../http/uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
 </tr>
 <tr>
 <td><code>route.&lt;schema&gt;.&lt;function&gt;.middleware</code></td>
+<td><code>REL_ROUTE__&lt;SCHEMA&gt;__&lt;FUNCTION&gt;__MIDDLEWARE</code></td>
 <td><code>false</code></td>
 <td>Flags a middleware function, run ahead of every route/<code>/rel</code>/static file under its own path prefix. See <a href="../../http/#middleware">HTTP routes</a>.</td>
 </tr>
 <tr>
 <td><code>http.functions.allowed_auth</code></td>
+<td><code>REL_HTTP__FUNCTIONS__ALLOWED_AUTH</code></td>
 <td>unrestricted</td>
 <td>Regexp restricting which route/middleware functions may mint or clear a session (set <code>jwt</code> on their response). See <a href="../../http/authentication/">Authentication</a>.</td>
 </tr>
 <tr>
 <td><code>http.functions.sso_callback</code></td>
+<td><code>REL_HTTP__FUNCTIONS__SSO_CALLBACK</code></td>
 <td>disabled</td>
 <td>Fallback callback function an <code>openid.&lt;name&gt;</code>/<code>saml.&lt;name&gt;</code> entry uses when it doesn't set its own <code>callback_function</code>. See <a href="../../http/authentication/">Authentication</a>.</td>
 </tr>
@@ -3235,6 +3268,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3242,21 +3276,25 @@ the binary itself, if you want it without leaving a terminal.</p>
 <tbody>
 <tr>
 <td><code>http.cors.allowed_origins</code></td>
+<td><code>REL_HTTP__CORS__ALLOWED_ORIGINS</code></td>
 <td>empty (closed)</td>
 <td>Comma-separated exact origins allowed cross-origin, or the literal <code>*</code>.</td>
 </tr>
 <tr>
 <td><code>http.cors.allowed_methods</code></td>
+<td><code>REL_HTTP__CORS__ALLOWED_METHODS</code></td>
 <td><code>GET, POST, PUT, PATCH, DELETE, OPTIONS</code></td>
 <td>Methods a CORS preflight may approve.</td>
 </tr>
 <tr>
 <td><code>http.cors.allowed_headers</code></td>
+<td><code>REL_HTTP__CORS__ALLOWED_HEADERS</code></td>
 <td>a sensible default set</td>
 <td>Request headers a CORS preflight may approve.</td>
 </tr>
 <tr>
 <td><code>http.cors.max_age</code></td>
+<td><code>REL_HTTP__CORS__MAX_AGE</code></td>
 <td><code>600</code> (seconds)</td>
 <td>How long a browser may cache one preflight response.</td>
 </tr>
@@ -3267,6 +3305,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3274,16 +3313,19 @@ the binary itself, if you want it without leaving a terminal.</p>
 <tbody>
 <tr>
 <td><code>http.csp.default_src</code></td>
+<td><code>REL_HTTP__CSP__DEFAULT_SRC</code></td>
 <td><code>'self'</code></td>
 <td>The baseline CSP directive, applied unless a more specific one below overrides it.</td>
 </tr>
 <tr>
 <td><code>http.csp.&lt;directive&gt;</code>, one of <code>script_src</code>, <code>style_src</code>, <code>img_src</code>, <code>font_src</code>, <code>connect_src</code>, <code>object_src</code>, <code>frame_ancestors</code>, <code>base_uri</code>, <code>form_action</code></td>
+<td><code>REL_HTTP__CSP__&lt;DIRECTIVE&gt;</code></td>
 <td>falls back to <code>default_src</code></td>
 <td>Overrides that one directive specifically.</td>
 </tr>
 <tr>
 <td><code>http.csp.policy</code></td>
+<td><code>REL_HTTP__CSP__POLICY</code></td>
 <td>unset</td>
 <td>The full, raw <code>Content-Security-Policy</code> header value — replaces every individual <code>http.csp.*</code> directive above entirely when set.</td>
 </tr>
@@ -3296,6 +3338,7 @@ per-response nonce and a route's own <code>HttpResponse.csp</code> override.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3303,36 +3346,43 @@ per-response nonce and a route's own <code>HttpResponse.csp</code> override.</p>
 <tbody>
 <tr>
 <td><code>jwt.secret</code></td>
+<td><code>REL_JWT__SECRET</code></td>
 <td>auto-generated</td>
 <td>HMAC signing secret — see <a href="../#secrets-and-generated-values">Secrets and generated values</a> above.</td>
 </tr>
 <tr>
 <td><code>jwt.cookie_name</code></td>
+<td><code>REL_JWT__COOKIE_NAME</code></td>
 <td><code>accesstoken</code></td>
 <td>Name of the cookie carrying the JWT.</td>
 </tr>
 <tr>
 <td><code>jwt.algorithm</code></td>
+<td><code>REL_JWT__ALGORITHM</code></td>
 <td><code>HS256</code></td>
 <td><code>HS256</code>, <code>HS384</code>, or <code>HS512</code>.</td>
 </tr>
 <tr>
 <td><code>jwt.same_site</code></td>
+<td><code>REL_JWT__SAME_SITE</code></td>
 <td><code>Lax</code></td>
 <td><code>SameSite</code> attribute of the JWT cookie: <code>Strict</code>, <code>Lax</code>, or <code>None</code>.</td>
 </tr>
 <tr>
 <td><code>jwt.max_age</code></td>
+<td><code>REL_JWT__MAX_AGE</code></td>
 <td><code>1800</code> (30 min)</td>
 <td>How long a freshly-minted token stays valid.</td>
 </tr>
 <tr>
 <td><code>jwt.renew_after</code></td>
+<td><code>REL_JWT__RENEW_AFTER</code></td>
 <td><code>0.5</code></td>
 <td>Fraction of a token's own lifespan elapsed before it's renewed on next use.</td>
 </tr>
 <tr>
 <td><code>jwt.max_session_age</code></td>
+<td><code>REL_JWT__MAX_SESSION_AGE</code></td>
 <td><code>604800</code> (7 days)</td>
 <td>Hard ceiling on a session's total lifetime, regardless of renewal.</td>
 </tr>
@@ -3344,6 +3394,7 @@ per-response nonce and a route's own <code>HttpResponse.csp</code> override.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3351,11 +3402,13 @@ per-response nonce and a route's own <code>HttpResponse.csp</code> override.</p>
 <tbody>
 <tr>
 <td><code>saml.certificate_path</code></td>
+<td><code>REL_SAML__CERTIFICATE_PATH</code></td>
 <td>generated on first boot</td>
 <td>Colon-separated search list for this deployment's SAML SP certificate, shared across every <code>saml.&lt;name&gt;</code> entry.</td>
 </tr>
 <tr>
 <td><code>saml.private_key_path</code></td>
+<td><code>REL_SAML__PRIVATE_KEY_PATH</code></td>
 <td>generated on first boot</td>
 <td>Search list for that certificate's private key, same rule as <code>saml.certificate_path</code>.</td>
 </tr>
@@ -3369,6 +3422,7 @@ contract, worked examples); this is the exhaustive key list.</p>
 <thead>
 <tr>
 <th>Key pattern</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3376,51 +3430,61 @@ contract, worked examples); this is the exhaustive key list.</p>
 <tbody>
 <tr>
 <td><code>openid.&lt;name&gt;.issuer</code></td>
+<td><code>REL_OPENID__&lt;NAME&gt;__ISSUER</code></td>
 <td>— (required)</td>
 <td>The OIDC issuer URL; <code>/.well-known/openid-configuration</code> is discovered from it.</td>
 </tr>
 <tr>
 <td><code>openid.&lt;name&gt;.client_id</code> / <code>openid.&lt;name&gt;.client_secret</code></td>
+<td><code>REL_OPENID__&lt;NAME&gt;__CLIENT_ID</code> / <code>REL_OPENID__&lt;NAME&gt;__CLIENT_SECRET</code></td>
 <td><code>$FILE$/secrets/openid-&lt;name&gt;.id</code> / <code>.secret</code></td>
 <td>Credentials issued by the IdP when this app was registered with it.</td>
 </tr>
 <tr>
 <td><code>openid.&lt;name&gt;.scopes</code></td>
+<td><code>REL_OPENID__&lt;NAME&gt;__SCOPES</code></td>
 <td><code>openid, email, profile</code></td>
 <td>Comma-separated OIDC scopes requested.</td>
 </tr>
 <tr>
 <td><code>openid.&lt;name&gt;.fetch_userinfo</code></td>
+<td><code>REL_OPENID__&lt;NAME&gt;__FETCH_USERINFO</code></td>
 <td><code>false</code></td>
 <td>Also call the userinfo endpoint after token exchange, merging its claims over the ID token's own.</td>
 </tr>
 <tr>
 <td><code>openid.&lt;name&gt;.callback_function</code></td>
+<td><code>REL_OPENID__&lt;NAME&gt;__CALLBACK_FUNCTION</code></td>
 <td>falls back to <code>http.functions.sso_callback</code></td>
 <td>Function invoked with the verified claims.</td>
 </tr>
 <tr>
 <td><code>openid.&lt;name&gt;.public_host</code></td>
+<td><code>REL_OPENID__&lt;NAME&gt;__PUBLIC_HOST</code></td>
 <td>falls back to <code>http.public_host</code></td>
 <td>Overrides the deployment's public host for this provider entry alone.</td>
 </tr>
 <tr>
 <td><code>saml.&lt;name&gt;.idp_metadata_url</code></td>
+<td><code>REL_SAML__&lt;NAME&gt;__IDP_METADATA_URL</code></td>
 <td>— (required)</td>
 <td>Fetched once at startup; retried lazily on the next login attempt if it failed.</td>
 </tr>
 <tr>
 <td><code>saml.&lt;name&gt;.force_signed_requests</code></td>
+<td><code>REL_SAML__&lt;NAME&gt;__FORCE_SIGNED_REQUESTS</code></td>
 <td><code>true</code></td>
 <td>Sign the outgoing <code>AuthnRequest</code> with the SP key.</td>
 </tr>
 <tr>
 <td><code>saml.&lt;name&gt;.callback_function</code></td>
+<td><code>REL_SAML__&lt;NAME&gt;__CALLBACK_FUNCTION</code></td>
 <td>falls back to <code>http.functions.sso_callback</code></td>
 <td>Same as <code>openid.&lt;name&gt;.callback_function</code>.</td>
 </tr>
 <tr>
 <td><code>saml.&lt;name&gt;.public_host</code></td>
+<td><code>REL_SAML__&lt;NAME&gt;__PUBLIC_HOST</code></td>
 <td>falls back to <code>http.public_host</code></td>
 <td>Same as <code>openid.&lt;name&gt;.public_host</code>.</td>
 </tr>
@@ -3431,6 +3495,7 @@ contract, worked examples); this is the exhaustive key list.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3438,21 +3503,25 @@ contract, worked examples); this is the exhaustive key list.</p>
 <tbody>
 <tr>
 <td><code>logging.handler</code></td>
+<td><code>REL_LOGGING__HANDLER</code></td>
 <td><code>pretty</code></td>
 <td><code>pretty</code> or <code>json</code>.</td>
 </tr>
 <tr>
 <td><code>logging.level</code></td>
+<td><code>REL_LOGGING__LEVEL</code></td>
 <td><code>info</code></td>
 <td><code>debug</code>, <code>info</code>, <code>warn</code>, or <code>error</code>.</td>
 </tr>
 <tr>
 <td><code>logging.filter.&lt;attr&gt;</code></td>
+<td><code>REL_LOGGING__FILTER__&lt;ATTR&gt;</code></td>
 <td>—</td>
 <td>A regexp a log line's <code>&lt;attr&gt;</code> must match to be shown at all; a line with nothing to filter against for that key is shown regardless.</td>
 </tr>
 <tr>
 <td><code>logging.exclude.&lt;attr&gt;</code></td>
+<td><code>REL_LOGGING__EXCLUDE__&lt;ATTR&gt;</code></td>
 <td>—</td>
 <td>Same shape, inverted — suppresses a matching line. Applied after any <code>logging.filter.*</code> also set.</td>
 </tr>
@@ -3464,6 +3533,7 @@ contract, worked examples); this is the exhaustive key list.</p>
 <thead>
 <tr>
 <th>Key pattern</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3471,11 +3541,13 @@ contract, worked examples); this is the exhaustive key list.</p>
 <tbody>
 <tr>
 <td><code>blacklist.relations.&lt;schema&gt;.&lt;name&#124;*&gt;</code></td>
+<td><code>REL_BLACKLIST__RELATIONS__&lt;SCHEMA&gt;__&lt;NAME&#124;*&gt;</code></td>
 <td>see below</td>
 <td><code>y</code>/<code>n</code>; <code>*</code> blacklists an entire schema. <code>pg_catalog.*</code> and <code>information_schema.*</code> are blacklisted by default.</td>
 </tr>
 <tr>
 <td><code>blacklist.functions.&lt;schema&gt;.&lt;name&#124;*&gt;</code></td>
+<td><code>REL_BLACKLIST__FUNCTIONS__&lt;SCHEMA&gt;__&lt;NAME&#124;*&gt;</code></td>
 <td>see below</td>
 <td><code>y</code>/<code>n</code>; <code>*</code> blacklists an entire schema. A handful of individually dangerous functions (<code>pg_sleep</code>, <code>pg_terminate_backend</code>, the <code>pg_advisory_*lock*</code> family, ...) are blacklisted by default.</td>
 </tr>
@@ -3492,6 +3564,7 @@ contract, worked examples); this is the exhaustive key list.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3499,16 +3572,19 @@ contract, worked examples); this is the exhaustive key list.</p>
 <tbody>
 <tr>
 <td><code>reload.cmd</code></td>
+<td><code>REL_RELOAD__CMD</code></td>
 <td>—</td>
 <td>Command line rel runs before every reload (startup and every <code>SIGUSR1</code>). Empty skips this step entirely. See <a href="../reload/">Reload</a> for the interpolation syntax.</td>
 </tr>
 <tr>
 <td><code>reload.timeout</code></td>
+<td><code>REL_RELOAD__TIMEOUT</code></td>
 <td><code>120</code> (seconds)</td>
 <td><code>reload.cmd</code> is aborted and considered failed once this elapses.</td>
 </tr>
 <tr>
 <td><code>reload.drain_timeout</code></td>
+<td><code>REL_RELOAD__DRAIN_TIMEOUT</code></td>
 <td><code>30</code> (seconds)</td>
 <td>How long a reload waits for in-flight requests to finish, before <code>reload.cmd</code> runs, before cancelling their contexts and proceeding anyway.</td>
 </tr>
@@ -3519,6 +3595,7 @@ contract, worked examples); this is the exhaustive key list.</p>
 <thead>
 <tr>
 <th>Key</th>
+<th>Env var</th>
 <th>Default</th>
 <th>What it does</th>
 </tr>
@@ -3526,6 +3603,7 @@ contract, worked examples); this is the exhaustive key list.</p>
 <tbody>
 <tr>
 <td><code>typescript.helper_path</code></td>
+<td><code>REL_TYPESCRIPT__HELPER_PATH</code></td>
 <td>disabled</td>
 <td>Filesystem path rel (re)writes <code>database.ts</code>'s content to directly, at startup and on every <code>SIGUSR1</code> reload — for an editor/LSP watching a real file on disk. See <a href="../../typescript/">TypeScript client</a>.</td>
 </tr>
