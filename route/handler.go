@@ -18,6 +18,7 @@ import (
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/static"
+	"github.com/rel-server/rel/wellknown"
 )
 
 // NewHandler builds a standalone chi.Router with every reg.Routes entry
@@ -25,9 +26,9 @@ import (
 // tests). boot.BuildMux calls RegisterRoutes directly instead, since a
 // declared route's arbitrary path has to live on the SAME router as /rel
 // and the static root-fallback, not a separately-mounted sub-router.
-func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server) http.Handler {
+func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server, wkReg *wellknown.Registry) http.Handler {
 	mux := chi.NewRouter()
-	RegisterRoutes(mux, db, cfg, reg, staticSrv)
+	RegisterRoutes(mux, db, cfg, reg, staticSrv, wkReg)
 	return mux
 }
 
@@ -36,9 +37,16 @@ func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *st
 // /route/{schema}/{function} dynamic dispatch with arbitrary, per-route
 // paths. staticSrv is used to compute request.static (## Static path
 // masking) for every request ; nil means no http.static.path directory
-// exists at all.
-func RegisterRoutes(r chi.Router, db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server) {
-	templates := templatesForConfig(cfg)
+// exists at all. wkReg backs rel() (specs/templating-2.md) for this
+// package's own TemplateSet, built here rather than reusing boot.BuildMux's
+// (a distinct jet.Set, own cache — pre-existing, not something this change
+// consolidates).
+func RegisterRoutes(r chi.Router, db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server, wkReg *wellknown.Registry) {
+	var staticDirs []string
+	if staticSrv != nil {
+		staticDirs = staticSrv.Dirs
+	}
+	templates := NewTemplateSet(cfg, staticDirs, db, wkReg)
 	for _, route := range reg.Routes {
 		route := route
 		handler := func(w http.ResponseWriter, req *http.Request) {

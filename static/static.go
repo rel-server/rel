@@ -1,18 +1,26 @@
-// Package static implements specs/http-content.md ## Static files :
-// serving http.static.path's colon-separated directory search list, with
-// no directory listing and no dotfiles. Access control moved to
-// specs/new-routes.md ## Middleware — a database-backed gate over a
-// subtree is now an ordinary middleware function declared at that prefix,
-// not something this package arranges itself. (### Upload destinations,
-// specs/http-content.md ## Static files' second half, lives in route — it's
-// a route-function discovery mechanism wired through the registry, not
-// something this package serves.)
+// Package static implements specs/http-content.md ## Static files and
+// specs/templating-2.md's generalized fallback : serving http.static.path's
+// colon-separated directory search list, with no directory listing and no
+// dotfiles, plus a plain-file/index.html/.ext.jet lookup chain. Access
+// control moved to specs/new-routes.md ## Middleware — a database-backed
+// gate over a subtree is now an ordinary middleware function declared at
+// that prefix, not something this package arranges itself.
+//
+// This package only ever reports what should be served (Resolve) and
+// serves a plain file it already found ; it never executes a .jet
+// candidate itself. Jet execution needs the shared jet.Set, rel(), and
+// nonce/JWT/role resolution, all of which live in package route (which
+// already imports this package, so keeping jet execution there avoids an
+// import cycle) — route.NewStaticHandler wraps this package's Resolve for
+// the root-level static-fallback mount, and route's own masking helper does
+// the same for request.static_file.
 package static
 
 import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,9 +33,12 @@ import (
 // in order (first match wins). Rebuilt on every boot.BuildMux call (see its
 // own doc comment) — startup and every SIGUSR1 reload alike, per
 // ## Static files' own "this check re-runs every time the inner mux is
-// (re)built" rule.
+// (re)built" rule. UploadDir is the resolved absolute path of
+// http.upload.dir under WriteDir() ("" when uploads are disabled) —
+// specs/templating-2.md's subtree no file is ever jet-eligible under.
 type Server struct {
-	Dirs []string
+	Dirs      []string
+	UploadDir string
 }
 
 // New builds a *Server from cfg, or nil if EVERY directory in
@@ -45,7 +56,13 @@ func New(cfg config.Http) *Server {
 	if len(dirs) == 0 {
 		return nil
 	}
-	return &Server{Dirs: dirs}
+	s := &Server{Dirs: dirs}
+	if cfg.Upload.Dir != "" {
+		if resolved, ok := resolveUnderStaticDir(dirs[0], cfg.Upload.Dir); ok {
+			s.UploadDir = resolved
+		}
+	}
+	return s
 }
 
 // WriteDir is ### Upload destinations' "the FIRST listed directory
@@ -60,35 +77,72 @@ func (s *Server) WriteDir() string {
 	return s.Dirs[0]
 }
 
-// Info is specs/new-routes.md ## Static path masking's request.static
-// shape — what would be served at a given request path, before any
-// masking route function or middleware runs.
+// isUpload reports whether abs (an absolute path already resolved under one
+// of Dirs) falls under UploadDir — specs/templating-2.md's jet exclusion,
+// checked against the one absolute path it resolves to, not re-derived per
+// http.static.path search-list entry.
+func (s *Server) isUpload(abs string) bool {
+	if s.UploadDir == "" {
+		return false
+	}
+	return abs == s.UploadDir || strings.HasPrefix(abs, s.UploadDir+string(filepath.Separator))
+}
+
+// resolveUnderStaticDir rejects rel escaping dir outright — plain
+// filepath.Join+Clean alone would silently rewrite it elsewhere under dir.
+// A package-local twin of route/upload_handler.go's resolveUnderDir (same
+// contract, different package — that one is private to route and used for
+// the shared jet loader's own bounding, not reused from here to avoid a
+// route<->static import in either direction).
+func resolveUnderStaticDir(dir, rel string) (string, bool) {
+	if rel == "" || filepath.IsAbs(rel) {
+		return "", false
+	}
+	cleaned := filepath.Clean(rel)
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	full := filepath.Join(dir, cleaned)
+	base := filepath.Clean(dir)
+	if full != base && !strings.HasPrefix(full, base+string(filepath.Separator)) {
+		return "", false
+	}
+	return full, true
+}
+
+// Info reports what would be served at a given request path, before any
+// masking route function or middleware runs — specs/new-routes.md
+// ## Static path masking's request.static shape. A jet-backed path reports
+// the .jet SOURCE file's own stats (specs/templating-2.md) : the caller's
+// own choice of a .jet file already means a request there renders, and a
+// route function relying on this for a jet-backed path gets that source
+// file's size/mtime, not anything about the eventual render.
 type Info struct {
 	Exists     bool
 	Size       int64
 	ModifiedAt time.Time
 }
 
-// Stat reports what would be served at reqPath (relative to
-// http.static.path, no leading "/") — Exists false for a nonexistent path,
-// a directory with no index.html, or one that fails the same dotfile/
-// traversal check Handler itself applies. Safe to call on a nil *Server
-// (no http.static.path directories at all).
-func (s *Server) Stat(reqPath string) Info {
-	if s == nil || hasDotSegment(reqPath) {
-		return Info{}
-	}
-	_, fi, ok := s.openMulti(reqPath)
-	if !ok {
-		return Info{}
-	}
-	if fi.IsDir() {
-		_, fi, ok = s.openMulti(path.Join(reqPath, "index.html"))
-		if !ok {
-			return Info{}
-		}
-	}
-	return Info{Exists: true, Size: fi.Size(), ModifiedAt: fi.ModTime()}
+// JetCandidate is a .ext.jet source Resolve found for a request path with
+// no reachable plain file of its own — the caller (package route) is
+// responsible for actually rendering it ; this package never does.
+type JetCandidate struct {
+	// AbsPath is the .ext.jet source file's absolute path on disk.
+	AbsPath string
+	// Dir is the Dirs[] entry AbsPath was found under.
+	Dir string
+	// DirIndex is Dir's index within Dirs, for namespacing this candidate's
+	// template name against the shared jet.Set (route.staticTemplateName).
+	DirIndex int
+	// RelPath is AbsPath relative to Dir, slash-separated.
+	RelPath string
+	// Ext is the extension immediately before ".jet", determining content
+	// type ("html", "svg", "json", ... — always non-empty, since the
+	// extensionless case always resolves through its ".html" form).
+	Ext string
+	// Excluded is true when AbsPath falls under UploadDir — the caller must
+	// refuse to render it (specs/templating-2.md's upload/jet separation).
+	Excluded bool
 }
 
 // hasDotSegment implements ## Static files' "Dotfiles are never served"
@@ -115,90 +169,178 @@ func (s *Server) openMulti(name string) (dir string, fi os.FileInfo, ok bool) {
 	return "", nil, false
 }
 
-// Handler is the static fallback mount — specs/new-routes.md
-// ## Static path masking : rel os.Stats/serves whatever the request path
-// resolves to, relative to http.static.path ; a database-backed gate over
-// a subtree is now a middleware function (## Middleware), not something
-// this handler arranges. db/cfg are unused now that access control moved
-// out, kept for call-site compatibility (boot.BuildMux mounts this the same
-// way it mounts every other handler here).
-func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
-	fileServer := http.FileServer(multiDirFS(s.Dirs))
+// jetCandidateAt stats dir/jetRelPath directly (not searched across every
+// directory — a .jet fallback only ever applies to the specific directory
+// being considered at that point in Resolve's own search order).
+func (s *Server) jetCandidateAt(dir string, dirIndex int, jetRelPath, ext string) (*JetCandidate, bool) {
+	full := path.Join(dir, jetRelPath)
+	fi, err := os.Stat(full)
+	if err != nil || fi.IsDir() {
+		return nil, false
+	}
+	return &JetCandidate{
+		AbsPath: full, Dir: dir, DirIndex: dirIndex, RelPath: jetRelPath, Ext: ext,
+		Excluded: s.isUpload(full),
+	}, true
+}
 
+// NeedsTrailingSlash reports whether reqPath (no leading "/") names an
+// existing directory but doesn't already end in "/" — the caller should
+// redirect to the slashed URL before calling Resolve, the same trailing-
+// slash-on-directory behavior http.FileServer provides natively (lost here
+// since Resolve always hands http.ServeFile a concrete file, never a
+// directory, so http.ServeFile's own version of this check never fires).
+func (s *Server) NeedsTrailingSlash(reqPath string) bool {
+	if s == nil || reqPath == "" || strings.HasSuffix(reqPath, "/") || hasDotSegment(reqPath) {
+		return false
+	}
+	_, fi, ok := s.openMulti(reqPath)
+	return ok && fi.IsDir()
+}
+
+// Resolve reports how reqPath should be handled, per specs/templating-2.md's
+// generalized fallback chain : a plain servable file's absolute path
+// (existing behavior, extended with the extensionless -> ".html" fallback),
+// a .jet candidate for the caller to render, or neither (ok=false, 404).
+// A reachable file always wins over its own .jet fallback, checked
+// directory-by-directory in http.static.path's own search order — .jet is
+// the last resort, never tried ahead of a file that already exists at the
+// requested name anywhere in the search list. Safe to call on a nil
+// *Server (no http.static.path directories at all).
+func (s *Server) Resolve(reqPath string) (servablePath string, jet *JetCandidate, ok bool) {
+	if s == nil || hasDotSegment(reqPath) {
+		return "", nil, false
+	}
+
+	if dir, fi, found := s.openMulti(reqPath); found {
+		if !fi.IsDir() {
+			return path.Join(dir, reqPath), nil, true
+		}
+		// Directory : index.html, then index.html.jet — same precedence as
+		// any other extensionless request.
+		indexPath := path.Join(reqPath, "index.html")
+		if _, fi2, ok2 := s.openMulti(indexPath); ok2 && !fi2.IsDir() {
+			return path.Join(dir, indexPath), nil, true
+		}
+		if jc, ok2 := s.jetCandidateAt(dir, s.dirIndex(dir), path.Join(reqPath, "index.html.jet"), "html"); ok2 {
+			return "", jc, true
+		}
+		return "", nil, false
+	}
+
+	ext := strings.TrimPrefix(path.Ext(reqPath), ".")
+	if ext == "" {
+		htmlPath := reqPath + ".html"
+		if dir, fi, found := s.openMulti(htmlPath); found && !fi.IsDir() {
+			return path.Join(dir, htmlPath), nil, true
+		}
+		for i, d := range s.Dirs {
+			if jc, ok2 := s.jetCandidateAt(d, i, htmlPath+".jet", "html"); ok2 {
+				return "", jc, true
+			}
+		}
+		return "", nil, false
+	}
+
+	jetPath := reqPath + ".jet"
+	for i, d := range s.Dirs {
+		if jc, ok2 := s.jetCandidateAt(d, i, jetPath, ext); ok2 {
+			return "", jc, true
+		}
+	}
+	return "", nil, false
+}
+
+func (s *Server) dirIndex(dir string) int {
+	for i, d := range s.Dirs {
+		if d == dir {
+			return i
+		}
+	}
+	return -1
+}
+
+// Stat is Resolve, reduced to the Info shape masking's request.static needs
+// (specs/new-routes.md ## Static path masking) — reqPath is relative to
+// http.static.path, no leading "/". An excluded jet candidate reports as
+// nonexistent, same as any other refused path.
+func (s *Server) Stat(reqPath string) Info {
+	if s == nil {
+		return Info{}
+	}
+	servable, jc, ok := s.Resolve(reqPath)
+	if !ok {
+		return Info{}
+	}
+	full := servable
+	if jc != nil {
+		if jc.Excluded {
+			return Info{}
+		}
+		full = jc.AbsPath
+	}
+	fi, err := os.Stat(full)
+	if err != nil {
+		return Info{}
+	}
+	return Info{Exists: true, Size: fi.Size(), ModifiedAt: fi.ModTime()}
+}
+
+// redirectToTrailingSlash redirects to r.URL.Path+"/", preserving the query
+// string — http.FileServer's own behavior for a directory request missing
+// its trailing slash, reproduced here since Resolve always hands
+// http.ServeFile a concrete file, never a directory.
+func redirectToTrailingSlash(w http.ResponseWriter, r *http.Request) {
+	to := path.Base(r.URL.Path) + "/"
+	if q := r.URL.RawQuery; q != "" {
+		to += "?" + q
+	}
+	http.Redirect(w, r, to, http.StatusMovedPermanently)
+}
+
+// Handler is the static fallback mount for a plain file — specs/new-routes.md
+// ## Static path masking : rel os.Stats/serves whatever the request path
+// resolves to, relative to http.static.path ; a database-backed gate over a
+// subtree is a middleware function (## Middleware), not something this
+// handler arranges. A .jet candidate 404s here — this handler has no
+// rendering capability (see the package doc comment) ; boot.BuildMux mounts
+// route.NewStaticHandler instead, which wraps Resolve with jet execution
+// on top of the same plain-file serving this method does. db/cfg are
+// unused, kept for call-site compatibility (boot.BuildMux mounts every
+// handler here the same way).
+func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upath := strings.TrimPrefix(r.URL.Path, "/")
-
-		// Before any filesystem call — closes off serving a partial upload
-		// mid-stream or a dotfile like .env.
-		if hasDotSegment(upath) {
+		if s.NeedsTrailingSlash(upath) {
+			redirectToTrailingSlash(w, r)
+			return
+		}
+		servable, _, ok := s.Resolve(upath)
+		if !ok || servable == "" {
 			http.NotFound(w, r)
 			return
 		}
-
-		s.serve(w, r, fileServer, upath)
+		http.ServeFile(w, r, servable)
 	})
 }
 
-// serve applies ## Static files' no-directory-listing rule and otherwise
-// delegates to http.FileServer for the actual bytes.
-func (s *Server) serve(w http.ResponseWriter, r *http.Request, fileServer http.Handler, upath string) {
-	_, fi, exists := s.openMulti(upath)
-	if !exists {
-		http.NotFound(w, r)
-		return
-	}
-	if fi.IsDir() && !s.hasIndex(upath) {
-		http.NotFound(w, r)
-		return
-	}
-	fileServer.ServeHTTP(w, r)
-}
-
 // ServeFile serves relPath (relative to http.static.path, no leading "/")
-// through the same multi-directory search/no-directory-listing/dotfile
-// rules Handler itself applies — specs/new-routes.md ## Static path
-// masking's static_file : a full-control route or middleware response can
-// defer to a specific file on disk, not necessarily the one at the
-// request's own URL path. Returns false (writes nothing) when relPath
-// doesn't resolve to anything servable, leaving 404 rendering to the
-// caller — route's own error format, not this package's.
+// through the same Resolve-driven lookup Handler itself applies —
+// specs/new-routes.md ## Static path masking's static_file : a full-control
+// route or middleware response can defer to a specific file on disk, not
+// necessarily the one at the request's own URL path. Returns false (writes
+// nothing) when relPath doesn't resolve to a plain servable file — a .jet
+// candidate included, since this method can't render one either ; route's
+// own masking helper wraps this with jet execution the same way Handler's
+// replacement does for the root-level mount.
 func (s *Server) ServeFile(w http.ResponseWriter, r *http.Request, relPath string) bool {
-	if s == nil || hasDotSegment(relPath) {
+	if s == nil {
 		return false
 	}
-	_, fi, exists := s.openMulti(relPath)
-	if !exists {
+	servable, _, ok := s.Resolve(relPath)
+	if !ok || servable == "" {
 		return false
 	}
-	if fi.IsDir() && !s.hasIndex(relPath) {
-		return false
-	}
-	fileServer := http.FileServer(multiDirFS(s.Dirs))
-	r2 := r.Clone(r.Context())
-	r2.URL.Path = "/" + relPath
-	fileServer.ServeHTTP(w, r2)
+	http.ServeFile(w, r, servable)
 	return true
-}
-
-func (s *Server) hasIndex(dirPath string) bool {
-	_, _, ok := s.openMulti(path.Join(dirPath, "index.html"))
-	return ok
-}
-
-// multiDirFS backs http.FileServer directly, trying each directory's own
-// http.Dir in order, first success wins.
-type multiDirFS []string
-
-func (m multiDirFS) Open(name string) (http.File, error) {
-	var firstErr error
-	for _, d := range m {
-		f, err := http.Dir(d).Open(name)
-		if err == nil {
-			return f, nil
-		}
-		if firstErr == nil {
-			firstErr = err
-		}
-	}
-	return nil, firstErr
 }

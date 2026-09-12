@@ -40,9 +40,16 @@ Uploads received this way are bounded by `http.max_body_size` (10 MiB by default
 Both bytes and parts must be fully received and held in memory before the route function
 runs; there is no streaming mechanism for genuinely large uploads (video, multi-GB archives)
 through this path. `stream_upload` below streams straight to disk instead, and is bounded by
-the separate, independently-configurable `http.max_upload_size`.
+the separate, independently-configurable `http.upload.max_size`.
 
 ## Choosing a destination without routing bytes through Postgres
+
+`stream_upload` requires `http.upload.dir` to be configured — a subpath of the static write
+directory (the first entry of `http.static.path`) that every upload is written under. Leaving
+it unset disables `stream_upload` entirely (a request to such a route is a `500`). Uploaded
+files remain servable as ordinary static content through the static fallback, but no file
+under `http.upload.dir` is ever eligible for [jet execution](templates.md) — a deliberate
+separation between "files the site serves" and "files a template can run."
 
 If a function only needs to *decide where* an upload lands on disk, without the bytes ever
 passing through Postgres, declare it `stream_upload` — rel calls it **twice**:
@@ -85,7 +92,7 @@ argument at all; the whole point is that the file's bytes never enter Postgres.
   `cookies`, `jwt`, `template`, ...) is ignored, and the second `OUT` column is discarded. It
   may reject outright (`RSxxx`) — the earliest possible rejection point, before spending time
   receiving bytes for an upload that was always going to be refused. It may also return
-  `max_size` to tighten `http.max_upload_size` for this one request (a per-user quota, say) —
+  `max_size` to tighten `http.upload.max_size` for this one request (a per-user quota, say) —
   since it runs before any payload byte is read, this still applies before a single byte
   streams to disk. It can only lower the cap, never raise it.
 - **Second call**, after the bytes are fully written to a temporary location on disk:
@@ -102,8 +109,8 @@ the first call only — never repeated before the second — though any cookies/
 still apply to the second call's response, the one actually sent to the client.
 
 `upload.path`, when set, is validated against the same traversal rules [static file
-serving](static-files.md) applies — no `..`, nothing resolving outside `http.static.path`'s
-first directory. Leaving `path` unset is a deliberate discard: bytes are still received (so
+serving](static-files.md) applies — no `..`, nothing resolving outside `http.upload.dir`.
+Leaving `path` unset is a deliberate discard: bytes are still received (so
 the second call still gets an accurate `size`), but nothing is kept on disk.
 `overwrite: 'disallow'` (the default) rejects with `409 Conflict`, checked before any bytes
 are read, if a file already exists at `path`; `overwrite: 'allow'` replaces it. The file is

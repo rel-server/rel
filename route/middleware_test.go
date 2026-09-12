@@ -11,6 +11,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +71,7 @@ func TestMiddleware_RejectionDoesNotRenew(t *testing.T) {
 	cfg := *testCfg
 	cfg.Jwt.MaxAge = 5
 	cfg.Jwt.RenewAfter = 0.1
-	handler := NewHandler(testDb, &cfg, testReg, nil)
+	handler := NewHandler(testDb, &cfg, testReg, nil, nil)
 
 	now := time.Now()
 	token, err := jwtpkg.Sign(cfg.Jwt, jwtpkg.Claims{
@@ -146,8 +148,12 @@ func TestMiddleware_StreamUploadRunsOnceBeforeFirstCallOnly(t *testing.T) {
 	dir := t.TempDir()
 	cfg := *testCfg
 	cfg.Http.Static.Path = dir
+	cfg.Http.Upload.Dir = "uploads"
+	if err := os.MkdirAll(filepath.Join(dir, "uploads"), 0o755); err != nil {
+		t.Fatalf("mkdir uploads: %v", err)
+	}
 	staticSrv := static.New(cfg.Http)
-	handler := NewHandler(testDb, &cfg, testReg, staticSrv)
+	handler := NewHandler(testDb, &cfg, testReg, staticSrv, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/new/stream?path=mw-counted.txt", strings.NewReader(body.String()))
 	req.Header.Set("Content-Type", mw.FormDataContentType())

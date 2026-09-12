@@ -19,6 +19,30 @@ the fallback isn't mounted at all if every listed directory is missing.
   are meant to be publicly reachable. Gate part of the tree with [middleware](#restricting-access-to-part-of-the-tree)
   for anything that shouldn't be.
 
+## Rendering a `.jet` template
+
+If no plain file answers a request, rel looks for a `.jet` source that would render one: `foo`
+falls back to `foo.html`, then `foo.html.jet` ; `foo.svg` falls back to `foo.svg.jet` ; a
+directory falls back to `index.html`, then `index.html.jet`. A reachable plain file always
+wins — `.jet` is the last resort, never tried ahead of a file that already exists at the
+requested name.
+
+A matched `.jet` file renders exactly like a route's own `template` (see [Rendering HTML with
+templates](templates.md)) — the same `Req`, `Nonce`, and `rel()` are in scope, and it shares
+that same template set/parse cache. `{{ extends "./layout.jet" }}`/`{{ include "sibling.jet" }}`
+(a relative name, or a bare one with no leading `/`) resolves relative to the static file's own
+location on disk, the same as it would for a route's own template ; a name with a leading `/`
+(`{{ extends "/layout.jet" }}`) reaches into `http.templates.path` instead, alongside a route's
+own templates. The rendered response's `Content-Type` comes from the
+extension immediately before `.jet` (`widget.svg.jet` renders as `image/svg+xml`), and never
+carries a static file's own caching headers (`ETag`/`Last-Modified`) — a jet render always sends
+`Cache-Control: no-store` instead, since it's dynamic and role-scoped, never something a browser
+or CDN should cache across users.
+
+No file under `http.upload.dir` (see [File uploads](uploads.md)) is ever eligible for this
+fallback, at any depth, including through a `{{ include }}` that would otherwise resolve there —
+uploaded content stays servable as plain static bytes, never executable as a template.
+
 ## Static path masking
 
 A declared route at an exact path always takes priority over a static file at that same
@@ -32,7 +56,11 @@ stat call, negligible cost) and includes the result as `request.static`:
 { exists: boolean, size?: number, modified_at?: string }
 ```
 
-`exists: false` when nothing is there, or when the path fails traversal validation. There is
+When the request resolves to a `.jet` fallback, `size`/`modified_at` describe that `.jet`
+**source** file itself, not anything about the eventual render — the render's size isn't known
+without executing it. `exists: false` when nothing is there, when the path fails traversal
+validation, or when it resolves into `http.upload.dir` (jet-excluded paths report as
+nonexistent here too). There is
 no implicit fallback to the static file when a masking route returns neither content nor
 `static_file` — with `request.static` available, the function has what it needs to decide
 explicitly, including returning `static_file` itself to defer to disk:
@@ -56,7 +84,8 @@ response with an explicit `status` (a middleware terminating with `{status: 401}
 content/`static_file` is a real, deliberate answer, not a masking no-op, and is sent as that
 status with an empty body. `static_file` resolves under the same traversal rules as
 `http.static.path` and a `stream_upload` route's own `path` — no `..`, no dotfile path
-segment, nothing outside the configured static directories.
+segment, nothing outside the configured static directories — and through the same `.jet`
+fallback described above, rendering rather than serving raw template source when it applies.
 
 ## Restricting access to part of the tree
 

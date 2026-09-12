@@ -113,9 +113,39 @@ through.
 inheritance relationship) and `{{ include "footer.jet" }}` (inline another template's full
 output at that point) are both available too, resolved the same way.
 
+## `rel()`: reading data from a template
+
+Every template — a route's own, or a static `.jet` file (see [Static files ## Rendering a .jet
+template](static-files.md#rendering-a-jet-template)) — has a `rel(query)` function in scope,
+running a **read-only** query with the requesting user's own role, the same role a `/rel`
+request from that user would resolve to:
+
+```html
+{{ range _, movie := rel(map("relation", "movie", "schema", "public", "select", slice("own"))) }}
+  <li>{{ movie.title }}</li>
+{{ end }}
+```
+
+`query` is built with Jet's own `map()`/`slice()` globals into the same shape a `/rel` request
+body would send — a bare relation, or a well-known query by name (`map("wellknown", "name",
+"params", map(...))`). A write shape (`map("query", ..., "data", ...)`) is always rejected: a
+page render must not have side effects. `rel()` opens its own short-lived transaction per call,
+independent of the surrounding request's own transaction (if any) and of any other `rel()` call
+in the same render — it is not a mechanism for a coherent multi-statement read; reach for a
+database function instead when several queries must see one consistent snapshot.
+
+!!! warning
+    `rel()` has no query timeout, row limit, or execution-step limit of its own. A static `.jet`
+    file is normally the least authenticated, most-crawled surface of a site — an expensive
+    `rel()` call there is a standing amplification risk against the database on every anonymous
+    page load, not just under active abuse. Keep queries cheap and bounded (an explicit
+    `limit`), and rely on the database's own role-scoped grants/RLS for what a given caller can
+    see, exactly as `/rel` does.
+
 ## Reload
 
 The template set (and its parse cache) rebuilds as part of the same `SIGUSR1` reload sequence a
 schema change uses — see [Operations](../configuration/operations.md). A changed `.jet` file on
 disk takes effect the next time an operator reloads, not on every request; there is no
-development mode that reparses from disk on every render.
+development mode that reparses from disk on every render. This applies identically to a
+static-served `.jet` file — editing one under `http.static.path` has no effect until reload.

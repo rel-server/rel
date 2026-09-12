@@ -36,8 +36,8 @@ func Test() *Config {
 		Http: Http{
 			CookiesMaxAge: DefaultHttpCookiesMaxAge,
 			MaxBodySize:   DefaultHttpMaxBodySize,
-			MaxUploadSize: DefaultHttpMaxBodySize,
 			MaxPartCount:  DefaultHttpMaxPartCount,
+			Upload:        HttpUpload{MaxSize: DefaultHttpMaxBodySize},
 			Static:        HttpStatic{Path: DefaultHttpStaticPath},
 			Templates:     HttpTemplates{Path: DefaultHttpTemplatesPath},
 			Cors: HttpCors{

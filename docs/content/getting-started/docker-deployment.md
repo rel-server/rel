@@ -129,9 +129,9 @@ not `rel-server/rel` directly, and no `/wellknown`/`/static`/`/template` volumes
 `http.static.path` accepts several colon-separated directories and serves them as one merged
 `/static/*` tree (see [Static files](../http/static-files.md)); a [file
 upload](../http/uploads.md) landing on disk without routing through Postgres always writes
-under the *first* one specifically. That ordering is also the tool for combining assets baked
-into your image with a writable upload directory, without any dedicated upload configuration:
-put the writable volume first, your `COPY`'d assets second.
+under `http.upload.dir`, a subpath of the *first* listed directory specifically. Point that
+subpath at a volume mounted under your baked-in assets to combine the two, without disturbing
+the search-list order:
 
 ```dockerfile
 # in your app's Dockerfile
@@ -141,16 +141,19 @@ COPY static /static/assets
 ```yaml
 # in your compose file
 environment:
-  REL_HTTP__STATIC__PATH: /uploads:/static/assets
+  REL_HTTP__STATIC__PATH: /static/assets
+  REL_HTTP__UPLOAD__DIR: uploads
 volumes:
-  - rel_uploads:/uploads
+  - rel_uploads:/static/assets/uploads
 ```
 
-Uploads land in `/uploads`, on a volume that survives a redeploy; `/static/assets` is whatever
-version of your app's own static files the currently-running image was built with. There's
-deliberately no separate `http.uploads.path` setting or default `/uploads` volume in the base
-image — which directory in the list is writable, if any, is a decision about your app's own
-deployment, not something rel's base image should assume for you.
+Uploads land under `/static/assets/uploads`, on a volume that survives a redeploy, still served
+as ordinary static content alongside the rest of `/static/assets` — whatever version of your
+app's own static files the currently-running image was built with — but never eligible for jet
+execution (see [Static files ## Rendering a .jet template](../http/static-files.md#rendering-a-jet-template)),
+regardless of what lands there. `http.upload.dir` defaults unset, which disables uploads
+entirely — a deployment that never needs `stream_upload` doesn't need a writable volume at
+all.
 
 The compose file above assumes `your-registry/your-app:latest` is already sitting in a registry
 `docker-compose pull`/`docker-compose up` can reach. `just image` builds the plain

@@ -38,8 +38,11 @@ import (
 // scoped logging) and websec.Middleware (specs/http-content.md's "CORS and
 // CSP apply uniformly"). Declared routes and /auth (the SSO mount)
 // additionally sit behind websec.NonceMiddleware, scoped via a chi.Group
-// (docs/content/http/cors-csp.md ## CSP ### Nonce explains why /rel and the
-// static fallback don't get one). A well-known query is invoked through
+// (docs/content/http/cors-csp.md ## CSP ### Nonce explains why /rel doesn't
+// get one). The static fallback gets a nonce too, but only inline, on the
+// specific request that resolves to a jet render (specs/templating-2.md) —
+// route.NewStaticHandler generates and injects it itself rather than this
+// package mounting NonceMiddleware unconditionally on every static request. A well-known query is invoked through
 // /rel, not a separate route ; wkReg is handed to server.NewRelHandler
 // directly. Both cmd/rel/main.go (startup) and boot/reload.go's Reload
 // (every SIGUSR1) call this with a freshly built *route.Registry and
@@ -47,7 +50,11 @@ import (
 // own responsibility.
 func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) (http.Handler, error) {
 	staticSrv := static.New(cfg.Http)
-	templates := route.NewTemplateSet(cfg.Http.Templates.Path)
+	var staticDirs []string
+	if staticSrv != nil {
+		staticDirs = staticSrv.Dirs
+	}
+	templates := route.NewTemplateSet(cfg, staticDirs, db, wkReg)
 
 	mux := chi.NewRouter()
 	// ## Middleware : "applies uniformly across /rel, since it's served by
@@ -65,14 +72,14 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	mux.Group(func(r chi.Router) {
 		r.Use(websec.NonceMiddleware(cfg))
 
-		route.RegisterRoutes(r, db, cfg, reg, staticSrv)
+		route.RegisterRoutes(r, db, cfg, reg, staticSrv, wkReg)
 
 		// specs/oauth-saml.md : /auth/oidc/* and /auth/saml/* — a no-op when
 		// neither openid.* nor saml.* has any entry configured. Mount resolves
 		// each entry's own host (http.public_host or its own public_host
 		// override) and logs/skips individually, rather than an all-or-nothing
 		// gate here.
-		sso.Mount(r, db, cfg)
+		sso.Mount(r, db, cfg, wkReg)
 	})
 
 	// specs/new-routes.md ## Static path masking : a path no declared route
@@ -81,7 +88,7 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	// (index override) meaningful. An exact-path route always wins first,
 	// since chi tries every registered route before NotFound.
 	if staticSrv != nil {
-		mux.NotFound(route.GateMiddleware(db, cfg, reg, templates, staticSrv, staticSrv.Handler(db, cfg)).ServeHTTP)
+		mux.NotFound(route.GateMiddleware(db, cfg, reg, templates, staticSrv, route.NewStaticHandler(db, cfg, staticSrv, templates)).ServeHTTP)
 	} else if logger != nil {
 		logger.Debug("boot: no http.static.path directory found, static fallback is not mounted")
 	}

@@ -74,11 +74,11 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		return
 	}
 
-	if err := tooLargeIfContentLengthExceeds(r, int64(cfg.Http.MaxUploadSize), "http.max_upload_size"); err != nil {
+	if err := tooLargeIfContentLengthExceeds(r, int64(cfg.Http.Upload.MaxSize), "http.upload.max_size"); err != nil {
 		writeRequestBodyError(ctx, w, err)
 		return
 	}
-	limitedBody := http.MaxBytesReader(w, r.Body, int64(cfg.Http.MaxUploadSize))
+	limitedBody := http.MaxBytesReader(w, r.Body, int64(cfg.Http.Upload.MaxSize))
 
 	isMultipart := false
 	var boundary string
@@ -207,7 +207,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	writeDir := ""
 	if staticSrv != nil {
-		writeDir = staticSrv.WriteDir()
+		writeDir = staticSrv.UploadDir
 	}
 
 	// Traversal validation/409 check/mkdir are skipped entirely when
@@ -224,13 +224,13 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		if upload.Path != nil && *upload.Path != "" {
 			if writeDir == "" {
 				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
-					oops.With("path", *upload.Path).Errorf("upload route resolved a path but no http.static.path directory is configured/exists"))
+					oops.With("path", *upload.Path).Errorf("upload route resolved a path but http.upload.dir is unset or no http.static.path directory is configured/exists"))
 				return
 			}
 			cleaned, ok := resolveUnderDir(writeDir, *upload.Path)
 			if !ok {
 				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
-					oops.With("path", *upload.Path).Errorf("stream_upload's first call returned a path escaping http.static.path"))
+					oops.With("path", *upload.Path).Errorf("stream_upload's first call returned a path escaping http.upload.dir"))
 				return
 			}
 			finalPath = cleaned
@@ -259,7 +259,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			tempPath = filepath.Join(writeDir, ".upload-"+randomToken())
 		} else {
 			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
-				oops.Errorf("upload route has no http.static.path directory configured/exists to stage the discarded upload into"))
+				oops.Errorf("upload route has http.upload.dir unset or no http.static.path directory configured/exists to stage the discarded upload into"))
 			return
 		}
 	}
@@ -280,9 +280,9 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		}
 		// The first call may tighten the upload cap further (e.g. a
 		// per-user quota) via Upload.max_size — it can only lower
-		// cfg.Http.MaxUploadSize, never raise it, since limitedBody is
+		// cfg.Http.Upload.MaxSize, never raise it, since limitedBody is
 		// already bounded to that ceiling upstream.
-		if upload.MaxSize != nil && *upload.MaxSize >= 0 && *upload.MaxSize < int64(cfg.Http.MaxUploadSize) {
+		if upload.MaxSize != nil && *upload.MaxSize >= 0 && *upload.MaxSize < int64(cfg.Http.Upload.MaxSize) {
 			src = http.MaxBytesReader(w, src, *upload.MaxSize)
 		}
 		n, cerr := io.Copy(f, src)
@@ -291,8 +291,8 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		if cerr != nil {
 			var maxErr *http.MaxBytesError
 			if errors.As(cerr, &maxErr) {
-				msg := "request body exceeds http.max_upload_size"
-				if upload.MaxSize != nil && *upload.MaxSize < int64(cfg.Http.MaxUploadSize) {
+				msg := "request body exceeds http.upload.max_size"
+				if upload.MaxSize != nil && *upload.MaxSize < int64(cfg.Http.Upload.MaxSize) {
 					msg = "request body exceeds the upload size limit set by " + route.Function.Identifier.String()
 				}
 				writePlainError(w, http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, msg)

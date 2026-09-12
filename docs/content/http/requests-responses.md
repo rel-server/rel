@@ -177,10 +177,10 @@ interface Cookie {
 }
 
 interface Upload {
-  path?: string                      // relative to http.static.path's first directory ; omitted = discard the upload once received
+  path?: string                      // relative to http.upload.dir ; omitted = discard the upload once received
   mkdir?: boolean                    // create path's parent directory if missing
   overwrite?: 'allow' | 'disallow'   // default 'disallow'
-  max_size?: number                  // tighten http.max_upload_size for this request only ; can only lower it, never raise it
+  max_size?: number                  // tighten http.upload.max_size for this request only ; can only lower it, never raise it
   part?: Part                        // filled in by rel before the function runs
   size?: number                      // rel-filled, post-stream, the actual observed byte count ; absent on the first call
 }

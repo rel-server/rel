@@ -6,6 +6,7 @@ import (
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/route"
+	"github.com/rel-server/rel/wellknown"
 )
 
 // resolveHost is specs/oauth-saml.md ## Configuration — HTTP's per-entry
@@ -32,7 +33,7 @@ func rootURLFor(host string) string {
 // entry resolves its own root URL independently (resolveHost) ; an entry
 // with no effective host is skipped (logged), not a fatal error for the
 // others — see mountOidc/mountSaml.
-func Mount(router chi.Router, db *pg.DbInfos, cfg *config.Config) {
+func Mount(router chi.Router, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
 	if len(cfg.Openid) == 0 && len(cfg.Saml.Providers) == 0 {
 		return
 	}
@@ -43,7 +44,7 @@ func Mount(router chi.Router, db *pg.DbInfos, cfg *config.Config) {
 		log.Warn("sso: no http.functions.sso_callback configured and no per-entry callback_function set either — every /auth/{oidc,saml}/*/{callback,acs} will 500 until one is configured")
 	}
 
-	templates := route.NewTemplateSet(cfg.Http.Templates.Path)
+	templates := route.NewTemplateSet(cfg, nil, db, wkReg)
 
 	mountOidc(router, db, cfg, templates)
 

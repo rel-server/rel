@@ -73,6 +73,12 @@ const (
 	QueryComplexNotAllowedOnGet Code = "QUERY_COMPLEX_NOT_ALLOWED_ON_GET"
 )
 
+// rel() in templates (specs/templating-2.md ## query functions) — a
+// dedicated, read-only-only entrypoint, distinct from /rel's own errors.
+const (
+	RelFuncWriteNotAllowed Code = "REL_FUNC_WRITE_NOT_ALLOWED"
+)
+
 // Well-known query compile errors (## Compilation Errors) — raised once,
 // at load/reload time, never re-checked per request.
 const (

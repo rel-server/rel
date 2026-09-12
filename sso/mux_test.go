@@ -18,7 +18,7 @@ func TestMount_NoopWhenUnconfigured(t *testing.T) {
 	router := chi.NewRouter()
 	cfg := config.Test()
 	cfg.Http.PublicHost = "app.example.com"
-	Mount(router, testDb, cfg)
+	Mount(router, testDb, cfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/anything/login", nil)
 	rec := httptest.NewRecorder()
@@ -39,7 +39,7 @@ func TestMount_OidcRoutesRegistered(t *testing.T) {
 	cfg.Openid = map[string]config.OpenidProvider{
 		"test": {Issuer: issuer.server.URL, ClientID: "c", ClientSecret: "s"},
 	}
-	Mount(router, testDb, cfg)
+	Mount(router, testDb, cfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/test/login", nil)
 	rec := httptest.NewRecorder()
@@ -61,7 +61,7 @@ func TestMount_EntryWithNoEffectiveHostIsSkipped(t *testing.T) {
 	cfg.Openid = map[string]config.OpenidProvider{
 		"test": {Issuer: issuer.server.URL, ClientID: "c", ClientSecret: "s"},
 	}
-	Mount(router, testDb, cfg)
+	Mount(router, testDb, cfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/test/login", nil)
 	rec := httptest.NewRecorder()
@@ -82,7 +82,7 @@ func TestMount_PerEntryHostOverride(t *testing.T) {
 	cfg.Openid = map[string]config.OpenidProvider{
 		"test": {Issuer: issuer.server.URL, ClientID: "c", ClientSecret: "s", PublicHost: "override.example.com"},
 	}
-	Mount(router, testDb, cfg)
+	Mount(router, testDb, cfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/test/login", nil)
 	rec := httptest.NewRecorder()

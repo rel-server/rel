@@ -8,6 +8,7 @@ package route
 // invocation, response writing) actually works together.
 
 import (
+	"context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -216,8 +217,12 @@ func TestE2E_SniffedContentType_StreamUploadSecondCallOnly(t *testing.T) {
 	dir := t.TempDir()
 	cfg := *testCfg
 	cfg.Http.Static.Path = dir
+	cfg.Http.Upload.Dir = "uploads"
+	if err := os.MkdirAll(filepath.Join(dir, "uploads"), 0o755); err != nil {
+		t.Fatalf("mkdir uploads: %v", err)
+	}
 	staticSrv := static.New(cfg.Http)
-	handler := NewHandler(testDb, &cfg, testReg, staticSrv)
+	handler := NewHandler(testDb, &cfg, testReg, staticSrv, nil)
 
 	var body strings.Builder
 	mw := multipart.NewWriter(&body)
@@ -271,7 +276,7 @@ func TestE2E_TemplateRendering(t *testing.T) {
 
 	cfg := *testCfg
 	cfg.Http.Templates.Path = templatesDir
-	handler := NewHandler(testDb, &cfg, testReg, nil)
+	handler := NewHandler(testDb, &cfg, testReg, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/new/templated", nil)
 	rec := httptest.NewRecorder()
@@ -282,6 +287,40 @@ func TestE2E_TemplateRendering(t *testing.T) {
 	}
 	if rec.Body.String() != "Hello, world!" {
 		t.Errorf("expected the rendered template, got %q", rec.Body.String())
+	}
+}
+
+// TestE2E_TemplateRendering_RelAvailable proves rel() is available from a
+// database-function-return template, not only a static one
+// (specs/templating-2.md) — the shared jet.Set's Set-global registration
+// reaches both.
+func TestE2E_TemplateRendering_RelAvailable(t *testing.T) {
+	if _, err := testDb.Pool.Exec(context.Background(), "delete from stream_upload_log"); err != nil {
+		t.Fatalf("clearing stream_upload_log: %v", err)
+	}
+	if _, err := testDb.Pool.Exec(context.Background(), `insert into stream_upload_log (upload) values ('{"marker":"db-template-rel-test"}'::jsonb)`); err != nil {
+		t.Fatalf("seeding stream_upload_log: %v", err)
+	}
+
+	templatesDir := t.TempDir()
+	tmpl := `{{ range _, row := rel(map("relation", "stream_upload_log", "schema", "public", "select", slice("own"))) }}marker={{ row.upload.marker }};{{ end }}`
+	if err := os.WriteFile(filepath.Join(templatesDir, "greet.jet"), []byte(tmpl), 0o644); err != nil {
+		t.Fatalf("writing greet.jet: %v", err)
+	}
+
+	cfg := *testCfg
+	cfg.Http.Templates.Path = templatesDir
+	handler := NewHandler(testDb, &cfg, testReg, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/new/templated", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "marker=db-template-rel-test;") {
+		t.Errorf("expected rel() to be available and return the seeded row, got %q", rec.Body.String())
 	}
 }
 
@@ -318,8 +357,12 @@ func TestE2E_StreamUpload_TwoCallFlow(t *testing.T) {
 	dir := t.TempDir()
 	cfg := *testCfg
 	cfg.Http.Static.Path = dir
+	cfg.Http.Upload.Dir = "uploads"
+	if err := os.MkdirAll(filepath.Join(dir, "uploads"), 0o755); err != nil {
+		t.Fatalf("mkdir uploads: %v", err)
+	}
 	staticSrv := static.New(cfg.Http)
-	handler := NewHandler(testDb, &cfg, testReg, staticSrv)
+	handler := NewHandler(testDb, &cfg, testReg, staticSrv, nil)
 
 	var body strings.Builder
 	mw := multipart.NewWriter(&body)
@@ -346,7 +389,7 @@ func TestE2E_StreamUpload_TwoCallFlow(t *testing.T) {
 		t.Errorf(`expected the real observed size (12 bytes) in the response, got %q`, rec.Body.String())
 	}
 
-	written, err := os.ReadFile(dir + "/uploaded.txt")
+	written, err := os.ReadFile(filepath.Join(dir, "uploads", "uploaded.txt"))
 	if err != nil {
 		t.Fatalf("reading uploaded file: %v", err)
 	}

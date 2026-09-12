@@ -65,10 +65,11 @@ HTTP-scoped subset, each row pointing at the page that explains the *behavior*, 
 | `http.public_host` | unset | This deployment's externally-reachable host (bare, no scheme) — required for OIDC/SAML redirect URLs. See [Authentication](authentication.md). |
 | `http.cookies_max_age` | `86400` (seconds) | Default max-age for a cookie set via the generic `cookies` field. Never applies to the JWT cookie. See [Requests and responses](requests-responses.md#httpresponse). |
 | `http.max_body_size` | 10 MiB | Hard cap on a declared route request's entire body. See [File uploads](uploads.md#receiving-raw-bytes). |
-| `http.max_upload_size` | = `http.max_body_size` | Hard cap on a `stream_upload` route's streamed payload — independent of `http.max_body_size` since this path streams to disk, not memory. See [File uploads](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
 | `http.max_part_count` | `100` | Max `multipart/form-data` parts per request. See [File uploads](uploads.md#receiving-raw-bytes). |
 | `http.static.path` | `/static` | Colon-separated filesystem directories served at the router root, as the fallback for any path no declared route claims. See [Static files](static-files.md). |
-| `http.templates.path` | `/template` | Directory Jet templates load from. See [Rendering HTML with templates](templates.md). |
+| `http.upload.dir` | unset (uploads disabled) | Subpath of the static write directory (the first entry of `http.static.path`) every `stream_upload` writes under — servable, but never jet-eligible. See [File uploads](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
+| `http.upload.max_size` | = `http.max_body_size` | Hard cap on a `stream_upload` route's streamed payload — independent of `http.max_body_size` since this path streams to disk, not memory. See [File uploads](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
+| `http.templates.path` | `/template` | Directory Jet templates load from, merged with `http.static.path` for a static `.jet` render. See [Rendering HTML with templates](templates.md) and [Static files](static-files.md). |
 
 ### Route declaration and gating
 

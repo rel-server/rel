@@ -205,7 +205,7 @@ func WriteRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Co
 	status := applyResponseSideEffects(w, r, cfg, functionIdent, resp)
 
 	if resp.Template != "" {
-		writeTemplateResponse(w, r, templates, resp.Template, resp.TemplateData, resp.ContentType, status)
+		writeTemplateResponse(w, r, cfg, templates, resp.Template, resp.TemplateData, resp.ContentType, status)
 		return
 	}
 
@@ -262,7 +262,7 @@ func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, cfg *conf
 	applyResponseSideEffects(w, r, cfg, functionIdent, accumulated)
 
 	if route.Template != "" {
-		writeTemplateResponse(w, r, templates, route.Template, templateDataFromSingleReturn(raw, route.ContentType), route.ContentType, http.StatusOK)
+		writeTemplateResponse(w, r, cfg, templates, route.Template, templateDataFromSingleReturn(raw, route.ContentType), route.ContentType, http.StatusOK)
 		return
 	}
 	if route.ContentType != "" {
@@ -313,7 +313,7 @@ func renderFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *conf
 	// static_file is the explicit way to defer to disk.
 	if accumulated.StaticFile != "" {
 		relPath := strings.TrimPrefix(accumulated.StaticFile, "/")
-		if staticSrv != nil && staticSrv.ServeFile(w, r, relPath) {
+		if serveStaticFileOrJet(w, r, cfg, staticSrv, templates, relPath) {
 			return
 		}
 		http.NotFound(w, r)
@@ -330,7 +330,7 @@ func renderFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *conf
 		template = route.Template
 	}
 	if template != "" {
-		writeTemplateResponse(w, r, templates, template, templateDataFromSingleReturn(contentRaw, contentType), contentType, status)
+		writeTemplateResponse(w, r, cfg, templates, template, templateDataFromSingleReturn(contentRaw, contentType), contentType, status)
 		return
 	}
 

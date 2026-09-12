@@ -80,7 +80,7 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 
 	mux := chi.NewRouter()
 	mux.Handle("/rel", server.NewRelHandler(db, cfg, nil))
-	route.RegisterRoutes(mux, db, cfg, reg, nil)
+	route.RegisterRoutes(mux, db, cfg, reg, nil, nil)
 
 	wrapper := NewReloadableHandler(mux)
 
