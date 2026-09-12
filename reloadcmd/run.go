@@ -172,9 +172,11 @@ func toString(v any) string {
 	return fmt.Sprint(v)
 }
 
-// logLines scans r line by line, tagging each with component=reload.cmd
-// and stream, merging a JSON-object line's own keys on top when it parses
-// as one — specs/reload.md : "for commands that support structured output."
+// logLines scans r line by line, tagging each with stream, merging a
+// JSON-object line's own keys on top when it parses as one — specs/reload.md :
+// "for commands that support structured output." No separate component tag :
+// the caller's module attr plus stream already identify these as reload.cmd's
+// subprocess output (Run's own status/error lines never carry stream).
 // A bufio.Scanner, not a naive per-Write split : os/exec pipes output
 // through io.Copy in arbitrary chunks, never guaranteed to align with line
 // boundaries the way a single formatted log call would.
@@ -186,7 +188,7 @@ func logLines(r io.Reader, logger *slog.Logger, stream string) {
 		if line == "" {
 			continue
 		}
-		attrs := []any{"component", "reload.cmd", "stream", stream}
+		attrs := []any{"stream", stream}
 		var obj map[string]any
 		if json.Unmarshal([]byte(line), &obj) == nil {
 			for k, v := range obj {

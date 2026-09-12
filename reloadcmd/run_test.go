@@ -59,8 +59,8 @@ func TestRun_SucceedsAndLogsStdoutStderr(t *testing.T) {
 	if !strings.Contains(out, "err-line") || !strings.Contains(out, `stream=stderr`) {
 		t.Errorf("expected stderr line tagged stream=stderr, got %q", out)
 	}
-	if !strings.Contains(out, `component=reload.cmd`) {
-		t.Errorf("expected component=reload.cmd tag, got %q", out)
+	if strings.Contains(out, `component=`) {
+		t.Errorf("expected no component tag, got %q", out)
 	}
 }
 

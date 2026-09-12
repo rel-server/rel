@@ -63,9 +63,9 @@ to it.
 
 ## Output and failure handling
 
-`reload.cmd`'s stdout and stderr are logged line by line, tagged `component=reload.cmd` and
-`stream=stdout`/`stream=stderr`. A line that parses as a JSON object has its own keys merged
-into the log record on top of those two, for tools that support structured output.
+`reload.cmd`'s stdout and stderr are logged line by line, tagged `stream=stdout`/`stream=stderr`
+(alongside the usual `module` attribute). A line that parses as a JSON object has its own keys
+merged into the log record on top of that, for tools that support structured output.
 
 If `reload.cmd` exits non-zero or exceeds `reload.timeout`, rel skips reintrospecting the schema
 for that reload — but still rebuilds the well-known query registry and [Jet
