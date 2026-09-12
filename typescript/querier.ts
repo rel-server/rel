@@ -13,6 +13,7 @@ import type {
   FunctionName,
   MatchOverload,
   Params,
+  Prettify,
   RelationName,
   RequiredKeysOf,
   ResolveModel,
@@ -438,3 +439,24 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
       .then((data) => applyProto(data, this.query as ProtoQuery) as Shape)
   }
 }
+
+// Named types to hold onto a Querier's own Shape/WriteShape, e.g. as a function parameter's type, without
+// re-deriving it via `Awaited<ReturnType<typeof someQuery.get>>` every time. `Prettify` (shapes.ts) is applied
+// here too, on top of it already being applied at every level `Shape`/`WriteShape` were built from (shapes.ts's
+// ShapeFromRelationQuery/WriteShapeFromRelationQuery doc comments) — a hand-built `Querier` (unlike one
+// relation()/func() produced) never went through either, so these still prettify a raw `Shape`/`WriteShape` for
+// one. Array-wrapped (the common case, root or to-many join) prettifies the element, not the array itself, same
+// guard as `Prettify` (shapes.ts) has to have anyway.
+export type ShapeOf<Q extends Querier<unknown, unknown, unknown, unknown>> =
+  Q extends Querier<infer S, unknown, unknown, unknown>
+    ? S extends readonly (infer E)[]
+      ? Prettify<E>[]
+      : Prettify<S>
+    : never
+
+export type WriteShapeOf<Q extends Querier<unknown, unknown, unknown, unknown>> =
+  Q extends Querier<unknown, infer W, unknown, unknown>
+    ? W extends readonly (infer E)[]
+      ? Prettify<E>[]
+      : Prettify<W>
+    : never

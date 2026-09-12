@@ -5,6 +5,7 @@
 // real `fetch()` — so this file is safe to simply import, not just type-check.
 
 import { call, func, join, relation, wellknown } from "./querier"
+import type { ShapeOf, WriteShapeOf } from "./querier"
 import type { Functions } from "./schema.example"
 import type { DefaultRow, ResolveModel, RootShapeFromFunctionMember } from "./shapes"
 
@@ -26,6 +27,20 @@ const properties = relation("hotel.properties", {
 // Exported so a change to ShapeFromQuery/ResolveModel that silently loosens/narrows this query's inferred shape
 // shows up as a diff here, not just a passing compile.
 export type PropertiesShape = Awaited<ReturnType<typeof properties.get>>
+
+// docs/content/typescript/index.md ## Building a query : ShapeOf/WriteShapeOf pull Shape/WriteShape straight off
+// a Querier's own type, an alternative to `Awaited<ReturnType<typeof q.get>>` above — asserted structurally
+// identical to it here, not just "compiles", since the two are meant to be interchangeable.
+export type PropertiesShapeOf = ShapeOf<typeof properties>
+export type PropertiesWriteShapeOf = WriteShapeOf<typeof properties>
+
+export type _AssertShapeOfMatchesGetReturn = Expect<
+  [PropertiesShapeOf] extends [PropertiesShape]
+    ? [PropertiesShape] extends [PropertiesShapeOf]
+      ? true
+      : false
+    : false
+>
 
 const rooms = relation("hotel.rooms", {
   join: {

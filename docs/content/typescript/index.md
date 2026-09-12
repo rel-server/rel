@@ -51,6 +51,10 @@ a joined alias that isn't declared, and it's a compile error, not a runtime surp
 goes for `relation()`/`func()`'s own first argument: `relation("hotel.bogus", ...)` is a compile
 error too, with your editor autocompleting the relation/function names your schema actually has.
 
+Hovering over `properties` (or any `.get()`/`.write()`/`call()` result) shows a plain, flattened
+object literal — `{ id: number; name: string; rooms: {...}[] }` — at every nesting level, not the
+chain of internal type names that computed it.
+
 `relation()`'s second argument is a callback, and it's what makes a joined column's shortcut
 type-check correctly: the `join` it receives already knows which relation it's being called
 from, so it only offers the foreign keys reachable from *that* relation, and only accepts a
@@ -116,6 +120,32 @@ map's own rename too: `select: { display_name: "name" }` still requires `display
 `wellknown()` builds a call to a registered [well-known query](../query-language/well-known-queries.md) instead
 of an ad hoc relation — same `Querier`, but its params and result shape come from the query's
 own registered definition rather than from what you pass to `relation()`.
+
+### Naming a query's shape
+
+If you want to name a query's shape — say, as a function parameter's type elsewhere in your
+code — `ShapeOf`/`WriteShapeOf` pull it straight off a `Querier`, instead of writing
+`Awaited<ReturnType<typeof someQuery.get>>` by hand. Like `.get()`'s own return value, `ShapeOf`
+is the array (a relation/function root is always an array of rows) — index it with `[number]`
+for a single row's type:
+
+```ts
+import { relation, ShapeOf, WriteShapeOf } from "./database"
+
+const properties = relation("hotel.properties", {
+  select: { id: "id", name: "name" },
+})
+
+type Properties = ShapeOf<typeof properties> // { id: number; name: string }[]
+type PropertiesWrite = WriteShapeOf<typeof properties>
+
+function printProperty(p: Properties[number]) {
+  console.log(p.name)
+}
+```
+
+Both are flattened the same way `.get()`/`.write()` already are, so hovering `Properties` shows
+the actual object shape, not a reference back to `typeof properties`.
 
 ## Attaching behavior to rows
 

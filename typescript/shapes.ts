@@ -46,10 +46,18 @@ type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) exten
   ? I
   : never
 
-type Flatten<T> = { [K in keyof T]: T[K] }
+// Forces an intersection/mapped-type chain to display as one flat object on hover, instead of the chain of
+// aliases that produced it. Guarded against arrays and non-object types (a scalar, or an already-array-wrapped
+// root/join shape reaching here) : mapping over an array's own keys (numeric indices, `length`, methods) would
+// produce nonsense, and `keyof` on a non-object type doesn't exist at all.
+export type Prettify<T> = T extends readonly unknown[]
+  ? T
+  : T extends object
+    ? { [K in keyof T]: T[K] } & {}
+    : T
 
 // Walks a query to extract whatever params there were inside
-export type Params<Q> = Flatten<UnionToIntersection<ParamUnion<Q>>>
+export type Params<Q> = Prettify<UnionToIntersection<ParamUnion<Q>>>
 
 ///////////////////////////////////////////////////////////////////////
 // ShapeFromQuery : infers the JSON result shape of a RelationQuery from
@@ -199,7 +207,7 @@ type RootShapeFromFunctionMemberEach<M, Q, Depth extends number> = M extends {
 }
   ? ShapeFromRelationQuery<Q, R, Depth>[]
   : M extends { returns: infer Ret }
-    ? Ret
+    ? Prettify<Ret>
     : DefaultRow[]
 
 // Root-level wrap for a query node that still carries its own `relation`/`function` fields on its own literal —
@@ -490,11 +498,17 @@ export type ProtoRowShape<
 // Merges `proto`'s own members into the row shape it decorates.
 type MergeProto<Q, Base> = Q extends { proto: infer P extends object } ? Base & P : Base
 
+// Prettify wraps every node's own output here, not just the root's : this is the one function root AND every
+// nested join member resolve their row shape through (JoinShapes, above, and RootShapeFromFunctionMemberEach
+// both call back into this same function per node), so wrapping it here makes every nesting level readable on
+// hover for free, without a separate deep-recursive prettify walk of its own.
 export type ShapeFromRelationQuery<
   Q,
   Rel extends object,
   Depth extends number = 12,
-> = Depth extends 0 ? unknown : MergeProto<Q, BaseShapeFromRelationQuery<Q, Rel, Digits[Depth]>>
+> = Depth extends 0
+  ? unknown
+  : Prettify<MergeProto<Q, BaseShapeFromRelationQuery<Q, Rel, Digits[Depth]>>>
 
 // docs/content/typescript/index.md ## Attaching behavior to rows : the type relation()/func()/join() (querier.ts)
 // put their own request literal's type through, intersected on top of `Q`, so `proto`'s own getters/methods have
@@ -688,7 +702,7 @@ type WriteShapeFromExpressionMap<
   Join extends { [name: string]: unknown },
   Depth extends number,
   ReqCol extends string = never,
-> = Flatten<
+> = Prettify<
   {
     [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
       ? never
@@ -738,6 +752,8 @@ type WriteShapeFromExpression<
 // pass it itself. relation()/func() (querier.ts) are the one exception : they split the relation/function name
 // out from the request object entirely, so Q alone never carries it — WriteShapeFromQuery's own explicit ReqCol
 // parameter exists specifically for relation() to pass RequiredKeysOf<R> in from the name string it still has.
+// Prettify wraps every node's own output here too, same reasoning as ShapeFromRelationQuery's own doc comment —
+// WriteJoinShapes (above) resolves every nested join member back through this same function.
 export type WriteShapeFromRelationQuery<
   Q,
   Rel extends object,
@@ -745,15 +761,23 @@ export type WriteShapeFromRelationQuery<
   ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
 > = Depth extends 0
   ? unknown
-  : Q extends { select: infer Sel }
-    ? [Sel] extends [undefined]
-      ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
-      : WriteShapeFromExpression<Sel, Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol> extends infer S
-        ? S extends Omitted
-          ? unknown
-          : S
-        : never
-    : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
+  : Prettify<
+      Q extends { select: infer Sel }
+        ? [Sel] extends [undefined]
+          ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
+          : WriteShapeFromExpression<
+                Sel,
+                Rel,
+                ExtractJoinMap<Q>,
+                Digits[Depth],
+                ReqCol
+              > extends infer S
+            ? S extends Omitted
+              ? unknown
+              : S
+            : never
+        : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
+    >
 
 // Public entry point, mirroring ShapeFromQuery. ReqCol's default mirrors WriteShapeFromRelationQuery's own —
 // see that type's doc comment for why relation() (querier.ts) is the one caller that overrides it explicitly.
