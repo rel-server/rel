@@ -1,0 +1,3554 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The Rel server documentation">
+      
+      
+      
+        <link rel="canonical" href="https://rel-server.github.io/rel/0.1.3/http/authentication/">
+      
+      
+        <link rel="prev" href="../cors-csp/">
+      
+      
+        <link rel="next" href="../../typescript/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.61">
+    
+    
+      
+        <title>Authentication - Rel</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.ce62732f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#authentication" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Rel" class="md-header__button md-logo" aria-label="Rel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Rel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Authentication
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun-moon" viewBox="0 0 24 24"><path d="M12 2v2M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715M16 12a4 4 0 0 0-4-4M19 5l-1.256 1.256M20 12h2"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/rel-server/rel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rel-server/rel
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20 22-3.86-1.55c.7-1.53 1.2-3.11 1.51-4.72zM7.86 20.45 4 22l2.35-6.27c.31 1.61.81 3.19 1.51 4.72M12 2s5 2 5 10c0 3.1-.75 5.75-1.67 7.83A2 2 0 0 1 13.5 21h-3a2 2 0 0 1-1.83-1.17C7.76 17.75 7 15.1 7 12c0-8 5-10 5-10m0 10c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2"/></svg>
+  
+  Getting started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../example-database/" class="md-tabs__link">
+          
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3C7.58 3 4 4.79 4 7s3.58 4 8 4 8-1.79 8-4-3.58-4-8-4M4 9v3c0 2.21 3.58 4 8 4s8-1.79 8-4V9c0 2.21-3.58 4-8 4s-8-1.79-8-4m0 5v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3c0 2.21-3.58 4-8 4s-8-1.79-8-4"/></svg>
+  
+  Example Database
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../query-language/" class="md-tabs__link">
+          
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.19 14.19 6 18l3.81-8.19L18 6m-6-4A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2m0 8.9a1.1 1.1 0 0 0-1.1 1.1 1.1 1.1 0 0 0 1.1 1.1 1.1 1.1 0 0 0 1.1-1.1 1.1 1.1 0 0 0-1.1-1.1"/></svg>
+  
+  The query language
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11 10H5L3 8l2-2h6V3l1-1 1 1v1h6l2 2-2 2h-6v2h6l2 2-2 2h-6v6a2 2 0 0 1 2 2H9a2 2 0 0 1 2-2z"/></svg>
+  
+  HTTP layer
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../typescript/" class="md-tabs__link">
+          
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 3h18v18H3zm10.71 14.86c.5.98 1.51 1.73 3.09 1.73 1.6 0 2.8-.83 2.8-2.36 0-1.41-.81-2.04-2.25-2.66l-.42-.18c-.73-.31-1.04-.52-1.04-1.02 0-.41.31-.73.81-.73.48 0 .8.21 1.09.73l1.31-.87c-.55-.96-1.33-1.33-2.4-1.33-1.51 0-2.48.96-2.48 2.23 0 1.38.81 2.03 2.03 2.55l.42.18c.78.34 1.24.55 1.24 1.13 0 .48-.45.83-1.15.83-.83 0-1.31-.43-1.67-1.03zM13 11.25H8v1.5h1.5V20h1.75v-7.25H13z"/></svg>
+  
+  Typescript
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration/" class="md-tabs__link">
+          
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64z"/></svg>
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+  
+    
+    <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+      <div class="md-sidebar__scrollwrap">
+        <div class="md-sidebar__inner">
+          
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Rel" class="md-nav__button md-logo" aria-label="Rel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    Rel
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rel-server/rel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rel-server/rel
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20 22-3.86-1.55c.7-1.53 1.2-3.11 1.51-4.72zM7.86 20.45 4 22l2.35-6.27c.31 1.61.81 3.19 1.51 4.72M12 2s5 2 5 10c0 3.1-.75 5.75-1.67 7.83A2 2 0 0 1 13.5 21h-3a2 2 0 0 1-1.83-1.17C7.76 17.75 7 15.1 7 12c0-8 5-10 5-10m0 10c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Getting started
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Getting started
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20 22-3.86-1.55c.7-1.53 1.2-3.11 1.51-4.72zM7.86 20.45 4 22l2.35-6.27c.31 1.61.81 3.19 1.51 4.72M12 2s5 2 5 10c0 3.1-.75 5.75-1.67 7.83A2 2 0 0 1 13.5 21h-3a2 2 0 0 1-1.83-1.17C7.76 17.75 7 15.1 7 12c0-8 5-10 5-10m0 10c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/run-it-manually/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m21.71 20.29-1.42 1.42a1 1 0 0 1-1.41 0L7 9.85A3.8 3.8 0 0 1 6 10a4 4 0 0 1-3.78-5.3l2.54 2.54.53-.53 1.42-1.42.53-.53L4.7 2.22A4 4 0 0 1 10 6a3.8 3.8 0 0 1-.15 1l11.86 11.88a1 1 0 0 1 0 1.41M2.29 18.88a1 1 0 0 0 0 1.41l1.42 1.42a1 1 0 0 0 1.41 0l5.47-5.46-2.83-2.83M20 2l-4 2v2l-2.17 2.17 2 2L18 8h2l2-4Z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Run it manually
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/docker-deployment/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.81 10.25c-.06-.04-.56-.43-1.64-.43-.28 0-.56.03-.84.08-.21-1.4-1.38-2.11-1.43-2.14l-.29-.17-.18.27c-.24.36-.43.77-.51 1.19-.2.8-.08 1.56.33 2.21-.49.28-1.29.35-1.46.35H2.62c-.34 0-.62.28-.62.63 0 1.15.18 2.3.58 3.38.45 1.19 1.13 2.07 2 2.61.98.6 2.59.94 4.42.94.79 0 1.61-.07 2.42-.22 1.12-.2 2.2-.59 3.19-1.16A8.3 8.3 0 0 0 16.78 16c1.05-1.17 1.67-2.5 2.12-3.65h.19c1.14 0 1.85-.46 2.24-.85.26-.24.45-.53.59-.87l.08-.24zm-17.96.99h1.76c.08 0 .16-.07.16-.16V9.5c0-.08-.07-.16-.16-.16H3.85c-.09 0-.16.07-.16.16v1.58c.01.09.07.16.16.16m2.43 0h1.76c.08 0 .16-.07.16-.16V9.5c0-.08-.07-.16-.16-.16H6.28c-.09 0-.16.07-.16.16v1.58c.01.09.07.16.16.16m2.47 0h1.75c.1 0 .17-.07.17-.16V9.5c0-.08-.06-.16-.17-.16H8.75c-.08 0-.15.07-.15.16v1.58c0 .09.06.16.15.16m2.44 0h1.77c.08 0 .15-.07.15-.16V9.5c0-.08-.06-.16-.15-.16h-1.77c-.08 0-.15.07-.15.16v1.58c0 .09.07.16.15.16M6.28 9h1.76c.08 0 .16-.09.16-.18V7.25c0-.09-.07-.16-.16-.16H6.28c-.09 0-.16.06-.16.16v1.57c.01.09.07.18.16.18m2.47 0h1.75c.1 0 .17-.09.17-.18V7.25c0-.09-.06-.16-.17-.16H8.75c-.08 0-.15.06-.15.16v1.57c0 .09.06.18.15.18m2.44 0h1.77c.08 0 .15-.09.15-.18V7.25c0-.09-.07-.16-.15-.16h-1.77c-.08 0-.15.06-.15.16v1.57c0 .09.07.18.15.18m0-2.28h1.77c.08 0 .15-.07.15-.16V5c0-.1-.07-.17-.15-.17h-1.77c-.08 0-.15.06-.15.17v1.56c0 .08.07.16.15.16m2.46 4.52h1.76c.09 0 .16-.07.16-.16V9.5c0-.08-.07-.16-.16-.16h-1.76c-.08 0-.15.07-.15.16v1.58c0 .09.07.16.15.16"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Docker deployment
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../example-database/" class="md-nav__link ">
+              
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3C7.58 3 4 4.79 4 7s3.58 4 8 4 8-1.79 8-4-3.58-4-8-4M4 9v3c0 2.21 3.58 4 8 4s8-1.79 8-4V9c0 2.21-3.58 4-8 4s-8-1.79-8-4m0 5v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3c0 2.21-3.58 4-8 4s-8-1.79-8-4"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Example Database
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Example Database
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3C7.58 3 4 4.79 4 7s3.58 4 8 4 8-1.79 8-4-3.58-4-8-4M4 9v3c0 2.21 3.58 4 8 4s8-1.79 8-4V9c0 2.21-3.58 4-8 4s-8-1.79-8-4m0 5v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3c0 2.21-3.58 4-8 4s-8-1.79-8-4"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/launch-it-yourself/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Launch it yourself
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/reference/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3C7.58 3 4 4.79 4 7s3.58 4 8 4 8-1.79 8-4-3.58-4-8-4M4 9v3c0 2.21 3.58 4 8 4s8-1.79 8-4V9c0 2.21-3.58 4-8 4s-8-1.79-8-4m0 5v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3c0 2.21-3.58 4-8 4s-8-1.79-8-4"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Database reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/example-queries/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m19.31 18.9 3.08 3.1L21 23.39l-3.12-3.07c-.69.43-1.51.68-2.38.68-2.5 0-4.5-2-4.5-4.5s2-4.5 4.5-4.5 4.5 2 4.5 4.5c0 .88-.25 1.71-.69 2.4m-3.81.1a2.5 2.5 0 0 0 0-5 2.5 2.5 0 0 0 0 5M21 4v2H3V4zM3 16v-2h6v2zm0-5V9h18v2h-2.03c-1.01-.63-2.2-1-3.47-1s-2.46.37-3.47 1z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Example queries
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tables
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tables
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/chains/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  chains
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/properties/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  properties
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/room_types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  room_types
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/rooms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  rooms
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/staff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  staff
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/amenities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  amenities
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/property_amenities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  property_amenities
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/loyalty_tiers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  loyalty_tiers
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/guests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  guests
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/bookings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  bookings
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/booking_guests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  booking_guests
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/payment_methods/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  payment_methods
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/payments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  payments
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/reviews/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  reviews
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-database/tables/rate_plans/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  rate_plans
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../query-language/" class="md-nav__link ">
+              
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.19 14.19 6 18l3.81-8.19L18 6m-6-4A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2m0 8.9a1.1 1.1 0 0 0-1.1 1.1 1.1 1.1 0 0 0 1.1 1.1 1.1 1.1 0 0 0 1.1-1.1 1.1 1.1 0 0 0-1.1-1.1"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  The query language
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  The query language
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.19 14.19 6 18l3.81-8.19L18 6m-6-4A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2m0 8.9a1.1 1.1 0 0 0-1.1 1.1 1.1 1.1 0 0 0 1.1 1.1 1.1 1.1 0 0 0 1.1-1.1 1.1 1.1 0 0 0-1.1-1.1"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/reference/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 7V5h2V4a2 2 0 0 1 2-2h6v7l2.5-1.5L18 9V2h1c1.05 0 2 .95 2 2v16c0 1.05-.95 2-2 2H7c-1.05 0-2-.95-2-2v-1H3v-2h2v-4H3v-2h2V7zm4 4H5v2h2zm0-4V5H5v2zm0 12v-2H5v2z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Query reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/operators/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11.5 19.1c-.2 1.1-.6 1.9-1.3 2.4s-1.6.6-2.7.4c-.4-.1-1.2-.2-1.5-.4l.5-1.5c.3.1.9.3 1.2.3 1.1.2 1.7-.3 1.9-1.5L12 5.2c.2-1.2.7-2 1.4-2.6.7-.5 1.7-.7 2.8-.5.4.1 1.2.2 1.8.5L17.5 4c-.2-.1-.9-.2-1.2-.3-1.3-.2-2 .4-2.3 1.9z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Operators reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/well-known-queries/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Well-known queries
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/shaping/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11 13.5v8H3v-8zm-2 2H5v4h4zM12 2l5.5 9h-11zm0 3.86L10.08 9h3.84zM17.5 13c2.5 0 4.5 2 4.5 4.5S20 22 17.5 22 13 20 13 17.5s2-4.5 4.5-4.5m0 2a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Shaping a query
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/filtering/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14 12v7.88c.04.3-.06.62-.29.83a.996.996 0 0 1-1.41 0l-2.01-2.01a.99.99 0 0 1-.29-.83V12h-.03L4.21 4.62a1 1 0 0 1 .17-1.4c.19-.14.4-.22.62-.22h14c.22 0 .43.08.62.22a1 1 0 0 1 .17 1.4L14.03 12z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Filtering
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/selecting/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10.76 8.69a.76.76 0 0 0-.76.76V20.9c0 .42.34.76.76.76.19 0 .35-.06.48-.16l1.91-1.55 1.66 3.62c.13.27.4.43.69.43.11 0 .22 0 .33-.08l2.76-1.28c.38-.18.56-.64.36-1.01L17.28 18l2.41-.45a.9.9 0 0 0 .43-.26c.27-.32.23-.79-.12-1.08l-8.74-7.35-.01.01a.76.76 0 0 0-.49-.18M15 10V8h5v2zm-1.17-5.24 2.83-2.83 1.41 1.41-2.83 2.83zM10 0h2v5h-2zM3.93 14.66l2.83-2.83 1.41 1.41-2.83 2.83zm0-11.32 1.41-1.41 2.83 2.83-1.41 1.41zM7 10H2V8h5z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Selecting fields
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/computed-fields/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12.42 5.29c-1.1-.1-2.07.71-2.17 1.82L10 10h2.82v2h-3l-.44 5.07A4.001 4.001 0 0 1 2 18.83l1.5-1.5c.33 1.05 1.46 1.64 2.5 1.3.78-.24 1.33-.93 1.4-1.74L7.82 12h-3v-2H8l.27-3.07a4.01 4.01 0 0 1 4.33-3.65c1.26.11 2.4.81 3.06 1.89l-1.5 1.5c-.25-.77-.93-1.31-1.74-1.38M22 13.65l-1.41-1.41-2.83 2.83-2.83-2.83-1.43 1.41 2.85 2.85-2.85 2.81 1.43 1.41 2.83-2.83 2.83 2.83L22 19.31l-2.83-2.81z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Computed fields
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/aggregates/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 6H8.83l6 6-6 6H18v2H6v-2l6-6-6-6V4h12z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Aggregates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/joining/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 3a3 3 0 0 1 3 3c0 1.29-.81 2.39-1.96 2.81.54 5 5.04 5.96 7.15 6.15A2.985 2.985 0 0 1 18 13a3 3 0 0 1 3 3 3 3 0 0 1-3 3c-1.31 0-2.43-.84-2.84-2-4.25-.2-5.72-1.81-7.16-3.61v1.78c1.17.41 2 1.52 2 2.83a3 3 0 0 1-3 3 3 3 0 0 1-3-3c0-1.31.83-2.42 2-2.83V8.83A2.99 2.99 0 0 1 4 6a3 3 0 0 1 3-3m0 2a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1m0 12a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1m11-2a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Joining and embedding relations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/functions/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15.6 5.29c-1.1-.1-2.07.71-2.17 1.82L13.18 10H16v2h-3l-.44 5.07a3.986 3.986 0 0 1-4.33 3.63 4 4 0 0 1-3.06-1.87l1.5-1.5c.24.74.9 1.31 1.73 1.38 1.1.1 2.07-.71 2.17-1.82L11 12H8v-2h3.17l.27-3.07c.19-2.2 2.13-3.83 4.33-3.63 1.31.11 2.41.84 3.06 1.87l-1.5 1.5c-.24-.74-.9-1.31-1.73-1.38"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Calling functions
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/ordering-pagination/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.45 17.55 12 23l-5.45-5.45 1.41-1.41L11 19.17V4.83L7.96 7.86 6.55 6.45 12 1l5.45 5.45-1.41 1.41L13 4.83v14.34l3.04-3.03z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Ordering and pagination
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/distinctness/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 5a7 7 0 0 0-7 7 7 7 0 0 0 7 7c1.04 0 2.06-.24 3-.68.94.44 1.96.68 3 .68a7 7 0 0 0 7-7 7 7 0 0 0-7-7c-1.04 0-2.06.24-3 .68-.94-.44-1.96-.68-3-.68m0 2c.34 0 .67.03 1 .1-1.28 1.31-2 3.07-2 4.9s.72 3.59 2 4.89c-.33.07-.66.11-1 .11a5 5 0 0 1-5-5 5 5 0 0 1 5-5m6 0a5 5 0 0 1 5 5 5 5 0 0 1-5 5c-.34 0-.67-.03-1-.1 1.28-1.31 2-3.07 2-4.9s-.72-3.59-2-4.89c.33-.07.66-.11 1-.11m-3 1c1.26.95 2 2.43 2 4s-.74 3.05-2 4a5.01 5.01 0 0 1-2-4c0-1.57.74-3.05 2-4"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Distinctness
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/writing/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20.71 7.04c.39-.39.39-1.04 0-1.41l-2.34-2.34c-.37-.39-1.02-.39-1.41 0l-1.84 1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Writing data back
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/complex-query/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3zm2 2v2h2V7zm6 0h10v2H11zm0 8h10v2H11zm-6 5-3.5-3.5 1.41-1.41L5 17.17l4.59-4.58L11 14z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Complex queries
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/batching/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2 10.96a.985.985 0 0 1-.37-1.37L3.13 7c.11-.2.28-.34.47-.42l7.83-4.4c.16-.12.36-.18.57-.18s.41.06.57.18l7.9 4.44c.19.1.35.26.44.46l1.45 2.52c.28.48.11 1.09-.36 1.36l-1 .58v4.96c0 .38-.21.71-.53.88l-7.9 4.44c-.16.12-.36.18-.57.18s-.41-.06-.57-.18l-7.9-4.44A.99.99 0 0 1 3 16.5v-5.54c-.3.17-.68.18-1 0m10-6.81v6.7l5.96-3.35zM5 15.91l6 3.38v-6.71L5 9.21zm14 0v-3.22l-5 2.9c-.33.18-.7.17-1 .01v3.69zm-5.15-2.55 6.28-3.63-.58-1.01-6.28 3.63z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Batching queries
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../query-language/get-requests/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10.59 13.41c.41.39.41 1.03 0 1.42-.39.39-1.03.39-1.42 0a5.003 5.003 0 0 1 0-7.07l3.54-3.54a5.003 5.003 0 0 1 7.07 0 5.003 5.003 0 0 1 0 7.07l-1.49 1.49c.01-.82-.12-1.64-.4-2.42l.47-.48a2.98 2.98 0 0 0 0-4.24 2.98 2.98 0 0 0-4.24 0l-3.53 3.53a2.98 2.98 0 0 0 0 4.24m2.82-4.24c.39-.39 1.03-.39 1.42 0a5.003 5.003 0 0 1 0 7.07l-3.54 3.54a5.003 5.003 0 0 1-7.07 0 5.003 5.003 0 0 1 0-7.07l1.49-1.49c-.01.82.12 1.64.4 2.43l-.47.47a2.98 2.98 0 0 0 0 4.24 2.98 2.98 0 0 0 4.24 0l3.53-3.53a2.98 2.98 0 0 0 0-4.24.973.973 0 0 1 0-1.42"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Querying with GET
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11 10H5L3 8l2-2h6V3l1-1 1 1v1h6l2 2-2 2h-6v2h6l2 2-2 2h-6v6a2 2 0 0 1 2 2H9a2 2 0 0 1 2-2z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  HTTP layer
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  HTTP layer
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11 10H5L3 8l2-2h6V3l1-1 1 1v1h6l2 2-2 2h-6v2h6l2 2-2 2h-6v6a2 2 0 0 1 2 2H9a2 2 0 0 1 2-2z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 7V5h2V4a2 2 0 0 1 2-2h6v7l2.5-1.5L18 9V2h1c1.05 0 2 .95 2 2v16c0 1.05-.95 2-2 2H7c-1.05 0-2-.95-2-2v-1H3v-2h2v-4H3v-2h2V7zm4 4H5v2h2zm0-4V5H5v2zm0 12v-2H5v2z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  HTTP reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requests-responses/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m21 9-4-4v3h-7v2h7v3M7 11l-4 4 4 4v-3h7v-2H7z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Requests and responses
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../templates/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16c0 1.11.89 2 2 2h12c1.11 0 2-.89 2-2V8zm4 18H6V4h7v5h5zm-8.46-4.35 2.09 2.09L10.35 19 7 15.65l3.35-3.35 1.28 1.26zm7.46 0L13.65 19l-1.27-1.26 2.09-2.09-2.09-2.09 1.27-1.26z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Rendering HTML with templates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../uploads/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 16v-6H5l7-7 7 7h-4v6zm-4 4v-2h14v2z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  File uploads
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../static-files/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M22 4h-8l-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M2 6H0v14a2 2 0 0 0 2 2h18v-2H2z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Static files
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cors-csp/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M16.36 14c.08-.66.14-1.32.14-2s-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2m-5.15 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56M14.34 14H9.66c-.1-.66-.16-1.32-.16-2s.06-1.35.16-2h4.68c.09.65.16 1.32.16 2s-.07 1.34-.16 2M12 19.96c-.83-1.2-1.5-2.53-1.91-3.96h3.82c-.41 1.43-1.08 2.76-1.91 3.96M8 8H5.08A7.92 7.92 0 0 1 9.4 4.44C8.8 5.55 8.35 6.75 8 8m-2.92 8H8c.35 1.25.8 2.45 1.4 3.56A8 8 0 0 1 5.08 16m-.82-2C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2s.06 1.34.14 2M12 4.03c.83 1.2 1.5 2.54 1.91 3.97h-3.82c.41-1.43 1.08-2.77 1.91-3.97M18.92 8h-2.95a15.7 15.7 0 0 0-1.38-3.56c1.84.63 3.37 1.9 4.33 3.56M12 2C6.47 2 2 6.5 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  CORS and CSP
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m10 17-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9m-6-8L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Authentication
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m10 17-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9m-6-8L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Authentication
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#minting-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Minting a session
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#function-prototypeindexmdfunction-prototype-can-start-a-session-by-setting-a-jwt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Function prototype](index.md#function-prototype)) can start a session by setting a <code>jwt</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openid-connect-and-saml" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        OpenID Connect and SAML
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpenID Connect and SAML">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-browsers-own-current-session-jwt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The browser's own current session : <code>jwt</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Errors
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#passing-state-through-login" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Passing state through login
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Session lifecycle
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#claims-as-a-postgres-setting" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Claims as a Postgres setting
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Deployment checklist
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Configuration reference
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../typescript/" class="md-nav__link ">
+              
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 3h18v18H3zm10.71 14.86c.5.98 1.51 1.73 3.09 1.73 1.6 0 2.8-.83 2.8-2.36 0-1.41-.81-2.04-2.25-2.66l-.42-.18c-.73-.31-1.04-.52-1.04-1.02 0-.41.31-.73.81-.73.48 0 .8.21 1.09.73l1.31-.87c-.55-.96-1.33-1.33-2.4-1.33-1.51 0-2.48.96-2.48 2.23 0 1.38.81 2.03 2.03 2.55l.42.18c.78.34 1.24.55 1.24 1.13 0 .48-.45.83-1.15.83-.83 0-1.31-.43-1.67-1.03zM13 11.25H8v1.5h1.5V20h1.75v-7.25H13z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Typescript
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Typescript
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../typescript/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 3h18v18H3zm10.71 14.86c.5.98 1.51 1.73 3.09 1.73 1.6 0 2.8-.83 2.8-2.36 0-1.41-.81-2.04-2.25-2.66l-.42-.18c-.73-.31-1.04-.52-1.04-1.02 0-.41.31-.73.81-.73.48 0 .8.21 1.09.73l1.31-.87c-.55-.96-1.33-1.33-2.4-1.33-1.51 0-2.48.96-2.48 2.23 0 1.38.81 2.03 2.03 2.55l.42.18c.78.34 1.24.55 1.24 1.13 0 .48-.45.83-1.15.83-.83 0-1.31-.43-1.67-1.03zM13 11.25H8v1.5h1.5V20h1.75v-7.25H13z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../typescript/database-json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  database.json
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../configuration/" class="md-nav__link ">
+              
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Configuration
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Configuration
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/reference/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 7V5h2V4a2 2 0 0 1 2-2h6v7l2.5-1.5L18 9V2h1c1.05 0 2 .95 2 2v16c0 1.05-.95 2-2 2H7c-1.05 0-2-.95-2-2v-1H3v-2h2v-4H3v-2h2V7zm4 4H5v2h2zm0-4V5H5v2zm0 12v-2H5v2z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Configuration reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/best-practices/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m10 17-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9m-6-8L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Best practices
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/operations/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 13h2.79l4.31-8.21 1.18 8.96 3.22-4.09L17.83 13H21v2h-4l-2.33-2.33-4.75 6.06-.98-7.42L7 15H3z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/reload/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18a6 6 0 0 1-6-6c0-1 .25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12a8 8 0 0 0 8 8v3l4-4-4-4m0-11V1L8 5l4 4V6a6 6 0 0 1 6 6c0 1-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12a8 8 0 0 0-8-8"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Reload
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+          
+          
+            
+            
+            
+              
+            
+            
+              <hr class="md-nav__toc-separator">
+              
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#minting-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Minting a session
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#function-prototypeindexmdfunction-prototype-can-start-a-session-by-setting-a-jwt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Function prototype](index.md#function-prototype)) can start a session by setting a <code>jwt</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openid-connect-and-saml" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        OpenID Connect and SAML
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpenID Connect and SAML">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-browsers-own-current-session-jwt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The browser's own current session : <code>jwt</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Errors
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#passing-state-through-login" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Passing state through login
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Session lifecycle
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#claims-as-a-postgres-setting" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Claims as a Postgres setting
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Deployment checklist
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Configuration reference
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+            
+          
+        </div>
+      </div>
+    </div>
+  
+
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  
+  <span class="md-ellipsis">
+    HTTP layer
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/rel-server/rel/edit/main/docs/content/http/authentication.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h1>
+<p>A session is a signed JWT, sitting in a <code>secure</code>, <code>httponly</code> cookie. Its only field rel
+actually cares about is <code>role</code> — the Postgres role every query and route call in that session
+runs as, applied with <code>SET ROLE</code>/<code>SET LOCAL ROLE</code> on the connection. Authentication in rel is
+really just "how does the right value end up in that one claim" — there's no separate
+authorization layer to configure on top; once <code>role</code> is set, Postgres's own grants and
+row-level security decide what the request can actually do.</p>
+<p>Anonymous access works the same way: with no valid session, a request runs as
+<code>pg.query.anonymous_role</code> (default <code>~anonymous</code>) — a real Postgres role that must exist in the
+database, or anonymous access is disabled outright and every unauthenticated request gets
+<code>401</code>. There's no implicit "public" state in between.</p>
+<h2 id="minting-a-session">Minting a session<a class="headerlink" href="#minting-a-session" title="Permanent link">&para;</a></h2>
+<p>Any full-control route or middleware function (the two-<code>OUT</code>-column shape — see [HTTP routes</p>
+<h2 id="function-prototypeindexmdfunction-prototype-can-start-a-session-by-setting-a-jwt">Function prototype](index.md#function-prototype)) can start a session by setting a <code>jwt</code><a class="headerlink" href="#function-prototypeindexmdfunction-prototype-can-start-a-session-by-setting-a-jwt" title="Permanent link">&para;</a></h2>
+<p>field on its response:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">login</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">returns</span><span class="w"> </span><span class="n">record</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">declare</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="n">matched_user</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">;</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="k">begin</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">into</span><span class="w"> </span><span class="n">matched_user</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="k">where</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">username</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'body'</span><span class="p">)</span><span class="o">-&gt;&gt;</span><span class="s1">'username'</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="k">and</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">password_hash</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">crypt</span><span class="p">((</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'body'</span><span class="p">)</span><span class="o">-&gt;&gt;</span><span class="s1">'password'</span><span class="p">,</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">password_hash</span><span class="p">);</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="n">matched_user</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="k">null</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'Invalid credentials'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'jwt'</span><span class="p">,</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">    </span><span class="s1">'role'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="k">role</span><span class="p">,</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">    </span><span class="s1">'user_id'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="n">id</span><span class="p">,</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">    </span><span class="s1">'plan'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_user</span><span class="p">.</span><span class="n">plan</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">  </span><span class="p">));</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">  </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="err">$$</span><span class="p">;</span>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/auth/login", method: "POST"'</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Called with <code>{"username": "...", "password": "..."}</code> as the JSON body. (Naming the path
+<code>/auth/login</code> here is just an example, not special — actual <code>/auth/*</code> is a reserved prefix
+rel itself serves for OIDC/SAML, and a user-declared route can never sit there; a real login
+function lives at whatever path you choose.)</p>
+<p><code>role</code> is the only claim rel itself reads back out of the JWT (to <code>SET ROLE</code> with); every other
+key in the object — <code>user_id</code>/<code>plan</code> above, or anything else — is just carried along as a
+custom claim, verbatim, for your own functions to read later via <code>req.jwt</code>, or via a
+session-revocation <a href="../#middleware">middleware</a> (see <a href="#session-lifecycle">Session
+lifecycle</a> below). rel fills in <code>iat</code>, <code>exp</code>, and <code>auth_time</code> itself;
+setting either of those, or <code>auth_time</code>, on the response's <code>jwt</code> object has no effect —
+they're always overwritten. Setting <code>jwt: null</code> on a response clears the session (logout).</p>
+<p>By default, <em>any</em> route or middleware function can set <code>jwt</code> and authenticate the caller as
+any role; restrict that with <code>http.functions.allowed_auth</code> (a regexp against the function's
+fully qualified name) once you have real login functions to point it at — e.g. <code>^auth\.</code>. A
+<em>terminating</em> middleware setting <code>jwt</code> is gated by its own identifier; a <em>pass-through</em>
+middleware setting <code>jwt</code> ahead of a route is gated by that route's identifier instead (the
+route's own response is what actually renders) — and ahead of <code>/rel</code> or a static file, by no
+identifier at all, which <code>allowed_auth</code> can only ever match by being left unrestricted. Have
+a middleware gating those two paths terminate, rather than merely pass <code>jwt</code> through, if
+<code>allowed_auth</code> is restricted.</p>
+<h2 id="openid-connect-and-saml">OpenID Connect and SAML<a class="headerlink" href="#openid-connect-and-saml" title="Permanent link">&para;</a></h2>
+<p>For OIDC and SAML, rel drives the protocol itself — you only write the function that turns a
+verified identity assertion into a role. Configure one named entry per provider:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">[openid.google]</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://accounts.google.com"</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># client_id / client_secret default to /secrets/openid-google.id and</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># /secrets/openid-google.secret — drop the two files there and skip these lines</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">callback_function</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"auth.sso_callback"</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="k">[saml.corp_okta]</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">idp_metadata_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://corp.okta.com/app/.../sso/saml/metadata"</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">callback_function</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"auth.sso_callback"</span>
+</span></code></pre></div>
+<p><code>&lt;name&gt;</code> (<code>google</code>, <code>corp_okta</code> above) is yours to choose — it's not tied to any provider's
+brand, so two Google Workspace tenants, or an OIDC and a SAML connection to the same IdP, are
+just two differently-named entries. Each one gets its own routes:</p>
+<ul>
+<li><code>GET /auth/oidc/{name}/login</code> / <code>GET /auth/oidc/{name}/callback</code></li>
+<li><code>GET /auth/saml/{name}/login</code> / <code>POST /auth/saml/{name}/acs</code></li>
+<li><code>GET /auth/saml/{name}/metadata</code> — this deployment's SP metadata, to hand to the IdP admin</li>
+</ul>
+<p>Both protocols converge on the same callback function signature — one <code>payload</code> argument,
+returning a single <code>jsonb</code> value shaped like <a href="../requests-responses/#httpresponse"><code>HttpResponse</code></a>
+plus its own <code>content</code>/<code>template_data</code> keys (this one call site predates, and isn't a
+declared route itself, so it keeps its own single-envelope shape rather than the two-<code>OUT</code>-column
+one) — regardless of which protocol produced it:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">sso_callback</span><span class="p">(</span><span class="n">payload</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="n">jsonb</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">declare</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="n">matched_role</span><span class="w"> </span><span class="nb">text</span><span class="p">;</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="k">begin</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="c1">-- payload.identity.protocol is 'oidc' or 'saml'; payload.identity.claims</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="c1">-- holds the ID token's claims (OIDC) or every assertion attribute (SAML,</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="c1">-- each value a string[] even when single-valued). Look up whatever</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="c1">-- identifies this user in your own schema and decide a role from it.</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="k">role</span><span class="w"> </span><span class="k">into</span><span class="w"> </span><span class="n">matched_role</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="k">from</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="w"> </span><span class="k">where</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">email</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">payload</span><span class="o">-&gt;</span><span class="s1">'identity'</span><span class="o">-&gt;</span><span class="s1">'claims'</span><span class="o">-&gt;&gt;</span><span class="s1">'email'</span><span class="p">;</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="n">matched_role</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="k">null</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="n">raise</span><span class="w"> </span><span class="k">exception</span><span class="w"> </span><span class="s1">'No account for this identity'</span><span class="w"> </span><span class="k">using</span><span class="w"> </span><span class="n">errcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'RS401'</span><span class="p">;</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'jwt'</span><span class="p">,</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'role'</span><span class="p">,</span><span class="w"> </span><span class="n">matched_role</span><span class="p">));</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="err">$$</span><span class="p">;</span>
+</span></code></pre></div>
+<p><code>payload</code> is shaped:</p>
+<div class="language-typescript highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">SsoCallback</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nx">jwt</span><span class="o">:</span><span class="w"> </span><span class="kt">JWT</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="w">      </span><span class="c1">// the browser's OWN current session, if any — see below</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nx">identity</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nx">protocol</span><span class="o">:</span><span class="w"> </span><span class="s2">"oidc"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"saml"</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">        </span><span class="c1">// the configured openid.&lt;name&gt;/saml.&lt;name&gt; entry</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nx">claims</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nx">access_token?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">   </span><span class="c1">// OIDC only, when the token exchange returned one</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nx">refresh_token?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="nx">state</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="w">        </span><span class="c1">// /login's own query string, decoded — see below</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>rel doesn't interpret an email, a <code>groups</code> claim, or a SAML attribute for you — mapping
+identity to a role is entirely your call, which is what keeps rel from assuming any particular
+user-table shape. <code>openid.&lt;name&gt;.callback_function</code>/<code>saml.&lt;name&gt;.callback_function</code> each fall
+back to <code>http.functions.sso_callback</code> when unset, so one function can serve every provider if
+your role-mapping logic doesn't need to vary per provider.</p>
+<h3 id="the-browsers-own-current-session-jwt">The browser's own current session : <code>jwt</code><a class="headerlink" href="#the-browsers-own-current-session-jwt" title="Permanent link">&para;</a></h3>
+<p><code>payload.jwt</code> is whatever session the browser already had <em>before</em> this SSO round trip started
+— read directly off the callback request itself, the exact same way any other authenticated
+request's session is, never sent to or through the identity provider. This is what makes
+account linking possible: a callback function can tell "this browser is already logged in as
+user X, and just finished SSO as identity Y" (<code>payload.jwt</code> non-null) apart from a fresh,
+anonymous login (<code>payload.jwt</code> null), and decide to link the two rather than always minting a
+brand-new session.</p>
+<p>One thing worth knowing before relying on it: <code>payload.jwt</code> reliably arrives for OIDC's
+callback (a <code>GET</code>, and rel's JWT cookie is <code>SameSite=Lax</code> by default — which <em>does</em> survive a
+cross-site top-level <code>GET</code> navigation), but <strong>not</strong> for SAML's <code>/acs</code> under the same default —
+<code>/acs</code> is always a <code>POST</code>, and <code>SameSite=Lax</code> cookies aren't sent on a cross-site <code>POST</code>. A
+callback function driven by SAML will see <code>payload.jwt: null</code> even for an actually-logged-in
+browser, unless the deployment sets <code>jwt.same_site = None</code>.</p>
+<h3 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h3>
+<p>Two distinct error sources exist on <code>/auth/oidc/*</code> and <code>/auth/saml/*</code>, and a client tells them
+apart the same way it tells apart any other <code>code</code>/<code>X-Rel-Errorcode</code> pair (see <a href="../../configuration/operations/#error-responses">Error
+responses</a>) — not by HTTP status alone, since
+both can plausibly render as a 4xx or 5xx:</p>
+<ul>
+<li><strong>The callback function's own rejection</strong> — <code>raise exception ... using errcode = 'RSxxx'</code>,
+  the same convention any other route function uses, once a request has actually reached the
+  database.</li>
+<li><strong>Protocol-level failures rel itself detects</strong>, before the callback function ever runs — these
+  get their own rel-internal codes:</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th><code>code</code></th>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SSO_NOT_READY</code></td>
+<td>503</td>
+<td>discovery/IdP metadata hasn't resolved yet</td>
+</tr>
+<tr>
+<td><code>SSO_BAD_REQUEST</code></td>
+<td>400</td>
+<td>malformed callback request — missing <code>code</code>, unparseable form</td>
+</tr>
+<tr>
+<td><code>SSO_BAD_STATE</code></td>
+<td>400</td>
+<td>missing or mismatched OAuth2 <code>state</code></td>
+</tr>
+<tr>
+<td><code>SSO_BAD_NONCE</code></td>
+<td>400</td>
+<td>ID token nonce doesn't match the one this login minted</td>
+</tr>
+<tr>
+<td><code>SSO_TOKEN_EXCHANGE_FAILED</code></td>
+<td>502</td>
+<td>the issuer's token endpoint rejected the exchange</td>
+</tr>
+<tr>
+<td><code>SSO_NO_ID_TOKEN</code></td>
+<td>502</td>
+<td>token response carried no <code>id_token</code></td>
+</tr>
+<tr>
+<td><code>SSO_INVALID_ID_TOKEN</code></td>
+<td>502</td>
+<td><code>id_token</code> failed signature/issuer/audience verification</td>
+</tr>
+<tr>
+<td><code>SSO_USERINFO_FAILED</code></td>
+<td>502</td>
+<td><code>fetch_userinfo</code>'s own call to the issuer failed</td>
+</tr>
+<tr>
+<td><code>SSO_SAML_INVALID_RESPONSE</code></td>
+<td>400</td>
+<td>SAML response/assertion failed to parse or verify</td>
+</tr>
+<tr>
+<td><code>SSO_INTERNAL</code></td>
+<td>500</td>
+<td>rel's own logic failed — state/nonce generation, encoding</td>
+</tr>
+</tbody>
+</table>
+<h3 id="passing-state-through-login">Passing state through login<a class="headerlink" href="#passing-state-through-login" title="Permanent link">&para;</a></h3>
+<p><code>/login</code> accepts a plain query string, decoded the same structural way <a href="../../query-language/get-requests/"><code>GET
+/rel</code></a>'s own query string is (dotted keys nest), and handed
+back to the callback function verbatim as <code>payload.state</code> — <code>null</code> if <code>/login</code> got no query
+string at all. A link to <code>/auth/oidc/google/login?return_to=/dashboard</code> becomes
+<code>payload.state = {"return_to": "/dashboard"}</code> by the time the callback function runs, round-tripped
+through whichever mechanism the protocol itself provides for exactly this (OIDC's <code>state</code>
+parameter, alongside rel's own CSRF token ; SAML's RelayState, otherwise unused).</p>
+<p><strong>Treat <code>state</code> as untrusted input, the same as any query string a client controls.</strong> Nothing
+stops a third party from linking a victim straight to <code>/login?...</code> with a query string of their
+own choosing — this endpoint is unauthenticated and was never meant to be secret. Two
+consequences:</p>
+<ul>
+<li><strong>Never redirect to a <code>state</code>-supplied URL without validating it first.</strong> A <code>return_to</code>-style
+  value is the obvious thing to put in <code>state</code>, and blindly redirecting to whatever it says is a
+  textbook open redirect — restrict it to a relative path, or an allowlist of known hosts,
+  before using it.</li>
+<li><strong>Never put a secret in <code>state</code>.</strong> Both OIDC's <code>state</code> and SAML's RelayState round-trip
+  through the identity provider itself, and are visible in redirect URLs, browser history, and
+  IdP-side logs along the way — treat it exactly as visible as anything else the browser's
+  address bar shows.</li>
+</ul>
+<p>A few things worth knowing before wiring this up in production:</p>
+<ul>
+<li><strong><code>http.public_host</code> must be set</strong> — a bare host like <code>app.example.com</code>, no scheme — so rel
+  can build the exact <code>redirect_uri</code>/ACS URL each provider needs registered ahead of time.</li>
+<li><strong>SAML needs a stable certificate.</strong> rel generates a self-signed one on first boot if
+  <code>saml.certificate_path</code>/<code>saml.private_key_path</code> don't already exist, and reuses it silently
+  on every later boot — swapping it breaks every IdP that was told to trust the old one, so
+  back those files up the same way you'd back up any other credential. That one certificate
+  is shared across every <code>saml.&lt;name&gt;</code> entry by default; an entry needing an IdP to trust a
+  certificate of its own sets <code>saml.&lt;name&gt;.certificate_path</code>/<code>private_key_path</code> — same
+  generate-if-missing behavior, scoped to that entry alone.</li>
+<li>A misconfigured or not-yet-reachable provider doesn't fail startup — rel logs a warning and
+  serves <code>503</code> from that provider's endpoints until it becomes reachable, so one broken IdP
+  connection doesn't take the rest of the deployment down.</li>
+</ul>
+<h2 id="session-lifecycle">Session lifecycle<a class="headerlink" href="#session-lifecycle" title="Permanent link">&para;</a></h2>
+<p>A verified token gets renewed automatically once more than <code>jwt.renew_after</code> (default half)
+of its own lifespan has elapsed — <code>role</code> and <code>auth_time</code> never change on renewal, only
+<code>iat</code>/<code>exp</code>. Two separate limits bound a session: <code>jwt.max_age</code> bounds any single token (short,
+so a stolen cookie is only useful briefly), and <code>jwt.max_session_age</code> bounds how long renewal
+can keep extending the session overall, measured from the original <code>auth_time</code> — once it's
+exceeded, the session can't be renewed anymore and the user has to fully re-authenticate.</p>
+<p>For revocation before either of those would naturally expire it — a password change, a ban, an
+admin-triggered logout — declare a session-checking <a href="../#middleware">middleware</a> at
+whatever prefix needs it (<code>/</code> to cover everything, including <code>/rel</code>). Unlike the old
+<code>check_session</code> mechanism, middleware runs <em>after</em> the role switch, as the request's own
+already-resolved role — and terminates with <code>{status: 401, jwt: null}</code> to reject and clear
+the session in one step, rather than merely raising:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">check_session</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">returns</span><span class="w"> </span><span class="n">record</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="k">begin</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="k">exists</span><span class="w"> </span><span class="p">(</span><span class="k">select</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">revoked_sessions</span><span class="w"> </span><span class="k">where</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="s1">'jwt'</span><span class="o">-&gt;&gt;</span><span class="s1">'user_id'</span><span class="p">)::</span><span class="nb">bigint</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">jsonb_build_object</span><span class="p">(</span><span class="s1">'status'</span><span class="p">,</span><span class="w"> </span><span class="mi">401</span><span class="p">,</span><span class="w"> </span><span class="s1">'jwt'</span><span class="p">,</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">  </span><span class="k">else</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="n">resp</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">  </span><span class="k">end</span><span class="w"> </span><span class="k">if</span><span class="p">;</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">  </span><span class="n">content</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">;</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="k">end</span><span class="p">;</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="err">$$</span><span class="p">;</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">check_session</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/", middleware: true'</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Terminating (<code>{status: 401, jwt: null}</code>) clears the session and forces re-authentication;
+returning <code>resp := null</code> (a genuine SQL <code>NULL</code>, not the JSON literal) lets the request proceed
+unchanged. rel doesn't require any particular claim (a <code>jti</code>, a session id) for this to work —
+how you identify "this session" in your own revoked-sessions table is up to whatever custom
+claims your login function put on the JWT. Since this middleware runs as the request's own
+role rather than the primary connection, grant it <code>EXECUTE</code> for every role that should reach
+anything under its prefix, including the anonymous role — see <a href="#deployment-checklist">Deployment
+checklist</a> below.</p>
+<h3 id="claims-as-a-postgres-setting">Claims as a Postgres setting<a class="headerlink" href="#claims-as-a-postgres-setting" title="Permanent link">&para;</a></h3>
+<p>The claims object is also available as a plain Postgres setting, <code>current_setting('rel.jwt.claims',
+true)::jsonb</code> — the same shape as <code>req.jwt</code> (<code>null</code> for an anonymous request), readable from
+any function that runs as part of handling the request: an RLS policy, a trigger, a function
+called deeper down that doesn't have the claims threaded through as an argument. It's set
+right alongside the role switch, so it's there for every route/middleware function and every
+<code>/rel</code> query/write.</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">create</span><span class="w"> </span><span class="n">policy</span><span class="w"> </span><span class="n">own_rows_only</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="n">documents</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="k">using</span><span class="w"> </span><span class="p">(</span><span class="n">owner_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">current_setting</span><span class="p">(</span><span class="s1">'rel.jwt.claims'</span><span class="p">,</span><span class="w"> </span><span class="k">true</span><span class="p">)::</span><span class="n">jsonb</span><span class="o">-&gt;&gt;</span><span class="s1">'user_id'</span><span class="p">)::</span><span class="nb">bigint</span><span class="p">);</span>
+</span></code></pre></div>
+<p>The <code>true</code> second argument matters: without it, <code>current_setting</code> raises an error instead of
+returning <code>null</code> on a connection where it was never set — worth keeping even though rel itself
+always sets it, since a direct <code>psql</code> session (superuser, migrations) never goes through this
+path at all.</p>
+<h2 id="deployment-checklist">Deployment checklist<a class="headerlink" href="#deployment-checklist" title="Permanent link">&para;</a></h2>
+<p><code>SET ROLE</code> only succeeds when the connecting role is already a member of the role being
+switched to — grant it explicitly for every role any JWT in the deployment may carry,
+including the anonymous one:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"~anonymous"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"editor"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"admin"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
+</span></code></pre></div>
+<p>That grants <code>rel_user</code> (<code>pg.user</code> — see <a href="../../configuration/best-practices/#keep-pguser's-own-privileges-minimal">Best practices ## Keep pg.user's own privileges
+minimal</a>)
+<em>membership</em> — the ability to <code>SET ROLE</code> into <code>~anonymous</code> at all. A route function still
+needs its own <code>EXECUTE</code> grant, directly to <code>~anonymous</code> (or to a role it belongs to), before an
+anonymous request can reach it:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">grant</span><span class="w"> </span><span class="k">execute</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">guest_login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="ss">"~anonymous"</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Skipping a grant on a <em>route</em> doesn't fail at startup : rel caches, once per discovered route
+at introspection/reload time, whether the anonymous role can actually reach it (see below), and
+rejects an anonymous request the anonymous role can't reach with <code>401</code> before the request body
+is even read. A <strong>middleware</strong> function has no such precheck, since it runs as the request's
+already-resolved role rather than <code>pg.user</code> itself — a missing <code>EXECUTE</code> grant there surfaces as
+an ordinary Postgres permission-denied <code>403</code> on the first real request that reaches it, the
+same as any other route call missing a grant.</p>
+<p>When anonymous access is enabled, rel caches, once per discovered route or middleware at
+introspection/reload time, whether the anonymous role can actually reach it — schema <code>USAGE</code>
+plus an <strong>explicit</strong> <code>EXECUTE</code> grant, to the anonymous role itself or to a role it belongs to.
+(That cache backs the route-level <code>401</code> precheck above; middleware, as noted, isn't
+precomputed this way, since middleware permission failures show up as <code>403</code>s instead.)</p>
+<p>This check deliberately doesn't credit <code>EXECUTE</code> the moment it's merely inherited from a grant
+to <code>PUBLIC</code> — Postgres grants <code>EXECUTE</code> to <code>PUBLIC</code> by default on <code>create function</code> unless
+default privileges were changed, so crediting it here would silently authorize anonymous
+access to any route function nobody explicitly decided the anonymous role should reach. Grant
+<code>EXECUTE</code> on any route function you actually want the anonymous role to call, the same way you
+grant it any other role. Independently of this check, rel also warns (non-fatally) at
+introspection/reload for every route or middleware reachable by <code>PUBLIC</code> at all, regardless of
+caller — see <a href="../../configuration/best-practices/">Best practices</a> for turning that default off
+entirely.</p>
+<h2 id="configuration-reference">Configuration reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jwt.secret</code></td>
+<td>generated into <code>/secrets/jwt-secret</code></td>
+<td>JWT signing secret</td>
+</tr>
+<tr>
+<td><code>jwt.cookie_name</code></td>
+<td><code>accesstoken</code></td>
+<td>cookie carrying the JWT</td>
+</tr>
+<tr>
+<td><code>jwt.algorithm</code></td>
+<td><code>HS256</code></td>
+<td>one of <code>HS256</code>/<code>HS384</code>/<code>HS512</code></td>
+</tr>
+<tr>
+<td><code>jwt.same_site</code></td>
+<td><code>Lax</code></td>
+<td><code>SameSite</code> on the JWT cookie</td>
+</tr>
+<tr>
+<td><code>jwt.max_age</code></td>
+<td><code>1800</code> (30 min)</td>
+<td>freshly-minted token lifetime, seconds</td>
+</tr>
+<tr>
+<td><code>jwt.renew_after</code></td>
+<td><code>0.5</code></td>
+<td>fraction of lifetime elapsed before auto-renewal</td>
+</tr>
+<tr>
+<td><code>jwt.max_session_age</code></td>
+<td><code>604800</code> (7 days)</td>
+<td>hard ceiling on total session lifetime</td>
+</tr>
+<tr>
+<td><code>pg.query.anonymous_role</code></td>
+<td><code>~anonymous</code></td>
+<td>role for requests with no valid session</td>
+</tr>
+<tr>
+<td><code>http.functions.allowed_auth</code></td>
+<td>unset (unrestricted)</td>
+<td>regexp restricting which functions may set <code>jwt</code></td>
+</tr>
+<tr>
+<td><code>http.public_host</code></td>
+<td>unset</td>
+<td>this deployment's externally-reachable host, required for OIDC/SAML</td>
+</tr>
+<tr>
+<td><code>openid.&lt;name&gt;.issuer</code></td>
+<td>—</td>
+<td>required; the OIDC issuer URL</td>
+</tr>
+<tr>
+<td><code>openid.&lt;name&gt;.scopes</code></td>
+<td><code>openid, email, profile</code></td>
+<td>requested OIDC scopes</td>
+</tr>
+<tr>
+<td><code>openid.&lt;name&gt;.fetch_userinfo</code></td>
+<td><code>false</code></td>
+<td>also call the userinfo endpoint after token exchange</td>
+</tr>
+<tr>
+<td><code>openid.&lt;name&gt;.callback_function</code> / <code>saml.&lt;name&gt;.callback_function</code></td>
+<td>unset, falls back to <code>http.functions.sso_callback</code></td>
+<td>function invoked with the verified claims</td>
+</tr>
+<tr>
+<td><code>saml.&lt;name&gt;.idp_metadata_url</code></td>
+<td>—</td>
+<td>required; fetched once at startup</td>
+</tr>
+<tr>
+<td><code>saml.&lt;name&gt;.force_signed_requests</code></td>
+<td><code>true</code></td>
+<td>sign outgoing <code>AuthnRequest</code>s</td>
+</tr>
+<tr>
+<td><code>saml.certificate_path</code> / <code>saml.private_key_path</code></td>
+<td>generated on first boot</td>
+<td>this deployment's SP certificate/key, shared across every <code>saml.&lt;name&gt;</code> entry</td>
+</tr>
+<tr>
+<td><code>saml.&lt;name&gt;.certificate_path</code> / <code>saml.&lt;name&gt;.private_key_path</code></td>
+<td>unset, inherits the shared pair above</td>
+<td>per-entry override, generated on first boot the same way if set and missing</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="../../configuration/reference/">Configuration reference</a> for how these values, secrets included, get
+supplied across environment variables, config files, and generated files — including a couple
+of keys not repeated here (<code>openid.&lt;name&gt;.client_id</code>/<code>client_secret</code>,
+<code>openid.&lt;name&gt;.public_host</code>/<code>saml.&lt;name&gt;.public_host</code>) and every other key rel understands.</p>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../cors-csp/" class="md-footer__link md-footer__link--prev" aria-label="Previous: CORS and CSP">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                CORS and CSP
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../typescript/" class="md-footer__link md-footer__link--next" aria-label="Next: Overview">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Overview
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.df5d1f2b.min.js"></script>
+      
+    
+  </body>
+</html>
