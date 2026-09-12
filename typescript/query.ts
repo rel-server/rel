@@ -208,6 +208,15 @@ export interface RelationQuery<
   // The following two clauses are SQL's clauses. When used in a subquery, applies them for each parent-row
   offset?: number
   limit?: number
+
+  /**
+   Attaches behaviour to this node's rows : a plain object of getters/methods, set as every row's prototype this
+   node produces, via `Object.setPrototypeOf`. `object` here (rather than some concrete row type) is deliberate :
+   relation()/func()/join() (querier.ts) re-type this field against the node's own actual row shape via
+   `WithProto` (shapes.ts's `ThisType`-based typing), which needs `proto`'s declared type to accept any object
+   here so it isn't narrowed twice. See `specs/typescript-proto.md`.
+  */
+  proto?: object
 }
 
 export type UnaryOperator =

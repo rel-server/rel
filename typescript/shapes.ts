@@ -459,27 +459,58 @@ type ShapeFromExpression<
       ? ShapeFromExpressionMap<E, Rel, Join, Digits[Depth]>
       : ShapeFromLeaf<E, Rel, Join, Digits[Depth]>
 
-// The JSON result shape of one RelationQuery node : its own `select` (absent defaults to `["full"]`, per
-// query.ts's `select` doc comment), evaluated against Rel and its own `join` (resolved recursively above).
+// The JSON result shape of one RelationQuery node, before `proto` (specs/typescript-proto.md) merges in : its own
+// `select` (absent defaults to `["full"]`, per query.ts's `select` doc comment), evaluated against Rel and its own
+// `join` (resolved recursively above).
 //
 // A bare top-level `set` (e.g. `select: ["set", "col"]`, not inside a map) has nowhere to drop its own key — the
 // whole node's shape WOULD be `Omitted` itself. Falls back to `unknown` rather than leaking that internal marker ;
 // what a query that fetches nothing at all actually returns isn't modeled here.
+type BaseShapeFromRelationQuery<Q, Rel extends object, Depth extends number> = Q extends {
+  select: infer Sel
+}
+  ? [Sel] extends [undefined]
+    ? FullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
+    : ShapeFromExpression<Sel, Rel, ExtractJoinMap<Q>, Digits[Depth]> extends infer S
+      ? S extends Omitted
+        ? unknown
+        : S
+      : never
+  : FullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
+
+// specs/typescript-proto.md ## `proto` field : the row shape `proto`'s own getters/methods type `this` against —
+// the node's shape before ITS OWN `proto` merges in, so a `proto` object never has to type its own members as
+// part of its own input.
+export type ProtoRowShape<
+  Q,
+  Rel extends object,
+  Depth extends number = 12,
+> = BaseShapeFromRelationQuery<Q, Rel, Depth>
+
+// specs/typescript-proto.md ## Shape : merges `proto`'s own members into the row shape it decorates.
+type MergeProto<Q, Base> = Q extends { proto: infer P extends object } ? Base & P : Base
+
 export type ShapeFromRelationQuery<
   Q,
   Rel extends object,
   Depth extends number = 12,
-> = Depth extends 0
-  ? unknown
-  : Q extends { select: infer Sel }
-    ? [Sel] extends [undefined]
-      ? FullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
-      : ShapeFromExpression<Sel, Rel, ExtractJoinMap<Q>, Digits[Depth]> extends infer S
-        ? S extends Omitted
-          ? unknown
-          : S
-        : never
-    : FullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
+> = Depth extends 0 ? unknown : MergeProto<Q, BaseShapeFromRelationQuery<Q, Rel, Digits[Depth]>>
+
+// specs/typescript-proto.md ## `proto` field : the type relation()/func()/join() (querier.ts) put their own
+// request literal's type through, intersected on top of `Q`, so `proto`'s own getters/methods have `this` typed
+// against that exact node's `ProtoRowShape` — including, recursively, any nested join's own `proto`-merged shape
+// (JoinShapes, above, already resolves every join member through `ShapeFromRelationQuery`).
+//
+// `proto`'s own type carries `ThisType<...>`, not a `base_class` parameter : a parameter's contextual type is
+// resolved eagerly, during inference, before Q's other sibling fields (`join` in particular) are done inferring —
+// a callback-shaped `proto` field breaks both its own `this` typing AND the rest of Q's inference in the process.
+// `ThisType` instead resolves `this` lazily, once the object literal's members are already checked, matching how
+// plain object methods/getters (no parameters) are the one part of an object literal that ISN'T
+// context-sensitive. `NoInfer<Q>` keeps `proto` from being a second, conflicting inference site for Q — Q is
+// inferred from the rest of the literal only.
+export type WithProto<Q, Rel extends object> = Q & {
+  proto?: object & ThisType<ProtoRowShape<NoInfer<Q>, Rel>>
+}
 
 // Public entry point. Rel defaults to RelationQuery's own permissive default so `ShapeFromQuery<Q>` alone still
 // typechecks without going through relation()'s R -> Rel resolution (which passes the real Rel explicitly).

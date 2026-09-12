@@ -18,6 +18,7 @@ import type {
   ResolveModel,
   RootShapeFromFunctionMember,
   ShapeFromQuery,
+  WithProto,
   WriteShapeFromQuery,
 } from "./shapes"
 
@@ -53,15 +54,26 @@ type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">"}$
   ? Rel
   : never
 
-export type ScopedJoin<K extends string> = <
-  S extends SafeRelationships<K>["shortcut"],
-  const Q extends RelationQuery<
-    Extract<SafeRelationships<K>, { shortcut: S }>["relation"]
-  > = Record<string, never>,
->(
-  shortcut: S,
-  request?: Q | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
-) => Q & { shortcut: S }
+// Two call signatures, not one signature with a union parameter type : `proto`'s `ThisType` (specs/typescript-
+// proto.md ## `proto` field, shapes.ts's WithProto doc comment) only resolves `this` correctly when the object
+// literal is checked against a single, non-union parameter type — folded into a union with the callback form, it
+// silently stops applying.
+export type ScopedJoin<K extends string> = {
+  <
+    S extends SafeRelationships<K>["shortcut"],
+    const Q extends RelationQuery<Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
+  >(
+    shortcut: S,
+    request?: WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
+  ): Q & { shortcut: S }
+  <
+    S extends SafeRelationships<K>["shortcut"],
+    const Q extends RelationQuery<Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
+  >(
+    shortcut: S,
+    request: (join: ScopedJoin<TargetRelationName<S>>) => Q,
+  ): Q & { shortcut: S }
+}
 
 // Builds the `(shortcut, request?) => ...` closure handed to a relation()/join() callback, scoped to `key` —
 // shared by relation() (scoped to the relation itself) and join()'s own recursive case (scoped to the shortcut's
@@ -84,33 +96,49 @@ function resolveRequest<K extends string, Q>(
   return request ?? ({} as Q)
 }
 
+// A relation root is never a scalar function call, so — unlike func() below — it's unconditionally array-wrapped :
+// shapes.ts's RootShapeFromFunctionMember doc comment (## Root cardinality) covers the full reasoning ;
+// writing.md : "an array of rows at the root". RequiredKeysOf<R> is passed explicitly : R (e.g. "hotel.properties")
+// is split apart from `request`/Q, so Q alone never carries the `relation`/`schema` fields WriteShapeFromQuery's
+// own default would otherwise read a relation's required columns off of (see that type's own doc comment,
+// shapes.ts). Same root-array wrap as the read side — writing.md : "data" is "an array of rows at the root".
+type RelationQuerier<
+  R extends RelationName,
+  Q extends RelationQuery<ResolveRelationModel<R>>,
+> = Querier<
+  ShapeFromQuery<Q, ResolveRelationModel<R>>[],
+  WriteShapeFromQuery<Q, ResolveRelationModel<R>, RequiredKeysOf<R>>[],
+  Params<Q>,
+  Q
+>
+
 // Builder for relations. `rel` must be a fully qualified "schema.relation" name. `request` is optional (a bare
 // select-all query, per resolveRequest above) and can be a plain query object or a callback receiving a `join`
 // already scoped to `rel`, so a nested join never has to repeat the relation it's being joined from.
+//
+// Two overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
+// `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type.
 export function relation<
   R extends RelationName,
-  const Q extends RelationQuery<ResolveRelationModel<R>> = Record<string, never>,
+  const Q extends RelationQuery<ResolveRelationModel<R>>,
+>(rel: R, request?: WithProto<Q, ResolveRelationModel<R>>): RelationQuerier<R, Q>
+export function relation<
+  R extends RelationName,
+  const Q extends RelationQuery<ResolveRelationModel<R>>,
+>(rel: R, request: (join: ScopedJoin<R>) => Q): RelationQuerier<R, Q>
+export function relation<
+  R extends RelationName,
+  const Q extends RelationQuery<ResolveRelationModel<R>>,
 >(
   rel: R,
-  request?: Q | ((join: ScopedJoin<R>) => Q),
-): Querier<
-  // A relation root is never a scalar function call, so — unlike func() below — it's unconditionally
-  // array-wrapped : shapes.ts's RootShapeFromFunctionMember doc comment (## Root cardinality) covers the full
-  // reasoning ; writing.md : "an array of rows at the root".
-  ShapeFromQuery<Q, ResolveRelationModel<R>>[],
-  // RequiredKeysOf<R> is passed explicitly : R (e.g. "hotel.properties") is split apart from `request`/Q above,
-  // so Q alone never carries the `relation`/`schema` fields WriteShapeFromQuery's own default would otherwise
-  // read a relation's required columns off of (see that type's own doc comment, shapes.ts). Same root-array
-  // wrap as the read side above — writing.md : "data" is "an array of rows at the root".
-  WriteShapeFromQuery<Q, ResolveRelationModel<R>, RequiredKeysOf<R>>[],
-  Params<Q>
-> {
+  request?: WithProto<Q, ResolveRelationModel<R>> | ((join: ScopedJoin<R>) => Q),
+): RelationQuerier<R, Q> {
   const [schema, relation] = rel.split(".")
   const query = {
     ...resolveRequest(rel, request),
     schema,
     relation,
-  }
+  } as Q
   return new Querier(query)
 }
 
@@ -135,7 +163,7 @@ export function func<
   >,
 >(
   fn: F,
-  request: Q,
+  request: WithProto<Q, ResolveCalledFunctionModel<F>>,
 ): Querier<
   // Root cardinality (shapes.ts's RootShapeFromFunctionMember doc comment, ## Root cardinality) : a
   // set-returning overload's row shape wrapped in an array, same as relation() ; a scalar overload's bare
@@ -144,14 +172,15 @@ export function func<
   // never carries the `function`/`schema` fields.
   RootShapeFromFunctionMember<F extends keyof Functions ? Functions[F] : never, Q>,
   WriteShapeFromQuery<Q, ResolveCalledFunctionModel<F>>,
-  Params<Q>
+  Params<Q>,
+  Q
 > {
   const [schema, fn_name] = fn.split(".")
   const query = {
     ...request,
     schema,
     function: fn_name,
-  } as Query
+  } as Q
   return new Querier(query)
 }
 
@@ -209,22 +238,48 @@ function parseShortcut(shortcut: string): {
 // be a callback, same as relation() — see ScopedJoin/scopedJoin above and specs/typescript-better-join.md ; the
 // callback it receives is scoped to `shortcut`'s own TARGET (parsed via TargetRelationName), not `key`, so a
 // join-of-a-join never repeats a relation name either.
+// specs/typescript-proto.md ## Reusing a Querier in a join : `request` also accepts a Querier built by a
+// standalone relation()/func() call, so a `select`/`proto` already written once can be joined in as-is instead of
+// being retyped. `on`/`schema`/`relation`/`shortcut` always come from `shortcut` regardless of which form
+// `request` takes — a Querier built through relation() never carries `on`, since a root query isn't itself a join.
+// Two overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
+// `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type. The Querier-reuse
+// and callback forms don't involve a `proto` object literal at all, so they're safe to keep unioned together.
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
-  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]> = Record<
-    string,
-    never
-  >,
+  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
+>(
+  key: K,
+  shortcut: S,
+  request?: WithProto<Q, Extract<Relationships[K], { shortcut: S }>["relation"]>,
+): Q & { shortcut: S }
+export function join<
+  K extends keyof Relationships,
+  S extends Relationships[K]["shortcut"],
+  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
+>(
+  key: K,
+  shortcut: S,
+  request: Querier<unknown, unknown, unknown, Q> | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
+): Q & { shortcut: S }
+export function join<
+  K extends keyof Relationships,
+  S extends Relationships[K]["shortcut"],
+  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
 >(
   _key: K,
   shortcut: S,
-  request?: Q | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
+  request?:
+    | WithProto<Q, Extract<Relationships[K], { shortcut: S }>["relation"]>
+    | Querier<unknown, unknown, unknown, Q>
+    | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
 ): Q & { shortcut: S } {
   const { schema, relation, on } = parseShortcut(shortcut)
   const target = `${schema}.${relation}` as TargetRelationName<S>
+  const resolved = request instanceof Querier ? request.query : resolveRequest(target, request)
   return {
-    ...resolveRequest(target, request),
+    ...resolved,
     schema,
     relation,
     on,
@@ -232,17 +287,50 @@ export function join<
   } as Q & { shortcut: S }
 }
 
+// specs/typescript-proto.md ## Runtime : walks `query`'s own `relation`/`join` tree alongside the response value it
+// produced, applying that node's `proto` (if any) to every row it reaches. Cardinality is read off the response
+// value itself (array vs. object vs. null), never off any type-level source — JoinCardinality (shapes.ts) is
+// erased at compile time and has no runtime counterpart.
+type ProtoQuery = {
+  proto?: object
+  join?: { [name: string]: ProtoQuery }
+}
+
+function applyProto(value: unknown, query: ProtoQuery): unknown {
+  if (value == null || typeof value !== "object") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      applyProto(item, query)
+    }
+    return value
+  }
+  const join = query.join
+  if (join) {
+    for (const key of Object.keys(join)) {
+      applyProto((value as { [name: string]: unknown })[key], join[key])
+    }
+  }
+  if (query.proto) {
+    Object.setPrototypeOf(value, query.proto)
+  }
+  return value
+}
+
 // Both wellknown() and relation() produce a Querier with its Shape/WriteShape/Params known through their own
 // return types. WriteShape defaults to Shape so a hand-built Querier (or wellknown(), which doesn't compute one)
-// still works ; relation()/func() always supply the real, narrower WriteShapeFromQuery explicitly.
-export class Querier<Shape = unknown, WriteShape = Shape, Params = void> {
-  public query: Query
+// still works ; relation()/func() always supply the real, narrower WriteShapeFromQuery explicitly. Q defaults to
+// the widened `Query` for the same reason ; relation()/func() supply their own literal Q instead, so join() can
+// recover it from a reused Querier — specs/typescript-proto.md ## Reusing a Querier in a join.
+export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Query> {
+  public query: Q
 
   constructor(
-    query: Query,
+    query: Q,
     public has_params = false,
   ) {
-    this.query = Querier.stripShortcut(query) as Query
+    this.query = Querier.stripShortcut(query) as Q
   }
 
   // `shortcut` is join()'s client-side sugar (schema.example.ts's Relationships lookup) — never part of the wire
@@ -323,6 +411,8 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void> {
       credentials: "include",
       method: "POST",
       body: JSON.stringify(query),
-    }).then((res) => res.json())
+    })
+      .then((res) => res.json())
+      .then((data) => applyProto(data, this.query as ProtoQuery) as Shape)
   }
 }
