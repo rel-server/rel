@@ -122,7 +122,7 @@ port = 1111
 }
 
 // pg.uri, when set, takes precedence and populates pg.host/pg.port/
-// pg.database itself (specs/pg-uri-precedence.md).
+// pg.database/pg.user/pg.password itself (specs/pg-uri-precedence.md).
 func TestLoad_PgURI_TakesPrecedence(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
@@ -139,6 +139,34 @@ uri = "postgres://u:p@db.internal:5433/mydb"
 	if cfg.Pg.Host != "db.internal" || cfg.Pg.Port != 5433 || cfg.Pg.Database != "mydb" {
 		t.Errorf("expected pg.host/pg.port/pg.database derived from pg.uri, got %+v", cfg.Pg)
 	}
+	if cfg.Pg.User != "u" || cfg.Pg.Password != "p" {
+		t.Errorf("expected pg.user/pg.password derived from pg.uri's userinfo, got user=%q password=%q", cfg.Pg.User, cfg.Pg.Password)
+	}
+	// reload.cmd's {pg.user}/{pg.password}/... interpolation reads cfg.Raw,
+	// not cfg.Pg directly — must be kept in sync too.
+	if cfg.Raw["pg.user"] != "u" || cfg.Raw["pg.password"] != "p" {
+		t.Errorf("expected cfg.Raw's pg.user/pg.password kept in sync with pg.uri, got %+v / %+v", cfg.Raw["pg.user"], cfg.Raw["pg.password"])
+	}
+	if cfg.Raw["pg.host"] != "db.internal" || cfg.Raw["pg.database"] != "mydb" {
+		t.Errorf("expected cfg.Raw's pg.host/pg.database kept in sync with pg.uri, got %+v / %+v", cfg.Raw["pg.host"], cfg.Raw["pg.database"])
+	}
+}
+
+// pg.uri with no userinfo at all leaves pg.user/pg.password "", same as
+// their own unset default — not an error, and not the literal string "<nil>".
+func TestLoad_PgURI_NoUserinfo_LeavesUserPasswordEmpty(t *testing.T) {
+	t.Chdir(t.TempDir())
+	p := writeFile(t, t.TempDir(), "rel.toml", `
+[pg]
+uri = "postgres://db.internal:5432/mydb"
+`)
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Pg.User != "" || cfg.Pg.Password != "" {
+		t.Errorf("expected pg.user/pg.password empty when pg.uri carries no userinfo, got user=%q password=%q", cfg.Pg.User, cfg.Pg.Password)
+	}
 }
 
 // specs/pg-uri-precedence.md : pg.host/pg.port/pg.database set alongside
@@ -152,6 +180,71 @@ host = "conflicting-host"
 `)
 	if _, err := Load([]string{"--config=" + p}); err == nil {
 		t.Fatal("expected an error when pg.host is set alongside pg.uri")
+	}
+}
+
+// specs/pg-uri-precedence.md : pg.user/pg.password set alongside pg.uri is
+// now a configuration error too, matching pg.host/pg.port/pg.database's own
+// rule — pg.uri's credentials are no longer silently kept-or-overridden.
+func TestLoad_PgURI_WithUserPasswordIsFatal(t *testing.T) {
+	t.Chdir(t.TempDir())
+	p := writeFile(t, t.TempDir(), "rel.toml", `
+[pg]
+uri = "postgres://u:p@db.internal:5432/mydb"
+user = "conflicting-user"
+`)
+	if _, err := Load([]string{"--config=" + p}); err == nil {
+		t.Fatal("expected an error when pg.user is set alongside pg.uri")
+	}
+
+	p2 := writeFile(t, t.TempDir(), "rel.toml", `
+[pg]
+uri = "postgres://u:p@db.internal:5432/mydb"
+password = "conflicting-password"
+`)
+	if _, err := Load([]string{"--config=" + p2}); err == nil {
+		t.Fatal("expected an error when pg.password is set alongside pg.uri")
+	}
+}
+
+// Inverse direction (specs/pg-uri-precedence.md) : when only the granular
+// fields are given, pg.uri is itself derived from them — including
+// defaults — so it's never left blank for reload.cmd's {pg.uri}.
+func TestLoad_GranularFields_DerivePgURI(t *testing.T) {
+	t.Chdir(t.TempDir())
+	p := writeFile(t, t.TempDir(), "rel.toml", `
+[pg]
+host = "db.internal"
+port = 5433
+database = "mydb"
+user = "u"
+password = "p"
+`)
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := "postgres://u:p@db.internal:5433/mydb"
+	if cfg.Pg.URI != want {
+		t.Errorf("expected pg.uri derived from the granular fields, got %q want %q", cfg.Pg.URI, want)
+	}
+	if cfg.Raw["pg.uri"] != want {
+		t.Errorf("expected cfg.Raw's pg.uri kept in sync too, got %q want %q", cfg.Raw["pg.uri"], want)
+	}
+}
+
+// Same derivation, but with nothing set at all — DefaultPgHost/DefaultPgPort
+// and empty user/password/database must still produce a well-formed pg.uri.
+func TestLoad_GranularFields_DerivePgURI_Defaults(t *testing.T) {
+	t.Chdir(t.TempDir())
+	p := writeFile(t, t.TempDir(), "rel.toml", "[jwt]\nsecret = \"fixed-test-secret\"\n")
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := "postgres://:@localhost:5432/"
+	if cfg.Pg.URI != want {
+		t.Errorf("expected pg.uri derived from defaults, got %q want %q", cfg.Pg.URI, want)
 	}
 }
 

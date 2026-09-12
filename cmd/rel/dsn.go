@@ -1,23 +1,15 @@
 package main
 
 import (
-	"net"
 	"net/url"
-	"strconv"
 
 	"github.com/rel-server/rel/config"
 )
 
-// postgresURI builds a pgx connection URI via net/url.URL (QueryEscape
-// mis-escapes userinfo) and net.JoinHostPort (IPv6 needs bracketing).
+// postgresURI is config.PostgresURI, kept as a local alias so this file's
+// own tests read naturally alongside resolveConnectionURI below.
 func postgresURI(host string, port int, database, user, password string) string {
-	u := &url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(user, password),
-		Host:   net.JoinHostPort(host, strconv.Itoa(port)),
-		Path:   "/" + database,
-	}
-	return u.String()
+	return config.PostgresURI(host, port, database, user, password)
 }
 
 // redactedTarget extracts "host:port/database" from a connection URI for

@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -116,6 +118,39 @@ func TestRun_InterpolatesConfigKeyAndEnvVar(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "postgres://x/y env-value") {
 		t.Errorf("expected both placeholders interpolated, got %q", buf.String())
+	}
+}
+
+// TestRun_PgURIOnly_PopulatesUserPasswordForInterpolation is a regression
+// test for the bug this fixes : previously, with only pg.uri set (no
+// pg.user/pg.password), cfg.Raw's "pg.user"/"pg.password" stayed "" and
+// specs/dmut.md's own {DMUT_USER:pg.user:user} chain fell through past the
+// empty pg.user straight to the literal "user" fallback, instead of the
+// credentials actually embedded in pg.uri.
+func TestRun_PgURIOnly_PopulatesUserPasswordForInterpolation(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile(
+		filepath.Join(dir, "rel.toml"),
+		[]byte("[jwt]\nsecret = \"fixed-test-secret\"\n[pg]\nuri = \"postgres://real_user:real_pass@db.internal:5432/mydb\"\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("writing rel.toml: %v", err)
+	}
+	cfg, err := config.Load(nil)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.Reload.Cmd = `echo {DMUT_USER:pg.user:user} {DMUT_PASSWORD:pg.password:password}`
+	cfg.Reload.Timeout = 5
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	if _, err := Run(context.Background(), cfg, logger); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(buf.String(), "real_user real_pass") {
+		t.Errorf("expected pg.uri's own credentials interpolated, got %q", buf.String())
 	}
 }
 

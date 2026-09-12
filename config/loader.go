@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -434,26 +435,47 @@ func generateRandom(n int) (string, error) {
 	return enc[:n], nil
 }
 
-// splitPgURI extracts host/port/database from a "postgres://..." connection
-// string, for specs/pg-uri-precedence.md's pg.uri -> pg.host/pg.port/
-// pg.database derivation. port defaults to DefaultPgPort when the URI names
-// none, matching pg.port's own default.
-func splitPgURI(uri string) (host string, port int, database string, err error) {
+// PostgresURI builds a pgx connection URI via net/url.URL (QueryEscape
+// mis-escapes userinfo) and net.JoinHostPort (IPv6 needs bracketing) — the
+// inverse of splitPgURI, used to derive pg.uri when only the granular
+// fields (pg.host/pg.port/pg.database/pg.user/pg.password) are set, so
+// cfg.Raw's "pg.uri" stays populated either way (specs/pg-uri-precedence.md).
+func PostgresURI(host string, port int, database, user, password string) string {
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(user, password),
+		Host:   net.JoinHostPort(host, strconv.Itoa(port)),
+		Path:   "/" + database,
+	}
+	return u.String()
+}
+
+// splitPgURI extracts host/port/database/user/password from a
+// "postgres://..." connection string, for specs/pg-uri-precedence.md's
+// pg.uri -> pg.host/pg.port/pg.database/pg.user/pg.password derivation.
+// port defaults to DefaultPgPort when the URI names none, matching
+// pg.port's own default. user/password are "" when the URI carries no
+// userinfo at all, same as pg.user/pg.password's own unset default.
+func splitPgURI(uri string) (host string, port int, database, user, password string, err error) {
 	u, perr := url.Parse(uri)
 	if perr != nil {
-		return "", 0, "", fmt.Errorf("parsing pg.uri: %w", perr)
+		return "", 0, "", "", "", fmt.Errorf("parsing pg.uri: %w", perr)
 	}
 	host = u.Hostname()
 	port = DefaultPgPort
 	if p := u.Port(); p != "" {
 		n, aerr := strconv.Atoi(p)
 		if aerr != nil {
-			return "", 0, "", fmt.Errorf("parsing pg.uri: invalid port %q", p)
+			return "", 0, "", "", "", fmt.Errorf("parsing pg.uri: invalid port %q", p)
 		}
 		port = n
 	}
 	database = strings.TrimPrefix(u.Path, "/")
-	return host, port, database, nil
+	if u.User != nil {
+		user = u.User.Username()
+		password, _ = u.User.Password()
+	}
+	return host, port, database, user, password, nil
 }
 
 // rejectArrays is ## No arrays' enforcement pass over the fully merged
@@ -480,23 +502,28 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// pg.uri/pg.user/pg.query.*/... — see config.go's Pg/PgQuery doc
 	// comments for the full shape ; pg.query.* is optional, never required.
 	cfg.Pg.URI = root.GetStringOrDefault("pg.uri", "")
-	cfg.Pg.User = root.GetStringOrDefault("pg.user", "")
-	cfg.Pg.Password = root.GetStringOrDefault("pg.password", "")
 
 	// specs/pg-uri-precedence.md : pg.uri, when set, takes precedence and
-	// populates Host/Port/Database itself ; pg.host/pg.port/pg.database
-	// alongside it is a configuration error, not a silently-ignored value.
+	// populates Host/Port/Database/User/Password itself ; any of those set
+	// alongside it is a configuration error, not a silently-ignored or
+	// silently-overridden value. Otherwise, the granular fields are read
+	// and pg.uri is itself derived from them, so cfg.Raw (and hence
+	// reload.cmd's {pg.uri}/{pg.user}/... interpolation) always has every
+	// one of these six keys populated, regardless of which shape was
+	// actually configured.
 	if cfg.Pg.URI != "" {
-		if root.Exists("pg.host") || root.Exists("pg.port") || root.Exists("pg.database") {
-			errs = append(errs, fmt.Errorf("config: pg.host/pg.port/pg.database: cannot be set alongside pg.uri (see specs/pg-uri-precedence.md)"))
+		if root.Exists("pg.host") || root.Exists("pg.port") || root.Exists("pg.database") || root.Exists("pg.user") || root.Exists("pg.password") {
+			errs = append(errs, fmt.Errorf("config: pg.host/pg.port/pg.database/pg.user/pg.password: cannot be set alongside pg.uri (see specs/pg-uri-precedence.md)"))
 		}
-		host, port, database, uerr := splitPgURI(cfg.Pg.URI)
+		host, port, database, user, password, uerr := splitPgURI(cfg.Pg.URI)
 		if uerr != nil {
 			errs = append(errs, fmt.Errorf("config: pg.uri: %w", uerr))
 		} else {
 			cfg.Pg.Host = host
 			cfg.Pg.Port = port
 			cfg.Pg.Database = database
+			cfg.Pg.User = user
+			cfg.Pg.Password = password
 		}
 	} else {
 		cfg.Pg.Host = root.GetStringOrDefault("pg.host", DefaultPgHost)
@@ -504,6 +531,9 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 		// pg.database : not itemized in docs/content/configuration/index.md's
 		// Postgres connection table either — an invented key (specs/TODO.md).
 		cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
+		cfg.Pg.User = root.GetStringOrDefault("pg.user", "")
+		cfg.Pg.Password = root.GetStringOrDefault("pg.password", "")
+		cfg.Pg.URI = PostgresURI(cfg.Pg.Host, cfg.Pg.Port, cfg.Pg.Database, cfg.Pg.User, cfg.Pg.Password)
 	}
 	cfg.Pg.PoolSize = root.GetIntOrDefault("pg.pool_size", DefaultPgPoolSize)
 

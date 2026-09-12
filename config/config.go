@@ -518,27 +518,35 @@ type PgQuery struct {
 type Pg struct {
 	// URI is pg.uri : a full "postgres://user:pass@host:port/db"
 	// connection string. When set, it takes precedence : Host/Port/
-	// Database are derived FROM it (specs/pg-uri-precedence.md), and
-	// setting pg.host/pg.port/pg.database alongside pg.uri is a
-	// configuration error rather than a silently-ignored value. Composes
-	// naturally with $FILE$ (a single secrets file holding the whole URI,
-	// rather than five separate keys each behind their own $FILE$
-	// reference).
+	// Database/User/Password are all derived FROM it
+	// (specs/pg-uri-precedence.md), and setting any of pg.host/pg.port/
+	// pg.database/pg.user/pg.password alongside pg.uri is a configuration
+	// error rather than a silently-ignored or silently-overridden value.
+	// Composes naturally with $FILE$ (a single secrets file holding the
+	// whole URI, rather than five separate keys each behind their own
+	// $FILE$ reference).
+	//
+	// When pg.uri is unset, it's the other direction : URI is itself
+	// derived from the granular fields below (config.PostgresURI), so
+	// this field — and cfg.Raw's "pg.uri" — is always populated one way
+	// or the other, never left blank for reload.cmd's {pg.uri}
+	// interpolation to fall through.
 	URI string
 
 	// User/Password are pg.user/pg.password — the primary login, used
-	// when URI is unset, for introspection, reload.cmd, AND serving
-	// requests alike.
+	// for introspection, reload.cmd, AND serving requests alike. Always
+	// populated, either read directly or derived from pg.uri's userinfo.
 	User     string
 	Password string
 
-	// Host/Port/Database are pg.host/pg.port/pg.database, used when URI
-	// is unset — shared with PgQuery's own login when that's set, since
-	// it's always the same Postgres instance/database, only the
-	// credentials narrow. Database is NOT in query-engine.md at all ; this
-	// struct had no field naming which database to connect to at all
-	// before this was added (see specs/TODO.md's own note on this
-	// invented key).
+	// Host/Port/Database are pg.host/pg.port/pg.database — shared with
+	// PgQuery's own login when that's set, since it's always the same
+	// Postgres instance/database, only the credentials narrow. Always
+	// populated, either read directly (with Host/Port defaulting to
+	// DefaultPgHost/DefaultPgPort) or derived from pg.uri. Database is
+	// NOT in query-engine.md at all ; this struct had no field naming
+	// which database to connect to at all before this was added (see
+	// specs/TODO.md's own note on this invented key).
 	Host     string
 	Port     int
 	Database string
