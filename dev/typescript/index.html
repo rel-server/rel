@@ -2395,6 +2395,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#attaching-behavior-to-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Attaching behavior to rows
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#calling-a-function-directly" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2732,6 +2743,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#attaching-behavior-to-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Attaching behavior to rows
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#calling-a-function-directly" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2884,7 +2906,9 @@ if you like, and it just works.</p>
 </span></code></pre></div>
 <p><code>properties</code> comes back typed as an array of exactly the shape you asked for — <code>id: number</code>,
 <code>name: string</code>, <code>rooms: Table__Hotel__Rooms[]</code> — not <code>any</code>. Get a column name wrong, or select
-a joined alias that isn't declared, and it's a compile error, not a runtime surprise.</p>
+a joined alias that isn't declared, and it's a compile error, not a runtime surprise. The same
+goes for <code>relation()</code>/<code>func()</code>'s own first argument: <code>relation("hotel.bogus", ...)</code> is a compile
+error too, with your editor autocompleting the relation/function names your schema actually has.</p>
 <p><code>relation()</code>'s second argument is a callback, and it's what makes a joined column's shortcut
 type-check correctly: the <code>join</code> it receives already knows which relation it's being called
 from, so it only offers the foreign keys reachable from <em>that</em> relation, and only accepts a
@@ -2902,13 +2926,27 @@ applies at every depth without you having to tell it what relation you're embedd
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="p">},</span>
 </span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
+<p>If you've already built a <code>relation()</code>/<code>func()</code> <code>Querier</code> for something you also want to embed
+as a join elsewhere, you can pass it straight to <code>join()</code> instead of retyping its <code>select</code>/<code>proto</code>:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">roomWithFeatures</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.rooms"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="s2">"id"</span><span class="p">,</span><span class="w"> </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="s2">"room_number"</span><span class="p">,</span><span class="w"> </span><span class="nx">features</span><span class="o">:</span><span class="w"> </span><span class="s2">"features"</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="p">})</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms&lt;;id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="nx">roomWithFeatures</span><span class="p">),</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>join()</code> still works out <code>on</code>/<code>schema</code>/<code>relation</code> from the shortcut regardless — a root
+<code>Querier</code> never carries those — it just reuses everything else from the <code>Querier</code> you pass in.</p>
 <p>The second argument is also optional entirely: <code>relation("hotel.properties")</code> alone, with no
 query, is a bare select-all (own columns plus every joined relation, the same default an omitted
 <code>select</code> already has server-side).</p>
 <p>Writing back uses the same <code>Querier</code>, with <code>.write()</code> instead of <code>.get()</code>:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="s2">"id"</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"name"</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="p">}).</span><span class="nx">write</span><span class="p">({</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="w"> </span><span class="p">})</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="s2">"id"</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"name"</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="p">}).</span><span class="nx">write</span><span class="p">({</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="w"> </span><span class="p">})</span>
 </span></code></pre></div>
 <p><code>write()</code>'s argument type is derived independently from <code>.get()</code>'s return type, because they
 can genuinely differ — a column marked <code>get</code> in your <code>select</code> is read-only and drops out of the
@@ -2923,12 +2961,49 @@ map's own rename too: <code>select: { display_name: "name" }</code> still requir
 <p><code>wellknown()</code> builds a call to a registered <a href="../query-language/well-known-queries/">well-known query</a> instead
 of an ad hoc relation — same <code>Querier</code>, but its params and result shape come from the query's
 own registered definition rather than from what you pass to <code>relation()</code>.</p>
+<h2 id="attaching-behavior-to-rows">Attaching behavior to rows<a class="headerlink" href="#attaching-behavior-to-rows" title="Permanent link">&para;</a></h2>
+<p><code>relation()</code>/<code>func()</code>/<code>join()</code> all accept a <code>proto</code> field alongside <code>select</code>/<code>join</code>/<code>where</code>: a
+plain object of getters/methods, typed against exactly the row shape that node produces, that
+gets set as the prototype of every row this node returns:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">is_luxury</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mf">4</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">is_luxury</span><span class="w"> </span><span class="c1">// boolean, computed client-side, no extra column selected</span>
+</span></code></pre></div>
+<p><code>this</code> inside <code>proto</code> is typed as the row's own computed shape — including any joined
+relation's own <code>proto</code>, so a parent's <code>proto</code> can read a nested join's decorated members too:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms&lt;;id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">      </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">        </span><span class="nx">get</span><span class="w"> </span><span class="nx">label</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">          </span><span class="k">return</span><span class="w"> </span><span class="sb">`Room </span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">room_number</span><span class="si">}</span><span class="sb">`</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">        </span><span class="p">},</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">      </span><span class="p">},</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="p">}),</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">room_count</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">rooms</span><span class="p">.</span><span class="nx">length</span>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>
+</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">rooms</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">label</span><span class="w"> </span><span class="c1">// uses the join's own `proto`</span>
+</span></code></pre></div>
+<p><code>proto</code> only adds behavior — it never changes what a row's write shape looks like, so writing
+back with <code>.write()</code> is unaffected by whether the query you read it with declared a <code>proto</code>.</p>
 <h2 id="calling-a-function-directly">Calling a function directly<a class="headerlink" href="#calling-a-function-directly" title="Permanent link">&para;</a></h2>
 <p><code>func()</code> builds a <code>Querier</code> you can still shape with <code>select</code>/<code>join</code>/<code>where</code>, the same as <code>relation()</code>. When you
 just want to call a function and get its result back — no select, no join — use <code>call()</code> instead:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">call</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">call</span><span class="p">(</span><span class="s2">"hotel.rooms_available"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">property_id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="w"> </span><span class="p">})</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">call</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">call</span><span class="p">(</span><span class="s2">"hotel.rooms_available"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">property_id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="w"> </span><span class="p">})</span>
 </span></code></pre></div>
 <p><code>call()</code> takes the function's arguments — either the named object shown above or the equivalent positional
 tuple (<code>call("hotel.rooms_available", [1])</code>) — checked against exactly what the function declares, and resolves
