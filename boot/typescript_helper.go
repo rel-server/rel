@@ -30,5 +30,7 @@ func WriteTypeScriptHelperFile(db *pg.DbInfos, cfg *config.Config, wkReg *wellkn
 	}, wkReg)
 	if err := os.WriteFile(cfg.TypeScript.HelperPath, []byte(out), 0o644); err != nil {
 		logger.Error("writing typescript.helper_path", "path", cfg.TypeScript.HelperPath, "error", err.Error())
+		return
 	}
+	logger.Info("wrote typescript.helper_path", "path", cfg.TypeScript.HelperPath)
 }
