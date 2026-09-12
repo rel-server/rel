@@ -2218,6 +2218,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#rendering-a-jet-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Rendering a <code>.jet</code> template
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#static-path-masking" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2699,6 +2710,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#rendering-a-jet-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Rendering a <code>.jet</code> template
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#static-path-masking" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2856,6 +2878,26 @@ the fallback isn't mounted at all if every listed directory is missing.</p>
   are meant to be publicly reachable. Gate part of the tree with <a href="#restricting-access-to-part-of-the-tree">middleware</a>
   for anything that shouldn't be.</li>
 </ul>
+<h2 id="rendering-a-jet-template">Rendering a <code>.jet</code> template<a class="headerlink" href="#rendering-a-jet-template" title="Permanent link">&para;</a></h2>
+<p>If no plain file answers a request, rel looks for a <code>.jet</code> source that would render one: <code>foo</code>
+falls back to <code>foo.html</code>, then <code>foo.html.jet</code> ; <code>foo.svg</code> falls back to <code>foo.svg.jet</code> ; a
+directory falls back to <code>index.html</code>, then <code>index.html.jet</code>. A reachable plain file always
+wins — <code>.jet</code> is the last resort, never tried ahead of a file that already exists at the
+requested name.</p>
+<p>A matched <code>.jet</code> file renders exactly like a route's own <code>template</code> (see <a href="../templates/">Rendering HTML with
+templates</a>) — the same <code>Req</code>, <code>Nonce</code>, and <code>rel()</code> are in scope, and it shares
+that same template set/parse cache. <code>{{ extends "./layout.jet" }}</code>/<code>{{ include "sibling.jet" }}</code>
+(a relative name, or a bare one with no leading <code>/</code>) resolves relative to the static file's own
+location on disk, the same as it would for a route's own template ; a name with a leading <code>/</code>
+(<code>{{ extends "/layout.jet" }}</code>) reaches into <code>http.templates.path</code> instead, alongside a route's
+own templates. The rendered response's <code>Content-Type</code> comes from the
+extension immediately before <code>.jet</code> (<code>widget.svg.jet</code> renders as <code>image/svg+xml</code>), and never
+carries a static file's own caching headers (<code>ETag</code>/<code>Last-Modified</code>) — a jet render always sends
+<code>Cache-Control: no-store</code> instead, since it's dynamic and role-scoped, never something a browser
+or CDN should cache across users.</p>
+<p>No file under <code>http.upload.dir</code> (see <a href="../uploads/">File uploads</a>) is ever eligible for this
+fallback, at any depth, including through a <code>{{ include }}</code> that would otherwise resolve there —
+uploaded content stays servable as plain static bytes, never executable as a template.</p>
 <h2 id="static-path-masking">Static path masking<a class="headerlink" href="#static-path-masking" title="Permanent link">&para;</a></h2>
 <p>A declared route at an exact path always takes priority over a static file at that same
 path — chi tries every registered route before falling back to a static file, so a route
@@ -2864,7 +2906,11 @@ masking <code>/</code> overrides the default index entirely.</p>
 stat call, negligible cost) and includes the result as <code>request.static</code>:</p>
 <div class="language-typescript highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="w"> </span><span class="nx">exists</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">,</span><span class="w"> </span><span class="nx">size?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">,</span><span class="w"> </span><span class="nx">modified_at?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
-<p><code>exists: false</code> when nothing is there, or when the path fails traversal validation. There is
+<p>When the request resolves to a <code>.jet</code> fallback, <code>size</code>/<code>modified_at</code> describe that <code>.jet</code>
+<strong>source</strong> file itself, not anything about the eventual render — the render's size isn't known
+without executing it. <code>exists: false</code> when nothing is there, when the path fails traversal
+validation, or when it resolves into <code>http.upload.dir</code> (jet-excluded paths report as
+nonexistent here too). There is
 no implicit fallback to the static file when a masking route returns neither content nor
 <code>static_file</code> — with <code>request.static</code> available, the function has what it needs to decide
 explicitly, including returning <code>static_file</code> itself to defer to disk:</p>
@@ -2885,7 +2931,8 @@ response with an explicit <code>status</code> (a middleware terminating with <co
 content/<code>static_file</code> is a real, deliberate answer, not a masking no-op, and is sent as that
 status with an empty body. <code>static_file</code> resolves under the same traversal rules as
 <code>http.static.path</code> and a <code>stream_upload</code> route's own <code>path</code> — no <code>..</code>, no dotfile path
-segment, nothing outside the configured static directories.</p>
+segment, nothing outside the configured static directories — and through the same <code>.jet</code>
+fallback described above, rendering rather than serving raw template source when it applies.</p>
 <h2 id="restricting-access-to-part-of-the-tree">Restricting access to part of the tree<a class="headerlink" href="#restricting-access-to-part-of-the-tree" title="Permanent link">&para;</a></h2>
 <p>Gate a subpath by declaring a <a href="../#middleware">middleware</a> at the covering prefix — this
 fully supersedes the old, database-backed <code>http.static.access.*</code> mechanism:</p>

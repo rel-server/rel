@@ -2878,9 +2878,9 @@ environment is passed through either way). It is your own responsibility not to 
 through the config-key side of interpolation — every resolved configuration value is available
 to it.</p>
 <h2 id="output-and-failure-handling">Output and failure handling<a class="headerlink" href="#output-and-failure-handling" title="Permanent link">&para;</a></h2>
-<p><code>reload.cmd</code>'s stdout and stderr are logged line by line, tagged <code>component=reload.cmd</code> and
-<code>stream=stdout</code>/<code>stream=stderr</code>. A line that parses as a JSON object has its own keys merged
-into the log record on top of those two, for tools that support structured output.</p>
+<p><code>reload.cmd</code>'s stdout and stderr are logged line by line, tagged <code>stream=stdout</code>/<code>stream=stderr</code>
+(alongside the usual <code>module</code> attribute). A line that parses as a JSON object has its own keys
+merged into the log record on top of that, for tools that support structured output.</p>
 <p>If <code>reload.cmd</code> exits non-zero or exceeds <code>reload.timeout</code>, rel skips reintrospecting the schema
 for that reload — but still rebuilds the well-known query registry and <a href="../../http/requests-responses/#rendering-html-with-a-template">Jet
 template</a> cache, against the

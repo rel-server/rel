@@ -3138,11 +3138,6 @@ HTTP-scoped subset, each row pointing at the page that explains the <em>behavior
 <td>Hard cap on a declared route request's entire body. See <a href="../uploads/#receiving-raw-bytes">File uploads</a>.</td>
 </tr>
 <tr>
-<td><code>http.max_upload_size</code></td>
-<td>= <code>http.max_body_size</code></td>
-<td>Hard cap on a <code>stream_upload</code> route's streamed payload — independent of <code>http.max_body_size</code> since this path streams to disk, not memory. See <a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
-</tr>
-<tr>
 <td><code>http.max_part_count</code></td>
 <td><code>100</code></td>
 <td>Max <code>multipart/form-data</code> parts per request. See <a href="../uploads/#receiving-raw-bytes">File uploads</a>.</td>
@@ -3153,9 +3148,19 @@ HTTP-scoped subset, each row pointing at the page that explains the <em>behavior
 <td>Colon-separated filesystem directories served at the router root, as the fallback for any path no declared route claims. See <a href="../static-files/">Static files</a>.</td>
 </tr>
 <tr>
+<td><code>http.upload.dir</code></td>
+<td>unset (uploads disabled)</td>
+<td>Subpath of the static write directory (the first entry of <code>http.static.path</code>) every <code>stream_upload</code> writes under — servable, but never jet-eligible. See <a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
+</tr>
+<tr>
+<td><code>http.upload.max_size</code></td>
+<td>= <code>http.max_body_size</code></td>
+<td>Hard cap on a <code>stream_upload</code> route's streamed payload — independent of <code>http.max_body_size</code> since this path streams to disk, not memory. See <a href="../uploads/#choosing-a-destination-without-routing-bytes-through-postgres">File uploads</a>.</td>
+</tr>
+<tr>
 <td><code>http.templates.path</code></td>
 <td><code>/template</code></td>
-<td>Directory Jet templates load from. See <a href="../templates/">Rendering HTML with templates</a>.</td>
+<td>Directory Jet templates load from, merged with <code>http.static.path</code> for a static <code>.jet</code> render. See <a href="../templates/">Rendering HTML with templates</a> and <a href="../static-files/">Static files</a>.</td>
 </tr>
 </tbody>
 </table>

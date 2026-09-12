@@ -2923,23 +2923,26 @@ not <code>rel-server/rel</code> directly, and no <code>/wellknown</code>/<code>/
 <p><code>http.static.path</code> accepts several colon-separated directories and serves them as one merged
 <code>/static/*</code> tree (see <a href="../../http/static-files/">Static files</a>); a <a href="../../http/uploads/">file
 upload</a> landing on disk without routing through Postgres always writes
-under the <em>first</em> one specifically. That ordering is also the tool for combining assets baked
-into your image with a writable upload directory, without any dedicated upload configuration:
-put the writable volume first, your <code>COPY</code>'d assets second.</p>
+under <code>http.upload.dir</code>, a subpath of the <em>first</em> listed directory specifically. Point that
+subpath at a volume mounted under your baked-in assets to combine the two, without disturbing
+the search-list order:</p>
 <div class="language-dockerfile highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c"># in your app's Dockerfile</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">COPY</span><span class="w"> </span>static<span class="w"> </span>/static/assets
 </span></code></pre></div>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># in your compose file</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">environment</span><span class="p">:</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">REL_HTTP__STATIC__PATH</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/uploads:/static/assets</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nt">volumes</span><span class="p">:</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rel_uploads:/uploads</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">REL_HTTP__STATIC__PATH</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/static/assets</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">REL_HTTP__UPLOAD__DIR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">uploads</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nt">volumes</span><span class="p">:</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rel_uploads:/static/assets/uploads</span>
 </span></code></pre></div>
-<p>Uploads land in <code>/uploads</code>, on a volume that survives a redeploy; <code>/static/assets</code> is whatever
-version of your app's own static files the currently-running image was built with. There's
-deliberately no separate <code>http.uploads.path</code> setting or default <code>/uploads</code> volume in the base
-image — which directory in the list is writable, if any, is a decision about your app's own
-deployment, not something rel's base image should assume for you.</p>
+<p>Uploads land under <code>/static/assets/uploads</code>, on a volume that survives a redeploy, still served
+as ordinary static content alongside the rest of <code>/static/assets</code> — whatever version of your
+app's own static files the currently-running image was built with — but never eligible for jet
+execution (see <a href="../../http/static-files/#rendering-a-jet-template">Static files ## Rendering a .jet template</a>),
+regardless of what lands there. <code>http.upload.dir</code> defaults unset, which disables uploads
+entirely — a deployment that never needs <code>stream_upload</code> doesn't need a writable volume at
+all.</p>
 <p>The compose file above assumes <code>your-registry/your-app:latest</code> is already sitting in a registry
 <code>docker-compose pull</code>/<code>docker-compose up</code> can reach. <code>just image</code> builds the plain
 <code>ghcr.io/rel-server/rel</code> base image (tags it <code>&lt;version&gt;</code> and <code>latest</code>, <code>&lt;version&gt;</code> from <code>git

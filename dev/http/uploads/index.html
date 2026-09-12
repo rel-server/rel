@@ -2828,8 +2828,14 @@ byte string.</p>
 Both bytes and parts must be fully received and held in memory before the route function
 runs; there is no streaming mechanism for genuinely large uploads (video, multi-GB archives)
 through this path. <code>stream_upload</code> below streams straight to disk instead, and is bounded by
-the separate, independently-configurable <code>http.max_upload_size</code>.</p>
+the separate, independently-configurable <code>http.upload.max_size</code>.</p>
 <h2 id="choosing-a-destination-without-routing-bytes-through-postgres">Choosing a destination without routing bytes through Postgres<a class="headerlink" href="#choosing-a-destination-without-routing-bytes-through-postgres" title="Permanent link">&para;</a></h2>
+<p><code>stream_upload</code> requires <code>http.upload.dir</code> to be configured — a subpath of the static write
+directory (the first entry of <code>http.static.path</code>) that every upload is written under. Leaving
+it unset disables <code>stream_upload</code> entirely (a request to such a route is a <code>500</code>). Uploaded
+files remain servable as ordinary static content through the static fallback, but no file
+under <code>http.upload.dir</code> is ever eligible for <a href="../templates/">jet execution</a> — a deliberate
+separation between "files the site serves" and "files a template can run."</p>
 <p>If a function only needs to <em>decide where</em> an upload lands on disk, without the bytes ever
 passing through Postgres, declare it <code>stream_upload</code> — rel calls it <strong>twice</strong>:</p>
 <div class="language-sql highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">upload_lease_pdf</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
@@ -2868,7 +2874,7 @@ argument at all; the whole point is that the file's bytes never enter Postgres.<
   <code>cookies</code>, <code>jwt</code>, <code>template</code>, ...) is ignored, and the second <code>OUT</code> column is discarded. It
   may reject outright (<code>RSxxx</code>) — the earliest possible rejection point, before spending time
   receiving bytes for an upload that was always going to be refused. It may also return
-  <code>max_size</code> to tighten <code>http.max_upload_size</code> for this one request (a per-user quota, say) —
+  <code>max_size</code> to tighten <code>http.upload.max_size</code> for this one request (a per-user quota, say) —
   since it runs before any payload byte is read, this still applies before a single byte
   streams to disk. It can only lower the cap, never raise it.</li>
 <li><strong>Second call</strong>, after the bytes are fully written to a temporary location on disk:
@@ -2883,8 +2889,8 @@ by whether <code>req.upload.size</code> is present.</p>
 the first call only — never repeated before the second — though any cookies/headers/jwt it set
 still apply to the second call's response, the one actually sent to the client.</p>
 <p><code>upload.path</code>, when set, is validated against the same traversal rules <a href="../static-files/">static file
-serving</a> applies — no <code>..</code>, nothing resolving outside <code>http.static.path</code>'s
-first directory. Leaving <code>path</code> unset is a deliberate discard: bytes are still received (so
+serving</a> applies — no <code>..</code>, nothing resolving outside <code>http.upload.dir</code>.
+Leaving <code>path</code> unset is a deliberate discard: bytes are still received (so
 the second call still gets an accurate <code>size</code>), but nothing is kept on disk.
 <code>overwrite: 'disallow'</code> (the default) rejects with <code>409 Conflict</code>, checked before any bytes
 are read, if a file already exists at <code>path</code>; <code>overwrite: 'allow'</code> replaces it. The file is

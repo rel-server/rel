@@ -2197,6 +2197,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#rel-reading-data-from-a-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>rel()</code>: reading data from a template
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#reload" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2732,6 +2743,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#rel-reading-data-from-a-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>rel()</code>: reading data from a template
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#reload" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2943,11 +2965,37 @@ through.</p>
 <p><code>{{ import "partials.jet" }}</code> (reusable macros, shared across many templates without an
 inheritance relationship) and <code>{{ include "footer.jet" }}</code> (inline another template's full
 output at that point) are both available too, resolved the same way.</p>
+<h2 id="rel-reading-data-from-a-template"><code>rel()</code>: reading data from a template<a class="headerlink" href="#rel-reading-data-from-a-template" title="Permanent link">&para;</a></h2>
+<p>Every template — a route's own, or a static <code>.jet</code> file (see <a href="../static-files/#rendering-a-jet-template">Static files ## Rendering a .jet
+template</a>) — has a <code>rel(query)</code> function in scope,
+running a <strong>read-only</strong> query with the requesting user's own role, the same role a <code>/rel</code>
+request from that user would resolve to:</p>
+<div class="language-html highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>{{ range _, movie := rel(map("relation", "movie", "schema", "public", "select", slice("own"))) }}
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  <span class="p">&lt;</span><span class="nt">li</span><span class="p">&gt;</span>{{ movie.title }}<span class="p">&lt;/</span><span class="nt">li</span><span class="p">&gt;</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>{{ end }}
+</span></code></pre></div>
+<p><code>query</code> is built with Jet's own <code>map()</code>/<code>slice()</code> globals into the same shape a <code>/rel</code> request
+body would send — a bare relation, or a well-known query by name (<code>map("wellknown", "name",
+"params", map(...))</code>). A write shape (<code>map("query", ..., "data", ...)</code>) is always rejected: a
+page render must not have side effects. <code>rel()</code> opens its own short-lived transaction per call,
+independent of the surrounding request's own transaction (if any) and of any other <code>rel()</code> call
+in the same render — it is not a mechanism for a coherent multi-statement read; reach for a
+database function instead when several queries must see one consistent snapshot.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code>rel()</code> has no query timeout, row limit, or execution-step limit of its own. A static <code>.jet</code>
+file is normally the least authenticated, most-crawled surface of a site — an expensive
+<code>rel()</code> call there is a standing amplification risk against the database on every anonymous
+page load, not just under active abuse. Keep queries cheap and bounded (an explicit
+<code>limit</code>), and rely on the database's own role-scoped grants/RLS for what a given caller can
+see, exactly as <code>/rel</code> does.</p>
+</div>
 <h2 id="reload">Reload<a class="headerlink" href="#reload" title="Permanent link">&para;</a></h2>
 <p>The template set (and its parse cache) rebuilds as part of the same <code>SIGUSR1</code> reload sequence a
 schema change uses — see <a href="../../configuration/operations/">Operations</a>. A changed <code>.jet</code> file on
 disk takes effect the next time an operator reloads, not on every request; there is no
-development mode that reparses from disk on every render.</p>
+development mode that reparses from disk on every render. This applies identically to a
+static-served <code>.jet</code> file — editing one under <code>http.static.path</code> has no effect until reload.</p>
 
 
 
