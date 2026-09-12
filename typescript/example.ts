@@ -6,7 +6,7 @@
 
 import { func, join, relation, wellknown } from "./querier"
 import type { Functions } from "./schema.example"
-import type { ResolveModel } from "./shapes"
+import type { DefaultRow, ResolveModel, RootShapeFromFunctionMember } from "./shapes"
 
 const properties = relation("hotel.properties", {
   select: {
@@ -85,8 +85,11 @@ const propertyAudit = relation("hotel.properties", {
   },
 })
 
-export type PropertyReadShape = Awaited<ReturnType<typeof propertyAudit.get>>
-export type PropertyWriteShape = Parameters<typeof propertyAudit.write>[0]
+// Root cardinality (shapes.ts ## Root cardinality) : relation()'s .get()/.write() are array-shaped at the root
+// (writing.md : "an array of rows at the root") — [number] below gets at one row's own shape for the
+// per-column assertions that follow.
+export type PropertyReadShape = Awaited<ReturnType<typeof propertyAudit.get>>[number]
+export type PropertyWriteShape = Parameters<typeof propertyAudit.write>[0][number]
 
 type Expect<T extends true> = T
 type HasKey<T, K extends string> = K extends keyof T ? true : false
@@ -98,6 +101,34 @@ export type _AssertReadOmitsAuditOnly = Expect<
 export type _AssertWriteHasAuditOnly = Expect<HasKey<PropertyWriteShape, "audit_only">>
 export type _AssertWriteOmitsDisplayOnly = Expect<
   HasKey<PropertyWriteShape, "display_only"> extends false ? true : false
+>
+
+// relation()'s own root-array wrap (querier.ts) is exactly what this regression pins — a bare, unwrapped object
+// here (the pre-fix shape) would make every assertion above compare against the wrong kind (Array's own
+// `keyof`, not a row's), so this catches the bug at its source rather than only downstream.
+export type _AssertPropertiesShapeIsArray = Expect<
+  PropertiesShape extends readonly unknown[] ? true : false
+>
+export type _AssertRoomsAvailableShapeIsArray = Expect<
+  RoomsAvailableShape extends readonly unknown[] ? true : false
+>
+// hotel.property_count (schema.example.ts) has no `relation` — a genuinely scalar function — so func()'s root
+// shape must stay a bare `number`, never `number[]` ; this is the one exception ## Root cardinality carries.
+const propertyCount = func("hotel.property_count", {})
+export type PropertyCountShape = Awaited<ReturnType<typeof propertyCount.get>>
+export type _AssertScalarFunctionRootIsNotArray = Expect<
+  PropertyCountShape extends readonly unknown[] ? false : true
+>
+export type _AssertScalarFunctionRootIsNumber = Expect<
+  PropertyCountShape extends number ? true : false
+>
+
+// An unrecognized function name resolves to `never` (RootShapeFromLiteralQuery/func()'s own F-driven lookup, both
+// falling back the same way ResolveModel does elsewhere) — RootShapeFromFunctionMember's own `[M] extends
+// [never]` guard exists specifically so this still lands on the safe DefaultRow[] default instead of `M extends
+// {...}` distributing over `never` and collapsing the whole conditional to `never` itself.
+export type _AssertUnrecognizedFunctionFallsBackToDefaultRowArray = Expect<
+  RootShapeFromFunctionMember<never, Record<string, never>> extends DefaultRow[] ? true : false
 >
 
 // shapes.ts's ResolveFunctionModel/DistributeOverload : "hotel.property_average_rating" is overloaded
@@ -134,8 +165,11 @@ const propertyWithComputed = relation("hotel.properties", {
   },
 })
 
-export type PropertyWithComputedShape = Awaited<ReturnType<typeof propertyWithComputed.get>>
-export type PropertyWithComputedWriteShape = Parameters<typeof propertyWithComputed.write>[0]
+// [number] : same root-array unwrap as PropertyReadShape/PropertyWriteShape above.
+export type PropertyWithComputedShape = Awaited<ReturnType<typeof propertyWithComputed.get>>[number]
+export type PropertyWithComputedWriteShape = Parameters<
+  typeof propertyWithComputed.write
+>[0][number]
 
 // property_average_rating is overloaded (schema.example.ts) ; ReturnsOf deliberately does NOT unwrap the
 // set-returning variant's `relation` the way ResolveFunctionModel does for func()'s embed path — a "call" tag
@@ -169,7 +203,8 @@ const roomTypeWrite = relation("hotel.room_types", {
   select: ["own"],
 })
 
-export type RoomTypeWriteShape = Parameters<typeof roomTypeWrite.write>[0]
+// [number] : same root-array unwrap as PropertyReadShape/PropertyWriteShape above.
+export type RoomTypeWriteShape = Parameters<typeof roomTypeWrite.write>[0][number]
 
 // None of this schema's own column types ever include `undefined` themselves (only `| null` for a genuinely
 // nullable SQL column) — so an optional key's own apparent type (T[K] including `| undefined`, added implicitly
@@ -188,7 +223,8 @@ const roomTypeWriteAliased = relation("hotel.room_types", {
   select: { renamed_name: "name", base_price: "base_price" },
 })
 
-export type RoomTypeWriteAliasedShape = Parameters<typeof roomTypeWriteAliased.write>[0]
+// [number] : same root-array unwrap as PropertyReadShape/PropertyWriteShape above.
+export type RoomTypeWriteAliasedShape = Parameters<typeof roomTypeWriteAliased.write>[0][number]
 
 export type _AssertAliasedRequiredColumnStaysMandatory = Expect<
   IsOptionalKey<RoomTypeWriteAliasedShape, "renamed_name"> extends false ? true : false
@@ -199,8 +235,13 @@ export type _AssertAliasedRequiredColumnStaysMandatory = Expect<
 // `.get(params)` argument needed, unlike relation()/func()'s own `$param`-driven Params.
 const starRatedProperties = wellknown("properties_by_star_rating", { min_rating: 4 })
 
+// Root cardinality (shapes.ts ## Root cardinality) : a well-known query is root-array-wrapped exactly like
+// relation()/func() — RootShapeFromLiteralQuery (schema.example.ts's Wellknowns entry) is what wraps it.
 export type StarRatedPropertiesShape = Awaited<ReturnType<typeof starRatedProperties.get>>
 
+export type _AssertWellknownShapeIsArray = Expect<
+  StarRatedPropertiesShape extends readonly unknown[] ? true : false
+>
 export type _AssertWellknownShapeHasStarRating = Expect<
-  HasKey<StarRatedPropertiesShape, "star_rating">
+  HasKey<StarRatedPropertiesShape[number], "star_rating">
 >

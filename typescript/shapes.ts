@@ -123,6 +123,56 @@ type DistributeOverload<M> = M extends { relation: infer R extends object }
     ? Ret
     : DefaultRow
 
+///////////////////////////////////////////////////////////////////////
+// Root cardinality (docs/content/query-language/writing.md : "an array of rows at the root and at any incoming
+// join ..., a single object at an outgoing join" ; server/rel.go's streamItem doc comment : "a bare scalar for a
+// scalar function root, a JSON array otherwise") — the ROOT of a query is never itself a to-one join, so it's
+// always array-shaped UNLESS it's a scalar function call (no `relation`, `compileFunctionCall`'s own path,
+// entirely bypassing select/join). JoinShapes/WriteJoinShapes (above) already get this right for every NESTED
+// node via JoinCardinality ; this section is the root-only counterpart querier.ts's relation()/func() and a
+// well-known query's own generated `shape`/`write_shape` all need on top of it.
+
+// One function overload's own root contribution : set-returning (`relation` present) wraps its row shape in an
+// array, same as any other relation root ; scalar (`returns` only, no `relation`) is the one exception — its
+// bare `returns` value IS the response, select/join never applies to it. Boxed the same way DistributeOverload
+// is (M stays a naked type parameter) so a MIXED overload set (e.g. hotel.property_average_rating) resolves
+// each member through its own branch and unions them, rather than collapsing onto whichever branch every member
+// happens to satisfy.
+//
+// The `[M] extends [never]` guard : an unrecognized function name (relation()/func()'s R/F, or
+// RootShapeFromLiteralQuery below, all fall back to `never` for that case) must still resolve to the safe
+// DefaultRow[] default — a bare `M extends {...}` here would instead DISTRIBUTE over `never` (M is a naked type
+// parameter), collapsing the whole conditional to `never` itself rather than reaching either branch.
+export type RootShapeFromFunctionMember<M, Q, Depth extends number = 12> = [M] extends [never]
+  ? DefaultRow[]
+  : RootShapeFromFunctionMemberEach<M, Q, Depth>
+
+type RootShapeFromFunctionMemberEach<M, Q, Depth extends number> = M extends {
+  relation: infer R extends object
+}
+  ? ShapeFromRelationQuery<Q, R, Depth>[]
+  : M extends { returns: infer Ret }
+    ? Ret
+    : DefaultRow[]
+
+// Root-level wrap for a query node that still carries its own `relation`/`function` fields on its own literal —
+// a well-known query's embedded `as const` literal (schema.example.ts), unlike relation()/func()'s own Q (which
+// never carries them ; see querier.ts's relation()/func(), which apply the equivalent wrap themselves, driven by
+// the relation/function NAME rather than by inspecting Q). A relation root is unconditionally array-wrapped ; a
+// function root defers to RootShapeFromFunctionMember above.
+export type RootShapeFromLiteralQuery<
+  Q extends { [name: string]: unknown },
+  Depth extends number = 12,
+> = Q extends { schema: infer Sc extends string; function: infer F extends string }
+  ? RootShapeFromFunctionMember<
+      `${Sc}.${F}` extends keyof Functions ? Functions[`${Sc}.${F}`] : never,
+      Q,
+      Depth
+    >
+  : Q extends { function: infer F extends string }
+    ? RootShapeFromFunctionMember<F extends keyof Functions ? Functions[F] : never, Q, Depth>
+    : ShapeFromRelationQuery<Q, ResolveModel<Q>, Depth>[]
+
 // A join entry's own nested `join`, so joins-of-joins keep resolving recursively like the root query does.
 // `keyof {} = never` is exactly what the "no join" case needs, since JoinShapes maps over this via `keyof` —
 // Record<keyof any, never>/{[name: string]: unknown} (biome's own suggested replacements) both have `keyof` =

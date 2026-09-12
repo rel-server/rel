@@ -5,7 +5,7 @@
 //
 // A type-only cycle with shapes.ts (which itself imports Functions/Relationships/Wellknowns etc. from here) : legal
 // in TS, since types are erased before this matters at runtime.
-import type { ResolveModel, ShapeFromRelationQuery, WriteShapeFromRelationQuery } from "./shapes"
+import type { ResolveModel, RootShapeFromLiteralQuery, WriteShapeFromRelationQuery } from "./shapes"
 
 // A bare `{}` type accepts anything non-null (biome's noBannedTypes) ; tsgen generates this instead for an
 // actually-empty object shape (a zero-argument function's own `args`, a zero-column relation/composite type —
@@ -171,13 +171,17 @@ const __wellknown_properties_by_star_rating_query = {
 export interface Wellknowns {
   properties_by_star_rating: {
     params: { min_rating: number }
-    shape: ShapeFromRelationQuery<
-      typeof __wellknown_properties_by_star_rating_query,
-      ResolveModel<typeof __wellknown_properties_by_star_rating_query>
-    >
+    // Root cardinality (shapes.ts ## Root cardinality) : this query is relation-rooted, so its response is
+    // unconditionally an array of rows — RootShapeFromLiteralQuery covers the function-rooted case too, for a
+    // well-known query built on a set-returning or scalar function instead.
+    shape: RootShapeFromLiteralQuery<typeof __wellknown_properties_by_star_rating_query>
+    // Same root-array wrap as `shape` above — writing.md : "data" is "an array of rows at the root". A
+    // function-rooted well-known query isn't writable at all (query/write.go's CompileSelectForDataNode rejects
+    // any function-rooted node), so this straightforward `[]` wrap — rather than going through
+    // RootShapeFromLiteralQuery's own function-vs-relation dispatch — is only ever exercised by a relation root.
     write_shape: WriteShapeFromRelationQuery<
       typeof __wellknown_properties_by_star_rating_query,
       ResolveModel<typeof __wellknown_properties_by_star_rating_query>
-    >
+    >[]
   }
 }

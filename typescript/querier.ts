@@ -5,12 +5,13 @@ the first thing seen when opening it, ahead of the developer's own schema (secti
 powers both (section 3, `query.ts`/`shapes.ts`).
 */
 import type { Query, RelationQuery } from "./query"
-import type { Relationships, Wellknowns } from "./schema.example"
+import type { Functions, Relationships, Wellknowns } from "./schema.example"
 import type {
   DefaultRow,
   Params,
   RequiredKeysOf,
   ResolveModel,
+  RootShapeFromFunctionMember,
   ShapeFromQuery,
   WriteShapeFromQuery,
 } from "./shapes"
@@ -89,11 +90,15 @@ export function relation<
   rel: R,
   request?: Q | ((join: ScopedJoin<R>) => Q),
 ): Querier<
-  ShapeFromQuery<Q, ResolveRelationModel<R>>,
+  // A relation root is never a scalar function call, so — unlike func() below — it's unconditionally
+  // array-wrapped : shapes.ts's RootShapeFromFunctionMember doc comment (## Root cardinality) covers the full
+  // reasoning ; writing.md : "an array of rows at the root".
+  ShapeFromQuery<Q, ResolveRelationModel<R>>[],
   // RequiredKeysOf<R> is passed explicitly : R (e.g. "hotel.properties") is split apart from `request`/Q above,
   // so Q alone never carries the `relation`/`schema` fields WriteShapeFromQuery's own default would otherwise
-  // read a relation's required columns off of (see that type's own doc comment, shapes.ts).
-  WriteShapeFromQuery<Q, ResolveRelationModel<R>, RequiredKeysOf<R>>,
+  // read a relation's required columns off of (see that type's own doc comment, shapes.ts). Same root-array
+  // wrap as the read side above — writing.md : "data" is "an array of rows at the root".
+  WriteShapeFromQuery<Q, ResolveRelationModel<R>, RequiredKeysOf<R>>[],
   Params<Q>
 > {
   const [schema, relation] = rel.split(".")
@@ -122,7 +127,12 @@ export function func<
   fn: F,
   request: Q,
 ): Querier<
-  ShapeFromQuery<Q, ResolveCalledFunctionModel<F>>,
+  // Root cardinality (shapes.ts's RootShapeFromFunctionMember doc comment, ## Root cardinality) : a
+  // set-returning overload's row shape wrapped in an array, same as relation() ; a scalar overload's bare
+  // `returns` value instead — that's the ONE case (server/rel.go's streamItem) a root query response isn't an
+  // array. F, not Q, drives this : same reasoning as relation()'s explicit RequiredKeysOf<R> above — Q alone
+  // never carries the `function`/`schema` fields.
+  RootShapeFromFunctionMember<F extends keyof Functions ? Functions[F] : never, Q>,
   WriteShapeFromQuery<Q, ResolveCalledFunctionModel<F>>,
   Params<Q>
 > {

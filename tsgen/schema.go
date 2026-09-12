@@ -134,14 +134,23 @@ func wellknownConstIdent(name string) string {
 // renderWellknowns is specs/typescript.md ## Wellknowns : rather than
 // re-deriving a well-known query's row shape in Go (duplicating shapes.ts'
 // own type-level inference), each compiled query's raw "query" JSON is
-// embedded verbatim as a `const ... as const` literal and ShapeFromRelationQuery/
-// WriteShapeFromRelationQuery (shapes.ts) infer its shape from that literal
-// directly — the unconstrained entry points, not ShapeFromQuery/
-// WriteShapeFromQuery, since `as const` makes every nested array/tuple
-// readonly, which the constrained Q extends RelationQuery<...> signature
-// rejects (RelationQuery's own where/select fields are typed as mutable
-// tuples). Always emits the interface, even empty — same reasoning as
-// Functions/FunctionsByName above.
+// embedded verbatim as a `const ... as const` literal and
+// RootShapeFromLiteralQuery/WriteShapeFromRelationQuery (shapes.ts) infer its
+// shape from that literal directly — the unconstrained entry points, not
+// ShapeFromQuery/WriteShapeFromQuery, since `as const` makes every nested
+// array/tuple readonly, which the constrained Q extends RelationQuery<...>
+// signature rejects (RelationQuery's own where/select fields are typed as
+// mutable tuples). `shape` goes through RootShapeFromLiteralQuery, not the
+// bare ShapeFromRelationQuery : a well-known query's root is array-shaped
+// like any other root (docs/content/query-language/writing.md — "an array
+// of rows at the root" ; server/rel.go's streamItem), whether it's
+// relation-rooted or (set-returning/scalar) function-rooted ; shapes.ts's
+// own "## Root cardinality" section carries the full reasoning.
+// `write_shape` is wrapped the same way : a function-rooted well-known query
+// isn't writable at all (query/write.go's CompileSelectForDataNode rejects
+// any function-rooted node), so this always resolves through the
+// relation-rooted case in practice. Always emits the interface, even empty —
+// same reasoning as Functions/FunctionsByName above.
 func renderWellknowns(wkReg *wellknown.Registry) string {
 	entries := wkReg.All()
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
@@ -177,8 +186,8 @@ func renderWellknowns(wkReg *wellknown.Registry) string {
 
 		fmt.Fprintf(&iface, "  %s: {\n", strconv.Quote(c.Name))
 		fmt.Fprintf(&iface, "    params: %s\n", paramsType)
-		fmt.Fprintf(&iface, "    shape: ShapeFromRelationQuery<typeof %s, ResolveModel<typeof %s>>\n", ident, ident)
-		fmt.Fprintf(&iface, "    write_shape: WriteShapeFromRelationQuery<typeof %s, ResolveModel<typeof %s>>\n", ident, ident)
+		fmt.Fprintf(&iface, "    shape: RootShapeFromLiteralQuery<typeof %s>\n", ident)
+		fmt.Fprintf(&iface, "    write_shape: WriteShapeFromRelationQuery<typeof %s, ResolveModel<typeof %s>>[]\n", ident, ident)
 		iface.WriteString("  }\n")
 	}
 	iface.WriteString("}\n\n")

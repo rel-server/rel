@@ -269,10 +269,12 @@ func TestGenerateDatabaseTS_TypeChecks_BareNameShadowing(t *testing.T) {
 // TestGenerateSchema_Wellknowns is the Wellknowns feature's own regression :
 // specs/typescript.md ## Wellknowns embeds a compiled well-known query's raw
 // "query" JSON verbatim as a `const ... as const` literal and infers its
-// shape through ShapeFromRelationQuery/ResolveModel (shapes.ts), rather than
-// re-deriving that shape in Go — this proves the emitted literal/params type
-// both exist AND actually type-check end to end (TestGenerateDatabaseTS_
-// TypeChecks_Wellknowns, below).
+// shape through RootShapeFromLiteralQuery/ResolveModel (shapes.ts), rather
+// than re-deriving that shape in Go — this proves the emitted literal/params
+// type both exist AND actually type-check end to end (TestGenerateDatabaseTS_
+// TypeChecks_Wellknowns, below). `shape` goes through RootShapeFromLiteralQuery,
+// not the bare ShapeFromRelationQuery, since a well-known query's root is
+// array-shaped like any other root (shapes.ts's own "## Root cardinality").
 func TestGenerateSchema_Wellknowns(t *testing.T) {
 	dir := t.TempDir()
 	def := `{
@@ -301,7 +303,7 @@ func TestGenerateSchema_Wellknowns(t *testing.T) {
 		"export interface Wellknowns {",
 		`"properties_by_star_rating": {`,
 		"params: { min_rating: number }",
-		"shape: ShapeFromRelationQuery<typeof __wellknown_properties_by_star_rating_query, ResolveModel<typeof __wellknown_properties_by_star_rating_query>>",
+		"shape: RootShapeFromLiteralQuery<typeof __wellknown_properties_by_star_rating_query>",
 		`const __wellknown_properties_by_star_rating_query = {"schema":"hotel","relation":"properties","where":["=","star_rating",`,
 		`"$param", "min_rating", "int"`,
 		"} as const",
@@ -313,7 +315,7 @@ func TestGenerateSchema_Wellknowns(t *testing.T) {
 }
 
 // TestGenerateDatabaseTS_TypeChecks_Wellknowns proves a real Wellknowns
-// entry, including the raw-query const and its ShapeFromRelationQuery-
+// entry, including the raw-query const and its RootShapeFromLiteralQuery-
 // derived shape, actually type-checks in the concatenated database.ts —
 // not just that the right substrings appear (TestGenerateSchema_Wellknowns
 // above).
