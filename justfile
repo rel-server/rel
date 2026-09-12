@@ -8,6 +8,10 @@ image_registry := "ghcr.io/rel-server/rel"
 dmut_image_registry := "ghcr.io/rel-server/rel-dmut"
 version := `git describe --tags --always --dirty`
 
+# Build rel executable that can be bound into docker image for local testing
+build-rel:
+    GOAMD64=v2 GOOS=linux CGO_ENABLED=0 go build -ldflags="-s -w" ./cmd/rel
+
 # Run the full test suite (testcontainers spins up its own throwaway Postgres
 # per package — docker must be running, but `just test-db-up` is not required)
 test:
