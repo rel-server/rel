@@ -459,9 +459,9 @@ type ShapeFromExpression<
       ? ShapeFromExpressionMap<E, Rel, Join, Digits[Depth]>
       : ShapeFromLeaf<E, Rel, Join, Digits[Depth]>
 
-// The JSON result shape of one RelationQuery node, before `proto` (specs/typescript-proto.md) merges in : its own
-// `select` (absent defaults to `["full"]`, per query.ts's `select` doc comment), evaluated against Rel and its own
-// `join` (resolved recursively above).
+// The JSON result shape of one RelationQuery node, before `proto` (docs/content/typescript/index.md ## Attaching
+// behavior to rows) merges in : its own `select` (absent defaults to `["full"]`, per query.ts's `select` doc
+// comment), evaluated against Rel and its own `join` (resolved recursively above).
 //
 // A bare top-level `set` (e.g. `select: ["set", "col"]`, not inside a map) has nowhere to drop its own key — the
 // whole node's shape WOULD be `Omitted` itself. Falls back to `unknown` rather than leaking that internal marker ;
@@ -478,16 +478,16 @@ type BaseShapeFromRelationQuery<Q, Rel extends object, Depth extends number> = Q
       : never
   : FullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
 
-// specs/typescript-proto.md ## `proto` field : the row shape `proto`'s own getters/methods type `this` against —
-// the node's shape before ITS OWN `proto` merges in, so a `proto` object never has to type its own members as
-// part of its own input.
+// docs/content/typescript/index.md ## Attaching behavior to rows : the row shape `proto`'s own getters/methods
+// type `this` against — the node's shape before ITS OWN `proto` merges in, so a `proto` object never has to type
+// its own members as part of its own input.
 export type ProtoRowShape<
   Q,
   Rel extends object,
   Depth extends number = 12,
 > = BaseShapeFromRelationQuery<Q, Rel, Depth>
 
-// specs/typescript-proto.md ## Shape : merges `proto`'s own members into the row shape it decorates.
+// Merges `proto`'s own members into the row shape it decorates.
 type MergeProto<Q, Base> = Q extends { proto: infer P extends object } ? Base & P : Base
 
 export type ShapeFromRelationQuery<
@@ -496,10 +496,10 @@ export type ShapeFromRelationQuery<
   Depth extends number = 12,
 > = Depth extends 0 ? unknown : MergeProto<Q, BaseShapeFromRelationQuery<Q, Rel, Digits[Depth]>>
 
-// specs/typescript-proto.md ## `proto` field : the type relation()/func()/join() (querier.ts) put their own
-// request literal's type through, intersected on top of `Q`, so `proto`'s own getters/methods have `this` typed
-// against that exact node's `ProtoRowShape` — including, recursively, any nested join's own `proto`-merged shape
-// (JoinShapes, above, already resolves every join member through `ShapeFromRelationQuery`).
+// docs/content/typescript/index.md ## Attaching behavior to rows : the type relation()/func()/join() (querier.ts)
+// put their own request literal's type through, intersected on top of `Q`, so `proto`'s own getters/methods have
+// `this` typed against that exact node's `ProtoRowShape` — including, recursively, any nested join's own
+// `proto`-merged shape (JoinShapes, above, already resolves every join member through `ShapeFromRelationQuery`).
 //
 // `proto`'s own type carries `ThisType<...>`, not a `base_class` parameter : a parameter's contextual type is
 // resolved eagerly, during inference, before Q's other sibling fields (`join` in particular) are done inferring —
@@ -508,6 +508,11 @@ export type ShapeFromRelationQuery<
 // plain object methods/getters (no parameters) are the one part of an object literal that ISN'T
 // context-sensitive. `NoInfer<Q>` keeps `proto` from being a second, conflicting inference site for Q — Q is
 // inferred from the rest of the literal only.
+//
+// A `proto` mixing a `get` and a plain method (rather than only one kind) needs an explicit return type
+// annotation on EVERY member, or TypeScript's own `this`-inference for the mix degrades silently to `any`
+// throughout the object — confirmed empirically, not a documented TS behavior. Same-kind objects (all getters,
+// or all plain methods) don't need the annotations.
 export type WithProto<Q, Rel extends object> = Q & {
   proto?: object & ThisType<ProtoRowShape<NoInfer<Q>, Rel>>
 }

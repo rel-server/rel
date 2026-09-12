@@ -120,20 +120,31 @@ own registered definition rather than from what you pass to `relation()`.
 ## Attaching behavior to rows
 
 `relation()`/`func()`/`join()` all accept a `proto` field alongside `select`/`join`/`where`: a
-plain object of getters/methods, typed against exactly the row shape that node produces, that
-gets set as the prototype of every row this node returns:
+plain object of getters and/or methods, typed against exactly the row shape that node produces.
+It's applied via `Object.setPrototypeOf` to every row this node returns — the object you pass
+*becomes* each row's prototype, not a template copied onto it:
 
 ```ts
 const properties = await relation("hotel.properties", {
   proto: {
-    get is_luxury() {
+    get is_luxury(): boolean {
       return (this.star_rating ?? 0) >= 4
+    },
+    describe(): string {
+      return `${this.name} (${this.star_rating ?? "unrated"})`
     },
   },
 }).get()
 
 properties[0].is_luxury // boolean, computed client-side, no extra column selected
+properties[0].describe() // ordinary method, same `this`
 ```
+
+Annotate the return type on every getter/method whenever `proto` mixes the two (a `get` alongside
+a plain method, as above) — TypeScript's inference of `this` inside a mixed object literal like
+this only works when every member's return type is explicit. A `proto` made up entirely of
+getters, or entirely of plain methods, doesn't need the annotations, but mixing without them
+silently degrades `this` to `any` throughout the whole object.
 
 `this` inside `proto` is typed as the row's own computed shape — including any joined
 relation's own `proto`, so a parent's `proto` can read a nested join's decorated members too:

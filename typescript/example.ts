@@ -331,9 +331,10 @@ export type _AssertCallMatchesSetReturningOverload = Expect<
   Awaited<CallChecks["avgById"]> extends readonly unknown[] ? true : false
 >
 
-// specs/typescript-proto.md : `proto` attaches behaviour to a node's rows. `this` inside its getters/methods
-// must see this node's own row shape (`room_number`, an "own" column) AND, for the parent below, its nested
-// join's shape (`rooms`) too — the exact combination shapes.ts's WithProto (`ThisType`) doc comment covers.
+// docs/content/typescript/index.md ## Attaching behavior to rows : `proto` attaches behaviour to a node's rows.
+// `this` inside its getters/methods must see this node's own row shape (`room_number`, an "own" column) AND, for
+// the parent below, its nested join's shape (`rooms`) too — the exact combination shapes.ts's WithProto
+// (`ThisType`) doc comment covers.
 const roomWithProto = relation("hotel.rooms", {
   proto: {
     get label() {
@@ -346,6 +347,25 @@ export type RoomWithProtoShape = Awaited<ReturnType<typeof roomWithProto.get>>
 
 export type _AssertProtoRowHasOwnColumn = Expect<HasKey<RoomWithProtoShape[number], "room_number">>
 export type _AssertProtoRowHasProtoMember = Expect<HasKey<RoomWithProtoShape[number], "label">>
+
+// A `proto` mixing a `get` and a plain method needs an explicit return type on EVERY member (WithProto's own doc
+// comment, shapes.ts) — without one, `this` silently degrades to `any` throughout the object instead of failing
+// loudly, so this only guards the annotated form actually compiles with a correctly-typed `this`.
+const roomWithMixedProto = relation("hotel.rooms", {
+  proto: {
+    get label(): string {
+      return `${this.room_number} !`
+    },
+    describe(): string {
+      return `Room ${this.room_number}, ${this.features.length} feature(s)`
+    },
+  },
+})
+
+export type RoomWithMixedProtoShape = Awaited<ReturnType<typeof roomWithMixedProto.get>>
+
+export type _AssertMixedProtoHasGetter = Expect<HasKey<RoomWithMixedProtoShape[number], "label">>
+export type _AssertMixedProtoHasMethod = Expect<HasKey<RoomWithMixedProtoShape[number], "describe">>
 
 // A join's own `proto` (on "rooms" below) merges into ITS row shape independently of the parent's — exercised via
 // join()'s own request literal, not a bare relation() passed straight into `join:` (query.ts's `on` is mandatory
@@ -373,7 +393,7 @@ export type _AssertParentProtoSeesJoinedProtoMember = Expect<
   HasKey<PropertyWithNestedProtoShape[number]["rooms"][number], "label">
 >
 
-// specs/typescript-proto.md ## Reusing a Querier in a join : `roomWithProto` (a standalone relation() Querier,
+// docs/content/typescript/index.md ## Building a query : `roomWithProto` (a standalone relation() Querier,
 // `proto` and all) reused as a join's own `request`, instead of rewriting its `proto` inline.
 const propertyWithReusedProto = relation("hotel.properties", {
   join: {

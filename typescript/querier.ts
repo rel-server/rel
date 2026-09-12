@@ -251,10 +251,10 @@ function parseShortcut(shortcut: string): {
 // be a callback, same as relation() — see ScopedJoin/scopedJoin above and specs/typescript-better-join.md ; the
 // callback it receives is scoped to `shortcut`'s own TARGET (parsed via TargetRelationName), not `key`, so a
 // join-of-a-join never repeats a relation name either.
-// specs/typescript-proto.md ## Reusing a Querier in a join : `request` also accepts a Querier built by a
-// standalone relation()/func() call, so a `select`/`proto` already written once can be joined in as-is instead of
-// being retyped. `on`/`schema`/`relation`/`shortcut` always come from `shortcut` regardless of which form
-// `request` takes — a Querier built through relation() never carries `on`, since a root query isn't itself a join.
+// docs/content/typescript/index.md ## Building a query : `request` also accepts a Querier built by a standalone
+// relation()/func() call, so a `select`/`proto` already written once can be joined in as-is instead of being
+// retyped. `on`/`schema`/`relation`/`shortcut` always come from `shortcut` regardless of which form `request`
+// takes — a Querier built through relation() never carries `on`, since a root query isn't itself a join.
 // Three overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
 // `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type, whether it's
 // this node's own `proto` (first overload) or one nested inside the callback form's own returned object (third
@@ -309,10 +309,10 @@ export function join<
   } as Q & { shortcut: S }
 }
 
-// specs/typescript-proto.md ## Runtime : walks `query`'s own `relation`/`join` tree alongside the response value it
-// produced, applying that node's `proto` (if any) to every row it reaches. Cardinality is read off the response
-// value itself (array vs. object vs. null), never off any type-level source — JoinCardinality (shapes.ts) is
-// erased at compile time and has no runtime counterpart.
+// docs/content/typescript/index.md ## Attaching behavior to rows : walks `query`'s own `relation`/`join` tree
+// alongside the response value it produced, applying that node's `proto` (if any) to every row it reaches.
+// Cardinality is read off the response value itself (array vs. object vs. null), never off any type-level
+// source — JoinCardinality (shapes.ts) is erased at compile time and has no runtime counterpart.
 type ProtoQuery = {
   proto?: object
   join?: { [name: string]: ProtoQuery }
@@ -344,7 +344,7 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
 // return types. WriteShape defaults to Shape so a hand-built Querier (or wellknown(), which doesn't compute one)
 // still works ; relation()/func() always supply the real, narrower WriteShapeFromQuery explicitly. Q defaults to
 // the widened `Query` for the same reason ; relation()/func() supply their own literal Q instead, so join() can
-// recover it from a reused Querier — specs/typescript-proto.md ## Reusing a Querier in a join.
+// recover it from a reused Querier — docs/content/typescript/index.md ## Building a query.
 export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Query> {
   public query: Q
 

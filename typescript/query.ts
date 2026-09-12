@@ -214,7 +214,9 @@ export interface RelationQuery<
    node produces, via `Object.setPrototypeOf`. `object` here (rather than some concrete row type) is deliberate :
    relation()/func()/join() (querier.ts) re-type this field against the node's own actual row shape via
    `WithProto` (shapes.ts's `ThisType`-based typing), which needs `proto`'s declared type to accept any object
-   here so it isn't narrowed twice. See `specs/typescript-proto.md`.
+   here so it isn't narrowed twice. See `docs/content/typescript/index.md ## Attaching behavior to rows`, and
+   mix a `get` with a plain method in the same `proto` only with an explicit return type on each — see that
+   section's own caveat.
   */
   proto?: object
 }
