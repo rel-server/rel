@@ -124,6 +124,53 @@ type DistributeOverload<M> = M extends { relation: infer R extends object }
     : DefaultRow
 
 ///////////////////////////////////////////////////////////////////////
+// Function call arguments — func()/call() (querier.ts) share this rather than the generic, unchecked
+// Expression<Keys<Rel>>[]/{...} RelationQuery's own `arguments` field defaults to : a function's `positional_args`/
+// `args` already fully describe the real argument shape (tuple or named object, optional trailing args and
+// composite/row-shaped args included), so there's nothing left for a looser Expression-based type to check for.
+// Boxed the same way DistributeOverload is (M stays a naked type parameter), so an overloaded function's two
+// argument shapes are offered as a union rather than collapsing onto one.
+
+// call()'s own argument type : plain values only, exactly as `positional_args`/`args` declare them — no
+// `$param`, no identifier/sub-expression forms. call() executes immediately (no deferred Querier, no `.get()`
+// params step), so there is nothing to substitute later.
+export type FunctionArgs<M> = M extends {
+  positional_args: infer P extends readonly unknown[]
+  args: infer A extends object
+}
+  ? P | A
+  : never
+
+// func()'s own argument type : same shape as FunctionArgs, but each argument slot also accepts a `["$param",
+// name, cast?]` placeholder (query.ts's own Expression tag) — func() returns a deferred Querier, reused across
+// calls with different `.get(params)`/`.write(params, data)` values, the same way its `where`/`select` already do.
+export type DeferredFunctionArgs<M> = M extends {
+  positional_args: infer P extends readonly unknown[]
+  args: infer A extends object
+}
+  ? MappedWithParam<P> | MappedWithParam<A>
+  : never
+
+type ParamPlaceholder = readonly ["$param", string, string?]
+
+type MappedWithParam<T> = { [K in keyof T]: T[K] | ParamPlaceholder }
+
+// The overload(s) of an overloaded function whose OWN `positional_args`/`args` accepts the caller's actual
+// `Args` — call()'s return type is resolved through this rather than through DistributeOverload/
+// ResolveFunctionModel directly, so e.g. hotel.property_average_rating's two overloads (one scalar, one
+// set-returning) each still resolve to their own return type based on which one the caller's arguments match,
+// rather than collapsing onto a union of both regardless of which was actually called. Boxed the same way
+// DistributeOverload is (M stays a naked type parameter).
+export type MatchOverload<M, Args> = M extends {
+  positional_args: infer P
+  args: infer A
+}
+  ? Args extends P | A
+    ? M
+    : never
+  : never
+
+///////////////////////////////////////////////////////////////////////
 // Root cardinality (docs/content/query-language/writing.md : "an array of rows at the root and at any incoming
 // join ..., a single object at an outgoing join" ; server/rel.go's streamItem doc comment : "a bare scalar for a
 // scalar function root, a JSON array otherwise") — the ROOT of a query is never itself a to-one join, so it's
@@ -675,7 +722,7 @@ export type WriteShapeFromRelationQuery<
 // Public entry point, mirroring ShapeFromQuery. ReqCol's default mirrors WriteShapeFromRelationQuery's own —
 // see that type's doc comment for why relation() (querier.ts) is the one caller that overrides it explicitly.
 export type WriteShapeFromQuery<
-  Q extends RelationQuery<Rel>,
+  Q,
   Rel extends object = { [name: string]: unknown },
   ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
 > = WriteShapeFromRelationQuery<Q, Rel, 12, ReqCol>

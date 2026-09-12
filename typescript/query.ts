@@ -98,9 +98,12 @@ export type Keys<T> = Extract<keyof T, string>
 export interface RelationQuery<
   Rel extends object = { [name: string]: unknown },
   Join extends { [name: string]: RelationQuery } = { [name: string]: RelationQuery },
-  FunctionArguments extends Expression<Keys<Rel>>[] | { [name: string]: Expression<Keys<Rel>> } =
-    | Expression<Keys<Rel>>[]
-    | { [name: string]: Expression<Keys<Rel>> },
+  // Unconstrained beyond `unknown` : a relation()/join() query has nothing here, and func()/call() (querier.ts)
+  // narrow it themselves against the called function's own `positional_args`/`args` (shapes.ts's
+  // FunctionArgs/DeferredFunctionArgs) rather than against Rel's columns the way every other Expression-typed
+  // field on this interface does — a function argument is a value the caller already has in hand, not a
+  // reference into the relation being queried.
+  FunctionArguments = Expression<Keys<Rel>>[] | { [name: string]: Expression<Keys<Rel>> },
 > {
   // Identifying fields for the relation : exactly one of `relation` or
   // `function` must be given ; supplying both, or neither, is an error.

@@ -8,7 +8,10 @@ import type { Query, RelationQuery } from "./query"
 import type { Functions, Relationships, Wellknowns } from "./schema.example"
 import type {
   DefaultRow,
+  DeferredFunctionArgs,
+  FunctionArgs,
   FunctionName,
+  MatchOverload,
   Params,
   RelationName,
   RequiredKeysOf,
@@ -120,10 +123,16 @@ type ResolveCalledFunctionModel<F extends string> =
   ResolveModel<{ function: F }> extends infer M extends object ? M : DefaultRow
 
 // Builder for functions. `fn` must be a fully qualified "schema.function" name. `function` can't be used as an
-// identifier (reserved word), hence `func`.
+// identifier (reserved word), hence `func`. `request.arguments`, if given, is checked against the function's own
+// declared `positional_args`/`args` (shapes.ts's DeferredFunctionArgs) rather than RelationQuery's own generic,
+// unchecked default — see shapes.ts's own doc comment on FunctionArgs/DeferredFunctionArgs.
 export function func<
   F extends FunctionName,
-  const Q extends RelationQuery<ResolveCalledFunctionModel<F>>,
+  const Q extends RelationQuery<
+    ResolveCalledFunctionModel<F>,
+    { [name: string]: RelationQuery },
+    DeferredFunctionArgs<Functions[F]>
+  >,
 >(
   fn: F,
   request: Q,
@@ -142,8 +151,30 @@ export function func<
     ...request,
     schema,
     function: fn_name,
-  }
+  } as Query
   return new Querier(query)
+}
+
+// Direct call to `fn`, with no select/join/where step : sends `args` and resolves to the function's own return
+// value (a scalar for a scalar overload, an array of rows for a set-returning one — same root cardinality as
+// func(), see shapes.ts's RootShapeFromFunctionMember), rather than a Querier to further shape or defer. `args`
+// must match one of `fn`'s declared `positional_args`/`args` shapes exactly (shapes.ts's FunctionArgs — plain
+// values only, no `$param`) ; which overload it matches (shapes.ts's MatchOverload) drives the return type, so an
+// overloaded function like "hotel.property_average_rating" resolves to the specific overload actually called,
+// not a union of every overload's return type.
+export function call<F extends FunctionName, const Args extends FunctionArgs<Functions[F]>>(
+  fn: F,
+  args: Args,
+): Promise<RootShapeFromFunctionMember<MatchOverload<Functions[F], Args>, Record<string, never>>> {
+  const [schema, fn_name] = fn.split(".")
+  const query = {
+    schema,
+    function: fn_name,
+    arguments: args,
+  } as Query
+  return new Querier<
+    RootShapeFromFunctionMember<MatchOverload<Functions[F], Args>, Record<string, never>>
+  >(query).get()
 }
 
 // Splits a `Relationships` shortcut string ("schema.relation<dir>;referenced_col:referencing_col[,...]") into its

@@ -97,6 +97,31 @@ map's own rename too: `select: { display_name: "name" }` still requires `display
 of an ad hoc relation — same `Querier`, but its params and result shape come from the query's
 own registered definition rather than from what you pass to `relation()`.
 
+## Calling a function directly
+
+`func()` builds a `Querier` you can still shape with `select`/`join`/`where`, the same as `relation()`. When you
+just want to call a function and get its result back — no select, no join — use `call()` instead:
+
+```ts
+import { call } from "./database"
+
+const properties = await call("hotel.rooms_available", { property_id: 1 })
+```
+
+`call()` takes the function's arguments — either the named object shown above or the equivalent positional
+tuple (`call("hotel.rooms_available", [1])`) — checked against exactly what the function declares, and resolves
+directly to a `Promise` of its return value: an array of rows for a set-returning function, a bare scalar for a
+scalar one. There's no `Querier` to hold onto and no `.get()`/`.write()` step.
+
+Arguments are checked field-for-field against the function's own signature, so a wrong argument name or type is
+a compile error. A trailing argument with a database-side default is optional, the same way an optional column
+is on write. If a function is overloaded (declared more than once with different argument lists), the arguments
+you pass pick which overload's return type you get back.
+
+`func()`'s own `arguments` field is checked the same way, with one difference: each argument may also be a
+`["$param", name]` placeholder, since a `func()` query is built once and can be reused with different
+`.get(params)`/`.write(params, data)` values, unlike `call()`, which runs immediately.
+
 ## database.json
 
 `GET /rel/database.json` serves the same introspected schema as plain JSON instead of TypeScript

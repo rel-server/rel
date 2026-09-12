@@ -4,7 +4,7 @@
 // well-formed query, or silently loosens some field's inferred type. Never calls .get()/.write() — those hit a
 // real `fetch()` — so this file is safe to simply import, not just type-check.
 
-import { func, join, relation, wellknown } from "./querier"
+import { call, func, join, relation, wellknown } from "./querier"
 import type { Functions } from "./schema.example"
 import type { DefaultRow, ResolveModel, RootShapeFromFunctionMember } from "./shapes"
 
@@ -74,6 +74,31 @@ const roomsAvailable = func("hotel.rooms_available", {
 
 export type RoomsAvailableShape = Awaited<ReturnType<typeof roomsAvailable.get>>
 
+// func()'s own `arguments` field (shapes.ts's DeferredFunctionArgs) : checked against the function's declared
+// `positional_args`/`args`, same as call() — but each slot also accepts a `$param` placeholder, since func()
+// returns a deferred Querier reused across `.get(params)` calls with different values.
+const roomsAvailableParameterized = func("hotel.rooms_available", {
+  arguments: {
+    property_id: ["$param", "property_id", "number"],
+    on_date: ["$param", "on_date", "date"],
+  },
+  select: ["full"],
+})
+
+export type _AssertFuncArgumentsExposesParam = Expect<
+  HasKey<Parameters<typeof roomsAvailableParameterized.get>[0], "property_id">
+>
+
+// DeferredFunctionArgs (shapes.ts) rejects a func() `arguments` object that doesn't match the function's own
+// declared `positional_args`/`args`, same as call()'s FunctionArgs — a wrong key name, a missing required one,
+// or an extra key on a zero-argument function.
+// @ts-expect-error wrong argument name : "propertyId" isn't "property_id"
+void func("hotel.rooms_available", { arguments: { propertyId: 1 } })
+// @ts-expect-error missing required argument : neither overload's args is satisfied by `{}`
+void func("hotel.property_average_rating", { arguments: {} })
+// @ts-expect-error extra key on a zero-argument function's args (EmptyObject)
+void func("hotel.property_count", { arguments: { foo: 1 } })
+
 // get/set read-vs-write asymmetry (shapes.ts's WriteShapeFromQuery doc comment) : `audit_only` (`set`) must be
 // writable but never read back ; `display_only` (`get`) is the reverse. `write`'s overloaded signature means
 // `Parameters<...>` picks its last (single-arg) overload, giving WriteShape directly without a separate import.
@@ -130,6 +155,16 @@ export type _AssertScalarFunctionRootIsNumber = Expect<
 export type _AssertUnrecognizedFunctionFallsBackToDefaultRowArray = Expect<
   RootShapeFromFunctionMember<never, Record<string, never>> extends DefaultRow[] ? true : false
 >
+
+// The fallback above only matters once F has reached the machinery ; relation()/func()/wellknown() each
+// constrain their own first argument to a known name (RelationName/FunctionName/keyof Wellknowns), so an
+// unrecognized name is rejected at the call site itself, before any of that machinery runs.
+// @ts-expect-error unrecognized relation name
+void relation("hotel.does_not_exist")
+// @ts-expect-error unrecognized function name
+void func("hotel.does_not_exist", {})
+// @ts-expect-error unrecognized well-known query name
+void wellknown("does_not_exist", {})
 
 // shapes.ts's ResolveFunctionModel/DistributeOverload : "hotel.property_average_rating" is overloaded
 // (schema.example.ts) with a scalar (no `relation`) variant and a set-returning (`relation:
@@ -244,4 +279,54 @@ export type _AssertWellknownShapeIsArray = Expect<
 >
 export type _AssertWellknownShapeHasStarRating = Expect<
   HasKey<StarRatedPropertiesShape[number], "star_rating">
+>
+
+// call() (querier.ts) calls .get() itself, unlike relation()/func() — unlike the rest of this file, its calls
+// below would hit a real fetch() if actually run. Boxed in a never-invoked function so `just check` still
+// type-checks every call, without this file's own import breaking its "never calls .get()/.write()" invariant.
+function _neverRun_callChecks() {
+  // Both argument forms — positional tuple and named object — against the same set-returning function.
+  void call("hotel.rooms_available", [1])
+  void call("hotel.rooms_available", { property_id: 1 })
+
+  // hotel.property_average_rating is overloaded (schema.example.ts) : a scalar variant taking a whole
+  // `Table__Hotel__Properties` row, and a set-returning variant taking a bare `property_id`. call()'s
+  // MatchOverload (shapes.ts) must resolve each call to its OWN overload's return type, not a union of both.
+  const avgByRow = call("hotel.property_average_rating", {
+    property: {
+      id: 1,
+      chain_id: null,
+      name: "x",
+      location: { x: 0, y: 0 },
+      star_rating: null,
+      description: null,
+      created_at: null,
+    },
+  })
+  const avgById = call("hotel.property_average_rating", { property_id: 1 })
+
+  // Zero-argument function : call()'s Args must accept `{}` (EmptyObject, schema.example.ts) directly.
+  void call("hotel.property_count", {})
+
+  // FunctionArgs (shapes.ts) rejects an argument object that doesn't match the function's own declared
+  // `positional_args`/`args` — a wrong key name, a missing required one, or an extra key on a zero-argument
+  // function. Each `@ts-expect-error` both proves the rejection AND fails `just check` on its own if the
+  // rejection is ever silently lost (an unused directive is itself a compile error).
+  // @ts-expect-error wrong argument name : "propertyId" isn't "property_id"
+  void call("hotel.rooms_available", { propertyId: 1 })
+  // @ts-expect-error missing required argument : neither overload's args is satisfied by `{}`
+  void call("hotel.property_average_rating", {})
+  // @ts-expect-error extra key on a zero-argument function's args (EmptyObject)
+  void call("hotel.property_count", { foo: 1 })
+
+  return { avgByRow, avgById }
+}
+
+type CallChecks = ReturnType<typeof _neverRun_callChecks>
+
+export type _AssertCallMatchesScalarOverload = Expect<
+  Awaited<CallChecks["avgByRow"]> extends number ? true : false
+>
+export type _AssertCallMatchesSetReturningOverload = Expect<
+  Awaited<CallChecks["avgById"]> extends readonly unknown[] ? true : false
 >
