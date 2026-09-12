@@ -8,7 +8,9 @@ import type { Query, RelationQuery } from "./query"
 import type { Functions, Relationships, Wellknowns } from "./schema.example"
 import type {
   DefaultRow,
+  FunctionName,
   Params,
+  RelationName,
   RequiredKeysOf,
   ResolveModel,
   RootShapeFromFunctionMember,
@@ -30,16 +32,15 @@ export function wellknown<W extends keyof Wellknowns>(
   })
 }
 
-// A known relation name resolves to its real column shape ; anything else falls back to the permissive default.
-// Deliberately ONE generic signature, not two overloads : with two, a bad column on a known relation would
-// silently fall through to the looser unchecked overload instead of erroring (TS only flags "no overload
-// matches" when every candidate fails). Delegates to ResolveModel so root and join resolution share one path.
+// relation()'s R is constrained to RelationName, so an unrecognized name is a compile error at the call site
+// rather than reaching this type. Delegates to ResolveModel so root and join resolution share one path.
 type ResolveRelationModel<R extends string> = ResolveModel<{ relation: R }>
 
 // `join()` scoped to relation K, so a nested join never has to repeat the enclosing relation's name — see
-// scopedJoin() below and specs/typescript-better-join.md. K isn't constrained to keyof Relationships (relation()'s
-// own R isn't either) ; SafeRelationships resolves to `never` for an unrecognized relation, making the scoped
-// join uncallable there rather than a type error at the declaration site.
+// scopedJoin() below and specs/typescript-better-join.md. K isn't constrained to keyof Relationships here (unlike
+// relation()'s own R) because it's also fed a shortcut's parsed TargetRelationName, a plain template-literal
+// string ; SafeRelationships resolves to `never` for an unrecognized one, making the scoped join uncallable there
+// rather than a type error at the declaration site.
 type SafeRelationships<K extends string> = K extends keyof Relationships ? Relationships[K] : never
 
 // The target relation name embedded in a shortcut string itself : "hotel.rooms<;id:property_id" ->
@@ -84,7 +85,7 @@ function resolveRequest<K extends string, Q>(
 // select-all query, per resolveRequest above) and can be a plain query object or a callback receiving a `join`
 // already scoped to `rel`, so a nested join never has to repeat the relation it's being joined from.
 export function relation<
-  R extends string,
+  R extends RelationName,
   const Q extends RelationQuery<ResolveRelationModel<R>> = Record<string, never>,
 >(
   rel: R,
@@ -110,18 +111,18 @@ export function relation<
   return new Querier(query)
 }
 
-// A known function name resolves to its Functions entry's row shape ; same single-generic-signature reasoning as
-// ResolveRelationModel above. RelationQuery's Rel must extend object — meaningful for a set-returning function
-// (select/join operate on its `relation`) but not for a scalar one (`returns: number`, say) ; falls back to the
-// permissive default there, same as an unrecognized name. A scalar function is better called via an Expression's
-// `["call", ...]` tag than through func()'s select/join machinery anyway.
+// func()'s F is constrained to FunctionName, so an unrecognized name is a compile error at the call site rather
+// than reaching this type. RelationQuery's Rel must extend object — meaningful for a set-returning function
+// (select/join operate on its `relation`) but not for a scalar one (`returns: number`, say), which falls back to
+// the permissive default instead. A scalar function is better called via an Expression's `["call", ...]` tag than
+// through func()'s select/join machinery anyway.
 type ResolveCalledFunctionModel<F extends string> =
   ResolveModel<{ function: F }> extends infer M extends object ? M : DefaultRow
 
 // Builder for functions. `fn` must be a fully qualified "schema.function" name. `function` can't be used as an
 // identifier (reserved word), hence `func`.
 export function func<
-  F extends string,
+  F extends FunctionName,
   const Q extends RelationQuery<ResolveCalledFunctionModel<F>>,
 >(
   fn: F,
