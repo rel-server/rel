@@ -54,10 +54,11 @@ type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">"}$
   ? Rel
   : never
 
-// Two call signatures, not one signature with a union parameter type : `proto`'s `ThisType` (specs/typescript-
+// Three call signatures, not one signature with a union parameter type : `proto`'s `ThisType` (specs/typescript-
 // proto.md ## `proto` field, shapes.ts's WithProto doc comment) only resolves `this` correctly when the object
-// literal is checked against a single, non-union parameter type — folded into a union with the callback form, it
-// silently stops applying.
+// literal is checked against a single, non-union parameter type — folded into a union with the other forms, it
+// silently stops applying. The callback form's own return type is `WithProto<Q, Rel>`, not bare `Q`, for the same
+// reason : a `proto` inside the object the callback returns needs that same isolated contextual type.
 export type ScopedJoin<K extends string> = {
   <
     S extends SafeRelationships<K>["shortcut"],
@@ -71,7 +72,16 @@ export type ScopedJoin<K extends string> = {
     const Q extends RelationQuery<Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
   >(
     shortcut: S,
-    request: (join: ScopedJoin<TargetRelationName<S>>) => Q,
+    request: Querier<unknown, unknown, unknown, Q>,
+  ): Q & { shortcut: S }
+  <
+    S extends SafeRelationships<K>["shortcut"],
+    const Q extends RelationQuery<Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
+  >(
+    shortcut: S,
+    request: (
+      join: ScopedJoin<TargetRelationName<S>>,
+    ) => WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
   ): Q & { shortcut: S }
 }
 
@@ -125,7 +135,10 @@ export function relation<
 export function relation<
   R extends RelationName,
   const Q extends RelationQuery<ResolveRelationModel<R>>,
->(rel: R, request: (join: ScopedJoin<R>) => Q): RelationQuerier<R, Q>
+>(
+  rel: R,
+  request: (join: ScopedJoin<R>) => WithProto<Q, ResolveRelationModel<R>>,
+): RelationQuerier<R, Q>
 export function relation<
   R extends RelationName,
   const Q extends RelationQuery<ResolveRelationModel<R>>,
@@ -242,9 +255,11 @@ function parseShortcut(shortcut: string): {
 // standalone relation()/func() call, so a `select`/`proto` already written once can be joined in as-is instead of
 // being retyped. `on`/`schema`/`relation`/`shortcut` always come from `shortcut` regardless of which form
 // `request` takes — a Querier built through relation() never carries `on`, since a root query isn't itself a join.
-// Two overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
-// `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type. The Querier-reuse
-// and callback forms don't involve a `proto` object literal at all, so they're safe to keep unioned together.
+// Three overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
+// `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type, whether it's
+// this node's own `proto` (first overload) or one nested inside the callback form's own returned object (third
+// overload, hence its `WithProto`-typed return rather than a bare `Q`). The Querier-reuse form (second overload)
+// doesn't involve a `proto` object literal at all, so it's safe to keep on its own without needing `WithProto`.
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
@@ -258,10 +273,17 @@ export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
   const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
+>(key: K, shortcut: S, request: Querier<unknown, unknown, unknown, Q>): Q & { shortcut: S }
+export function join<
+  K extends keyof Relationships,
+  S extends Relationships[K]["shortcut"],
+  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
 >(
   key: K,
   shortcut: S,
-  request: Querier<unknown, unknown, unknown, Q> | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
+  request: (
+    join: ScopedJoin<TargetRelationName<S>>,
+  ) => WithProto<Q, Extract<Relationships[K], { shortcut: S }>["relation"]>,
 ): Q & { shortcut: S }
 export function join<
   K extends keyof Relationships,

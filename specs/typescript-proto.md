@@ -10,7 +10,7 @@
 
 > **Why:** `proto` only decorates already-produced rows with behavior ; it has no bearing on whether the node is writable, so function-rooted nodes (always read-only, `query.ts`'s `function?` field) support it the same as relation-rooted ones.
 
-`relation()`, `func()`, and `join()` each expose their `request` parameter's `proto`-accepting form and their callback-accepting form as separate overloads, not as one signature with a union parameter type.
+`relation()`, `func()`, `join()`, and the scoped-join callback (`specs/typescript-better-join.md`) each expose their `request` parameter's `proto`-accepting form and their callback-accepting form as separate overloads, not as one signature with a union parameter type. The callback-accepting overload's own return type is likewise the `proto`-accepting form, not a bare, untyped query object — a `proto` nested inside the object a callback returns needs the exact same isolated contextual type as one passed directly.
 
 > **Why:** a `ThisType`-typed object literal only has its members' `this` resolved correctly when checked against a single, non-union parameter type — folded into a union with the callback form, `this` silently stops resolving. A callback-shaped `proto` field (`base_class => class extends base_class {...}`) has the same failure for a different reason : a parameter's contextual type is resolved eagerly, during inference, before the rest of the query object's sibling fields (`join` in particular) finish inferring, so `this` inside such a callback's class body can't see a sibling `join`'s embedded shape, and the callback's presence degrades the sibling fields' own inference too. Both failures were confirmed empirically before choosing the object/`ThisType` form.
 

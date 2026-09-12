@@ -47,7 +47,9 @@ const properties = await relation("hotel.properties", (join) => ({
 
 `properties` comes back typed as an array of exactly the shape you asked for — `id: number`,
 `name: string`, `rooms: Table__Hotel__Rooms[]` — not `any`. Get a column name wrong, or select
-a joined alias that isn't declared, and it's a compile error, not a runtime surprise.
+a joined alias that isn't declared, and it's a compile error, not a runtime surprise. The same
+goes for `relation()`/`func()`'s own first argument: `relation("hotel.bogus", ...)` is a compile
+error too, with your editor autocompleting the relation/function names your schema actually has.
 
 `relation()`'s second argument is a callback, and it's what makes a joined column's shortcut
 type-check correctly: the `join` it receives already knows which relation it's being called
@@ -68,6 +70,24 @@ const properties = await relation("hotel.properties", (join) => ({
   },
 })).get()
 ```
+
+If you've already built a `relation()`/`func()` `Querier` for something you also want to embed
+as a join elsewhere, you can pass it straight to `join()` instead of retyping its `select`/`proto`:
+
+```ts
+const roomWithFeatures = relation("hotel.rooms", {
+  select: { id: "id", room_number: "room_number", features: "features" },
+})
+
+const properties = await relation("hotel.properties", (join) => ({
+  join: {
+    rooms: join("hotel.rooms<;id:property_id", roomWithFeatures),
+  },
+})).get()
+```
+
+`join()` still works out `on`/`schema`/`relation` from the shortcut regardless — a root
+`Querier` never carries those — it just reuses everything else from the `Querier` you pass in.
 
 The second argument is also optional entirely: `relation("hotel.properties")` alone, with no
 query, is a bare select-all (own columns plus every joined relation, the same default an omitted
@@ -96,6 +116,51 @@ map's own rename too: `select: { display_name: "name" }` still requires `display
 `wellknown()` builds a call to a registered [well-known query](../query-language/well-known-queries.md) instead
 of an ad hoc relation — same `Querier`, but its params and result shape come from the query's
 own registered definition rather than from what you pass to `relation()`.
+
+## Attaching behavior to rows
+
+`relation()`/`func()`/`join()` all accept a `proto` field alongside `select`/`join`/`where`: a
+plain object of getters/methods, typed against exactly the row shape that node produces, that
+gets set as the prototype of every row this node returns:
+
+```ts
+const properties = await relation("hotel.properties", {
+  proto: {
+    get is_luxury() {
+      return (this.star_rating ?? 0) >= 4
+    },
+  },
+}).get()
+
+properties[0].is_luxury // boolean, computed client-side, no extra column selected
+```
+
+`this` inside `proto` is typed as the row's own computed shape — including any joined
+relation's own `proto`, so a parent's `proto` can read a nested join's decorated members too:
+
+```ts
+const properties = await relation("hotel.properties", (join) => ({
+  join: {
+    rooms: join("hotel.rooms<;id:property_id", {
+      proto: {
+        get label() {
+          return `Room ${this.room_number}`
+        },
+      },
+    }),
+  },
+  proto: {
+    get room_count() {
+      return this.rooms.length
+    },
+  },
+})).get()
+
+properties[0].rooms[0].label // uses the join's own `proto`
+```
+
+`proto` only adds behavior — it never changes what a row's write shape looks like, so writing
+back with `.write()` is unaffected by whether the query you read it with declared a `proto`.
 
 ## Calling a function directly
 

@@ -386,3 +386,46 @@ export type PropertyWithReusedProtoShape = Awaited<ReturnType<typeof propertyWit
 export type _AssertReusedProtoMemberIsVisible = Expect<
   HasKey<PropertyWithReusedProtoShape[number]["rooms"][number], "label">
 >
+
+// Same two cases as propertyWithNestedProto/propertyWithReusedProto above, but through the scoped-join callback
+// form (specs/typescript-better-join.md) rather than a plain `join:` object literal — ScopedJoin's own callback
+// overload return type must ALSO be `WithProto`, not a bare `Q`, or a `proto` nested inside what the callback
+// returns silently loses `this`'s typing the same way a union parameter type would (ScopedJoin's own doc comment).
+const propertyWithNestedProtoScoped = relation("hotel.properties", (join) => ({
+  join: {
+    rooms: join("hotel.rooms<;id:property_id", {
+      proto: {
+        get label() {
+          return `${this.room_number} !`
+        },
+      },
+    }),
+  },
+  proto: {
+    get roomCount() {
+      return this.rooms.length
+    },
+  },
+}))
+
+export type PropertyWithNestedProtoScopedShape = Awaited<
+  ReturnType<typeof propertyWithNestedProtoScoped.get>
+>
+
+export type _AssertScopedParentProtoSeesJoinedProtoMember = Expect<
+  HasKey<PropertyWithNestedProtoScopedShape[number]["rooms"][number], "label">
+>
+
+const propertyWithReusedProtoScoped = relation("hotel.properties", (join) => ({
+  join: {
+    rooms: join("hotel.rooms<;id:property_id", roomWithProto),
+  },
+}))
+
+export type PropertyWithReusedProtoScopedShape = Awaited<
+  ReturnType<typeof propertyWithReusedProtoScoped.get>
+>
+
+export type _AssertScopedReusedProtoMemberIsVisible = Expect<
+  HasKey<PropertyWithReusedProtoScopedShape[number]["rooms"][number], "label">
+>
