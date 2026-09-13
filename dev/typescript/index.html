@@ -3384,8 +3384,23 @@ it into a genuinely richer client-side value:</p>
 <td><code>pointAccessor</code></td>
 <td><code>{x: number, y: number}</code></td>
 </tr>
+<tr>
+<td><code>Money</code></td>
+<td><code>moneyAccessor</code></td>
+<td><code>bigint</code> (whole cents), via <code>..._as_cents</code></td>
+</tr>
+<tr>
+<td><code>bytea</code> (a bare <code>string</code>, no brand)</td>
+<td><code>bytesAccessor</code></td>
+<td><code>Uint8Array</code>, via <code>..._as_bytes</code></td>
+</tr>
 </tbody>
 </table>
+<p><code>moneyAccessor</code> parses whatever currency symbol and grouping character your server's locale
+formats <code>money</code> with (confirmed against a live Postgres instance to always use 2 fractional
+digits) and throws if the value doesn't match — the same discipline <code>intervalAccessor</code> uses for a
+non-default <code>IntervalStyle</code>. Writing a <code>..._as_cents</code> value back produces a plain, unformatted
+decimal string, which Postgres's own <code>money</code> input parser accepts regardless of locale.</p>
 <p><code>PgTimetz</code> and <code>numeric</code> have no accessor: <code>Temporal</code> has no "time of day with a UTC offset, no
 date" class for the former, and no native JS type represents an arbitrary-scale decimal exactly
 for the latter — a <code>Number()</code>-based conversion would just reintroduce the precision loss
