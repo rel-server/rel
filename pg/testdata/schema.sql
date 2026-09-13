@@ -89,6 +89,15 @@ create index idx_plain on orders (customer_id, total);
 create unique index idx_partial_only on orders (flag) where note is not null;
 create index idx_expr_only on orders (lower(note));
 
+-- int8/numeric precision (specs/typescript-wire-types.md, server/rel_test.go's own regression) : the query
+-- compiler casts both to text (query/sql.go's textCastSuffix) since JSON.parse would otherwise silently round
+-- a value like these to the nearest float64.
+create table precision_check (
+	id serial primary key,
+	big int8,
+	amount numeric
+);
+
 -- search path / name-index resolution : a second schema with a same-named
 -- relation, to exercise search-path ordering
 create schema alt_schema;

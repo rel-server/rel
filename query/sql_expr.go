@@ -828,10 +828,15 @@ func (c *sqlCompiler) compileColumnRead(col *pg.Column, n *QueryNode, def Expres
 	if !ok {
 		return errNoAlias(fmt.Sprintf("column %q", col.Name))
 	}
+	cast := textCastSuffix(col.Type)
 	if def == nil {
 		c.qualify(alias, col.Name)
+		c.w.Write(cast)
 		return nil
 	}
+	// Cast the whole coalesce, not just col : the "default" keyword's own DefaultExpression, or a caller-
+	// supplied default value, is otherwise a different type than col's own ::text cast, which coalesce requires
+	// to be coercible across all its arguments.
 	c.w.Write("coalesce")
 	var err error
 	c.w.Paren(func() {
@@ -847,5 +852,6 @@ func (c *sqlCompiler) compileColumnRead(col *pg.Column, n *QueryNode, def Expres
 		}
 		err = c.compileExpr(def, n)
 	})
+	c.w.Write(cast)
 	return err
 }

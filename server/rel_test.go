@@ -98,6 +98,73 @@ func TestRelHandler_ReadArray(t *testing.T) {
 	}
 }
 
+// specs/typescript-wire-types.md ## Corrected type mapping : int8/numeric must arrive as JSON strings, not bare
+// numerals, since JSON.parse would silently round a value like this to the nearest float64 (9007199254740992,
+// a different value, if the cast weren't applied — confirmed by hand against a live Postgres instance while
+// designing this spec).
+func TestRelHandler_Int8AndNumericCastToTextForPrecision(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into precision_check (id, big, amount) values (1, 9007199254740993, 12345678901234567890.123456789)`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testDb.Pool.Exec(ctx, `delete from precision_check where id = 1`)
+	})
+
+	rec := postRel(t, `{
+		"relation": "precision_check", "schema": "public",
+		"select": ["own"],
+		"where": ["=", "id", 1]
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %v", rows)
+	}
+	big, ok := rows[0]["big"].(string)
+	if !ok {
+		t.Fatalf("expected \"big\" to be a JSON string (cast to text) ; got %T : %v", rows[0]["big"], rows[0]["big"])
+	}
+	if big != "9007199254740993" {
+		t.Errorf("expected exact precision \"9007199254740993\", got %q", big)
+	}
+	amount, ok := rows[0]["amount"].(string)
+	if !ok {
+		t.Fatalf("expected \"amount\" to be a JSON string (cast to text) ; got %T : %v", rows[0]["amount"], rows[0]["amount"])
+	}
+	if amount != "12345678901234567890.123456789" {
+		t.Errorf("expected exact precision \"12345678901234567890.123456789\", got %q", amount)
+	}
+}
+
+// textCastSuffix (query/sql.go) is deliberately scoped to SELECT-position compilation only — a WHERE clause
+// filtering on the same int8 column must still compare numerically (not accidentally against a cast text
+// value), or an index/comparison on an int8/numeric column would silently break.
+func TestRelHandler_Int8WhereClauseStillComparesNumerically(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into precision_check (id, big, amount) values (2, 100, 5)`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testDb.Pool.Exec(ctx, `delete from precision_check where id = 2`)
+	})
+
+	rec := postRel(t, `{
+		"relation": "precision_check", "schema": "public",
+		"select": ["own"],
+		"where": ["and", ["=", "id", 2], [">", "big", 50]]
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row (100 > 50 numerically) — a WHERE clause accidentally comparing as text would behave differently for some values ; got %v", rows)
+	}
+}
+
 func TestRelHandler_ReadArray_EmptyResult(t *testing.T) {
 	// streamRows takes a different write path for zero rows ("[]" as one
 	// call) than for one-or-more — both must produce the same "[]".
