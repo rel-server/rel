@@ -379,7 +379,7 @@ type selectField struct {
 // can expand ; anything else is a scalar select (### Scalar-selected nodes).
 func isShapeProducingSelect(sel Expression) bool {
 	switch sel.(type) {
-	case OwnExpr, FullExpr, OwnExceptExpr, FullExceptExpr, OwnAndExpr, FullAndExpr, OwnExceptAndExpr, FullExceptAndExpr, ObjectExpr, *GetSetExpr, *GetExpr:
+	case StarExpr, ObjectExpr, *GetExpr:
 		return true
 	default:
 		return false
@@ -434,34 +434,14 @@ func selectFieldsFor(node *QueryNode) ([]selectField, error) {
 	}
 
 	switch v := node.Select.(type) {
-	case OwnExpr:
-		addOwn(nil)
-	case FullExpr:
-		addOwn(nil)
-		addAliases()
-	case OwnExceptExpr:
+	case StarExpr:
 		addOwn(v.Except)
-	case FullExceptExpr:
-		addOwn(v.Except)
-		addAliases()
-	case OwnAndExpr:
-		addOwn(nil)
-		addAnd(v.And)
-	case FullAndExpr:
-		addOwn(nil)
-		addAliases()
-		addAnd(v.And)
-	case OwnExceptAndExpr:
-		addOwn(v.Except)
-		addAnd(v.And)
-	case FullExceptAndExpr:
-		addOwn(v.Except)
-		addAliases()
+		if !v.Own {
+			addAliases()
+		}
 		addAnd(v.And)
 	case ObjectExpr:
 		addAnd(v.Fields)
-	case *GetSetExpr:
-		fields = append(fields, selectField{key: v.ResolvedColumn.Name, expr: v})
 	case *GetExpr:
 		fields = append(fields, selectField{key: v.ResolvedColumn.Name, expr: v})
 	default:
@@ -524,8 +504,8 @@ func embedChildOf(f selectField) *QueryNode {
 	if f.embed != nil {
 		return f.embed
 	}
-	if id, ok := f.expr.(*Identifier); ok {
-		if child, ok := id.Resolved.(*QueryNode); ok {
+	if resolved := bareResolvedField(f.expr); resolved != nil {
+		if child, ok := resolved.(*QueryNode); ok {
 			return child
 		}
 	}
@@ -731,9 +711,7 @@ func walkAggs(e Expression, fn func(*AggExpr)) {
 	case InExpr:
 		walkAggs(v.Subject, fn)
 		for _, cand := range v.Candidates {
-			if !cand.IsLiteral {
-				walkAggs(cand.Expr, fn)
-			}
+			walkAggs(cand, fn)
 		}
 	case AnyAllExpr:
 		walkAggs(v.Subject, fn)
@@ -755,19 +733,7 @@ func walkAggs(e Expression, fn func(*AggExpr)) {
 		for _, val := range v.Fields {
 			walkAggs(val, fn)
 		}
-	case OwnAndExpr:
-		for _, val := range v.And {
-			walkAggs(val, fn)
-		}
-	case FullAndExpr:
-		for _, val := range v.And {
-			walkAggs(val, fn)
-		}
-	case OwnExceptAndExpr:
-		for _, val := range v.And {
-			walkAggs(val, fn)
-		}
-	case FullExceptAndExpr:
+	case StarExpr:
 		for _, val := range v.And {
 			walkAggs(val, fn)
 		}
@@ -786,7 +752,7 @@ func walkAggs(e Expression, fn func(*AggExpr)) {
 		walkAggs(v.Array, fn)
 		walkAggs(v.From, fn)
 		walkAggs(v.To, fn)
-	case *GetSetExpr:
+	case *ColExpr:
 		walkAggs(v.DefaultGet, fn)
 		walkAggs(v.DefaultSet, fn)
 	case *GetExpr:
@@ -794,8 +760,8 @@ func walkAggs(e Expression, fn func(*AggExpr)) {
 	case *SetExpr:
 		walkAggs(v.DefaultValue, fn)
 	default:
-		// Identifier, literals, Own/Full/Except, Star, ParamExpr,
-		// DefaultKeyword : no computed subtree, nothing to recurse into.
+		// Identifier, literals, StringLiteral, ParamExpr, DefaultKeyword :
+		// no computed subtree, nothing to recurse into.
 	}
 }
 
@@ -811,14 +777,26 @@ func aggTargetChild(agg *AggExpr) *QueryNode {
 }
 
 func rootQueryNodeOf(e Expression) *QueryNode {
-	switch v := e.(type) {
-	case *Identifier:
-		qn, _ := v.Resolved.(*QueryNode)
+	if resolved := bareResolvedField(e); resolved != nil {
+		qn, _ := resolved.(*QueryNode)
 		return qn
-	case FoldedExpr:
-		if v.Op == FoldDot {
-			return rootQueryNodeOf(v.Left)
-		}
+	}
+	if v, ok := e.(FoldedExpr); ok && v.Op == FoldDot {
+		return rootQueryNodeOf(v.Left)
 	}
 	return nil
+}
+
+// bareResolvedField returns e's Resolved field when e is a bare reference —
+// *Identifier (a "." reference/hop name) or *ColExpr (["col", ...], a real
+// physical column) — nil otherwise.
+func bareResolvedField(e Expression) ResolvedField {
+	switch v := e.(type) {
+	case *Identifier:
+		return v.Resolved
+	case *ColExpr:
+		return v.Resolved
+	default:
+		return nil
+	}
 }

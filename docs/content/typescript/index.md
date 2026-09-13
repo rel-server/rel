@@ -35,13 +35,13 @@ if you like, and it just works.
 import { relation } from "./database"
 
 const properties = await relation("hotel.properties", (join) => ({
-  where: [">=", "star_rating", 4],
+  where: [">=", ["col", "star_rating"], 4],
   join: {
     rooms: join("hotel.rooms*id:property_id", {
-      select: "*",
+      select: ["*"],
     }),
   },
-  select: { id: "id", name: "name", star_rating: "star_rating", rooms: "rooms" },
+  select: { id: ["col", "id"], name: ["col", "name"], star_rating: ["col", "star_rating"], rooms: [".", "rooms"] },
 })).get()
 ```
 
@@ -80,7 +80,7 @@ as a join elsewhere, you can pass it straight to `join()` instead of retyping it
 
 ```ts
 const roomWithFeatures = relation("hotel.rooms", {
-  select: { id: "id", room_number: "room_number", features: "features" },
+  select: { id: ["col", "id"], room_number: ["col", "room_number"], features: ["col", "features"] },
 })
 
 const properties = await relation("hotel.properties", (join) => ({
@@ -101,7 +101,7 @@ Writing back uses the same `Querier`, with `.write()` instead of `.get()`:
 
 ```ts
 await relation("hotel.properties", {
-  select: { id: "id", name: "name" },
+  select: { id: ["col", "id"], name: ["col", "name"] },
 }).write({ id: 1, name: "Marina Bay Grand Hotel" })
 ```
 
@@ -114,7 +114,7 @@ Only a column with no other way to end up with a value — not nullable, no defa
 identity/generated column — is mandatory in that write type; everything else (a nullable
 column, one with a default, an identity column) is optional, so inserting a new row only
 requires typing out the columns that actually need it. This follows a column through a select
-map's own rename too: `select: { display_name: "name" }` still requires `display_name` if
+map's own rename too: `select: { display_name: ["col", "name"] }` still requires `display_name` if
 `name` itself is required.
 
 `wellknown()` builds a call to a registered [well-known query](../query-language/well-known-queries.md) instead
@@ -133,7 +133,7 @@ for a single row's type:
 import { relation, ShapeOf, WriteShapeOf } from "./database"
 
 const properties = relation("hotel.properties", {
-  select: { id: "id", name: "name" },
+  select: { id: ["col", "id"], name: ["col", "name"] },
 })
 
 type Properties = ShapeOf<typeof properties> // { id: number; name: string }[]
@@ -241,7 +241,7 @@ const properties = relation("hotel.properties", {
     ...timestampTzAccessor("created_at"),
   },
   join: {
-    rooms: join("hotel.properties", "hotel.rooms*id:property_id", { select: ["own"] }),
+    rooms: join("hotel.properties", "hotel.rooms*id:property_id", { select: ["*~"] }),
   },
 })
 
@@ -343,7 +343,7 @@ Each branded type with a meaningful validity check has a matching `as<Type>` cas
 ```ts
 import { asTimestamptz } from "./database"
 
-await relation("hotel.properties", { select: { id: "id", created_at: "created_at" } }).write({
+await relation("hotel.properties", { select: { id: ["col", "id"], created_at: ["col", "created_at"] } }).write({
   id: 1,
   created_at: asTimestamptz(new Date()), // or a Temporal.Instant, or a pre-formatted string
 })

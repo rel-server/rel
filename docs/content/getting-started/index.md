@@ -57,7 +57,7 @@ curl http://localhost:8080/rel \
   -d '{
     "relation": "properties",
     "schema": "hotel",
-    "where": [">=", "star_rating", 4],
+    "where": [">=", ["col", "star_rating"], 4],
     "join": {
       "room_types": {
         "relation": "room_types",
@@ -71,11 +71,11 @@ curl http://localhost:8080/rel \
       }
     },
     "select": {
-      "id": "id",
-      "name": "name",
-      "star_rating": "star_rating",
-      "chain": "chain",
-      "room_types": "room_types"
+      "id": ["col", "id"],
+      "name": ["col", "name"],
+      "star_rating": ["col", "star_rating"],
+      "chain": [".", "chain"],
+      "room_types": [".", "room_types"]
     }
   }'
 ```
@@ -116,7 +116,7 @@ curl 'http://localhost:8080/rel?relation=properties&schema=hotel&where=gte(star_
 This decodes to exactly the same query tree as the `POST` body above, and returns the same rows.
 `GET /rel` only ever reads — no `data`, no batching, no write-only fields — see [Querying with
 GET](../query-language/get-requests.md) for the full grammar (`where=`'s operator-as-call
-syntax, `select=`'s `own`/`full` shorthands, and more).
+syntax, `select=`'s `*`/`*~` shorthands, and more).
 
 ## Writing, nested, before the parent even has an id
 
@@ -140,7 +140,7 @@ curl http://localhost:8080/rel \
           "on": { "property_id": "id" }
         }
       },
-      "select": { "id": "id", "name": "name", "room_types": "room_types" }
+      "select": { "id": ["col", "id"], "name": ["col", "name"], "room_types": [".", "room_types"] }
     },
     "data": [{
       "name": "Marina Bay Grand Hotel",

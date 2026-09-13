@@ -27,7 +27,7 @@ func mintCookie(t *testing.T, cfg *config.Config, role string) *http.Cookie {
 
 func TestRelHandler_AnonymousWriteDeniedOnRoleGatedTable(t *testing.T) {
 	rec := postRel(t, `{
-		"query": {"relation": "secret_notes", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"query": {"relation": "secret_notes", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 		"data": [{"note": "should not be allowed"}]
 	}`)
 	// "~anonymous" has no privileges on secret_notes — a genuine Postgres
@@ -40,7 +40,7 @@ func TestRelHandler_AnonymousWriteDeniedOnRoleGatedTable(t *testing.T) {
 func TestRelHandler_AuthenticatedCookieAppliesRole(t *testing.T) {
 	cookie := mintCookie(t, testCfg, "authenticated_user")
 	rec := postRelWithCookie(t, testHandler, `{
-		"query": {"relation": "secret_notes", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"query": {"relation": "secret_notes", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 		"data": [{"note": "authenticated write"}]
 	}`, cookie)
 
@@ -84,7 +84,7 @@ func TestRelHandler_AnonymousReadDeniedOnRoleGatedTable_CleanEnvelope(t *testing
 	// Same cause as the write test above, but on the read path : the
 	// query fails before any bytes are written, so a clean envelope must result.
 	rec := postRel(t, `{
-		"relation": "secret_notes", "schema": "public", "select": ["own"]
+		"relation": "secret_notes", "schema": "public", "select": ["*~"]
 	}`)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 (permission denied), got %d: %s", rec.Code, rec.Body.String())
@@ -109,7 +109,7 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold ; see route/handler_test.go's identical note on second-granularity claims
 
 	rec := postRelWithCookie(t, handler, `{
-		"relation": "secret_notes", "schema": "public", "select": ["own"]
+		"relation": "secret_notes", "schema": "public", "select": ["*~"]
 	}`, cookie)
 
 	if rec.Code != http.StatusOK {
@@ -141,7 +141,7 @@ func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
 	}
 	handler := NewRelHandler(db, &cfg, nil)
 
-	rec := postRelTo(t, handler, `{"relation": "director", "schema": "public", "select": ["own"]}`)
+	rec := postRelTo(t, handler, `{"relation": "director", "schema": "public", "select": ["*~"]}`)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -149,7 +149,7 @@ func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
 	// Unaffected when a valid cookie is presented — this gate is
 	// specifically about UNAUTHENTICATED requests.
 	cookie := mintCookie(t, &cfg, "authenticated_user")
-	rec2 := postRelWithCookie(t, handler, `{"relation": "director", "schema": "public", "select": ["own"]}`, cookie)
+	rec2 := postRelWithCookie(t, handler, `{"relation": "director", "schema": "public", "select": ["*~"]}`, cookie)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("expected an authenticated request to be unaffected, got %d: %s", rec2.Code, rec2.Body.String())
 	}
@@ -160,7 +160,7 @@ func TestRelHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) 
 	handler := NewRelHandler(testDb, cfg, nil)
 
 	rec := postRelWithCookie(t, handler, `{
-		"relation": "secret_notes", "schema": "public", "select": ["own"]
+		"relation": "secret_notes", "schema": "public", "select": ["*~"]
 	}`, nil)
 
 	if rec.Code != http.StatusInternalServerError {

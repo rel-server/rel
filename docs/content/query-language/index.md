@@ -23,8 +23,8 @@ page — before the rest of this section walks through it by example.
   these pages queries against.
 - **[Shaping a query](shaping.md)** — roots, schema resolution, aliases.
 - **[Filtering with `where`](filtering.md)** — comparisons, boolean logic, `between`/`in`/`any`.
-- **[Selecting fields](selecting.md)** — `own`/`full` and their variants, object literals,
-  `get`/`set`/`get-set`.
+- **[Selecting fields](selecting.md)** — `*`/`*~` and their variants, object literals,
+  `get`/`set`/`col`, and `.` for a plain scope lookup.
 - **[Joining and embedding relations](joining.md)** — `join`/`on`, incoming vs. outgoing.
 - **[Calling functions](functions.md)** — function-rooted and function-embedded nodes.
 - **[Computed fields](computed-fields.md)** — `call`, the Postgres functional-column

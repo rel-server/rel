@@ -69,7 +69,7 @@ func TestBuildRegistry_LoadsValidQuery(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{
 		"directors.json": `{
 			"name": "all_directors",
-			"query": {"relation": "director", "schema": "public", "select": ["own"]}
+			"query": {"relation": "director", "schema": "public", "select": ["*~"]}
 		}`,
 	})
 	c, ok := reg.Lookup("all_directors")
@@ -83,7 +83,7 @@ func TestBuildRegistry_LoadsValidQuery(t *testing.T) {
 
 func TestBuildRegistry_LoadsYAML(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{
-		"directors.yaml": "name: yaml_directors\nquery:\n  relation: director\n  schema: public\n  select: [own]\n",
+		"directors.yaml": "name: yaml_directors\nquery:\n  relation: director\n  schema: public\n  select: ['*~']\n",
 	})
 	if _, ok := reg.Lookup("yaml_directors"); !ok {
 		t.Fatalf("expected yaml_directors to be registered")
@@ -92,7 +92,7 @@ func TestBuildRegistry_LoadsYAML(t *testing.T) {
 
 func TestBuildRegistry_LoadsHUML(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{
-		"directors.huml": "name: \"huml_directors\"\nquery::\n  relation: \"director\"\n  schema: \"public\"\n  select:: \"own\"\n",
+		"directors.huml": "name: \"huml_directors\"\nquery::\n  relation: \"director\"\n  schema: \"public\"\n  select:: \"*~\"\n",
 	})
 	if _, ok := reg.Lookup("huml_directors"); !ok {
 		t.Fatalf("expected huml_directors to be registered")
@@ -101,7 +101,7 @@ func TestBuildRegistry_LoadsHUML(t *testing.T) {
 
 func TestBuildRegistry_SkipsUnderscorePrefixedFiles(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{
-		"_ignored.json": `{"name": "ignored", "query": {"relation": "director", "schema": "public", "select": ["own"]}}`,
+		"_ignored.json": `{"name": "ignored", "query": {"relation": "director", "schema": "public", "select": ["*~"]}}`,
 	})
 	if _, ok := reg.Lookup("ignored"); ok {
 		t.Fatalf("expected an underscore-prefixed file to be skipped entirely")
@@ -111,8 +111,8 @@ func TestBuildRegistry_SkipsUnderscorePrefixedFiles(t *testing.T) {
 func TestBuildRegistry_InvalidQueryDeactivatesOnlyThatEntry(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{
 		"mixed.json": `[
-			{"name": "good", "query": {"relation": "director", "schema": "public", "select": ["own"]}},
-			{"name": "bad", "query": {"relation": "no_such_relation", "schema": "public", "select": ["own"]}}
+			{"name": "good", "query": {"relation": "director", "schema": "public", "select": ["*~"]}},
+			{"name": "bad", "query": {"relation": "no_such_relation", "schema": "public", "select": ["*~"]}}
 		]`,
 	})
 	if _, ok := reg.Lookup("good"); !ok {
@@ -128,8 +128,8 @@ func TestBuildRegistry_InvalidQueryDeactivatesOnlyThatEntry(t *testing.T) {
 // deactivates every entry under a duplicate name, not just the newest.
 func TestBuildRegistry_DuplicateNameDeactivatesBothEntries(t *testing.T) {
 	reg := buildRegistry(t, map[string]string{
-		"a.json": `{"name": "dup", "query": {"relation": "director", "schema": "public", "select": ["own"]}}`,
-		"b.json": `{"name": "dup", "query": {"relation": "director", "schema": "public", "select": ["own"]}}`,
+		"a.json": `{"name": "dup", "query": {"relation": "director", "schema": "public", "select": ["*~"]}}`,
+		"b.json": `{"name": "dup", "query": {"relation": "director", "schema": "public", "select": ["*~"]}}`,
 	})
 	if _, ok := reg.Lookup("dup"); ok {
 		t.Fatalf("expected a name collision to deactivate BOTH entries, not register either")
@@ -141,7 +141,7 @@ func TestBuildRegistry_UnknownParamReferenceDeactivates(t *testing.T) {
 		"q.json": `{
 			"name": "unknown_param",
 			"query": {
-				"relation": "director", "schema": "public", "select": ["own"],
+				"relation": "director", "schema": "public", "select": ["*~"],
 				"where": ["=", "name", ["$param", "not_declared"]]
 			}
 		}`,
@@ -156,7 +156,7 @@ func TestBuildRegistry_UnusedDeclaredParamDeactivates(t *testing.T) {
 		"q.json": `{
 			"name": "unused_param",
 			"params": {"never_used": {"type": "text"}},
-			"query": {"relation": "director", "schema": "public", "select": ["own"]}
+			"query": {"relation": "director", "schema": "public", "select": ["*~"]}
 		}`,
 	})
 	if _, ok := reg.Lookup("unused_param"); ok {

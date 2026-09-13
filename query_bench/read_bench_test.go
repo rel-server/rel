@@ -152,9 +152,9 @@ func runAndDecode(b *testing.B, sql string, args []any) int {
 func BenchmarkSelect_FlatFilterPagination(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"relation": "bookings", "schema": "hotel",
-		"select": ["own"],
-		"where": ["=", "status", ["confirmed"]],
-		"order_by": [["desc", "created_at"]],
+		"select": ["*~"],
+		"where": ["=", ["col", "status"], "confirmed"],
+		"order_by": [["desc", ["col", "created_at"]]],
 		"limit": 20,
 		"offset": 40
 	}`)
@@ -171,9 +171,9 @@ func BenchmarkSelect_FlatFilterPagination(b *testing.B) {
 func BenchmarkSelect_FlatFilterPagination_Compile(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"relation": "bookings", "schema": "hotel",
-		"select": ["own"],
-		"where": ["=", "status", ["confirmed"]],
-		"order_by": [["desc", "created_at"]],
+		"select": ["*~"],
+		"where": ["=", ["col", "status"], "confirmed"],
+		"order_by": [["desc", ["col", "created_at"]]],
 		"limit": 20,
 		"offset": 40
 	}`)
@@ -191,14 +191,14 @@ func BenchmarkSelect_FlatFilterPagination_Compile(b *testing.B) {
 
 const oneHopJoinQuery = `{
 	"relation": "bookings", "schema": "hotel",
-	"select": {"id": "id", "status": "status", "guest": "guest", "room": "room"},
+	"select": {"id": ["col", "id"], "status": ["col", "status"], "guest": [".", "guest"], "room": [".", "room"]},
 	"join": {
 		"guest": {"relation": "guests", "schema": "hotel", "on": {"id": "guest_id"},
-			"select": {"id": "id", "first_name": "first_name", "last_name": "last_name", "email": "email"}},
+			"select": {"id": ["col", "id"], "first_name": ["col", "first_name"], "last_name": ["col", "last_name"], "email": ["col", "email"]}},
 		"room": {"relation": "rooms", "schema": "hotel", "on": {"id": "room_id"},
-			"select": {"id": "id", "room_number": "room_number", "floor": "floor"}}
+			"select": {"id": ["col", "id"], "room_number": ["col", "room_number"], "floor": ["col", "floor"]}}
 	},
-	"order_by": [["desc", "created_at"]],
+	"order_by": [["desc", ["col", "created_at"]]],
 	"limit": 20
 }`
 
@@ -231,8 +231,8 @@ func BenchmarkSelect_OneHopJoin_Compile(b *testing.B) {
 func BenchmarkSelect_EmbeddedToMany(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"relation": "properties", "schema": "hotel",
-		"select": {"id": "id", "name": "name", "rooms": "rooms"},
-		"join": {"rooms": {"relation": "rooms", "schema": "hotel", "on": {"property_id": "id"}, "select": ["own"]}}
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "rooms": [".", "rooms"]},
+		"join": {"rooms": {"relation": "rooms", "schema": "hotel", "on": {"property_id": "id"}, "select": ["*~"]}}
 	}`)
 	sql, args := mustCompileSelect(b, node)
 
@@ -250,14 +250,14 @@ func BenchmarkSelect_EmbeddedToMany(b *testing.B) {
 func BenchmarkSelect_DeepNestedEmbed(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"relation": "bookings", "schema": "hotel",
-		"select": {"id": "id", "status": "status", "room": "room"},
+		"select": {"id": ["col", "id"], "status": ["col", "status"], "room": [".", "room"]},
 		"join": {"room": {
 			"relation": "rooms", "schema": "hotel", "on": {"id": "room_id"},
-			"select": {"id": "id", "room_number": "room_number", "room_type": "room_type", "property": "property"},
+			"select": {"id": ["col", "id"], "room_number": ["col", "room_number"], "room_type": [".", "room_type"], "property": [".", "property"]},
 			"join": {
-				"room_type": {"relation": "room_types", "schema": "hotel", "on": {"id": "room_type_id"}, "select": ["own"]},
+				"room_type": {"relation": "room_types", "schema": "hotel", "on": {"id": "room_type_id"}, "select": ["*~"]},
 				"property": {"relation": "properties", "schema": "hotel", "on": {"id": "property_id"},
-					"select": {"id": "id", "name": "name"}}
+					"select": {"id": ["col", "id"], "name": ["col", "name"]}}
 			}
 		}},
 		"limit": 20
@@ -278,12 +278,12 @@ func BenchmarkSelect_DeepNestedEmbed(b *testing.B) {
 func BenchmarkSelect_SelfJoin(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"relation": "staff", "schema": "hotel",
-		"select": {"id": "id", "name": "name", "role": "role", "manager": "manager"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "role": ["col", "role"], "manager": [".", "manager"]},
 		"join": {"manager": {
 			"relation": "staff", "schema": "hotel", "on": {"id": "manager_id"},
-			"select": {"id": "id", "name": "name", "role": "role", "manager": "manager"},
+			"select": {"id": ["col", "id"], "name": ["col", "name"], "role": ["col", "role"], "manager": [".", "manager"]},
 			"join": {"manager": {"relation": "staff", "schema": "hotel", "on": {"id": "manager_id"},
-				"select": {"id": "id", "name": "name", "role": "role"}}}
+				"select": {"id": ["col", "id"], "name": ["col", "name"], "role": ["col", "role"]}}}
 		}}
 	}`)
 	sql, args := mustCompileSelect(b, node)
@@ -303,10 +303,10 @@ func BenchmarkSelect_AggregateHeavy(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"relation": "properties", "schema": "hotel",
 		"select": {
-			"id": "id", "name": "name", "rooms": "rooms",
-			"room_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["rooms"]]
+			"id": ["col", "id"], "name": ["col", "name"], "rooms": [".", "rooms"],
+			"room_count": ["agg", {"schema": "pg_catalog", "name": "count"}, [[".", "rooms"]]]
 		},
-		"join": {"rooms": {"relation": "rooms", "schema": "hotel", "on": {"property_id": "id"}, "select": ["own"]}}
+		"join": {"rooms": {"relation": "rooms", "schema": "hotel", "on": {"property_id": "id"}, "select": ["*~"]}}
 	}`)
 	sql, args := mustCompileSelect(b, node)
 
@@ -322,10 +322,10 @@ func BenchmarkSelect_AggregateHeavy_Compile(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"relation": "properties", "schema": "hotel",
 		"select": {
-			"id": "id", "name": "name", "rooms": "rooms",
-			"room_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["rooms"]]
+			"id": ["col", "id"], "name": ["col", "name"], "rooms": [".", "rooms"],
+			"room_count": ["agg", {"schema": "pg_catalog", "name": "count"}, [[".", "rooms"]]]
 		},
-		"join": {"rooms": {"relation": "rooms", "schema": "hotel", "on": {"property_id": "id"}, "select": ["own"]}}
+		"join": {"rooms": {"relation": "rooms", "schema": "hotel", "on": {"property_id": "id"}, "select": ["*~"]}}
 	}`)
 
 	b.ResetTimer()
@@ -342,8 +342,8 @@ func BenchmarkSelect_AggregateHeavy_Compile(b *testing.B) {
 func BenchmarkSelect_FullTextSearch(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"function": "search_properties", "schema": "hotel",
-		"arguments": [["Located"]],
-		"select": ["own"]
+		"arguments": ["Located"],
+		"select": ["*~"]
 	}`)
 	sql, args := mustCompileSelect(b, node)
 
@@ -362,7 +362,7 @@ func BenchmarkSelect_RecordFunction(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"function": "booking_stats", "schema": "hotel",
 		"arguments": [1],
-		"select": ["own"]
+		"select": ["*~"]
 	}`)
 	sql, args := mustCompileSelect(b, node)
 
@@ -378,7 +378,7 @@ func BenchmarkSelect_RecordFunction_Compile(b *testing.B) {
 	node := mustResolveQuery(b, `{
 		"function": "booking_stats", "schema": "hotel",
 		"arguments": [1],
-		"select": ["own"]
+		"select": ["*~"]
 	}`)
 
 	b.ResetTimer()
@@ -398,11 +398,11 @@ func filterHeavyQuery() string {
 	to := now.AddDate(0, -1, 0).Format("2006-01-02")
 	return fmt.Sprintf(`{
 		"relation": "bookings", "schema": "hotel",
-		"select": ["own"],
+		"select": ["*~"],
 		"where": ["and",
-			["in", "status", ["confirmed"], ["checked_out"]],
-			["between", 1, "guest_id", 200],
-			["&&", "stay", ["::", ["[%s,%s)"], "tstzrange"]]
+			["in", ["col", "status"], "confirmed", "checked_out"],
+			["between", 1, ["col", "guest_id"], 200],
+			["&&", ["col", "stay"], ["::", "[%s,%s)", "tstzrange"]]
 		],
 		"limit": 50
 	}`, from, to)
@@ -436,12 +436,12 @@ func BenchmarkSelect_FilterHeavy_Compile(b *testing.B) {
 
 const wideUnscopedQuery = `{
 	"relation": "bookings", "schema": "hotel",
-	"select": {"id": "id", "status": "status", "guest": "guest", "room": "room"},
+	"select": {"id": ["col", "id"], "status": ["col", "status"], "guest": [".", "guest"], "room": [".", "room"]},
 	"join": {
 		"guest": {"relation": "guests", "schema": "hotel", "on": {"id": "guest_id"},
-			"select": {"id": "id", "first_name": "first_name", "last_name": "last_name", "email": "email"}},
+			"select": {"id": ["col", "id"], "first_name": ["col", "first_name"], "last_name": ["col", "last_name"], "email": ["col", "email"]}},
 		"room": {"relation": "rooms", "schema": "hotel", "on": {"id": "room_id"},
-			"select": {"id": "id", "room_number": "room_number", "floor": "floor"}}
+			"select": {"id": ["col", "id"], "room_number": ["col", "room_number"], "floor": ["col", "floor"]}}
 	}
 }`
 

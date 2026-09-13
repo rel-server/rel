@@ -196,9 +196,9 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 			accum.record(cp, jsonPath, coalesceOnly)
 		}
 
-	case *GetSetExpr:
-		if v.ResolvedColumn != nil {
-			accum.record(ColumnPath{Node: node, Path: []*pg.Column{v.ResolvedColumn}}, jsonPath, coalesceOnly)
+	case *ColExpr:
+		if cp, ok := v.Resolved.(ColumnPath); ok {
+			accum.record(cp, jsonPath, coalesceOnly)
 		}
 
 	case *SetExpr:
@@ -248,9 +248,7 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 	case InExpr:
 		walkSelectForWritability(v.Subject, node, jsonPath, false, accum)
 		for _, c := range v.Candidates {
-			if !c.IsLiteral {
-				walkSelectForWritability(c.Expr, node, jsonPath, false, accum)
-			}
+			walkSelectForWritability(c, node, jsonPath, false, accum)
 		}
 
 	case AnyAllExpr:
@@ -284,37 +282,7 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 			walkSelectForWritability(val, node, append(jsonPath, k), true, accum)
 		}
 
-	case OwnExpr:
-		recordOwnColumns(node, nil, jsonPath, accum)
-
-	case FullExpr:
-		recordOwnColumns(node, nil, jsonPath, accum)
-
-	case OwnExceptExpr:
-		recordOwnColumns(node, v.Except, jsonPath, accum)
-
-	case FullExceptExpr:
-		recordOwnColumns(node, v.Except, jsonPath, accum)
-
-	case OwnAndExpr:
-		recordOwnColumns(node, nil, jsonPath, accum)
-		for k, val := range v.And {
-			walkSelectForWritability(val, node, append(jsonPath, k), true, accum)
-		}
-
-	case FullAndExpr:
-		recordOwnColumns(node, nil, jsonPath, accum)
-		for k, val := range v.And {
-			walkSelectForWritability(val, node, append(jsonPath, k), true, accum)
-		}
-
-	case OwnExceptAndExpr:
-		recordOwnColumns(node, v.Except, jsonPath, accum)
-		for k, val := range v.And {
-			walkSelectForWritability(val, node, append(jsonPath, k), true, accum)
-		}
-
-	case FullExceptAndExpr:
+	case StarExpr:
 		recordOwnColumns(node, v.Except, jsonPath, accum)
 		for k, val := range v.And {
 			walkSelectForWritability(val, node, append(jsonPath, k), true, accum)

@@ -179,7 +179,7 @@ func TestParseRawRelation_OnConflictForms(t *testing.T) {
 }
 
 func TestParseRawRelation_OrderBy(t *testing.T) {
-	pq, err := ParseQuery([]byte(`{"relation": "movie", "order_by": ["year", ["desc", "title"]]}`))
+	pq, err := ParseQuery([]byte(`{"relation": "movie", "order_by": [["col", "year"], ["desc", ["col", "title"]]]}`))
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}
@@ -189,14 +189,14 @@ func TestParseRawRelation_OrderBy(t *testing.T) {
 	if pq.Relation.OrderBy[0].Direction != OrderAsc {
 		t.Errorf("expected bare expression to default OrderAsc, got %v", pq.Relation.OrderBy[0].Direction)
 	}
-	if id, ok := pq.Relation.OrderBy[0].Expr.(*Identifier); !ok || id.Name != "year" {
-		t.Errorf("expected first term to be Identifier(year), got %#v", pq.Relation.OrderBy[0].Expr)
+	if col, ok := pq.Relation.OrderBy[0].Expr.(*ColExpr); !ok || col.Column != "year" {
+		t.Errorf("expected first term to be ColExpr(year), got %#v", pq.Relation.OrderBy[0].Expr)
 	}
 	if pq.Relation.OrderBy[1].Direction != OrderDesc {
 		t.Errorf("expected second term OrderDesc, got %v", pq.Relation.OrderBy[1].Direction)
 	}
-	if id, ok := pq.Relation.OrderBy[1].Expr.(*Identifier); !ok || id.Name != "title" {
-		t.Errorf("expected second term to be Identifier(title), got %#v", pq.Relation.OrderBy[1].Expr)
+	if col, ok := pq.Relation.OrderBy[1].Expr.(*ColExpr); !ok || col.Column != "title" {
+		t.Errorf("expected second term to be ColExpr(title), got %#v", pq.Relation.OrderBy[1].Expr)
 	}
 }
 
@@ -216,7 +216,7 @@ func TestParseRawRelation_OffsetLimit(t *testing.T) {
 // A 2-element array whose first string ISN'T a direction tag must parse
 // as a bare Expression — the ambiguity parseOrderByTerm's tag-membership check exists to avoid.
 func TestParseRawRelation_OrderBy_NoTagCollision(t *testing.T) {
-	pq, err := ParseQuery([]byte(`{"relation": "movie", "order_by": [["own_except", ["title"]]]}`))
+	pq, err := ParseQuery([]byte(`{"relation": "movie", "order_by": [["*~", ["title"]]]}`))
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}
@@ -227,9 +227,9 @@ func TestParseRawRelation_OrderBy_NoTagCollision(t *testing.T) {
 	if term.Direction != OrderAsc {
 		t.Errorf("expected OrderAsc (not mistaken for a direction tuple), got %v", term.Direction)
 	}
-	except, ok := term.Expr.(OwnExceptExpr)
-	if !ok || len(except.Except) != 1 || except.Except[0] != "title" {
-		t.Errorf("expected OwnExceptExpr{[title]}, got %#v", term.Expr)
+	except, ok := term.Expr.(StarExpr)
+	if !ok || !except.Own || len(except.Except) != 1 || except.Except[0] != "title" {
+		t.Errorf("expected StarExpr{Own:true, Except:[title]}, got %#v", term.Expr)
 	}
 }
 

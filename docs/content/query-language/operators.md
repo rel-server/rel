@@ -49,7 +49,7 @@ type FoldedOperator =
 | `->>` | `json_get_text` | jsonb key/index access, returns text |
 | `#>` | `json_path` | jsonb path access, returns jsonb |
 | `#>>` | `json_path_text` | jsonb path access, returns text |
-| `.` | `dot` | composite/embed field access — see [Selecting fields](selecting.md) |
+| `.` | `dot` | scope lookup / composite/embed field access — see [Selecting fields](selecting.md#the-dot-chain-form) |
 | <code>&#124;&#124;</code> | `concat` | concatenation — does **not** coalesce nulls away |
 | <code>&#124;&#124;?</code> | `concat_coalesce` | concatenation, coalescing each null operand to `''` first |
 | `??` | `ifnull` | coalesce, JS-style alias |
@@ -97,7 +97,7 @@ type BinaryOperator =
 | `like` / `ilike` | | pattern match, case-sensitive/insensitive — disabled by default, see [Configuration](../configuration/index.md) |
 | `~` / `~*` | `match` / `imatch` | regex match, case-sensitive/insensitive — disabled by default |
 | `@@` | `matches_ts` | full-text search match — disabled by default |
-| `::` | `cast` | type cast: `["::", "amount", "numeric"]` |
+| `::` | `cast` | type cast: `["::", ["col", "amount"], "numeric"]` |
 | `&&` | `overlap` | range/array overlap |
 | `<->` | `distance` | distance operator (geometric types) |
 | <code>-&#124;-</code> | `adjacent` | range adjacency |
@@ -118,33 +118,33 @@ type BinaryOperator =
 ## Ranges, sets, and set membership
 
 ```json
-["between", 100, "base_price", 500]
-["not_between", 100, "base_price", 500]
-["in", "status", "confirmed", "checked_in"]
-["not_in", "status", "cancelled"]
-["any", "=", "star_rating", ["arr", 4, 5]]
-["all", "=", "star_rating", ["arr", 4, 5]]
+["between", 100, ["col", "base_price"], 500]
+["not_between", 100, ["col", "base_price"], 500]
+["in", ["col", "status"], "confirmed", "checked_in"]
+["not_in", ["col", "status"], "cancelled"]
+["any", "=", ["col", "star_rating"], ["arr", 4, 5]]
+["all", "=", ["col", "star_rating"], ["arr", 4, 5]]
 ```
 
-`in`/`not_in`'s candidates are treated as literal values, not column references, even though
-they're bare strings — the one place in the whole expression grammar where that's true.
-`any`/`all` take an operator, a subject, and an array (or a to-many relation's column) to
-compare every element against.
+`in`/`not_in`'s candidates are ordinary operands like any other operator's — a bare string is a
+literal candidate (the common case), and `["col", ...]`/`[".", ...]` works too if you genuinely
+need to compare against another column. `any`/`all` take an operator, a subject, and an array
+(or a to-many relation's column) to compare every element against.
 
 ## Arrays and JSON
 
 ```json
-["arr", 1, 2, 3]          // an array literal (also: "lst"/"list")
-["index", "features", 1]  // 1-indexed, like Postgres — not 0-indexed
-["slice", "features", 1, 2]
+["arr", 1, 2, 3]                    // an array literal (also: "lst"/"list")
+["index", ["col", "features"], 1]   // 1-indexed, like Postgres — not 0-indexed
+["slice", ["col", "features"], 1, 2]
 ```
 
 ## String building
 
 ```json
-["concat_ws", ", ", "city", "region"]
-["coalesce", "phone", ["\"none\""]]
-["format", "%s (%s)", "name", "star_rating"]
+["concat_ws", ", ", ["col", "city"], ["col", "region"]]
+["coalesce", ["col", "phone"], "none"]
+["format", "%s (%s)", ["col", "name"], ["col", "star_rating"]]
 ```
 
 ## Numeric and bigint literals

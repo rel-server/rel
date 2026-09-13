@@ -8,7 +8,7 @@ func TestParseWellKnownFile_SingleDefinition(t *testing.T) {
 		"params": {
 			"name": {"type": "text"}
 		},
-		"query": {"relation": "director", "schema": "public", "select": ["own"]}
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]}
 	}`))
 	if err != nil {
 		t.Fatalf("ParseWellKnownFile: %v", err)
@@ -37,8 +37,8 @@ func TestParseWellKnownFile_SingleDefinition(t *testing.T) {
 
 func TestParseWellKnownFile_ArrayOfDefinitions(t *testing.T) {
 	defs, err := ParseWellKnownFile([]byte(`[
-		{"name": "a", "query": {"relation": "director", "schema": "public", "select": ["own"]}},
-		{"name": "b", "query": {"relation": "director", "schema": "public", "select": ["own"]}}
+		{"name": "a", "query": {"relation": "director", "schema": "public", "select": ["*~"]}},
+		{"name": "b", "query": {"relation": "director", "schema": "public", "select": ["*~"]}}
 	]`))
 	if err != nil {
 		t.Fatalf("ParseWellKnownFile: %v", err)
@@ -58,7 +58,7 @@ func TestParseWellKnownFile_DefaultPresenceStates(t *testing.T) {
 			"null_default": {"type": "int", "default": null},
 			"value_default": {"type": "int", "default": 5}
 		},
-		"query": {"relation": "director", "schema": "public", "select": ["own"]}
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]}
 	}`))
 	if err != nil {
 		t.Fatalf("ParseWellKnownFile: %v", err)
@@ -77,7 +77,7 @@ func TestParseWellKnownFile_DefaultPresenceStates(t *testing.T) {
 }
 
 func TestParseWellKnownFile_MissingName_Errors(t *testing.T) {
-	_, err := ParseWellKnownFile([]byte(`{"query": {"relation": "director", "schema": "public", "select": ["own"]}}`))
+	_, err := ParseWellKnownFile([]byte(`{"query": {"relation": "director", "schema": "public", "select": ["*~"]}}`))
 	if err == nil {
 		t.Fatalf("expected an error for a missing name")
 	}

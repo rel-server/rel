@@ -16,7 +16,7 @@ import (
 func TestRelHandler_UniqueViolation_AlwaysClassified(t *testing.T) {
 	email := "dup-errcode-test@example.com"
 	insert := `{
-		"query": {"relation": "profile", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"query": {"relation": "profile", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 		"data": [{"user_email": "` + email + `"}]
 	}`
 	// First insert succeeds or already exists ; the second is guaranteed to collide.
@@ -77,7 +77,7 @@ func TestRelHandler_UniqueViolation_AlwaysClassified(t *testing.T) {
 // 23503 against a synthetic pgconn.PgError, never through an actual write.
 func TestRelHandler_ForeignKeyViolation_AlwaysClassified(t *testing.T) {
 	rec := postRel(t, `{
-		"query": {"relation": "movie", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"query": {"relation": "movie", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 		"data": [{"title": "FK Violation Movie", "director_id": 999999999}]
 	}`)
 	if rec.Code != http.StatusConflict {
@@ -93,7 +93,7 @@ func TestRelHandler_ForeignKeyViolation_AlwaysClassified(t *testing.T) {
 // 23514 against a synthetic pgconn.PgError, never through an actual write.
 func TestRelHandler_CheckViolation_AlwaysClassified(t *testing.T) {
 	rec := postRel(t, `{
-		"query": {"relation": "checked_t", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"query": {"relation": "checked_t", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 		"data": [{"amount": -1}]
 	}`)
 	if rec.Code != http.StatusBadRequest {
@@ -113,7 +113,7 @@ func TestRelHandler_ExplicitGeneratedColumnWrite_Classified(t *testing.T) {
 	rec := postRel(t, `{
 		"query": {
 			"relation": "flagged_columns", "schema": "public",
-			"select": {"id": "id", "code": "code", "price": "price", "tax": "tax"},
+			"select": {"id": ["col", "id"], "code": ["col", "code"], "price": ["col", "price"], "tax": ["col", "tax"]},
 			"write_mode": "insert"
 		},
 		"data": [{"code": "EXPLICIT-GENERATED-WRITE", "price": 100, "tax": 5}]
@@ -136,7 +136,7 @@ func TestRelHandler_UnclassifiedInternalError_DevGated(t *testing.T) {
 			handler := NewRelHandler(testDb, cfg, nil)
 
 			rec := postRelWithCookie(t, handler, `{
-				"relation": "secret_notes", "schema": "public", "select": ["own"]
+				"relation": "secret_notes", "schema": "public", "select": ["*~"]
 			}`, nil)
 			if rec.Code != http.StatusInternalServerError {
 				t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())

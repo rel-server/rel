@@ -252,7 +252,7 @@ type rawRelation struct {
 
 	Join map[string]*rawRelation // nil if absent ; key is the join alias (OuterAlias)
 
-	Select Expression // nil if absent -> resolve step defaults to FullExpr{}
+	Select Expression // nil if absent -> resolve step defaults to StarExpr{}
 
 	Distinct   bool
 	DistinctOn []Expression

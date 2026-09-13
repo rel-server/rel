@@ -372,7 +372,7 @@ func parseArgumentToken(s string) (any, error) {
 		if lerr != nil {
 			return nil, lerr
 		}
-		v, err = []any{lit}, nil
+		v, err = lit, nil
 	case c == '-' || isDigit(c):
 		v, err = p.parseNumber()
 	case isIdentStart(c):
@@ -391,7 +391,9 @@ func parseArgumentToken(s string) (any, error) {
 			if p.i < len(p.s) && p.s[p.i] == '(' {
 				return nil, oops.Errorf("argument values must be an identifier or a literal, not a call : %q", s)
 			}
-			v = ident
+			// A bare identifier is now a [".", name] scope-lookup, not a
+			// literal — see expr.go's parseTopValue/identArg for the same flip.
+			v = []any{".", ident}
 		}
 	default:
 		return nil, oops.Errorf("unexpected character %q at position %d", c, p.i)

@@ -71,7 +71,7 @@ interface Relation {
 | `insert_columns` | [Writing data back](writing.md). |
 | `update_columns` | [Writing data back](writing.md). |
 | `join` | [Joining and embedding relations](joining.md). |
-| `select` | [Selecting fields](selecting.md) — defaults to `["full"]`. |
+| `select` | [Selecting fields](selecting.md) — defaults to `["*"]`. |
 | `distinct` | [Distinctness](distinctness.md). |
 | `distinct_on` | [Distinctness](distinctness.md) — must be a prefix of `order_by`. |
 | `order_by` | [Ordering and pagination](ordering-pagination.md). |
@@ -115,16 +115,16 @@ take.
 
 | Form | Meaning | Covered in |
 |---|---|---|
-| `null` / `true` / `false` / a number | A literal value. | [Filtering with `where`](filtering.md). |
-| `"*"` | Every field of the current relation, plus every join alias. | [Selecting fields](selecting.md). |
-| a bare string | A column, alias, or computed field reference. | [Filtering with `where`](filtering.md), [Computed fields](computed-fields.md). |
-| `[string]` | A one-element array — a string *literal*, not a reference. | [Filtering with `where`](filtering.md). |
+| `null` / `true` / `false` / a number / a bare string | A literal value. | [Filtering with `where`](filtering.md#a-bare-string-is-a-literal). |
+| `["col", name]` | A real, physical column, by name — errors if it isn't one. | [Selecting fields](selecting.md). |
+| `[".", name]` | Anything in scope, by name — column, alias, joined relation, or computed field, no restriction. | [Selecting fields](selecting.md#the-dot-chain-form). |
+| `[".", base, ...hops]` | A dot-chain: step from `base` into one or more named fields. | [Selecting fields](selecting.md#the-dot-chain-form). |
 | `[UnaryOperator, Expression]` | A unary operator call. | [Operators reference](operators.md). |
 | `[BinaryOperator, left, right]` | A two-operand operator call. | [Operators reference](operators.md). |
 | `[FoldedOperator, ...Expression[]]` | A variadic, left-folding operator call. | [Operators reference](operators.md). |
 | <code>["between"&#124;"not_between", min, exp, max]</code> | Range test. | [Operators reference](operators.md). |
 | <code>["bigint"&#124;"numeric", value: string]</code> | A precise numeric literal, past `float64`'s range. | [Operators reference](operators.md). |
-| <code>["in"&#124;"not_in", subject, ...candidates]</code> | Set membership; candidates are always literals. | [Operators reference](operators.md). |
+| <code>["in"&#124;"not_in", subject, ...candidates]</code> | Set membership. | [Operators reference](operators.md). |
 | <code>["any"&#124;"all", op, subject, array]</code> | Compare against every element of an array/to-many column. | [Operators reference](operators.md). |
 | `["concat_ws", separator, ...Expression[]]` | Join strings with a separator. | [Operators reference](operators.md). |
 | `["coalesce", ...Expression[]]` | First non-null operand. | [Operators reference](operators.md). |
@@ -132,17 +132,17 @@ take.
 | <code>["agg"&#124;"aggregate", identifier, arguments, filter?]</code> | Aggregate an incoming relation's column. | [Aggregates](aggregates.md). |
 | `["call", identifier, ...arguments]` | Call an allowed function explicitly — needed for a cross-schema computed field, or any other function call. | [Computed fields](computed-fields.md). |
 | `{[name]: Expression}` | An object literal — a select shape. | [Selecting fields](selecting.md). |
-| `["own"]` / `["full"]` | All columns / all columns plus joins. | [Selecting fields](selecting.md). |
-| <code>["own_except"&#124;"full_except", except]</code> | All columns except the ones named. | [Selecting fields](selecting.md). |
-| <code>["own_and"&#124;"full_and", and]</code> | All columns plus computed keys. | [Selecting fields](selecting.md). |
-| <code>["own_except_and"&#124;"full_except_and", except, and]</code> | Both of the above at once. | [Selecting fields](selecting.md). |
+| `["*"]` / `["*~"]` | All columns plus joins / all columns, no joins. | [Selecting fields](selecting.md). |
+| <code>["\*"&#124;"\*~", except]</code> | All columns except the ones named. | [Selecting fields](selecting.md). |
+| <code>["\*"&#124;"\*~", and]</code> | All columns plus computed keys. | [Selecting fields](selecting.md). |
+| <code>["\*"&#124;"\*~", except, and]</code> | Both of the above at once. | [Selecting fields](selecting.md). |
 | <code>["arr"&#124;"array", ...Expression[]]</code> | An array literal. | [Operators reference](operators.md). |
 | `["index", array, index]` | 1-indexed array access. | [Operators reference](operators.md). |
 | `["slice", array, from, to]` | 1-indexed array slice. | [Operators reference](operators.md). |
 | <code>["lst"&#124;"list", ...Expression[]]</code> | A list literal — synonym for `arr`/`array`. | [Operators reference](operators.md). |
 | `["get", column, default?]` | Read-only column reference. | [Selecting fields](selecting.md). |
 | `["set", column, default?]` | Write-only column reference. | [Selecting fields](selecting.md). |
-| `["get-set", column, default_get?, default_set?]` | Independent read/write defaults on one column. | [Selecting fields](selecting.md). |
+| `["col", column, default_get?, default_set?]` | Independent read/write defaults on one column. | [Selecting fields](selecting.md). |
 | `["$param", name, cast?]` | A well-known query's own declared parameter. | [Well-known queries](well-known-queries.md#declaring-and-using-parameters). |
 
 `FunctionIdentifier` — `call`'s and `agg`'s first argument — is either a bare, unqualified

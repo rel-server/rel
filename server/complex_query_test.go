@@ -46,7 +46,7 @@ func TestComplexQuery_NoFlags_BareShape(t *testing.T) {
 	}
 	handler := complexHandler(t, nil)
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"], "where": ["=", "name", ["Complex No Flags Director"]]}
+		"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], "Complex No Flags Director"]}
 	}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
@@ -67,7 +67,7 @@ func TestComplexQuery_Count(t *testing.T) {
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowCount = true })
 
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"], "where": ["like", "name", ["Complex Count%"]], "limit": 1},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["like", ["col", "name"], "Complex Count%"], "limit": 1},
 		"count": true
 	}`)
 	if rec.Code != http.StatusOK {
@@ -102,7 +102,7 @@ func TestComplexQuery_Count(t *testing.T) {
 func TestComplexQuery_Count_UngrantedDegradesSilently(t *testing.T) {
 	handler := complexHandler(t, nil) // AllowCount defaults false
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"], "limit": 1},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"], "limit": 1},
 		"count": true
 	}`)
 	if rec.Code != http.StatusOK {
@@ -124,7 +124,7 @@ func TestComplexQuery_Count_UngrantedDegradesSilently(t *testing.T) {
 func TestComplexQuery_Count_OnWrite_Rejected(t *testing.T) {
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowCount = true })
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Should Not Insert"}],
 		"count": true
 	}`)
@@ -140,7 +140,7 @@ func TestComplexQuery_Count_OnWrite_Rejected(t *testing.T) {
 func TestComplexQuery_Stats_OnRead_Rejected(t *testing.T) {
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"stats": true
 	}`)
 	if rec.Code != http.StatusBadRequest {
@@ -156,7 +156,7 @@ func TestComplexQuery_Stats_OnRead_Rejected(t *testing.T) {
 func TestComplexQuery_Stats_OnWrite(t *testing.T) {
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Complex Stats Director"}],
 		"stats": true
 	}`)
@@ -200,11 +200,11 @@ func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
 	rec := postRelTo(t, handler, `{
 		"query": {
 			"relation": "director", "schema": "public",
-			"select": {"id": "id", "name": "name", "movies": "movies"},
+			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 			"write_mode": "insert",
 			"join": {"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-				"write_mode": "insert", "select": ["own"]
+				"write_mode": "insert", "select": ["*~"]
 			}}
 		},
 		"data": [{"name": "Nested Stats Director", "movies": [{"title": "Nested Stats Movie"}]}],
@@ -258,11 +258,11 @@ func TestComplexQuery_Write_ReturnsEmbeddedChild(t *testing.T) {
 	rec := postRelTo(t, handler, `{
 		"query": {
 			"relation": "director", "schema": "public",
-			"select": {"id": "id", "name": "name", "movies": "movies"},
+			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 			"write_mode": "insert",
 			"join": {"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-				"write_mode": "insert", "select": ["own"]
+				"write_mode": "insert", "select": ["*~"]
 			}}
 		},
 		"data": [{"name": "Returns Expand Director", "movies": [{"title": "Returns Expand Movie"}]}]
@@ -292,7 +292,7 @@ func TestComplexQuery_Write_ReturnsEmbeddedChild(t *testing.T) {
 func TestComplexQuery_StatsQueryPlanConflict(t *testing.T) {
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats, c.Pg.Query.AllowQueryPlan = true, true })
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Should Not Run"}],
 		"stats": true,
 		"query_plan": true
@@ -310,7 +310,7 @@ func TestComplexQuery_StatsQueryPlanConflict(t *testing.T) {
 func TestComplexQuery_UnsupportedReturns(t *testing.T) {
 	handler := complexHandler(t, nil)
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"returns": "none"
 	}`)
 	if rec.Code != http.StatusBadRequest {
@@ -326,7 +326,7 @@ func TestComplexQuery_UnsupportedReturns(t *testing.T) {
 func TestComplexQuery_Returns_None_OnWrite_SkipsResult(t *testing.T) {
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Complex Returns None Director"}],
 		"returns": "none",
 		"stats": true
@@ -359,7 +359,7 @@ func TestComplexQuery_Returns_None_OnWrite_SkipsResult(t *testing.T) {
 func TestComplexQuery_Rollback_UndoesWrite(t *testing.T) {
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowRollback, c.Pg.Query.AllowStats = true, true })
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Complex Rollback Director"}],
 		"stats": true,
 		"rollback": true
@@ -400,11 +400,11 @@ func TestComplexQuery_Rollback_UndoesNestedWrite(t *testing.T) {
 	rec := postRelTo(t, handler, `{
 		"query": {
 			"relation": "director", "schema": "public",
-			"select": {"id": "id", "name": "name", "movies": "movies"},
+			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 			"write_mode": "insert",
 			"join": {"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-				"write_mode": "insert", "select": ["own"]
+				"write_mode": "insert", "select": ["*~"]
 			}}
 		},
 		"data": [{"name": "Nested Rollback Director", "movies": [{"title": "Nested Rollback Movie"}]}],
@@ -450,7 +450,7 @@ func TestComplexQuery_Rollback_UndoesNestedWrite(t *testing.T) {
 func TestComplexQuery_Rollback_NotGranted(t *testing.T) {
 	handler := complexHandler(t, nil) // AllowRollback defaults false
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Should Not Run Either"}],
 		"rollback": true
 	}`)
@@ -479,7 +479,7 @@ func TestComplexQuery_Sql_And_QueryPlan_OnRead(t *testing.T) {
 	}
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowSql, c.Pg.Query.AllowQueryPlan = true, true })
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"], "where": ["=", "name", ["Complex Sql Plan Director"]]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], "Complex Sql Plan Director"]},
 		"sql": true,
 		"query_plan": true
 	}`)
@@ -516,7 +516,7 @@ func TestComplexQuery_Sql_And_QueryPlan_OnRead(t *testing.T) {
 func TestComplexQuery_Sql_OnWrite_IncludesReadback(t *testing.T) {
 	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowSql = true })
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"]},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Complex Sql Write Director"}],
 		"sql": true
 	}`)

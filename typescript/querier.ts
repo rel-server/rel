@@ -509,7 +509,7 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
     return this._send(this.doQuery(_params))
   }
 
-  // send a write request to rel. `data` is WriteShape, not Shape — get/set/get-set's read-vs-write asymmetry
+  // send a write request to rel. `data` is WriteShape, not Shape — get/set/col's read-vs-write asymmetry
   // (shapes.ts's WriteShapeFromQuery doc comment) means these genuinely differ whenever a query uses them.
   write(_params: Params, data: WriteShape): Promise<Shape>
   write(data: WriteShape): Promise<Shape>

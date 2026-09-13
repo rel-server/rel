@@ -17,25 +17,25 @@ func TestRelHandler_QueryCompileErrors_AttachSpecificCodes(t *testing.T) {
 	}{
 		{
 			name: "unknown relation",
-			body: `{"relation": "does_not_exist_xyz", "schema": "public", "select": ["own"]}`,
+			body: `{"relation": "does_not_exist_xyz", "schema": "public", "select": ["*~"]}`,
 			want: errcode.UnknownIdentifier,
 		},
 		{
 			name: "unknown column",
-			body: `{"relation": "director", "schema": "public", "select": {"x": "not_a_real_column"}}`,
+			body: `{"relation": "director", "schema": "public", "select": {"x": ["col", "not_a_real_column"]}}`,
 			want: errcode.UnknownIdentifier,
 		},
 		{
 			name: "join not indexed",
 			body: `{
-				"relation": "unindexed_parent", "schema": "public", "select": ["own"],
+				"relation": "unindexed_parent", "schema": "public", "select": ["*~"],
 				"join": {"children": {"relation": "unindexed_child", "schema": "public", "on": {"parent_id": "id"}}}
 			}`,
 			want: errcode.JoinMissingIndex,
 		},
 		{
 			name: "unknown write_mode",
-			body: `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "not_a_real_mode"}`,
+			body: `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "not_a_real_mode"}`,
 			want: errcode.WriteForbidden,
 		},
 		{
@@ -62,7 +62,7 @@ func TestRelHandler_QueryCompileErrors_AttachSpecificCodes(t *testing.T) {
 // rooted nodes' unwritable rule gets its own code, not generic WRITE_FORBIDDEN.
 func TestRelHandler_WriteForbiddenFunctionRoot_HasItsOwnCode(t *testing.T) {
 	body := `{
-		"query": {"function": "fn_directors", "schema": "public", "select": ["own"]},
+		"query": {"function": "fn_directors", "schema": "public", "select": ["*~"]},
 		"data": [{"id": 1, "name": "Someone"}]
 	}`
 	rec := postRel(t, body)

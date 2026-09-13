@@ -65,18 +65,17 @@ type NumberLiteral struct {
 	Value float64
 }
 
-// Star is the literal "*" string : "select all fields of the current
-// relation + aliases". Distinct from Identifier despite both parsing from a
-// bare JSON string — it means something structurally different (a
-// select-shape wildcard, not a reference to one named thing).
-type Star struct{ notYetValidated }
-
-// Identifier is a bare JSON string other than "*" : a reference to a column
-// name or an alias, per query.ts : "strings always refer to aliases and
-// column names, since they are much more likely to appear than actual
-// strings". Left unresolved (not yet known to be a column vs. an alias vs.
-// invalid) until pass 2, which sets Resolved via LookupInScope (or, for a
-// later hop in a "." chain, via resolveHopInto) — nil until then.
+// Identifier is a name reference — a column, alias, or computed field of the
+// current scope. Unlike earlier revisions of this grammar, a bare JSON
+// string is NEVER an Identifier (it's a StringLiteral, see below) : the only
+// productions of Identifier are [".", name] (the arity-1 case — resolve this
+// name against the current scope, query.ts's general-purpose reference
+// building block) and a longer "." chain's later hop-name positions ("." is
+// the one place a name is still spelled bare, since it's already
+// unambiguous there — every other position wraps it, e.g. ColExpr's "col").
+// Left unresolved (not yet known to be a column vs. an alias vs. invalid)
+// until pass 2, which sets Resolved via LookupInScope (or, for a later hop
+// in a "." chain, via resolveHopInto) — nil until then.
 //
 // Constructed as *Identifier (not a value), so pass 2 can set Resolved in
 // place on the exact node the tree already holds a pointer to.
@@ -86,8 +85,9 @@ type Identifier struct {
 	Resolved ResolvedField
 }
 
-// StringLiteral is query.ts's one-element-array escape hatch for an actual
-// string value : [string].
+// StringLiteral is a bare JSON string : an actual string value, never a
+// column/alias reference (unlike earlier revisions of this grammar — see
+// Identifier's doc comment for how a name is now spelled instead).
 type StringLiteral struct {
 	notYetValidated
 	Value string
@@ -236,24 +236,15 @@ type BetweenExpr struct {
 	Min, Exp, Max Expression
 }
 
-// InCandidate is one candidate of an in/not_in list. A bare JSON string
-// candidate means a literal string there — query.ts's explicit carve-out
-// ("candidates literal strings are here treated as literal strings and not
-// columns") — unlike every other Expression position, where a bare string
-// means an identifier. Exactly one of Literal/Expr is set (IsLiteral tells
-// which).
-type InCandidate struct {
-	IsLiteral bool
-	Literal   string
-	Expr      Expression
-}
-
-// InExpr is ["in"|"not_in", subject, ...candidates].
+// InExpr is ["in"|"not_in", subject, ...candidates]. Candidates used to need
+// their own carve-out (a bare string candidate meant a literal, unlike every
+// other Expression position) ; that's now the universal default, so each
+// candidate is just an ordinary Expression like anywhere else.
 type InExpr struct {
 	notYetValidated
 	Negate     bool
 	Subject    Expression
-	Candidates []InCandidate
+	Candidates []Expression
 }
 
 // AnyAllExpr is ["any"|"all", op, subject, array_or_list]. Op is kept as the
@@ -343,50 +334,17 @@ type ObjectExpr struct {
 	Fields map[string]Expression
 }
 
-// OwnExpr is ["own"] : an object with all the columns of the current relation.
-type OwnExpr struct{ notYetValidated }
-
-// FullExpr is ["full"] : OwnExpr plus the joined relations. select's default
-// when unspecified.
-type FullExpr struct{ notYetValidated }
-
-// OwnExceptExpr is ["own_except", except].
-type OwnExceptExpr struct {
-	notYetValidated
-	Except []string
-}
-
-// FullExceptExpr is ["full_except", except].
-type FullExceptExpr struct {
-	notYetValidated
-	Except []string
-}
-
-// OwnAndExpr is ["own_and", and].
-type OwnAndExpr struct {
-	notYetValidated
-	And map[string]Expression
-}
-
-// FullAndExpr is ["full_and", and].
-type FullAndExpr struct {
-	notYetValidated
-	And map[string]Expression
-}
-
-// OwnExceptAndExpr is ["own_except_and", except, and]. merge_with (And)
+// StarExpr is ["*", except?, and?] (Own false, full : the current relation's
+// own columns plus the joined relations' aliases — select's default when
+// unspecified) or ["*~", except?, and?] (Own true : own columns only, no
+// joined aliases). except (a []string) and and (a map[string]Expression) are
+// each optional and order-independent — dispatched by JSON type, not
+// position, at parse time (see parseStarTag in expression_parse.go). And
 // cannot shadow keys implicitly per query.ts's comment ; that's a pass 2
 // validation concern, not enforced by this shape.
-type OwnExceptAndExpr struct {
+type StarExpr struct {
 	notYetValidated
-	Except []string
-	And    map[string]Expression
-}
-
-// FullExceptAndExpr is ["full_except_and", except, and]. Same shadowing note
-// as OwnExceptAndExpr.
-type FullExceptAndExpr struct {
-	notYetValidated
+	Own    bool
 	Except []string
 	And    map[string]Expression
 }
@@ -421,17 +379,27 @@ type SliceExpr struct {
 
 // ---- column granularity ----------------------------------------------------------
 
-// GetSetExpr is ["get-set", column, default_get?, default_set?]. DefaultGet/
-// DefaultSet are nil when absent, and may be DefaultKeyword.
+// ColExpr is ["col", column, default_get?, default_set?] — renamed from the
+// original get-set. Deliberately narrow : Column must always resolve (at
+// pass 2) to a real physical column of the current relation, never an
+// alias, embed, or computed field — a read/write default only makes sense
+// for a real column, and describing one named slot's read/write shape
+// visibility is exactly what "col" (and its siblings "get"/"set") are for.
+// For a general-purpose "reference anything in scope" building block (a
+// column, alias, joined/embedded field, or an earlier and-map key), use "."
+// instead (see Identifier's doc comment) — that's what a bare JSON string
+// used to do before the bare-string-is-literal flip.
 //
-// ResolvedColumn is set by pass 2 (scope-domain resolution — Column may only
-// land on a plain physical column of the current relation, never an alias
-// or embed). Constructed as *GetSetExpr so pass 2 can set it in place.
-type GetSetExpr struct {
+// Resolved/ResolvedColumn are set at pass 2 via LookupInScope, chainable via
+// "." like any other reference. DefaultGet/DefaultSet are nil when absent,
+// and may be DefaultKeyword.
+// Constructed as *ColExpr so pass 2 can set Resolved/ResolvedColumn in place.
+type ColExpr struct {
 	notYetValidated
 	Column         string
 	DefaultGet     Expression
 	DefaultSet     Expression
+	Resolved       ResolvedField
 	ResolvedColumn *pg.Column
 }
 

@@ -180,15 +180,8 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 			return nil, err
 		}
 		v.Subject = subject
-		for i := range v.Candidates {
-			if v.Candidates[i].IsLiteral {
-				continue
-			}
-			expr, err := ctx.resolveExpr(v.Candidates[i].Expr, n, oc)
-			if err != nil {
-				return nil, err
-			}
-			v.Candidates[i].Expr = expr
+		if err := ctx.resolveExprSlice(v.Candidates, n, oc); err != nil {
+			return nil, err
 		}
 		return v, nil
 
@@ -259,7 +252,7 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 		}
 		return v, nil
 
-	case ObjectExpr, OwnExpr, FullExpr, OwnExceptExpr, FullExceptExpr, OwnAndExpr, FullAndExpr, OwnExceptAndExpr, FullExceptAndExpr:
+	case ObjectExpr, StarExpr:
 		// All shape-producing : delegate to resolveChain (buildShape) ; the
 		// landing is discarded, nothing here chains further off it.
 		resolved, _, err := ctx.resolveChain(e, n, oc)
@@ -308,9 +301,9 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 		v.To = to
 		return v, nil
 
-	case *GetSetExpr, *GetExpr:
-		// Both chainable (land directly on a ColumnPath) : delegate to
-		// resolveChain, same reasoning as the shape-producing case above.
+	case *ColExpr, *GetExpr:
+		// Both chainable : delegate to resolveChain, same reasoning as the
+		// shape-producing case above.
 		resolved, _, err := ctx.resolveChain(e, n, oc)
 		return resolved, err
 
@@ -426,12 +419,21 @@ func (ctx *ResolveContext) resolveChain(e Expression, n *QueryNode, oc oops.Oops
 		}
 		return v, ColumnPath{Node: cp.Node, Path: cp.Path, ElementType: arrType.ElementType}, nil
 
-	case *GetSetExpr:
-		col, err := ctx.resolvePlainColumn(n, v.Column, oc)
+	case *ColExpr:
+		if n == nil {
+			return nil, nil, oc.Code(errcode.UnknownIdentifier).Errorf("no scope available to resolve identifier %q", v.Column)
+		}
+		field, err := n.LookupInScope(v.Column)
 		if err != nil {
 			return nil, nil, err
 		}
-		v.ResolvedColumn = col
+		v.Resolved = field
+		cp, ok := field.(ColumnPath)
+		if !ok {
+			return nil, nil, oc.Code(errcode.QueryInvalidExpression).Errorf(
+				`"col" %q must be a real physical column, not an alias, embed, or computed field (got %T) — use "." for those`, v.Column, field)
+		}
+		v.ResolvedColumn = cp.Path[len(cp.Path)-1]
 		if v.DefaultGet != nil {
 			d, err := ctx.resolveExpr(v.DefaultGet, n, oc)
 			if err != nil {
@@ -446,7 +448,7 @@ func (ctx *ResolveContext) resolveChain(e Expression, n *QueryNode, oc oops.Oops
 			}
 			v.DefaultSet = d
 		}
-		return v, ColumnPath{Node: n, Path: []*pg.Column{col}}, nil
+		return v, field, nil
 
 	case *GetExpr:
 		col, err := ctx.resolvePlainColumn(n, v.Column, oc)
@@ -467,48 +469,11 @@ func (ctx *ResolveContext) resolveChain(e Expression, n *QueryNode, oc oops.Oops
 		shape, err := ctx.buildShape(n, nil, v.Fields, oc)
 		return v, shape, err
 
-	case OwnExpr:
-		shape, err := ctx.buildShape(n, ownFullBase(n, nil, false), nil, oc)
-		return v, shape, err
-
-	case FullExpr:
-		shape, err := ctx.buildShape(n, ownFullBase(n, nil, true), nil, oc)
-		return v, shape, err
-
-	case OwnExceptExpr:
+	case StarExpr:
 		if err := ctx.validateExceptColumns(n, v.Except, oc); err != nil {
 			return nil, nil, err
 		}
-		shape, err := ctx.buildShape(n, ownFullBase(n, v.Except, false), nil, oc)
-		return v, shape, err
-
-	case FullExceptExpr:
-		if err := ctx.validateExceptColumns(n, v.Except, oc); err != nil {
-			return nil, nil, err
-		}
-		shape, err := ctx.buildShape(n, ownFullBase(n, v.Except, true), nil, oc)
-		return v, shape, err
-
-	case OwnAndExpr:
-		shape, err := ctx.buildShape(n, ownFullBase(n, nil, false), v.And, oc)
-		return v, shape, err
-
-	case FullAndExpr:
-		shape, err := ctx.buildShape(n, ownFullBase(n, nil, true), v.And, oc)
-		return v, shape, err
-
-	case OwnExceptAndExpr:
-		if err := ctx.validateExceptColumns(n, v.Except, oc); err != nil {
-			return nil, nil, err
-		}
-		shape, err := ctx.buildShape(n, ownFullBase(n, v.Except, false), v.And, oc)
-		return v, shape, err
-
-	case FullExceptAndExpr:
-		if err := ctx.validateExceptColumns(n, v.Except, oc); err != nil {
-			return nil, nil, err
-		}
-		shape, err := ctx.buildShape(n, ownFullBase(n, v.Except, true), v.And, oc)
+		shape, err := ctx.buildShape(n, ownFullBase(n, v.Except, !v.Own), v.And, oc)
 		return v, shape, err
 	}
 

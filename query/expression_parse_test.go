@@ -21,30 +21,40 @@ func TestParseExpression_Atoms(t *testing.T) {
 	if n, ok := mustParse(t, `42`).(NumberLiteral); !ok || n.Value != 42 {
 		t.Errorf("42 did not parse as NumberLiteral(42), got %#v", mustParse(t, `42`))
 	}
-	if _, ok := mustParse(t, `"*"`).(Star); !ok {
-		t.Errorf(`"*" did not parse as Star`)
+	// A bare string is always a literal now, "*" included — no more
+	// special-cased Star, see StarExpr for how "select everything" is spelled.
+	if s, ok := mustParse(t, `"*"`).(StringLiteral); !ok || s.Value != "*" {
+		t.Errorf(`"*" did not parse as StringLiteral{*}, got %#v`, mustParse(t, `"*"`))
 	}
-	if id, ok := mustParse(t, `"movie_id"`).(*Identifier); !ok || id.Name != "movie_id" {
-		t.Errorf(`"movie_id" did not parse as Identifier{movie_id}`)
+	if s, ok := mustParse(t, `"movie_id"`).(StringLiteral); !ok || s.Value != "movie_id" {
+		t.Errorf(`"movie_id" did not parse as StringLiteral{movie_id}, got %#v`, mustParse(t, `"movie_id"`))
 	}
-	if s, ok := mustParse(t, `["hello"]`).(StringLiteral); !ok || s.Value != "hello" {
-		t.Errorf(`["hello"] did not parse as StringLiteral{hello}`)
+	if col, ok := mustParse(t, `["col", "movie_id"]`).(*ColExpr); !ok || col.Column != "movie_id" {
+		t.Errorf(`["col", "movie_id"] did not parse as ColExpr{movie_id}, got %#v`, mustParse(t, `["col", "movie_id"]`))
 	}
 }
 
-func TestParseExpression_OwnFullVsStringLiteralEscapeHatch(t *testing.T) {
-	// ["own"]/["full"] collide syntactically with the [string] literal
-	// escape hatch — tag dispatch must win, or OwnExpr{}/FullExpr{} become unreachable.
-	if _, ok := mustParse(t, `["own"]`).(OwnExpr); !ok {
-		t.Errorf(`["own"] did not parse as OwnExpr, got %#v`, mustParse(t, `["own"]`))
+func TestParseExpression_StarTags(t *testing.T) {
+	full, ok := mustParse(t, `["*"]`).(StarExpr)
+	if !ok || full.Own {
+		t.Errorf(`["*"] did not parse as StarExpr{Own:false}, got %#v`, mustParse(t, `["*"]`))
 	}
-	if _, ok := mustParse(t, `["full"]`).(FullExpr); !ok {
-		t.Errorf(`["full"] did not parse as FullExpr, got %#v`, mustParse(t, `["full"]`))
+	own, ok := mustParse(t, `["*~"]`).(StarExpr)
+	if !ok || !own.Own {
+		t.Errorf(`["*~"] did not parse as StarExpr{Own:true}, got %#v`, mustParse(t, `["*~"]`))
 	}
-	// Every other one-element string array still falls through to the
-	// literal escape hatch, "own"/"full" aren't special anywhere else.
-	if s, ok := mustParse(t, `["ownership"]`).(StringLiteral); !ok || s.Value != "ownership" {
-		t.Errorf(`["ownership"] did not parse as StringLiteral{ownership}, got %#v`, mustParse(t, `["ownership"]`))
+	withBoth, ok := mustParse(t, `["*", ["id"], {"total": ["col", "amount"]}]`).(StarExpr)
+	if !ok || withBoth.Own || len(withBoth.Except) != 1 || withBoth.Except[0] != "id" || len(withBoth.And) != 1 {
+		t.Errorf(`["*", ["id"], {"total": ...}] did not parse as expected, got %#v`, mustParse(t, `["*", ["id"], {"total": ["col", "amount"]}]`))
+	}
+}
+
+func TestParseExpression_SingleElementArrayIsNoLongerALiteralEscape(t *testing.T) {
+	// Now that a bare string is already a literal, a one-element array is
+	// just an ordinary (and, for anything but a real zero-arity tag,
+	// unrecognized) tag dispatch — not a second way to spell a literal.
+	if _, err := ParseExpression([]byte(`["ownership"]`)); err == nil {
+		t.Errorf(`["ownership"] should be an unrecognized-tag error now, not a literal escape hatch`)
 	}
 }
 
@@ -105,41 +115,46 @@ func TestParseExpression_ComparisonFold(t *testing.T) {
 }
 
 func TestParseExpression_UnaryVsBinaryTildeDisambiguation(t *testing.T) {
-	if u, ok := mustParse(t, `["~", "flags"]`).(UnaryExpr); !ok || u.Op != UnaryBitNot {
-		t.Errorf(`["~", "flags"] did not parse as unary bitwise-not, got %#v`, mustParse(t, `["~", "flags"]`))
+	if u, ok := mustParse(t, `["~", ["col", "flags"]]`).(UnaryExpr); !ok || u.Op != UnaryBitNot {
+		t.Errorf(`["~", ["col", "flags"]] did not parse as unary bitwise-not, got %#v`, mustParse(t, `["~", ["col", "flags"]]`))
 	}
-	if b, ok := mustParse(t, `["~", "name", ["^A"]]`).(BinaryExpr); !ok || b.Op != BinaryRegexMatch {
-		t.Errorf(`["~", "name", ["^A"]] did not parse as binary regex match, got %#v`, mustParse(t, `["~", "name", ["^A"]]`))
+	if b, ok := mustParse(t, `["~", ["col", "name"], "^A"]`).(BinaryExpr); !ok || b.Op != BinaryRegexMatch {
+		t.Errorf(`["~", ["col", "name"], "^A"] did not parse as binary regex match, got %#v`, mustParse(t, `["~", ["col", "name"], "^A"]`))
 	}
 }
 
-func TestParseExpression_InWithLiteralCandidate(t *testing.T) {
-	expr, ok := mustParse(t, `["in", "status", "a", "b"]`).(InExpr)
+func TestParseExpression_InCandidates(t *testing.T) {
+	expr, ok := mustParse(t, `["in", ["col", "status"], "a", "b"]`).(InExpr)
 	if !ok {
 		t.Fatalf("expected InExpr, got %#v", expr)
 	}
-	if len(expr.Candidates) != 2 || !expr.Candidates[0].IsLiteral || expr.Candidates[0].Literal != "a" {
-		t.Errorf("expected literal candidates [a b], got %#v", expr.Candidates)
+	if len(expr.Candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %#v", expr.Candidates)
+	}
+	a, ok := expr.Candidates[0].(StringLiteral)
+	if !ok || a.Value != "a" {
+		t.Errorf("expected candidate[0] StringLiteral{a}, got %#v", expr.Candidates[0])
 	}
 }
 
 func TestParseExpression_Object(t *testing.T) {
-	obj, ok := mustParse(t, `{"movie": ["full_except", ["year"]], "actors": "actors"}`).(ObjectExpr)
+	obj, ok := mustParse(t, `{"movie": ["*", ["year"]], "actors": ["col", "actors"]}`).(ObjectExpr)
 	if !ok {
 		t.Fatalf("expected ObjectExpr, got %#v", obj)
 	}
-	if _, ok := obj.Fields["movie"].(FullExceptExpr); !ok {
-		t.Errorf("expected movie field to be FullExceptExpr, got %#v", obj.Fields["movie"])
+	star, ok := obj.Fields["movie"].(StarExpr)
+	if !ok || star.Own || len(star.Except) != 1 || star.Except[0] != "year" {
+		t.Errorf("expected movie field to be StarExpr{Except:[year]}, got %#v", obj.Fields["movie"])
 	}
-	if id, ok := obj.Fields["actors"].(*Identifier); !ok || id.Name != "actors" {
-		t.Errorf("expected actors field to be Identifier{actors}, got %#v", obj.Fields["actors"])
+	if col, ok := obj.Fields["actors"].(*ColExpr); !ok || col.Column != "actors" {
+		t.Errorf("expected actors field to be ColExpr{actors}, got %#v", obj.Fields["actors"])
 	}
 }
 
-func TestParseExpression_GetSetDefaultKeyword(t *testing.T) {
-	expr, ok := mustParse(t, `["get-set", "id", "default", 0]`).(*GetSetExpr)
+func TestParseExpression_ColDefaultKeyword(t *testing.T) {
+	expr, ok := mustParse(t, `["col", "id", "default", 0]`).(*ColExpr)
 	if !ok {
-		t.Fatalf("expected GetSetExpr, got %#v", expr)
+		t.Fatalf("expected ColExpr, got %#v", expr)
 	}
 	if _, ok := expr.DefaultGet.(DefaultKeyword); !ok {
 		t.Errorf("expected DefaultGet to be DefaultKeyword, got %#v", expr.DefaultGet)
@@ -152,7 +167,7 @@ func TestParseExpression_GetSetDefaultKeyword(t *testing.T) {
 func TestParseExpression_AggAndCall(t *testing.T) {
 	// Bare string : unqualified Name, never split on "." — a literal dot
 	// stays part of Name, never mistaken for a schema separator.
-	agg, ok := mustParse(t, `["agg", "array_agg", ["name"], [">=", "year", 1999]]`).(*AggExpr)
+	agg, ok := mustParse(t, `["agg", "array_agg", [["col", "name"]], [">=", ["col", "year"], 1999]]`).(*AggExpr)
 	if !ok {
 		t.Fatalf("expected AggExpr, got %#v", agg)
 	}
@@ -162,7 +177,7 @@ func TestParseExpression_AggAndCall(t *testing.T) {
 
 	// Explicit {schema, name} object : the only way to spell a qualified
 	// name.
-	call, ok := mustParse(t, `["call", {"schema": "api", "name": "slugify"}, "name"]`).(*CallExpr)
+	call, ok := mustParse(t, `["call", {"schema": "api", "name": "slugify"}, ["col", "name"]]`).(*CallExpr)
 	if !ok || call.Identifier != (FunctionRef{Schema: "api", Name: "slugify"}) || len(call.Arguments) != 1 {
 		t.Errorf("unexpected CallExpr shape: %#v", call)
 	}

@@ -76,10 +76,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 	case DefaultKeyword:
 		// Only ever reached via compileColumnRead ; reaching this generic
 		// case is a codegen bug, not a user-facing error.
-		return oops.Errorf("sql: DefaultKeyword reached outside a get/get-set default position")
-
-	case Star:
-		return oops.Errorf("sql: \"*\" is not a value-position expression")
+		return oops.Errorf("sql: DefaultKeyword reached outside a get/col default position")
 
 	case *Identifier:
 		return c.compileResolvedField(v.Resolved, n)
@@ -139,7 +136,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 	case ObjectExpr:
 		return c.compileObjectLiteral(v.Fields, n)
 
-	case OwnExpr, FullExpr, OwnExceptExpr, FullExceptExpr, OwnAndExpr, FullAndExpr, OwnExceptAndExpr, FullExceptAndExpr:
+	case StarExpr:
 		// A shape-producing construct reached as a nested VALUE, not a
 		// node's own top-level select — built as one jsonb value instead.
 		return c.compileShapeAsJsonObject(e, n)
@@ -176,7 +173,10 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 		c.w.Write("]")
 		return nil
 
-	case *GetSetExpr:
+	case *ColExpr:
+		if v.DefaultGet == nil && v.DefaultSet == nil {
+			return c.compileResolvedField(v.Resolved, n)
+		}
 		return c.compileColumnRead(v.ResolvedColumn, n, v.DefaultGet)
 
 	case *GetExpr:
@@ -537,11 +537,7 @@ func (c *sqlCompiler) compileIn(v InExpr, n *QueryNode) error {
 			if i > 0 {
 				c.w.Write(", ")
 			}
-			if cand.IsLiteral {
-				c.w.Bind(cand.Literal)
-				continue
-			}
-			if e := c.compileExpr(cand.Expr, n); e != nil {
+			if e := c.compileExpr(cand, n); e != nil {
 				err = e
 				return
 			}
@@ -589,11 +585,7 @@ func (c *sqlCompiler) compileAnyAll(v AnyAllExpr, n *QueryNode) error {
 // subjectPgType returns e's Postgres type when it's a plain column
 // reference, nil otherwise ; used to cast a literal array's element type.
 func subjectPgType(e Expression) *pg.Type {
-	id, ok := e.(*Identifier)
-	if !ok {
-		return nil
-	}
-	cp, ok := id.Resolved.(ColumnPath)
+	cp, ok := bareResolvedField(e).(ColumnPath)
 	if !ok {
 		return nil
 	}
@@ -677,8 +669,8 @@ func (c *sqlCompiler) compileAggFunctionCall(v *AggExpr, target *QueryNode, targ
 		}
 		// A bare reference to the target relation (not a "." chain into a
 		// column) has no ColumnPath ; emit "t.*", Postgres's own row value.
-		if qn, isBare := a.(*Identifier); isBare {
-			if resolved, _ := qn.Resolved.(*QueryNode); resolved == target {
+		if resolved := bareResolvedField(a); resolved != nil {
+			if qn, _ := resolved.(*QueryNode); qn == target {
 				c.w.Write(targetAlias)
 				c.w.Write(".*")
 				return

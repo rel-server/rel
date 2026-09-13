@@ -19,14 +19,13 @@ curl http://localhost:8080/rel \
   -d '{
     "relation": "properties",
     "schema": "hotel",
-    "where": ["and", [">=", "star_rating", 4], ["like", "name", ["%Grand%"]]],
-    "select": { "id": "id", "name": "name", "star_rating": "star_rating" }
+    "where": ["and", [">=", ["col", "star_rating"], 4], ["like", ["col", "name"], "%Grand%"]],
+    "select": { "id": ["col", "id"], "name": ["col", "name"], "star_rating": ["col", "star_rating"] }
   }'
 ```
 
-A bare string in an expression is always a column/alias reference; `["%Grand%"]` — a
-one-element array — is how a literal string is spelled instead. See [Filtering with
-`where`](../query-language/filtering.md).
+A bare string in an expression is always a literal value; `["col", "name"]` points at a real
+column instead. See [Filtering with `where`](../query-language/filtering.md).
 
 ## The same kind of filter, as a plain `GET`
 
@@ -51,13 +50,13 @@ curl http://localhost:8080/rel \
   -d '{
     "relation": "bookings",
     "schema": "hotel",
-    "where": ["=", "status", ["confirmed"]],
+    "where": ["=", ["col", "status"], "confirmed"],
     "limit": 2,
     "join": {
-      "guest": { "relation": "guests", "schema": "hotel", "on": { "id": "guest_id" }, "select": { "id": "id", "email": "email" } },
-      "room": { "relation": "rooms", "schema": "hotel", "on": { "id": "room_id" }, "select": { "id": "id", "room_number": "room_number" } }
+      "guest": { "relation": "guests", "schema": "hotel", "on": { "id": "guest_id" }, "select": { "id": ["col", "id"], "email": ["col", "email"] } },
+      "room": { "relation": "rooms", "schema": "hotel", "on": { "id": "room_id" }, "select": { "id": ["col", "id"], "room_number": ["col", "room_number"] } }
     },
-    "select": { "id": "id", "stay": "stay", "guest": "guest", "room": "room" }
+    "select": { "id": ["col", "id"], "stay": ["col", "stay"], "guest": [".", "guest"], "room": [".", "room"] }
   }'
 ```
 
@@ -79,9 +78,9 @@ curl http://localhost:8080/rel \
     "alias": "s",
     "limit": 5,
     "join": {
-      "manager": { "relation": "staff", "schema": "hotel", "on": { "id": "manager_id" }, "select": { "id": "id", "name": "name" } }
+      "manager": { "relation": "staff", "schema": "hotel", "on": { "id": "manager_id" }, "select": { "id": ["col", "id"], "name": ["col", "name"] } }
     },
-    "select": { "id": "id", "name": "name", "role": "role", "manager": "manager" }
+    "select": { "id": ["col", "id"], "name": ["col", "name"], "role": ["col", "role"], "manager": [".", "manager"] }
   }'
 ```
 
@@ -104,9 +103,9 @@ curl http://localhost:8080/rel \
       "room_types": { "relation": "room_types", "schema": "hotel", "on": { "property_id": "id" } }
     },
     "select": {
-      "name": "name",
-      "room_type_count": ["agg", "count", [[".", "room_types", "id"]]],
-      "budget_type_count": ["agg", "count", [[".", "room_types", "id"]], ["<", [".", "room_types", "base_price"], 150]]
+      "name": ["col", "name"],
+      "room_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]]],
+      "budget_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]], ["<", [".", [".", "room_types"], "base_price"], 150]]
     }
   }'
 ```
@@ -128,7 +127,7 @@ curl http://localhost:8080/rel \
     "relation": "bookings",
     "schema": "hotel",
     "limit": 3,
-    "select": { "id": "id", "nights": "booking_nights", "total_paid": "booking_total_paid" }
+    "select": { "id": ["col", "id"], "nights": [".", "booking_nights"], "total_paid": [".", "booking_total_paid"] }
   }'
 ```
 
@@ -148,7 +147,7 @@ curl http://localhost:8080/rel \
     "function": "search_properties",
     "schema": "hotel",
     "arguments": { "query": ["beach"] },
-    "select": { "id": "id", "name": "name" }
+    "select": { "id": ["col", "id"], "name": ["col", "name"] }
   }'
 ```
 
@@ -164,7 +163,7 @@ curl http://localhost:8080/rel \
     "function": "rooms_available",
     "schema": "hotel",
     "arguments": { "property_id": 1, "on_date": ["2026-06-01"] },
-    "select": ["own"]
+    "select": ["*~"]
   }'
 ```
 
@@ -193,9 +192,9 @@ curl http://localhost:8080/rel \
   -d '{
     "relation": "rooms",
     "schema": "hotel",
-    "where": ["@>", "features", ["arr", ["Sea View"]]],
+    "where": ["@>", ["col", "features"], ["arr", ["Sea View"]]],
     "limit": 3,
-    "select": { "id": "id", "room_number": "room_number", "features": "features" }
+    "select": { "id": ["col", "id"], "room_number": ["col", "room_number"], "features": ["col", "features"] }
   }'
 ```
 
@@ -233,16 +232,16 @@ curl http://localhost:8080/rel \
             "room_types": { "relation": "room_types", "schema": "hotel", "on": { "property_id": "id" } }
           },
           "select": {
-            "id": "id",
-            "chain_id": "chain_id",
-            "name": "name",
-            "star_rating": "star_rating",
-            "room_types": "room_types",
-            "room_type_count": ["agg", "count", [[".", "room_types", "id"]]]
+            "id": ["col", "id"],
+            "chain_id": ["col", "chain_id"],
+            "name": ["col", "name"],
+            "star_rating": ["col", "star_rating"],
+            "room_types": [".", "room_types"],
+            "room_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]]]
           }
         }
       },
-      "select": { "id": "id", "name": "name", "properties": "properties" }
+      "select": { "id": ["col", "id"], "name": ["col", "name"], "properties": [".", "properties"] }
     },
     "data": [{
       "name": "Example Group",
@@ -281,8 +280,8 @@ curl http://localhost:8080/rel \
   -d '{
     "relation": "guests",
     "schema": "hotel",
-    "where": ["is_not_null", "billing_address"],
+    "where": ["is_not_null", ["col", "billing_address"]],
     "limit": 3,
-    "select": { "id": "id", "email": "email", "city": [".", "billing_address", "city"] }
+    "select": { "id": ["col", "id"], "email": ["col", "email"], "city": [".", ["col", "billing_address"], "city"] }
   }'
 ```

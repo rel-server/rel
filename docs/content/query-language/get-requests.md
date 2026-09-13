@@ -43,17 +43,17 @@ call can itself contain a comma (`select=matched:in(status,'a,b')`) without brea
 ### `select`
 
 A plain comma-list of `[alias:]expr` entries is the common case — a bare entry becomes its own
-key (`select=id,name` → `{"id":"id","name":"name"}`); prefix one with `alias:` to select a
-computed value under a chosen name (`select=total:agg(sum,payments.amount)`). The one
-alternative is a single `own`/`full`-family call taking up the whole value — the two forms
-never mix in one `select=`:
+key (`select=id,name` → `{"id":[".","id"],"name":[".","name"]}`); prefix one with `alias:` to
+select a computed value under a chosen name (`select=total:agg(sum,payments.amount)`). The one
+alternative is a single `*`/`*~`-family call taking up the whole value — the two forms never
+mix in one `select=`:
 
 | `select=` | Compiles to |
 |---|---|
-| `own` / `full` | `["own"]` / `["full"]` |
-| `own_except(a,b)` / `full_except(a,b)` | all columns except `a`, `b` |
-| `own_and(total:agg(sum,payments.amount))` | all columns plus a computed `total` |
-| `own_except_and(a,b; total:agg(...))` | except-list, then `;`, then the and-map |
+| `*` / `*~` | `["*"]` / `["*~"]` |
+| `*(a,b)` / `*~(a,b)` | all columns except `a`, `b` |
+| `*(;total:agg(sum,payments.amount))` | all columns plus a computed `total` — a leading `;` is required even with an empty except-list |
+| `*(a,b; total:agg(...))` | except-list, then `;`, then the and-map |
 
 ### `order_by`
 
@@ -70,19 +70,21 @@ nulls-last, matching `POST /rel`'s own default. There's no query-string spelling
 where=and(gte(year,1999),like(name,'%needle%'))
 ```
 
-A bare word is a column/alias reference (`year`); a quoted string (`'needle'`, doubled quotes
-to escape one — `'it''s open'`), a bare number, or `true`/`false`/`null` is a literal. Every
-operator is written as a call, `name(arg, arg, ...)`, using its **word form**, never its
-symbol — `gte`, not `>=`; see the [Operators reference](operators.md) for the full symbol ↔
-word-form table (every table there lists the word form this grammar uses). `in`/`not_in`/
-`any`/`all`/`between`/`not_between`/`agg`/`call` all work the same way, as calls with several
-arguments: `in(status,'confirmed','checked_in')`, `between(100,base_price,500)`.
+A bare word compiles to a scope lookup (`year` → `[".", "year"]` — a column, alias, or computed
+field, no restriction); a quoted string (`'needle'`, doubled quotes to escape one —
+`'it''s open'`) is a literal, same as a bare number or `true`/`false`/`null`. Every operator is
+written as a call, `name(arg, arg, ...)`, using its **word form**, never its symbol — `gte`,
+not `>=`; see the [Operators reference](operators.md) for the full symbol ↔ word-form table
+(every table there lists the word form this grammar uses). `in`/`not_in`/`any`/`all`/
+`between`/`not_between`/`agg`/`call` all work the same way, as calls with several arguments:
+`in(status,'confirmed','checked_in')`, `between(100,base_price,500)`.
 
 Not expressible in a query string at all — reach for [`POST /rel`](writing.md) instead: a bare
-inline-object expression outside of `select=`; `get`/`set`/`get-set`; `$param`; `arr`/`lst`
-literals; `own`/`full` used as a sub-expression rather than the whole of `select=`; an `agg`
-with a filter (its fourth, optional argument — every `GET` `agg(...)` argument after the
-function name lands in its argument list instead).
+inline-object expression outside of `select=`; `col` (asserting a real column rather than a
+plain scope lookup), `get`/`set`; `$param`; `arr`/`lst` literals; `*`/`*~` used as a
+sub-expression rather than the whole of `select=`; an `agg` with a filter (its fourth, optional
+argument — every `GET` `agg(...)` argument after the function name lands in its argument list
+instead).
 
 ## Well-known queries over `GET`
 

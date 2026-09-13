@@ -12,28 +12,28 @@ func TestCompileSelect(t *testing.T) {
 		want any
 	}{
 		{"plain comma-list", "movie_id,name,actors", map[string]any{
-			"movie_id": "movie_id", "name": "name", "actors": "actors",
+			"movie_id": []any{".", "movie_id"}, "name": []any{".", "name"}, "actors": []any{".", "actors"},
 		}},
 		{"aliased computed entry", "movie_id,name,total:agg(sum,orders.amount)", map[string]any{
-			"movie_id": "movie_id",
-			"name":     "name",
-			"total":    []any{"agg", "sum", []any{"orders.amount"}},
+			"movie_id": []any{".", "movie_id"},
+			"name":     []any{".", "name"},
+			"total":    []any{"agg", "sum", []any{[]any{".", "orders.amount"}}},
 		}},
-		{"own bare", "own", []any{"own"}},
-		{"full bare", "full", []any{"full"}},
-		{"own_except", "own_except(a,b)", []any{"own_except", []string{"a", "b"}}},
-		{"full_except", "full_except(a,b)", []any{"full_except", []string{"a", "b"}}},
-		{"own_and", "own_and(actors,total:agg(sum,orders.amount))", []any{"own_and", map[string]any{
-			"actors": "actors",
-			"total":  []any{"agg", "sum", []any{"orders.amount"}},
+		{"full bare", "*", []any{"*"}},
+		{"own bare", "*~", []any{"*~"}},
+		{"full except", "*(a,b)", []any{"*", []string{"a", "b"}}},
+		{"own except", "*~(a,b)", []any{"*~", []string{"a", "b"}}},
+		{"own and", "*~(;actors,total:agg(sum,orders.amount))", []any{"*~", map[string]any{
+			"actors": []any{".", "actors"},
+			"total":  []any{"agg", "sum", []any{[]any{".", "orders.amount"}}},
 		}}},
-		{"own_except_and", "own_except_and(a,b; total:agg(sum,orders.amount))", []any{
-			"own_except_and",
+		{"own except and", "*~(a,b; total:agg(sum,orders.amount))", []any{
+			"*~",
 			[]string{"a", "b"},
-			map[string]any{"total": []any{"agg", "sum", []any{"orders.amount"}}},
+			map[string]any{"total": []any{"agg", "sum", []any{[]any{".", "orders.amount"}}}},
 		}},
 		{"colon inside quoted literal doesn't split alias early", "label:'a:b'", map[string]any{
-			"label": []any{"a:b"},
+			"label": "a:b",
 		}},
 	}
 	for _, tc := range cases {
@@ -55,15 +55,11 @@ func TestCompileSelect_BareNonIdentifierIsError(t *testing.T) {
 	}
 }
 
-func TestCompileSelect_OwnPlusCommaListIsNotTheWholeValueForm(t *testing.T) {
-	// own/full dispatch only fires when it's the entire value ; "own,name"
-	// falls through to the comma-list compiler, "own" as a bare identifier.
-	got, err := compileSelect("own,name")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := map[string]any{"own": "own", "name": "name"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %#v, want %#v", got, want)
+func TestCompileSelect_StarFollowedByTrailingCommaIsAnError(t *testing.T) {
+	// "*" isn't a valid identifier-start character, so it can never be one
+	// entry of a plain comma-list — trailing content after it (that isn't
+	// "(...)") is a hard parse error, not a silent fallthrough.
+	if _, err := compileSelect("*,name"); err == nil {
+		t.Fatalf("expected an error : trailing input after a bare \"*\" is invalid")
 	}
 }

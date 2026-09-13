@@ -27,7 +27,7 @@ change whether the selection itself is sent back at all.
 ## No flag set : nothing changes
 
 ```json
-{ "query": { "relation": "properties", "schema": "hotel", "select": ["own"] } }
+{ "query": { "relation": "properties", "schema": "hotel", "select": ["*~"] } }
 ```
 
 responds with the exact same bare array/object it always has. The moment any flag below is
@@ -66,7 +66,7 @@ rows your `where`/joins match, ignoring your own `limit`/`offset`, alongside the
 
 ```json
 {
-  "query": { "relation": "properties", "schema": "hotel", "select": ["own"], "limit": 20 },
+  "query": { "relation": "properties", "schema": "hotel", "select": ["*~"], "limit": 20 },
   "count": true
 }
 ```
@@ -93,10 +93,10 @@ writable relation your query touched actually inserted/updated/deleted:
         "relation": "room_types", "schema": "hotel",
         "on": { "property_id": "id" },
         "write_mode": "upsert",
-        "select": { "id": "id", "property_id": "property_id", "name": "name", "base_price": "base_price" }
+        "select": { "id": ["col", "id"], "property_id": ["col", "property_id"], "name": ["col", "name"], "base_price": ["col", "base_price"] }
       }
     },
-    "select": { "id": "id", "name": "name", "room_types": "room_types" }
+    "select": { "id": ["col", "id"], "name": ["col", "name"], "room_types": [".", "room_types"] }
   },
   "data": [{ "id": 1, "name": "Marina Bay Grand Hotel", "room_types": [{ "id": 2, "property_id": 1, "name": "Deluxe", "base_price": "229.00" }] }],
   "stats": true
@@ -136,7 +136,7 @@ Valid on a read or a write, and free either way — it never adds a database rou
 hands back the SQL text rel was already going to run:
 
 ```json
-{ "query": { "relation": "properties", "schema": "hotel", "select": ["own"] }, "sql": true }
+{ "query": { "relation": "properties", "schema": "hotel", "select": ["*~"] }, "sql": true }
 ```
 
 ```json

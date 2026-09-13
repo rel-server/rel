@@ -36,25 +36,33 @@ fix at the source (rename one or the other), not something a query can work arou
 
 ## Using one
 
-Reference a computed field by its bare name, exactly like a column — no special syntax needed:
+Reference a computed field by its bare name through `.` — it isn't a real column, so `col`
+won't reach it:
 
 ```json
 {
-  "select": { "name": "name", "nights": "booking_nights" },
-  "where": ["=", "booking_nights", 3]
+  "select": { "name": ["col", "name"], "nights": [".", "booking_nights"] },
+  "where": ["=", [".", "booking_nights"], 3]
 }
 ```
 
-This also works through a `.` hop into a joined, to-one relation's own computed field, the same
-way a real column does:
+This also works through a `.` chain into a joined, to-one relation's own computed field, the
+same way a real column does — resolve the alias from scope first, then hop into it:
 
 ```json
-{ "manager_name": [".", "manager", "guest_full_name"] }
+{ "manager_name": [".", [".", "manager"], "guest_full_name"] }
 ```
 
-A computed field is never selected by default: `own`/`full` never pull one in automatically,
-even one already exposed in Postgres as a function over the row type. Naming a computed field
-in `own_except`/`full_except` is an error — it was never included in the first place, so there's
+When the to-one relation is reached through a real FK column rather than a separate `join`
+alias, `col` can stand in for that first hop instead, since the column itself is real:
+
+```json
+{ "director_display": [".", ["col", "director"], "director_display_name"] }
+```
+
+A computed field is never selected by default: `*`/`*~` never pull one in automatically, even
+one already exposed in Postgres as a function over the row type. Naming a computed field in
+either tag's except-list is an error — it was never included in the first place, so there's
 nothing to except.
 
 A cross-schema function — eligible in every other respect, but living in a different schema
@@ -64,7 +72,7 @@ instead, passing the relation's own declared `alias` as the row argument:
 ```json
 {
   "alias": "b",
-  "select": { "surcharge": ["call", {"schema": "billing", "name": "late_fee"}, "b"] }
+  "select": { "surcharge": ["call", {"schema": "billing", "name": "late_fee"}, [".", "b"]] }
 }
 ```
 
@@ -96,7 +104,7 @@ $$;
 ```
 
 ```json
-{ "recent_reviews": "recent_reviews" }
+{ "recent_reviews": [".", "recent_reviews"] }
 ```
 
 comes back as an array of review rows, shaped however `hotel.reviews`' own columns are —

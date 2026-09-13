@@ -62,8 +62,8 @@ func TestRelHandler_WellKnown_POST_Read(t *testing.T) {
 			"name": "directors_by_name",
 			"params": {"name": {"type": "text"}},
 			"query": {
-				"relation": "director", "schema": "public", "select": ["own"],
-				"where": ["=", "name", ["$param", "name", "text"]]
+				"relation": "director", "schema": "public", "select": ["*~"],
+				"where": ["=", ["col", "name"], ["$param", "name", "text"]]
 			}
 		}`,
 	})
@@ -95,8 +95,8 @@ func TestRelHandler_WellKnown_POST_MissingRequiredParam(t *testing.T) {
 			"name": "needs_param",
 			"params": {"name": {"type": "text"}},
 			"query": {
-				"relation": "director", "schema": "public", "select": ["own"],
-				"where": ["=", "name", ["$param", "name", "text"]]
+				"relation": "director", "schema": "public", "select": ["*~"],
+				"where": ["=", ["col", "name"], ["$param", "name", "text"]]
 			}
 		}`,
 	})
@@ -115,7 +115,7 @@ func TestRelHandler_WellKnown_POST_Write(t *testing.T) {
 	handler := newWellKnownRelHandler(t, map[string]string{
 		"q.json": `{
 			"name": "insert_director",
-			"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}
+			"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}
 		}`,
 	})
 	rec := postRelTo(t, handler, `{"query": {"wellknown": "insert_director"}, "data": [{"name": "WellKnown Written Director"}]}`)
@@ -147,13 +147,13 @@ func TestRelHandler_WellKnown_Sequence(t *testing.T) {
 	handler := newWellKnownRelHandler(t, map[string]string{
 		"directors.json": `{
 			"name": "all_directors",
-			"query": {"relation": "director", "schema": "public", "select": ["own"], "where": ["=", "name", ["WellKnown Sequence Director"]]}
+			"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], "WellKnown Sequence Director"]}
 		}`,
 	})
 
 	rec := postRelTo(t, handler, `[
 		{"wellknown": "all_directors"},
-		{"relation": "director", "schema": "public", "select": ["own"], "where": ["=", "name", ["WellKnown Sequence Director"]]}
+		{"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], "WellKnown Sequence Director"]}
 	]`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
@@ -176,12 +176,12 @@ func TestRelHandler_WellKnown_Sequence_Write(t *testing.T) {
 	handler := newWellKnownRelHandler(t, map[string]string{
 		"q.json": `{
 			"name": "insert_director_in_sequence",
-			"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}
+			"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}
 		}`,
 	})
 
 	rec := postRelTo(t, handler, `[
-		{"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}, "data": [{"name": "WellKnown Sequence Plain Director"}]},
+		{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "WellKnown Sequence Plain Director"}]},
 		{"query": {"wellknown": "insert_director_in_sequence"}, "data": [{"name": "WellKnown Sequence WK Director"}]}
 	]`)
 	if rec.Code != http.StatusOK {
@@ -218,8 +218,8 @@ func TestRelHandler_WellKnown_GET_Read(t *testing.T) {
 			"name": "directors_by_name_get",
 			"params": {"name": {"type": "text"}},
 			"query": {
-				"relation": "director", "schema": "public", "select": ["own"],
-				"where": ["=", "name", ["$param", "name", "text"]]
+				"relation": "director", "schema": "public", "select": ["*~"],
+				"where": ["=", ["col", "name"], ["$param", "name", "text"]]
 			}
 		}`,
 	})
@@ -247,8 +247,8 @@ func TestRelHandler_WellKnown_GET_QuotedParamStaysString(t *testing.T) {
 			"name": "quoted_param",
 			"params": {"name": {"type": "text"}},
 			"query": {
-				"relation": "director", "schema": "public", "select": ["own"],
-				"where": ["=", "name", ["$param", "name", "text"]]
+				"relation": "director", "schema": "public", "select": ["*~"],
+				"where": ["=", ["col", "name"], ["$param", "name", "text"]]
 			}
 		}`,
 	})
@@ -286,7 +286,7 @@ func TestDecodeGETQuery_WellKnownArrayParamValue(t *testing.T) {
 
 func TestRelHandler_WellKnown_GET_RejectsData(t *testing.T) {
 	handler := newWellKnownRelHandler(t, map[string]string{
-		"q.json": `{"name": "no_get_write", "query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}}`,
+		"q.json": `{"name": "no_get_write", "query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}}`,
 	})
 	rec := getRelTo(t, handler, "wellknown=no_get_write&data.name=Nope")
 	if rec.Code != http.StatusBadRequest {

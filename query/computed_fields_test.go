@@ -30,8 +30,8 @@ func TestCompileSelect_ComputedFieldBareIdentifier(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"name": "name", "display": "director_display_name"},
-		"where": ["=", "name", ["Bare Name Director"]]
+		"select": {"name": ["col", "name"], "display": [".", "director_display_name"]},
+		"where": ["=", ["col", "name"], "Bare Name Director"]
 	}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
@@ -53,8 +53,8 @@ func TestCompileSelect_ComputedFieldInWhere(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"name": "name"},
-		"where": ["=", "director_display_name", ["Where Clause Director (director)"]]
+		"select": {"name": ["col", "name"]},
+		"where": ["=", [".", "director_display_name"], "Where Clause Director (director)"]
 	}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
@@ -82,8 +82,8 @@ func TestCompileSelect_DotChainIntoChildComputedField(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "movie", "schema": "public",
-		"select": {"title": "title", "director_display": [".", "director", "director_display_name"]},
-		"where": ["=", "id", %d],
+		"select": {"title": ["col", "title"], "director_display": [".", [".", "director"], "director_display_name"]},
+		"where": ["=", ["col", "id"], %d],
 		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}
 	}`, movieID))
 	sql, args := mustCompileSelect(t, node)
@@ -99,7 +99,7 @@ func TestCompileSelect_DotChainIntoChildComputedField(t *testing.T) {
 
 // own/full must never auto-include a computed field.
 func TestResolveQuery_FullNeverIncludesComputedField(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["full"]}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*"]}`)
 	if _, ok := node.Shape.Fields["director_display_name"]; ok {
 		t.Errorf("expected \"full\" to never auto-include the director_display_name computed field, but it did")
 	}
@@ -108,7 +108,7 @@ func TestResolveQuery_FullNeverIncludesComputedField(t *testing.T) {
 // Excepting a computed field's name from own/full is an error — it was
 // never included in the first place, so there's nothing to except.
 func TestResolveQuery_OwnExceptComputedFieldIsError(t *testing.T) {
-	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": ["own_except", ["director_display_name"]]}`)
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": ["*~", ["director_display_name"]]}`)
 	if err == nil {
 		t.Fatalf("expected an error excepting a computed field's name from own_except, got none")
 	}
@@ -119,7 +119,7 @@ func TestResolveQuery_OwnExceptComputedFieldIsError(t *testing.T) {
 func TestResolveQuery_ComputedFieldNeverBreaksWritability(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "display": "director_display_name"}
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "display": [".", "director_display_name"]}
 	}`)
 	if node.Shape == nil || !node.Shape.Writable {
 		t.Fatalf("expected the node to remain writable (id present and clean) despite the computed field, got %+v", node.Shape)
@@ -135,7 +135,7 @@ func TestResolveQuery_ComputedFieldVsJoinAliasIsAmbiguous(t *testing.T) {
 	// computed field to trigger the ambiguity.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"x": "director_display_name"},
+		"select": {"x": ["col", "director_display_name"]},
 		"join": {"director_display_name": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
 	}`)
 	if err == nil {

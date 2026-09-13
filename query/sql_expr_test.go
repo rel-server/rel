@@ -9,8 +9,8 @@ import (
 // codegen: shares the positional $N sequence with literal Binds, casts to Cast.
 func TestCompileSelect_ParamExprReservesNamedPlaceholder(t *testing.T) {
 	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public", "select": ["own"],
-		"where": ["=", "name", ["$param", "director_name", "text"]]
+		"relation": "director", "schema": "public", "select": ["*~"],
+		"where": ["=", ["col", "name"], ["$param", "director_name", "text"]]
 	}`)
 
 	w, err := CompileSelect(node)
@@ -39,8 +39,8 @@ func TestCompileSelect_ParamExprReservesNamedPlaceholder(t *testing.T) {
 // to jsonb (specs/well-known-queries.md ## Definition).
 func TestCompileSelect_ParamExprDefaultsToJsonbCast(t *testing.T) {
 	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public", "select": ["own"],
-		"where": ["=", "name", ["$param", "director_name"]]
+		"relation": "director", "schema": "public", "select": ["*~"],
+		"where": ["=", ["col", "name"], ["$param", "director_name"]]
 	}`)
 
 	w, err := CompileSelect(node)

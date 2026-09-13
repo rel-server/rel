@@ -88,7 +88,7 @@ func TestCompileSelect_BareOwn(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "where": ["=", "name", ["Denis Villeneuve"]]}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], "Denis Villeneuve"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -108,14 +108,7 @@ func TestCompileSelect_ComputedColumnSelfAlias(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public", "alias": "d",
-		"select": {
-			"name": "name",
-			"display": ["call", {"schema": "public", "name": "director_display_name"}, "d"]
-		},
-		"where": ["=", "name", ["Self Alias Director"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "alias": "d", "select": {"name": ["col", "name"], "display": ["call", {"schema": "public", "name": "director_display_name"}, [".", "d"]]}, "where": ["=", ["col", "name"], "Self Alias Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -140,12 +133,7 @@ func TestCompileSelect_EmbeddedChildAlias_ToOneChild(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "movie", "schema": "public", "alias": "m",
-		"select": {"x": ["coalesce", "director", null]},
-		"where": ["=", "id", %d],
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}
-	}`, movieID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "movie", "schema": "public", "alias": "m", "select": {"x": ["coalesce", [".", "director"], null]}, "where": ["=", ["col", "id"], %d], "join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}}`, movieID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -173,12 +161,7 @@ func TestCompileSelect_EmbeddedChildAlias_NullTarget(t *testing.T) {
 		t.Fatalf("insert director: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": {"x": ["coalesce", "studio", null]},
-		"where": ["=", "id", %d],
-		"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"x": ["coalesce", [".", "studio"], null]}, "where": ["=", ["col", "id"], %d], "join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -193,11 +176,7 @@ func TestCompileSelect_EmbeddedChildAlias_NullTarget(t *testing.T) {
 // TestCompileSelect_EmbeddedChildAlias_ToManyChild_Rejected proves a
 // to-many child's bare alias is still rejected — no single row to name.
 func TestCompileSelect_EmbeddedChildAlias_ToManyChild_Rejected(t *testing.T) {
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"x": ["coalesce", "movies", null]},
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"x": ["coalesce", [".", "movies"], null]}, "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}}`)
 	_, err := CompileSelect(node)
 	if err == nil {
 		t.Fatal("expected embedding a to-many child's alias as a bare value to fail to compile")
@@ -215,11 +194,7 @@ func TestCompileSelect_Cast(t *testing.T) {
 
 	// ["::", "id", "text"] : the type name must NOT be scope-resolved as a
 	// column — pass 2 leaves BinaryCast's Right alone (sql_expr.go's castTypeName).
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"id_text": ["::", "id", "text"]},
-		"where": ["=", "name", ["Cast Director"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"id_text": ["::", ["col", "id"], "text"]}, "where": ["=", ["col", "name"], "Cast Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -231,11 +206,7 @@ func TestCompileSelect_Cast(t *testing.T) {
 
 	// castTypeName's other branch : a quoted type name arrives as a
 	// StringLiteral, not a bare Identifier.
-	node2 := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"tags": ["::", ["arr", ["a"], ["b"]], ["text[]"]]},
-		"where": ["=", "name", ["Cast Director"]]
-	}`)
+	node2 := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"tags": ["::", ["arr", "a", "b"], "text[]"]}, "where": ["=", ["col", "name"], "Cast Director"]}`)
 	sql2, args2 := mustCompileSelect(t, node2)
 	rows2 := runSelect(t, sql2, args2)
 	if len(rows2) != 1 {
@@ -276,11 +247,7 @@ func TestCompileSelect_BigIntLiteral_BoundAsParam(t *testing.T) {
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('BigInt Literal Director')`); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"n": ["::", ["bigint", "123456789012345"], "text"]},
-		"where": ["=", "name", ["BigInt Literal Director"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"n": ["::", ["bigint", "123456789012345"], "text"]}, "where": ["=", ["col", "name"], "BigInt Literal Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	if !strings.Contains(sql, "::bigint") {
 		t.Errorf("expected a ::bigint cast in the compiled SQL, got: %s", sql)
@@ -311,11 +278,7 @@ func TestCompileSelect_NumericLiteral_BoundAsParam(t *testing.T) {
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Numeric Literal Director')`); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"n": ["numeric", "42.5"]},
-		"where": ["=", "name", ["Numeric Literal Director"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"n": ["numeric", "42.5"]}, "where": ["=", ["col", "name"], "Numeric Literal Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	if !strings.Contains(sql, "::numeric") {
 		t.Errorf("expected a ::numeric cast in the compiled SQL, got: %s", sql)
@@ -335,10 +298,7 @@ func TestCompileSelect_NumericLiteral_BoundAsParam(t *testing.T) {
 func TestCompileSelect_Cast_MultiWordTypeName(t *testing.T) {
 	// Multi-word type names ("character varying") must still compile —
 	// validCastTypeName distinguishes these from injected SQL, not rejects them.
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"n": ["::", "name", "character varying"]}
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"n": ["::", ["col", "name"], "character varying"]}}`)
 	sql, args := mustCompileSelect(t, node)
 	if !strings.Contains(sql, "::character varying") {
 		t.Fatalf("expected ::character varying in generated SQL, got: %s", sql)
@@ -350,10 +310,7 @@ func TestCompileSelect_Cast_MultiWordTypeName(t *testing.T) {
 func TestCompileSelect_Cast_RejectsInjectedTypeName(t *testing.T) {
 	// castTypeName's Right is never scope-resolved and is written straight
 	// after "::" — must be validated here, an unvalidated string is a raw injection point.
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"x": ["::", "id", "text) or (1=1"]}
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"x": ["::", ["col", "id"], "text) or (1=1"]}}`)
 	_, err := CompileSelect(node)
 	if err == nil {
 		t.Fatalf("expected CompileSelect to reject an invalid cast type name, got success")
@@ -368,7 +325,7 @@ func TestCompileCount_IgnoresLimit(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "where": ["like", "name", ["Count Director%"]], "limit": 1}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["like", ["col", "name"], "Count Director%"], "limit": 1}`)
 
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
@@ -403,12 +360,7 @@ func TestCompileCount_WhereReferencingJoin(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": ["own"],
-		"where": ["and", ["like", "name", ["Count Join Director%"]], [">", ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]], 0]],
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["and", ["like", ["col", "name"], "Count Join Director%"], [">", ["agg", {"schema": "pg_catalog", "name": "count"}, [[".", "movies"]]], 0]], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}}`)
 
 	cw, err := CompileCount(node)
 	if err != nil {
@@ -430,12 +382,7 @@ func TestCompileSelect_ToManyEmbed(t *testing.T) {
 		t.Fatalf("insert movies: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "movies": "movies"},
-		"where": ["=", "id", %d],
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": "title"}}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}}}}`, directorID))
 
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
@@ -457,7 +404,7 @@ func TestCompileSelect_RootScalarSelect(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": "name", "where": ["=", "name", ["Scalar Root Director"]]}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["col", "name"], "where": ["=", ["col", "name"], "Scalar Root Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelectScalar(t, sql, args)
 
@@ -477,7 +424,7 @@ func TestCompileSelect_RootScalarSelect_Expression(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["format", "%s!", "name"], "where": ["=", "name", ["Expr Root Director"]]}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["format", "%s!", ["col", "name"]], "where": ["=", ["col", "name"], "Expr Root Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelectScalar(t, sql, args)
 
@@ -502,12 +449,7 @@ func TestCompileSelect_ToOneEmbedScalarSelect(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "movie", "schema": "public",
-		"select": {"title": "title", "director": "director"},
-		"where": ["=", "id", %d],
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": "name"}}
-	}`, movieID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "movie", "schema": "public", "select": {"title": ["col", "title"], "director": [".", "director"]}, "where": ["=", ["col", "id"], %d], "join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["col", "name"]}}}`, movieID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -531,12 +473,7 @@ func TestCompileSelect_ToManyEmbedScalarSelect(t *testing.T) {
 		t.Fatalf("insert movies: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": {"name": "name", "movies": "movies"},
-		"where": ["=", "id", %d],
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": "title", "order_by": ["title"]}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"name": ["col", "name"], "movies": [".", "movies"]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["col", "title"], "order_by": [["col", "title"]]}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -563,12 +500,7 @@ func TestCompileSelect_ToOneEmbed(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "movie", "schema": "public",
-		"select": {"id": "id", "title": "title", "director": "director"},
-		"where": ["=", "id", %d],
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": {"name": "name"}}}
-	}`, movieID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "movie", "schema": "public", "select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]}, "where": ["=", ["col", "id"], %d], "join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": {"name": ["col", "name"]}}}}`, movieID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -594,12 +526,7 @@ func TestCompileSelect_ScalarHopThroughOutgoing(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "movie", "schema": "public",
-		"select": ["own_and", {"director_name": [".", "director", "name"]}],
-		"where": ["=", "id", %d],
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}
-	}`, movieID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "movie", "schema": "public", "select": ["*~", {"director_name": [".", [".", "director"], "name"]}], "where": ["=", ["col", "id"], %d], "join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}}`, movieID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -626,12 +553,7 @@ func TestCompileSelect_ScalarHopThroughOutgoing_NullTarget(t *testing.T) {
 		t.Fatalf("insert director: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": ["own_and", {"studio_name": [".", "studio", "name"]}],
-		"where": ["=", "id", %d],
-		"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": ["*~", {"studio_name": [".", [".", "studio"], "name"]}], "where": ["=", ["col", "id"], %d], "join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -660,14 +582,7 @@ func TestCompileSelect_ScalarHopThroughTwoOutgoingLevels(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "movie", "schema": "public",
-		"select": ["own_and", {"studio_name": [".", [".", "director", "studio"], "name"]}],
-		"where": ["=", "id", %d],
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"},
-			"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}
-		}}
-	}`, movieID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "movie", "schema": "public", "select": ["*~", {"studio_name": [".", [".", [".", "director"], "studio"], "name"]}], "where": ["=", ["col", "id"], %d], "join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}}}}}}`, movieID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -692,12 +607,7 @@ func TestCompileSelect_ScalarHopAlongsideFullEmbed(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "movie", "schema": "public",
-		"select": ["own_and", {"director": "director", "director_name": [".", "director", "name"]}],
-		"where": ["=", "id", %d],
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
-	}`, movieID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "movie", "schema": "public", "select": ["*~", {"director": [".", "director"], "director_name": [".", [".", "director"], "name"]}], "where": ["=", ["col", "id"], %d], "join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}}`, movieID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -716,11 +626,7 @@ func TestCompileSelect_ScalarHopAlongsideFullEmbed(t *testing.T) {
 // TestCompileSelect_ScalarHopThroughIncoming_Rejected proves a "." hop
 // into a to-many child resolves fine but is rejected as a scalar select value at SQL-compile time.
 func TestCompileSelect_ScalarHopThroughIncoming_Rejected(t *testing.T) {
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": ["own_and", {"a_title": [".", "movies", "title"]}],
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~", {"a_title": [".", [".", "movies"], "title"]}], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}}`)
 	_, err := CompileSelect(node)
 	if err == nil {
 		t.Fatal("expected a compile error for a scalar hop through a to-many relation")
@@ -736,11 +642,7 @@ func TestCompileSelect_CompositePath(t *testing.T) {
 		t.Fatalf("insert venue: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{
-		"relation": "venue", "schema": "public",
-		"select": {"id": "id", "city": [".", "home", "city"]},
-		"where": ["=", "name", ["Venue Composite"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "select": {"id": ["col", "id"], "city": [".", ["col", "home"], "city"]}, "where": ["=", ["col", "name"], "Venue Composite"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -762,12 +664,7 @@ func TestCompileSelect_AggSingleConsumer_NoLateral(t *testing.T) {
 		t.Fatalf("insert movies: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": ["own_and", {"movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]]}],
-		"where": ["=", "id", %d],
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": ["*~", {"movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, [[".", "movies"]]]}], "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	if containsLateral(sql) {
 		t.Errorf("expected no LATERAL join for a single agg consumer, got:\n%s", sql)
@@ -795,12 +692,7 @@ func TestCompileSelect_LateralSharedChild(t *testing.T) {
 
 	// "movies" is consumed twice (embedded array + "agg") — the dual-
 	// consumption case that forces LATERAL (## Reading Algorithm step 5).
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": {"id": "id", "movies": "movies", "movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]]},
-		"where": ["=", "id", %d],
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": "title"}}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "movies": [".", "movies"], "movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, [[".", "movies"]]]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	if !containsLateral(sql) {
 		t.Fatalf("expected a LATERAL join for a dual-consumed child, got:\n%s", sql)
@@ -832,12 +724,7 @@ func TestCompileSelect_LateralSharedChild_ScalarSelect(t *testing.T) {
 		t.Fatalf("insert movies: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": {"id": "id", "movies": "movies", "movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, ["movies"]]},
-		"where": ["=", "id", %d],
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": "title", "order_by": ["title"]}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "movies": [".", "movies"], "movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, [[".", "movies"]]]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["col", "title"], "order_by": [["col", "title"]]}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	if !containsLateral(sql) {
 		t.Fatalf("expected a LATERAL join for a dual-consumed child, got:\n%s", sql)
@@ -926,10 +813,7 @@ func TestCompileSelect_SingleRowCompositeFunctionRoot_Join(t *testing.T) {
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"function": "fn_one_director", "schema": "public", "arguments": [%d],
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"function": "fn_one_director", "schema": "public", "arguments": [%d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	if !strings.Contains(sql, `"public"."movie"`) {
 		t.Fatalf("expected compiled SQL to reference the joined movie table, got: %s", sql)
@@ -965,8 +849,8 @@ func TestCompileSelect_RecordRelationFunctionRoot(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"function": "movie_counts_by_director", "schema": "public",
-		"select": {"director_id": "director_id", "count": "movie_count"},
-		"where": ["=", "director_id", `+fmt.Sprint(directorID)+`]
+		"select": {"director_id": ["col", "director_id"], "count": ["col", "movie_count"]},
+		"where": ["=", ["col", "director_id"], `+fmt.Sprint(directorID)+`]
 	}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
@@ -977,7 +861,7 @@ func TestCompileSelect_RecordRelationFunctionRoot(t *testing.T) {
 		t.Errorf("expected count=2, got %#v", got)
 	}
 
-	ownNode := mustResolveQuery(t, `{"function": "movie_counts_by_director", "schema": "public", "select": ["own"], "where": ["=", "director_id", `+fmt.Sprint(directorID)+`]}`)
+	ownNode := mustResolveQuery(t, `{"function": "movie_counts_by_director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "director_id"], `+fmt.Sprint(directorID)+`]}`)
 	ownSQL, ownArgs := mustCompileSelect(t, ownNode)
 	ownRows := runSelect(t, ownSQL, ownArgs)
 	if len(ownRows) != 1 || fmt.Sprint(ownRows[0]["movie_count"]) != "2" {
@@ -988,11 +872,7 @@ func TestCompileSelect_RecordRelationFunctionRoot(t *testing.T) {
 // TestCompileSelect_RecordRelationCannotBeJoinChild proves a RETURNS TABLE
 // function can never be the joined-into side (unindexable) — fails at resolution, not later.
 func TestCompileSelect_RecordRelationCannotBeJoinChild(t *testing.T) {
-	err := resolveQueryExpectError(t, `{
-		"relation": "director", "schema": "public",
-		"select": ["own"],
-		"join": {"counts": {"function": "movie_counts_by_director", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
-	}`)
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": ["*~"], "join": {"counts": {"function": "movie_counts_by_director", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}}`)
 	if err == nil {
 		t.Fatalf("expected joining INTO a RETURNS TABLE function to fail (unindexable child side)")
 	}
@@ -1012,9 +892,9 @@ func TestCompileSelect_RecordRelationAsOutgoingJoinParent(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"function": "movie_counts_by_director", "schema": "public",
-		"select": {"count": "movie_count", "d": "d"},
-		"where": ["=", "director_id", `+fmt.Sprint(directorID)+`],
-		"join": {"d": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+		"select": {"count": ["col", "movie_count"], "d": [".", "d"]},
+		"where": ["=", ["col", "director_id"], `+fmt.Sprint(directorID)+`],
+		"join": {"d": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}
 	}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
@@ -1034,7 +914,7 @@ func TestCompileSelect_RecordRelationAsOutgoingJoinParent(t *testing.T) {
 // against a RETURNS TABLE root is rejected before any DML is generated.
 func TestExecuteWrite_RecordRelationRootIsCleanlyRejected(t *testing.T) {
 	conn := acquireWriteConn(t)
-	node := mustResolveQuery(t, `{"function": "movie_counts_by_director", "schema": "public", "select": ["own"]}`)
+	node := mustResolveQuery(t, `{"function": "movie_counts_by_director", "schema": "public", "select": ["*~"]}`)
 	_, err := ExecuteWrite(context.Background(), conn, node, []byte(`[{"director_id": 1, "movie_count": 5}]`))
 	if err == nil {
 		t.Fatalf("expected a write against a RETURNS TABLE function root to be rejected")
@@ -1052,11 +932,7 @@ func TestCompileSelect_Between(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": ["own_except", []],
-		"where": ["between", %d, "id", %d]
-	}`, directorID, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["between", %d, ["col", "id"], %d]}`, directorID, directorID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -1071,11 +947,7 @@ func TestCompileSelect_InLiteralAndExpr(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": ["own_except", []],
-		"where": ["in", "name", "In Test Director", "Someone Else"]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["in", ["col", "name"], "In Test Director", "Someone Else"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -1090,11 +962,7 @@ func TestCompileSelect_AnyAll(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": ["own_except", []],
-		"where": ["any", "=", "id", ["arr", %d, -1]]
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["any", "=", ["col", "id"], ["arr", %d, -1]]}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -1108,11 +976,7 @@ func TestCompileSelect_JsonbArrow(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{
-		"relation": "venue", "schema": "public",
-		"select": {"id": "id", "rating": ["->>", "metadata", ["rating"]]},
-		"where": ["=", "name", ["Jsonb Venue"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "select": {"id": ["col", "id"], "rating": ["->>", ["col", "metadata"], "rating"]}, "where": ["=", ["col", "name"], "Jsonb Venue"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -1129,11 +993,7 @@ func TestCompileSelect_CoalesceOperators(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"n": ["??", "name", ["fallback"]], "c": ["||?", "name", "name"]},
-		"where": ["=", "name", ["Coalesce Director"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"n": ["??", ["col", "name"], "fallback"], "c": ["||?", ["col", "name"], ["col", "name"]]}, "where": ["=", ["col", "name"], "Coalesce Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -1155,11 +1015,7 @@ func TestCompileSelect_NestedObjectLiteral(t *testing.T) {
 
 	// jsonb_build_object's bound keys need the same untyped-$1 inference
 	// fix ARRAY[$1,...] needed (subjectPgType) — must run against real Postgres.
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"info": {"n": "name"}},
-		"where": ["=", "name", ["Nested Object Director"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"info": {"n": ["col", "name"]}}, "where": ["=", ["col", "name"], "Nested Object Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -1179,11 +1035,7 @@ func TestCompileSelect_NestedShapeAsValue(t *testing.T) {
 
 	// own_except as a nested VALUE exercises compileShapeAsJsonObject, a
 	// separate codepath from compileNode's plain-column select list.
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"id": "id", "basic": ["own_except", ["id"]]},
-		"where": ["=", "name", ["Nested Shape Director"]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "basic": ["*~", ["id"]]}, "where": ["=", ["col", "name"], "Nested Shape Director"]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -1206,11 +1058,7 @@ func TestCompileSelect_UnaryOperators(t *testing.T) {
 
 	// "not" (prefix) and "is_not_null" (postfix) exercise both templates
 	// in compileUnary's per-operator table — untested until now.
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": ["own_except", []],
-		"where": ["and", ["is_not_null", "name"], ["not", ["=", "name", ["Someone Else"]]]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["and", ["is_not_null", ["col", "name"]], ["not", ["=", ["col", "name"], "Someone Else"]]]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	found := false
@@ -1233,11 +1081,7 @@ func TestCompileSelect_NotInAndNotBetween(t *testing.T) {
 
 	// Negate (not_in/not_between) : a wrong "not " placement is a syntax
 	// error at execution, not compile time — needs real Postgres.
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": ["own_except", []],
-		"where": ["and", ["not_in", "name", "Someone Else", "Nobody"], ["not_between", "id", -1, 0]]
-	}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["and", ["not_in", ["col", "name"], "Someone Else", "Nobody"], ["not_between", ["col", "id"], -1, 0]]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	found := false
@@ -1261,17 +1105,7 @@ func TestCompileSelect_EmbeddedOrderByLimitOffset(t *testing.T) {
 		t.Fatalf("insert movies: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": {"movies": "movies"},
-		"where": ["=", "id", %d],
-		"join": {"movies": {
-			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": {"title": "title"},
-			"order_by": ["title"],
-			"limit": 2
-		}}
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"movies": [".", "movies"]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}, "order_by": [["col", "title"]], "limit": 2}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 1 {
@@ -1303,12 +1137,7 @@ func TestCompileSelect_OrderByDescNullsLast(t *testing.T) {
 		t.Fatalf("insert director without studio: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": {"id": "id", "studio_id": "studio_id"},
-		"where": ["in", "id", %d, %d],
-		"order_by": [["desc", "studio_id"]]
-	}`, withStudioID, withoutStudioID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "studio_id": ["col", "studio_id"]}, "where": ["in", ["col", "id"], %d, %d], "order_by": [["desc", ["col", "studio_id"]]]}`, withStudioID, withoutStudioID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -1339,12 +1168,7 @@ func TestCompileSelect_OrderByAscNullsFirst(t *testing.T) {
 		t.Fatalf("insert director without studio: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "director", "schema": "public",
-		"select": {"id": "id", "studio_id": "studio_id"},
-		"where": ["in", "id", %d, %d],
-		"order_by": [["asc-nulls-first", "studio_id"]]
-	}`, withStudioID, withoutStudioID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "studio_id": ["col", "studio_id"]}, "where": ["in", ["col", "id"], %d, %d], "order_by": [["asc-nulls-first", ["col", "studio_id"]]]}`, withStudioID, withoutStudioID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 
@@ -1369,13 +1193,7 @@ func TestCompileSelect_DistinctOn(t *testing.T) {
 		t.Fatalf("insert movies: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "movie", "schema": "public",
-		"select": {"title": "title"},
-		"where": ["=", "director_id", %d],
-		"distinct_on": ["title"],
-		"order_by": ["title"]
-	}`, directorID))
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "movie", "schema": "public", "select": {"title": ["col", "title"]}, "where": ["=", ["col", "director_id"], %d], "distinct_on": [["col", "title"]], "order_by": [["col", "title"]]}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	if len(rows) != 2 {

@@ -58,10 +58,7 @@ func parseNode(n *ast.Node) (Expression, error) {
 		if err != nil {
 			return nil, fmt.Errorf("query: invalid string expression: %w", err)
 		}
-		if s == "*" {
-			return Star{}, nil
-		}
-		return &Identifier{Name: s}, nil
+		return StringLiteral{Value: s}, nil
 
 	case ast.V_OBJECT:
 		fields, err := parseObjectFields(n)
@@ -134,17 +131,9 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return nil, fmt.Errorf("query: empty array is not a valid expression")
 	}
 
-	// [string] : the one tag-less array form, tried first. Excludes
-	// "own"/"full" — the only zero-argument tags, else unreachable.
-	if len(items) == 1 {
-		if s, err := items[0].StrictString(); err == nil && s != "own" && s != "full" {
-			return StringLiteral{Value: s}, nil
-		}
-	}
-
 	tag, err := items[0].StrictString()
 	if err != nil {
-		return nil, fmt.Errorf("query: expression array must start with a string tag, or contain exactly one string (a literal): %w", err)
+		return nil, fmt.Errorf("query: expression array must start with a string tag: %w", err)
 	}
 	// Word-form synonyms (specs/query-json.md) normalize to their canonical
 	// tag here, before anything downstream sees it — see OperatorWords.
@@ -185,18 +174,9 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		if err != nil {
 			return nil, err
 		}
-		candidates := make([]InCandidate, 0, len(rest)-1)
-		for i := range rest[1:] {
-			c := &rest[1+i]
-			if s, err := c.StrictString(); err == nil {
-				candidates = append(candidates, InCandidate{IsLiteral: true, Literal: s})
-				continue
-			}
-			expr, err := parseNode(c)
-			if err != nil {
-				return nil, err
-			}
-			candidates = append(candidates, InCandidate{Expr: expr})
+		candidates, err := parseExpressionList(rest[1:])
+		if err != nil {
+			return nil, err
 		}
 		return InExpr{Negate: tag == "not_in", Subject: subject, Candidates: candidates}, nil
 
@@ -300,47 +280,43 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		}
 		return &CallExpr{Identifier: ident, Arguments: args}, nil
 
-	case "own":
-		return OwnExpr{}, nil
-	case "full":
-		return FullExpr{}, nil
+	case ".":
+		// Unlike every other position, a "." hop name is always a bare name,
+		// never a general Expression — otherwise it'd parse as a
+		// StringLiteral like any other bare string now does. Left-associative
+		// fold, same shape foldExpression would produce, but Right is always
+		// an *Identifier (see resolveHopInto/compileFolded).
+		if len(rest) < 1 {
+			return nil, fmt.Errorf("query: %q needs at least 1 operand, got %d", tag, len(rest))
+		}
+		if len(rest) == 1 {
+			// The degenerate one-hop case, with no preceding base to fold
+			// onto : just resolve this name against the current scope. This
+			// is query.ts's general-purpose "reference anything in scope"
+			// building block — a column, alias, joined/embedded field, or an
+			// earlier key in the same select/and-map — as opposed to "col",
+			// which is narrower (a real physical column only).
+			name, err := rest[0].StrictString()
+			if err != nil {
+				return nil, fmt.Errorf("query: %q hop name must be a bare string: %w", tag, err)
+			}
+			return &Identifier{Name: name}, nil
+		}
+		result, err := parseNode(&rest[0])
+		if err != nil {
+			return nil, err
+		}
+		for i := range rest[1:] {
+			name, err := rest[1+i].StrictString()
+			if err != nil {
+				return nil, fmt.Errorf("query: %q hop name must be a bare string: %w", tag, err)
+			}
+			result = FoldedExpr{Op: FoldDot, Left: result, Right: &Identifier{Name: name}}
+		}
+		return result, nil
 
-	case "own_except", "full_except":
-		except, err := parseStringListArg(tag, rest)
-		if err != nil {
-			return nil, err
-		}
-		if tag == "own_except" {
-			return OwnExceptExpr{Except: except}, nil
-		}
-		return FullExceptExpr{Except: except}, nil
-
-	case "own_and", "full_and":
-		and, err := parseExpressionObjectArg(tag, rest)
-		if err != nil {
-			return nil, err
-		}
-		if tag == "own_and" {
-			return OwnAndExpr{And: and}, nil
-		}
-		return FullAndExpr{And: and}, nil
-
-	case "own_except_and", "full_except_and":
-		if len(rest) != 2 {
-			return nil, fmt.Errorf("query: %q needs exactly [except, and]", tag)
-		}
-		except, err := parseStringListValue(&rest[0])
-		if err != nil {
-			return nil, err
-		}
-		and, err := parseObjectFields(&rest[1])
-		if err != nil {
-			return nil, err
-		}
-		if tag == "own_except_and" {
-			return OwnExceptAndExpr{Except: except, And: and}, nil
-		}
-		return FullExceptAndExpr{Except: except, And: and}, nil
+	case "*", "*~":
+		return parseStarTag(tag == "*~", rest)
 
 	case "arr", "array":
 		items, err := parseExpressionList(rest)
@@ -388,8 +364,8 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		}
 		return SliceExpr{Array: arr, From: from, To: to}, nil
 
-	case "get-set":
-		return parseGetSet(rest)
+	case "col":
+		return parseCol(rest)
 	case "get", "set":
 		return parseGetOrSet(tag, rest)
 
@@ -474,13 +450,13 @@ func parseDefaultPosition(n *ast.Node) (Expression, error) {
 	return parseNode(n)
 }
 
-func parseGetSet(rest []ast.Node) (Expression, error) {
+func parseCol(rest []ast.Node) (Expression, error) {
 	if len(rest) < 1 || len(rest) > 3 {
-		return nil, fmt.Errorf("query: %q needs [column, default_get?, default_set?]", "get-set")
+		return nil, fmt.Errorf("query: %q needs [column, default_get?, default_set?]", "col")
 	}
 	column, err := rest[0].StrictString()
 	if err != nil {
-		return nil, fmt.Errorf("query: get-set column must be a string: %w", err)
+		return nil, fmt.Errorf("query: col column must be a string: %w", err)
 	}
 	var defaultGet, defaultSet Expression
 	if len(rest) >= 2 {
@@ -495,7 +471,7 @@ func parseGetSet(rest []ast.Node) (Expression, error) {
 			return nil, err
 		}
 	}
-	return &GetSetExpr{Column: column, DefaultGet: defaultGet, DefaultSet: defaultSet}, nil
+	return &ColExpr{Column: column, DefaultGet: defaultGet, DefaultSet: defaultSet}, nil
 }
 
 func parseGetOrSet(tag string, rest []ast.Node) (Expression, error) {
@@ -549,13 +525,6 @@ func parseStringListValue(n *ast.Node) ([]string, error) {
 	return out, nil
 }
 
-func parseStringListArg(tag string, rest []ast.Node) ([]string, error) {
-	if len(rest) != 1 {
-		return nil, fmt.Errorf("query: %q needs exactly one array argument, got %d", tag, len(rest))
-	}
-	return parseStringListValue(&rest[0])
-}
-
 func parseObjectFields(n *ast.Node) (map[string]Expression, error) {
 	raw, err := n.MapUseNode()
 	if err != nil {
@@ -572,11 +541,45 @@ func parseObjectFields(n *ast.Node) (map[string]Expression, error) {
 	return out, nil
 }
 
-func parseExpressionObjectArg(tag string, rest []ast.Node) (map[string]Expression, error) {
-	if len(rest) != 1 {
-		return nil, fmt.Errorf("query: %q needs exactly one object argument, got %d", tag, len(rest))
+// parseStarTag parses "*"/"*~"'s trailing arguments : an except []string
+// array and/or an and map[string]Expression object, each optional and
+// dispatched by JSON type rather than position (so ["*", and] and
+// ["*", except, and] are both valid, but two arrays or two objects aren't).
+func parseStarTag(own bool, rest []ast.Node) (Expression, error) {
+	tagName := "*"
+	if own {
+		tagName = "*~"
 	}
-	return parseObjectFields(&rest[0])
+	if len(rest) > 2 {
+		return nil, fmt.Errorf("query: %q takes at most an except array and an and object, got %d trailing arguments", tagName, len(rest))
+	}
+	var except []string
+	var and map[string]Expression
+	for i := range rest {
+		switch rest[i].TypeSafe() {
+		case ast.V_ARRAY:
+			if except != nil {
+				return nil, fmt.Errorf("query: %q given two except arrays", tagName)
+			}
+			e, err := parseStringListValue(&rest[i])
+			if err != nil {
+				return nil, err
+			}
+			except = e
+		case ast.V_OBJECT:
+			if and != nil {
+				return nil, fmt.Errorf("query: %q given two and objects", tagName)
+			}
+			a, err := parseObjectFields(&rest[i])
+			if err != nil {
+				return nil, err
+			}
+			and = a
+		default:
+			return nil, fmt.Errorf("query: %q's trailing arguments must each be an except array or an and object", tagName)
+		}
+	}
+	return StarExpr{Own: own, Except: except, And: and}, nil
 }
 
 // parseFunctionRef parses AggExpr/CallExpr's identifier : a bare string

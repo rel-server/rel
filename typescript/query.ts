@@ -343,12 +343,9 @@ export type Expression<K extends string = string> =
   | true
   | false
   | number
-  | "*" // select all fields of the current relation + aliases
-  /** strings always refer to aliases and column names, since they are much more likely to appear than actual strings */
-  | K
-  /** A string literal, as a one-element array. Exception : ["own"]/["full"] always dispatch to those tags below,
-  so the literal strings "own"/"full" cannot currently be expressed this way. */
-  | [string]
+  /** A bare string is always a literal string value — never a column/alias reference.
+  To reference a column, use ["col", name] (or the read-only/write-only ["get", ...] / ["set", ...]). */
+  | string
   | [UnaryOperator, Expression<K>]
   | [BinaryOperator, left: Expression<K>, right: Expression<K>]
   | ["between", min: Expression<K>, exp: Expression<K>, max: Expression<K>]
@@ -357,11 +354,16 @@ export type Expression<K extends string = string> =
   // explicit bigint support for queries. in responses, the user can choose to have another parser than JSON.parse _if_ they absolutely need bigints
   | ["bigint", value: string]
   | ["numeric", value: string] // for really big numbers
-  | [FoldedOperator, ...Expression<K>[]]
-
-  // avoid having to create ["arr", ...] for the contained expression
-  // here is an exception : candidates literal strings are here treated as literal strings and not columns. Column comparison should be performed by other operators
-  | ["in" | "not_in", subject: Expression<K>, ...canditates: (string | Expression<K>)[]]
+  /** "."/"dot" is the one operator whose hop names are always bare names (K), never a nested Expression — a
+  bare string elsewhere means a literal now, so this needs its own tuple form rather than the generic one below.
+  A single hop with no base — ["." | "dot", "name"] — resolves `name` directly against the current scope: a real
+  column, an alias, a joined/embedded field, or an earlier computed key. This is the generic "reference this
+  name" building block bare strings used to provide — unlike ["col", ...], it is not restricted to real columns.
+  With 2+ operands, the first is a base Expression and each further hop drills into it field by field. */
+  | ["." | "dot", name: K]
+  | ["." | "dot", base: Expression<K>, hop: K, ...hops: K[]]
+  | [Exclude<FoldedOperator, "." | "dot">, ...Expression<K>[]]
+  | ["in" | "not_in", subject: Expression<K>, ...canditates: Expression<K>[]]
   | [
       "any" | "all",
       op: FoldedOperator | BinaryOperator,
@@ -387,14 +389,14 @@ export type Expression<K extends string = string> =
   // Expressions that produce objects
   /* an inline object that will become an object expression */
   | { [name: string]: Expression<K> }
-  | ["own"] // all columns of the current relation ; takes precedence over the [string] literal form above
-  | ["full"] // "own" plus the joined rels ; select's default value ; also takes precedence over [string]
-  /* Same as own/full, minus the `except` columns */
-  | ["own_except" | "full_except", except: K[]]
-  /* Same as own/full, plus computed `and` columns */
-  | ["own_and" | "full_and", and: { [name: string]: Expression<K> }]
-  /* Same as own/full, minus `except` plus computed `and` ; `and` may reintroduce an omitted key, but not shadow one implicitly (error) */
-  | ["own_except_and" | "full_except_and", except: K[], and: { [name: string]: Expression<K> }]
+  /** "*" = full (own columns + joined rels ; select's default value). "*~" = own (this relation's columns only).
+  Each optionally takes an `except` array of column names to drop and/or an `and` object of computed columns to
+  add/override, dispatched by shape (array vs object) rather than by position — `and` may reintroduce an
+  omitted key, but not shadow a real, non-omitted one implicitly (error). */
+  | ["*" | "*~"]
+  | ["*" | "*~", except: K[]]
+  | ["*" | "*~", and: { [name: string]: Expression<K> }]
+  | ["*" | "*~", except: K[], and: { [name: string]: Expression<K> }]
   | ["arr" | "array", ...Expression[]] // may need to be behind a flag ?
   | ["index", array: Expression, index: Expression] // 1-indexed, just like PG
   | ["slice", array: Expression, from: Expression, to: Expression] // 1-indexed, just like PG
@@ -402,7 +404,7 @@ export type Expression<K extends string = string> =
 
   // More granular field selection.
   // The default expression may be the "default" keyword if the column has a default value
-  | ["get-set", column: K, default_get?: Expression, default_set?: Expression] // this is to set default values instead of null in read or write
+  | ["col", column: K, default_get?: Expression, default_set?: Expression] // this is to set default values instead of null in read or write
   | ["get", column: K, default_value?: Expression] // this column will not be looked for / modified in write mode
   | ["set", column: K, default_value?: Expression] // this column is not fetched in query mode, but is expected there in write mode.
   | ["$param", name: string, cast?: string] // for use with well known queries

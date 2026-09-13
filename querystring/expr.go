@@ -41,14 +41,33 @@ func newExprParser(s string) *exprParser { return &exprParser{s: s} }
 // querystringOnlyKeywords are call identifiers with no query.OperatorWords
 // entry that still need special dispatch, not a plain function call.
 var querystringOnlyKeywords = map[string]string{
-	"bigint":          "bigint",
-	"numeric":         "numeric",
-	"own_except":      "own_except",
-	"full_except":     "full_except",
-	"own_and":         "own_and",
-	"full_and":        "full_and",
-	"own_except_and":  "own_except_and",
-	"full_except_and": "full_except_and",
+	"bigint":  "bigint",
+	"numeric": "numeric",
+}
+
+// parseTopValue parses one genuine value position — where, a select/order_by/
+// distinct_on comma-list entry — as opposed to parseExpr, which parseArgList
+// also uses for a call argument that might still turn out to be agg/call's
+// own function-identifier argument (see identArg). A quoted 'string' is
+// already a final literal ; an unquoted identifier atom (column, alias, or
+// computed field — never a literal anymore, see query.ts's flip) must
+// become its [".", name] scope-lookup form (the arity-1 case of the dot
+// operator — see query/expression_parse.go). true/false/null and calls are
+// already something else by the time parseExpr returns them, so a raw Go
+// string coming back always means "identifier, not yet decided" here.
+func (p *exprParser) parseTopValue() (any, error) {
+	p.skipSpace()
+	if p.i < len(p.s) && p.s[p.i] == '\'' {
+		return p.parseStringLiteral()
+	}
+	v, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	if s, ok := v.(string); ok {
+		return []any{".", s}, nil
+	}
+	return v, nil
 }
 
 func (p *exprParser) skipSpace() {
@@ -155,11 +174,15 @@ func (p *exprParser) parseExpr() (any, error) {
 	c := p.s[p.i]
 	switch {
 	case c == '\'':
+		// Unreachable from a genuine value position (parseTopValue) or a
+		// call argument (parseArgList) — both intercept a quote before ever
+		// calling parseExpr. Kept as a defensive fallback : the bare literal
+		// content is already query.ts's own final compiled form for a string.
 		lit, err := p.parseStringLiteral()
 		if err != nil {
 			return nil, err
 		}
-		return []any{lit}, nil
+		return lit, nil
 
 	case c == '-' || isDigit(c):
 		// Unambiguous : an identifier never starts with '-' or a digit.
@@ -217,21 +240,15 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 	}
 
 	switch canonical {
-	case "own", "full", "own_except", "full_except", "own_and", "full_and", "own_except_and", "full_except_and":
-		return nil, oops.Errorf("%q is only valid as select='s entire value, not inside another expression", ident)
-
 	case "any", "all":
 		if len(args) != 3 {
 			return nil, oops.Errorf("%q needs exactly 3 operands (operator, subject, array), got %d", ident, len(args))
 		}
-		opArg, ok := args[0].(plainArg)
+		opArg, ok := args[0].(identArg)
 		if !ok {
 			return nil, oops.Errorf("%q's operator must be a bare operator word, not a quoted string", ident)
 		}
-		opStr, ok := opArg.v.(string)
-		if !ok {
-			return nil, oops.Errorf("%q's operator must be a bare operator word", ident)
-		}
+		opStr := string(opArg)
 		if opCanonical, ok := query.OperatorWords[opStr]; ok {
 			opStr = opCanonical
 		}
@@ -253,19 +270,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 		}
 		out := []any{canonical, args[0].value()}
 		for _, a := range args[1:] {
-			lit, ok := a.(literalString)
-			if !ok {
-				// Only a bare, unquoted identifier candidate is rejected —
-				// it decoded to "column reference", which the spec disallows here.
-				if pa, isPlain := a.(plainArg); isPlain {
-					if s, isIdent := pa.v.(string); isIdent {
-						return nil, oops.Errorf("%q candidate %q must be a quoted literal, not a bare identifier", ident, s)
-					}
-				}
-				out = append(out, a.value())
-				continue
-			}
-			out = append(out, string(lit))
+			out = append(out, a.value())
 		}
 		return out, nil
 
@@ -339,18 +344,28 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 	}
 }
 
-// literalString marks an argument written as a quoted literal — otherwise
-// indistinguishable from a bare identifier once both compile to a Go string.
+// literalString marks an argument written as a quoted literal — already
+// query.ts's own final compiled form for a string value (a bare JSON
+// string), unlike identArg below.
 type literalString string
 
 // callArg is one already-parsed call argument, keeping whether it was a
 // quoted literal alongside its compiled query.ts JSON value.
 type callArg interface{ value() any }
 
-func (s literalString) value() any { return []any{string(s)} }
+func (s literalString) value() any { return string(s) }
 
-// plainArg wraps an ordinary compiled value (identifier, call-result,
-// number, bool, null) — value() is just the value itself.
+// identArg marks an argument written as a bare, unquoted identifier — an
+// as-yet-undecided atom : most positions compile it as a [".", name]
+// scope-lookup (value()), but agg/call's own function-identifier argument
+// needs the raw name instead (functionRefFromArg reads it directly, never
+// through value()).
+type identArg string
+
+func (a identArg) value() any { return []any{".", string(a)} }
+
+// plainArg wraps an ordinary already-compiled value (a call result, number,
+// bool, or null) — value() is just the value itself.
 type plainArg struct{ v any }
 
 func (a plainArg) value() any { return a.v }
@@ -378,7 +393,11 @@ func (p *exprParser) parseArgList() ([]callArg, error) {
 			if err != nil {
 				return nil, err
 			}
-			arg = plainArg{v}
+			if s, ok := v.(string); ok {
+				arg = identArg(s)
+			} else {
+				arg = plainArg{v}
+			}
 		}
 		out = append(out, arg)
 		p.skipSpace()
@@ -401,15 +420,11 @@ func (p *exprParser) parseArgList() ([]callArg, error) {
 // functionRefFromArg compiles agg/call's own first argument into query.ts's
 // FunctionIdentifier — see functionRefFromName.
 func functionRefFromArg(a callArg) (any, error) {
-	pa, ok := a.(plainArg)
+	ia, ok := a.(identArg)
 	if !ok {
 		return nil, oops.Errorf("must be a function identifier (schema.name or name), not a quoted string")
 	}
-	name, ok := pa.v.(string)
-	if !ok {
-		return nil, oops.Errorf("must be a function identifier (schema.name or name)")
-	}
-	return functionRefFromName(name)
+	return functionRefFromName(string(ia))
 }
 
 // functionRefFromName compiles a bare (possibly dotted) identifier into
@@ -424,7 +439,7 @@ func functionRefFromName(name string) (any, error) {
 // parseFullExpr parses s as exactly one expr, erroring on trailing input.
 func parseFullExpr(s string) (any, error) {
 	p := newExprParser(s)
-	v, err := p.parseExpr()
+	v, err := p.parseTopValue()
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +458,7 @@ func parseTopLevelExprList(s string) ([]any, error) {
 	}
 	var out []any
 	for {
-		v, err := p.parseExpr()
+		v, err := p.parseTopValue()
 		if err != nil {
 			return nil, err
 		}

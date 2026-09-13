@@ -29,7 +29,7 @@ func TestWriteError_LogsServerErrorInFull(t *testing.T) {
 	handler := NewRelHandler(testDb, cfg, nil)
 
 	rec := postRelWithCookie(t, handler, `{
-		"relation": "secret_notes", "schema": "public", "select": ["own"]
+		"relation": "secret_notes", "schema": "public", "select": ["*~"]
 	}`, nil)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())

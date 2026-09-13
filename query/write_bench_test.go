@@ -69,7 +69,7 @@ func bMustResolveQuery(b *testing.B, src string) *QueryNode {
 func BenchmarkExecuteWrite_FlatInsert(b *testing.B) {
 	conn := acquireWriteConnB(b)
 	ctx := context.Background()
-	node := bMustResolveQuery(b, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := bMustResolveQuery(b, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -88,9 +88,9 @@ func BenchmarkExecuteWrite_OneOutgoingChild(b *testing.B) {
 	ctx := context.Background()
 	node := bMustResolveQuery(b, `{
 		"relation": "movie", "schema": "public",
-		"select": {"id": "id", "title": "title", "director": "director"},
+		"select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]},
 		"write_mode": "insert",
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}
 	}`)
 
 	b.ResetTimer()
@@ -111,12 +111,12 @@ func BenchmarkExecuteWrite_DeepOutgoingChain(b *testing.B) {
 	ctx := context.Background()
 	node := bMustResolveQuery(b, `{
 		"relation": "movie", "schema": "public",
-		"select": {"id": "id", "title": "title", "director": "director"},
+		"select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]},
 		"write_mode": "insert",
 		"join": {"director": {
 			"relation": "director", "schema": "public", "on": {"id": "director_id"},
-			"select": {"id": "id", "name": "name", "studio": "studio"},
-			"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}, "select": ["own"]}}
+			"select": {"id": ["col", "id"], "name": ["col", "name"], "studio": [".", "studio"]},
+			"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}, "select": ["*~"]}}
 		}}
 	}`)
 
@@ -138,11 +138,11 @@ func BenchmarkExecuteWrite_WideOutgoingFanout(b *testing.B) {
 	ctx := context.Background()
 	node := bMustResolveQuery(b, `{
 		"relation": "order_t", "schema": "public",
-		"select": {"id": "id", "customer": "customer", "billing_customer": "billing_customer"},
+		"select": {"id": ["col", "id"], "customer": [".", "customer"], "billing_customer": [".", "billing_customer"]},
 		"write_mode": "insert",
 		"join": {
-			"customer": {"relation": "customer", "schema": "public", "on": {"id": "customer_id"}, "select": ["own"]},
-			"billing_customer": {"relation": "customer", "schema": "public", "on": {"id": "billing_customer_id"}, "select": ["own"]}
+			"customer": {"relation": "customer", "schema": "public", "on": {"id": "customer_id"}, "select": ["*~"]},
+			"billing_customer": {"relation": "customer", "schema": "public", "on": {"id": "billing_customer_id"}, "select": ["*~"]}
 		}
 	}`)
 
@@ -166,9 +166,9 @@ func BenchmarkExecuteWrite_BatchSize(b *testing.B) {
 			ctx := context.Background()
 			node := bMustResolveQuery(b, `{
 				"relation": "movie", "schema": "public",
-				"select": {"id": "id", "title": "title", "director": "director"},
+				"select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]},
 				"write_mode": "insert",
-				"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+				"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}
 			}`)
 
 			b.ResetTimer()
@@ -210,11 +210,11 @@ func BenchmarkExecuteWrite_MixedOutgoingIncoming(b *testing.B) {
 	ctx := context.Background()
 	node := bMustResolveQuery(b, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "studio": "studio", "movies": "movies"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "studio": [".", "studio"], "movies": [".", "movies"]},
 		"write_mode": "insert",
 		"join": {
-			"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}, "select": ["own"]},
-			"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}
+			"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}, "select": ["*~"]},
+			"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}
 		}
 	}`)
 

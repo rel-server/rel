@@ -105,7 +105,7 @@ func TestStaticJet_RelReadsRows(t *testing.T) {
 
 	dir := t.TempDir()
 	writeStaticJetFile(t, dir, "rows.json.jet",
-		`{{ range _, row := rel(map("relation", "stream_upload_log", "schema", "public", "select", slice("own"))) }}marker={{ row.upload.marker }};{{ end }}`)
+		`{{ range _, row := rel(map("relation", "stream_upload_log", "schema", "public", "select", slice("*~"))) }}marker={{ row.upload.marker }};{{ end }}`)
 	handler, _ := newStaticJetHandler(t, dir, "")
 
 	rec := httptest.NewRecorder()

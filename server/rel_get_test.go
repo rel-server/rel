@@ -73,7 +73,7 @@ func TestRelHandler_GET_OwnExceptAndWithLiteralSemicolon(t *testing.T) {
 
 	rec := getRel(t, "relation=director&schema=public"+
 		"&where=eq(name,'Semicolon%20Director')"+
-		"&select=own_except_and(id;%20label:name)")
+		"&select=*~(id;%20label:name)")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
 	}
@@ -82,7 +82,7 @@ func TestRelHandler_GET_OwnExceptAndWithLiteralSemicolon(t *testing.T) {
 		t.Fatalf("expected 1 row, got %v", rows)
 	}
 	if _, hasID := rows[0]["id"]; hasID {
-		t.Errorf("expected \"id\" to be excluded by own_except_and, got %v", rows[0])
+		t.Errorf("expected \"id\" to be excluded by *~'s except-list, got %v", rows[0])
 	}
 	if rows[0]["name"] != "Semicolon Director" || rows[0]["label"] != "Semicolon Director" {
 		t.Errorf("expected own's \"name\" plus the and-map's computed \"label\", got %v", rows[0])

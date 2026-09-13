@@ -20,20 +20,20 @@ conditions:
     "room_types": { "relation": "room_types", "schema": "hotel", "on": { "property_id": "id" } }
   },
   "select": {
-    "name": "name",
-    "room_type_count": ["agg", "count", [[".", "room_types", "id"]]],
+    "name": ["col", "name"],
+    "room_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]]],
     "budget_type_count": [
-      "agg", "count", [[".", "room_types", "id"]],
-      ["<", [".", "room_types", "base_price"], 150]
+      "agg", "count", [[".", [".", "room_types"], "id"]],
+      ["<", [".", [".", "room_types"], "base_price"], 150]
     ]
   }
 }
 ```
 
-> **Why:** `[".", "room_types", "id"]` — not the bare string `"room_types.id"` — because a joined
-> alias's column is always reached through the `.` operator (see [Operators
-> reference](operators.md)), never a dotted identifier string; there's no bare-string
-> "alias.column" form in the JSON query grammar.
+> **Why:** `[".", [".", "room_types"], "id"]` — not the bare string `"room_types.id"`, and not
+> `["col", "room_types", "id"]` — because a joined alias is resolved from scope with `.` (`room_types`
+> isn't a real column, so `col` won't reach it), then hopped into with another `.`; there's no
+> bare-string "alias.column" form in the JSON query grammar.
 
 ## Filtering which rows get aggregated
 

@@ -303,7 +303,7 @@ func TestE2E_TemplateRendering_RelAvailable(t *testing.T) {
 	}
 
 	templatesDir := t.TempDir()
-	tmpl := `{{ range _, row := rel(map("relation", "stream_upload_log", "schema", "public", "select", slice("own"))) }}marker={{ row.upload.marker }};{{ end }}`
+	tmpl := `{{ range _, row := rel(map("relation", "stream_upload_log", "schema", "public", "select", slice("*~"))) }}marker={{ row.upload.marker }};{{ end }}`
 	if err := os.WriteFile(filepath.Join(templatesDir, "greet.jet"), []byte(tmpl), 0o644); err != nil {
 		t.Fatalf("writing greet.jet: %v", err)
 	}

@@ -13,7 +13,7 @@ import { bytesAccessor, moneyAccessor, pointAccessor, timestampTzAccessor } from
 
 const properties = relation("hotel.properties", {
   select: {
-    col: "created_at",
+    col: ["col", "created_at"],
     test: ["$param", "toto", "string"],
   },
   join: {
@@ -21,7 +21,7 @@ const properties = relation("hotel.properties", {
     // Relationships["hotel.properties"] is the properties -> rooms (one-to-many) entry — only one variant, so
     // there's only one valid shortcut to pick here.
     rooms: join("hotel.properties", "hotel.rooms*id:property_id", {
-      select: ["full"],
+      select: ["*"],
     }),
   },
 })
@@ -50,10 +50,10 @@ const rooms = relation("hotel.rooms", {
     // needs the explicit shortcut to pick between them ; this is exactly the case ## Schema interfaces' old
     // `> Question:` block was about.
     property: join("hotel.rooms", "hotel.properties>id:property_id", {
-      select: ["own"],
+      select: ["*~"],
     }),
     room_type: join("hotel.rooms", "hotel.room_types>id:room_type_id", {
-      select: ["own"],
+      select: ["*~"],
     }),
   },
 })
@@ -65,12 +65,12 @@ export type RoomsShape = Awaited<ReturnType<typeof rooms.get>>
 // Nested two levels deep (properties -> rooms -> room_type) to exercise TargetRelationName's recursive scoping.
 const propertiesScoped = relation("hotel.properties", (join) => ({
   select: {
-    col: "created_at",
+    col: ["col", "created_at"],
     test: ["$param", "toto", "string"],
   },
   join: {
     rooms: join("hotel.rooms*id:property_id", (join) => ({
-      select: ["full"],
+      select: ["*"],
       join: {
         room_type: join("hotel.room_types>id:room_type_id"),
       },
@@ -86,7 +86,7 @@ const propertiesBare = relation("hotel.properties")
 export type PropertiesBareShape = Awaited<ReturnType<typeof propertiesBare.get>>
 
 const roomsAvailable = func("hotel.rooms_available", {
-  select: ["full"],
+  select: ["*"],
 })
 
 export type RoomsAvailableShape = Awaited<ReturnType<typeof roomsAvailable.get>>
@@ -99,7 +99,7 @@ const roomsAvailableParameterized = func("hotel.rooms_available", {
     property_id: ["$param", "property_id", "number"],
     on_date: ["$param", "on_date", "date"],
   },
-  select: ["full"],
+  select: ["*"],
 })
 
 export type _AssertFuncArgumentsExposesParam = Expect<
@@ -121,7 +121,7 @@ void func("hotel.property_count", { arguments: { foo: 1 } })
 // `Parameters<...>` picks its last (single-arg) overload, giving WriteShape directly without a separate import.
 const propertyAudit = relation("hotel.properties", {
   select: {
-    id: "id",
+    id: ["col", "id"],
     audit_only: ["set", "chain_id"],
     display_only: ["get", "star_rating"],
   },
@@ -211,9 +211,9 @@ export type _AssertOverloadResolutionNeverLeaksRawArray = Expect<
 // both exercised, since the whole point of the bare form is NOT having to spell out {schema,name} every time.
 const propertyWithComputed = relation("hotel.properties", {
   select: {
-    id: "id",
-    avg_bare: ["call", "property_average_rating", "id"],
-    avg_qualified: ["call", { schema: "hotel", name: "property_average_rating" }, "id"],
+    id: ["col", "id"],
+    avg_bare: ["call", "property_average_rating", [".", "id"]],
+    avg_qualified: ["call", { schema: "hotel", name: "property_average_rating" }, [".", "id"]],
   },
 })
 
@@ -252,7 +252,7 @@ export type _AssertZeroArgFunctionArgsRejectsArbitraryKeys = Expect<
 // "id" is neither nullable nor required (a serial/identity column in a real deployment), so it must be OPTIONAL
 // in the write shape rather than mandatory the way tsgen used to render every physical column, verbatim.
 const roomTypeWrite = relation("hotel.room_types", {
-  select: ["own"],
+  select: ["*~"],
 })
 
 // [number] : same root-array unwrap as PropertyReadShape/PropertyWriteShape above.
@@ -272,7 +272,7 @@ export type _AssertNonRequiredColumnIsOptional = Expect<IsOptionalKey<RoomTypeWr
 // each entry's own VALUE ("name") back to the physical column RequiredColumns names, independent of the KEY
 // ("renamed_name") it's filed under, so the rename doesn't accidentally demote it to optional.
 const roomTypeWriteAliased = relation("hotel.room_types", {
-  select: { renamed_name: "name", base_price: "base_price" },
+  select: { renamed_name: ["col", "name"], base_price: ["col", "base_price"] },
 })
 
 // [number] : same root-array unwrap as PropertyReadShape/PropertyWriteShape above.
@@ -543,7 +543,7 @@ void assertAccessorIsWritable
 
 // docs/content/typescript/index.md ### Building a new row : `rooms` joins "property"/"room_type" outgoing (">", to-one) —
 // create() must seed both as a single nested row, not `[]`, and that nested row's own shape must already match
-// its relation's WriteShape (own columns only, per `select: ["own"]` on both joins).
+// its relation's WriteShape (own columns only, per `select: ["*~"]` on both joins).
 const createdRoom = rooms.create()
 
 export type _AssertCreateNestedToOneIsObject = Expect<
@@ -552,7 +552,7 @@ export type _AssertCreateNestedToOneIsObject = Expect<
 export type _AssertCreateNestedToOneHasOwnColumn = Expect<HasKey<typeof createdRoom.property, "id">>
 
 // `propertyWithNestedProto` joins "rooms" incoming-and-multiple ("*", to-many) — create() must seed it as `[]`.
-// (Unlike `properties`, its select defaults to "full" rather than an expression map that omits "rooms".)
+// (Unlike `properties`, its select defaults to "*" rather than an expression map that omits "rooms".)
 const createdProperty = propertyWithNestedProto.create()
 
 export type _AssertCreateNestedToManyIsArray = Expect<

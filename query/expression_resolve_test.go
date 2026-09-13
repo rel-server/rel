@@ -61,19 +61,19 @@ func resolveQueryExpectError(t *testing.T, src string) error {
 }
 
 func TestResolveExpressions_BareColumn(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": "name"}`)
-	id, ok := node.Where.(*Identifier)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["col", "name"]}`)
+	col, ok := node.Where.(*ColExpr)
 	if !ok {
-		t.Fatalf("expected *Identifier, got %#v", node.Where)
+		t.Fatalf("expected *ColExpr, got %#v", node.Where)
 	}
-	cp, ok := id.Resolved.(ColumnPath)
+	cp, ok := col.Resolved.(ColumnPath)
 	if !ok || len(cp.Path) != 1 || cp.Path[0].Name != "name" {
-		t.Fatalf("expected ColumnPath{name}, got %#v", id.Resolved)
+		t.Fatalf("expected ColumnPath{name}, got %#v", col.Resolved)
 	}
 }
 
 func TestResolveExpressions_SelfAlias(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "alias": "d", "where": [".", "d", "name"]}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "alias": "d", "where": [".", [".", "d"], "name"]}`)
 	folded, ok := node.Where.(FoldedExpr)
 	if !ok || folded.Op != FoldDot {
 		t.Fatalf("expected FoldedExpr(.), got %#v", node.Where)
@@ -93,7 +93,7 @@ func TestResolveExpressions_ChildAliasHop(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}},
-		"where": [".", "movies", "title"]
+		"where": [".", [".", "movies"], "title"]
 	}`)
 	folded := node.Where.(FoldedExpr)
 	id := folded.Right.(*Identifier)
@@ -104,7 +104,7 @@ func TestResolveExpressions_ChildAliasHop(t *testing.T) {
 }
 
 func TestResolveExpressions_CompositeChain(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "where": [".", "home", "city"]}`)
+	node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "where": [".", ["col", "home"], "city"]}`)
 	folded := node.Where.(FoldedExpr)
 	id := folded.Right.(*Identifier)
 	cp, ok := id.Resolved.(ColumnPath)
@@ -117,12 +117,12 @@ func TestResolveExpressions_CompositeCollision(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "venue",
 		"schema": "public",
-		"select": {"a": [".", "home", "city"], "b": [".", "work", "city"], "c": "home"}
+		"select": {"a": [".", ["col", "home"], "city"], "b": [".", ["col", "work"], "city"], "c": ["col", "home"]}
 	}`)
 	obj := node.Select.(ObjectExpr)
 	homeCity := obj.Fields["a"].(FoldedExpr).Right.(*Identifier).Resolved.(ColumnPath)
 	workCity := obj.Fields["b"].(FoldedExpr).Right.(*Identifier).Resolved.(ColumnPath)
-	homeAlone := obj.Fields["c"].(*Identifier).Resolved.(ColumnPath)
+	homeAlone := obj.Fields["c"].(*ColExpr).Resolved.(ColumnPath)
 
 	if homeCity.Key() == workCity.Key() {
 		t.Errorf("home.city and work.city must not collide, both keyed %q", homeCity.Key())
@@ -138,14 +138,14 @@ func TestResolveExpressions_CompositeCollision(t *testing.T) {
 }
 
 func TestResolveExpressions_ChainPastScalar(t *testing.T) {
-	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "where": [".", "name", "x"]}`)
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "where": [".", ["col", "name"], "x"]}`)
 	if err == nil {
 		t.Fatalf("expected chaining past a non-composite column to be rejected")
 	}
 }
 
 func TestResolveExpressions_UnresolvableIdentifier(t *testing.T) {
-	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "where": "no_such_column"}`)
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "where": ["col", "no_such_column"]}`)
 	if err == nil {
 		t.Fatalf("expected an unresolvable identifier to be rejected")
 	}
@@ -158,7 +158,7 @@ func TestResolveExpressions_NameCollision(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"join": {"name": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}},
-		"where": "name"
+		"where": ["col", "name"]
 	}`)
 	if err == nil {
 		t.Fatalf("expected a column/alias name collision to be rejected")
@@ -168,12 +168,12 @@ func TestResolveExpressions_NameCollision(t *testing.T) {
 func TestResolveExpressions_JsonArrowNotScopeResolved(t *testing.T) {
 	// "nonexistent_key" is not a column of venue, but -> never scope-resolves
 	// its right side, so this must succeed.
-	node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "where": ["->", "metadata", ["nonexistent_key"]]}`)
+	node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "where": ["->", ["col", "metadata"], "nonexistent_key"]}`)
 	folded := node.Where.(FoldedExpr)
 	if folded.Op != FoldJsonGet {
 		t.Fatalf("expected FoldJsonGet, got %v", folded.Op)
 	}
-	left := folded.Left.(*Identifier)
+	left := folded.Left.(*ColExpr)
 	if _, ok := left.Resolved.(ColumnPath); !ok {
 		t.Fatalf("expected Left (metadata) to resolve normally, got %#v", left.Resolved)
 	}
@@ -184,7 +184,7 @@ func TestResolveExpressions_JsonArrowNotScopeResolved(t *testing.T) {
 }
 
 func TestResolveExpressions_CallAndAgg(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"x": ["call", {"schema": "public", "name": "fn_overload"}, "id"]}}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"x": ["call", {"schema": "public", "name": "fn_overload"}, ["col", "id"]]}}`)
 	obj := node.Select.(ObjectExpr)
 	call, ok := obj.Fields["x"].(*CallExpr)
 	if !ok || call.ResolvedFunction == nil || call.ResolvedFunction.PgNargs != 1 {
@@ -208,22 +208,26 @@ func TestResolveExpressions_CallAmbiguous(t *testing.T) {
 
 func TestResolveExpressions_AggRequiresAggregateKind(t *testing.T) {
 	// fn_overload is a plain function, not an aggregate ; "agg" must reject it.
-	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": {"x": ["agg", {"schema": "public", "name": "fn_overload"}, ["id"]]}}`)
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": {"x": ["agg", {"schema": "public", "name": "fn_overload"}, [["col", "id"]]]}}`)
 	if err == nil {
 		t.Fatalf("expected \"agg\" to reject a non-aggregate function")
 	}
 }
 
-func TestResolveExpressions_GetSetColumn(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"x": ["get-set", "name"]}}`)
+func TestResolveExpressions_ColColumn(t *testing.T) {
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"x": ["col", "name"]}}`)
 	obj := node.Select.(ObjectExpr)
-	gs, ok := obj.Fields["x"].(*GetSetExpr)
-	if !ok || gs.ResolvedColumn == nil || gs.ResolvedColumn.Name != "name" {
-		t.Fatalf("expected GetSetExpr resolved to column name, got %#v", obj.Fields["x"])
+	col, ok := obj.Fields["x"].(*ColExpr)
+	if !ok {
+		t.Fatalf("expected ColExpr, got %#v", obj.Fields["x"])
+	}
+	cp, ok := col.Resolved.(ColumnPath)
+	if !ok || cp.Path[0].Name != "name" {
+		t.Fatalf("expected ColExpr resolved to column name, got %#v", obj.Fields["x"])
 	}
 }
 
-func TestResolveExpressions_GetSetUnknownColumn(t *testing.T) {
+func TestResolveExpressions_ColUnknownColumn(t *testing.T) {
 	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": {"x": ["set", "no_such_column"]}}`)
 	if err == nil {
 		t.Fatalf("expected an unknown set column to be rejected")
@@ -231,7 +235,7 @@ func TestResolveExpressions_GetSetUnknownColumn(t *testing.T) {
 }
 
 func TestResolveExpressions_ExceptValidation(t *testing.T) {
-	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": ["full_except", ["no_such_column"]]}`)
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": ["*", ["no_such_column"]]}`)
 	if err == nil {
 		t.Fatalf("expected an unknown except column to be rejected")
 	}
@@ -244,7 +248,7 @@ func TestDeriveShapes_Writability(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"id": "id", "n1": "name", "n2": ["coalesce", "name", ["x"]]}
+		"select": {"id": ["col", "id"], "n1": ["col", "name"], "n2": ["coalesce", ["col", "name"], "x"]}
 	}`)
 	idKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["id"]}}).Key()
 	nameKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["name"]}}).Key()
@@ -271,7 +275,7 @@ func TestDeriveShapes_CoalesceWrappedIsWritable(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"name": ["coalesce", "name", ["unknown"]]}
+		"select": {"name": ["coalesce", ["col", "name"], "unknown"]}
 	}`)
 	nameKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["name"]}}).Key()
 	found := false
@@ -293,7 +297,7 @@ func TestDeriveShapes_OtherwiseWrappedIsNotWritable(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"n": ["format", "%s!", "name"]}
+		"select": {"n": ["format", "%s!", ["col", "name"]]}
 	}`)
 	nameKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["name"]}}).Key()
 	for _, ex := range node.Shape.Extractors {
@@ -310,7 +314,7 @@ func TestDeriveShapes_SetSharesOccurrenceBucketWithBare(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"n1": "name", "n2": ["set", "name"]}
+		"select": {"n1": ["col", "name"], "n2": ["set", "name"]}
 	}`)
 	nameKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["name"]}}).Key()
 	for _, ex := range node.Shape.Extractors {
@@ -337,7 +341,7 @@ func TestDeriveShapes_GetExcludedFromWritability(t *testing.T) {
 }
 
 func TestDeriveShapes_DefaultFullSelectWritable(t *testing.T) {
-	// No "select" at all -> defaults to FullExpr{} (pass 1) -> every own
+	// No "select" at all -> defaults to StarExpr{} (pass 1) -> every own
 	// column should come out as a clean, single occurrence.
 	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "write_mode": "update"}`)
 	idKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["id"]}}).Key()
@@ -362,7 +366,7 @@ func TestDeriveShapes_RelationRequiresIdentityWritable(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"write_mode": "update",
-		"select": ["own_except", ["id"]]
+		"select": ["*~", ["id"]]
 	}`)
 	if node.Shape.Writable {
 		t.Errorf("expected the relation to be unwritable when its PK is excluded from select")
@@ -390,7 +394,7 @@ func TestDeriveShapes_TreeLevelReadOnlyPropagation(t *testing.T) {
 			"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
 				"write_mode": "update",
-				"select": ["own_except", ["id"]]
+				"select": ["*~", ["id"]]
 			}
 		}
 	}`)
@@ -411,7 +415,7 @@ func TestDeriveShapes_ExplicitReadonlyChildDoesNotPropagate(t *testing.T) {
 			"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
 				"write_mode": "readonly",
-				"select": ["own_except", ["id"]]
+				"select": ["*~", ["id"]]
 			}
 		}
 	}`)
@@ -423,7 +427,7 @@ func TestDeriveShapes_ExplicitReadonlyChildDoesNotPropagate(t *testing.T) {
 func TestResolveExpressions_DomainWrappedComposite(t *testing.T) {
 	// Regression for the domain-unwrap fix : composite navigation through a
 	// domain-typed composite FIELD (not just a top-level column) must still work.
-	node := mustResolveQuery(t, `{"relation": "depot", "schema": "public", "where": [".", [".", "location", "addr"], "city"]}`)
+	node := mustResolveQuery(t, `{"relation": "depot", "schema": "public", "where": [".", [".", ["col", "location"], "addr"], "city"]}`)
 	outer := node.Where.(FoldedExpr)
 	id := outer.Right.(*Identifier)
 	cp, ok := id.Resolved.(ColumnPath)
@@ -435,7 +439,7 @@ func TestResolveExpressions_DomainWrappedComposite(t *testing.T) {
 func TestResolveExpressions_ArrayIndexThenDot(t *testing.T) {
 	// ["index", "addresses", 1] lands with ElementType set ; the ".city" hop
 	// appends to Path using it, landing on Path=[addresses, city].
-	node := mustResolveQuery(t, `{"relation": "warehouse", "schema": "public", "where": [".", ["index", "addresses", 1], "city"]}`)
+	node := mustResolveQuery(t, `{"relation": "warehouse", "schema": "public", "where": [".", ["index", ["col", "addresses"], 1], "city"]}`)
 	outer := node.Where.(FoldedExpr)
 	id := outer.Right.(*Identifier)
 	cp, ok := id.Resolved.(ColumnPath)
@@ -445,7 +449,7 @@ func TestResolveExpressions_ArrayIndexThenDot(t *testing.T) {
 }
 
 func TestResolveExpressions_IndexIntoNonArray_Error(t *testing.T) {
-	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "where": [".", ["index", "name", 1], "x"]}`)
+	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "where": [".", ["index", ["col", "name"], 1], "x"]}`)
 	if err == nil {
 		t.Fatalf("expected indexing a non-array column to be rejected")
 	}
@@ -457,9 +461,9 @@ func TestResolveExpressions_ComputedKeyHop(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own_and", {"t": "title"}]
+			"select": ["*", {"t": ["col", "title"]}]
 		}},
-		"where": [".", "movies", "t"]
+		"where": [".", [".", "movies"], "t"]
 	}`)
 	folded := node.Where.(FoldedExpr)
 	id := folded.Right.(*Identifier)
@@ -475,9 +479,9 @@ func TestResolveExpressions_NestedObjectLiteralHop(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": {"info": {"t": "title"}}
+			"select": {"info": {"t": ["col", "title"]}}
 		}},
-		"where": [".", [".", "movies", "info"], "t"]
+		"where": [".", [".", [".", "movies"], "info"], "t"]
 	}`)
 	outer := node.Where.(FoldedExpr)
 	id := outer.Right.(*Identifier)
@@ -493,9 +497,9 @@ func TestResolveExpressions_OwnAndNestedInsideObjectLiteral(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": {"info": ["own_and", {"t": "title"}]}
+			"select": {"info": ["*", {"t": ["col", "title"]}]}
 		}},
-		"where": [".", [".", "movies", "info"], "t"]
+		"where": [".", [".", [".", "movies"], "info"], "t"]
 	}`)
 	outer := node.Where.(FoldedExpr)
 	id := outer.Right.(*Identifier)
@@ -511,9 +515,9 @@ func TestResolveExpressions_OwnAndNestedInsideObjectLiteral_BaseColumn(t *testin
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": {"info": ["own_and", {"t": "title"}]}
+			"select": {"info": ["*", {"t": ["col", "title"]}]}
 		}},
-		"where": [".", [".", "movies", "info"], "id"]
+		"where": [".", [".", [".", "movies"], "info"], "id"]
 	}`)
 	outer := node.Where.(FoldedExpr)
 	id := outer.Right.(*Identifier)
@@ -524,14 +528,14 @@ func TestResolveExpressions_OwnAndNestedInsideObjectLiteral_BaseColumn(t *testin
 }
 
 func TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn(t *testing.T) {
-	// query.ts's own_except_and comment : "and" MAY specify a key omitted via
-	// "except" — a legal override, not a build-time collision, since the base no longer has that column.
+	// "and" MAY specify a key omitted via the except array — a legal
+	// override, not a build-time collision, since the base no longer has that column.
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own_except_and", ["title"], {"title": "id"}]
+			"select": ["*~", ["title"], {"title": ["col", "id"]}]
 		}}
 	}`)
 	movies := node.IncomingNodes[0]
@@ -544,15 +548,15 @@ func TestResolveExpressions_ExceptAndKeyOverridesOmittedColumn(t *testing.T) {
 
 func TestResolveExpressions_AndKeyImplicitlyShadowsColumn_Error(t *testing.T) {
 	// query.ts : "merge_with cannot shadow keys implicitly" — a plain
-	// own_and colliding with a real, non-omitted column is rejected.
+	// and colliding with a real, non-omitted column is rejected.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own_except_and", ["director_id"], {"title": "id"}]
+			"select": ["*~", ["director_id"], {"title": ["col", "id"]}]
 		}},
-		"where": [".", "movies", "title"]
+		"where": [".", [".", "movies"], "title"]
 	}`)
 	if err == nil {
 		t.Fatalf("expected \"title\" (not omitted) colliding with the and key to be rejected as an implicit shadow")
@@ -566,7 +570,7 @@ func TestResolveExpressions_SelfHopInsideOwnSelect_Error(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"alias": "d",
-		"select": ["own_and", {"x": "name", "y": [".", "d", "x"]}]
+		"select": ["*", {"x": ["col", "name"], "y": [".", [".", "d"], "x"]}]
 	}`)
 	if err == nil {
 		t.Fatalf("expected a select hopping into one of its own node's computed keys via a self-alias to be rejected, not silently resolved or to hang")
@@ -580,8 +584,8 @@ func TestResolveExpressions_SelfHopFromWhereIntoOwnShape_Error(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"alias": "d",
-		"select": ["own_and", {"x": "name"}],
-		"where": [".", "d", "x"]
+		"select": ["*", {"x": ["col", "name"]}],
+		"where": [".", [".", "d"], "x"]
 	}`)
 	if err == nil {
 		t.Fatalf("expected where hopping into its own node's computed select key via a self-alias to be rejected")
@@ -589,16 +593,16 @@ func TestResolveExpressions_SelfHopFromWhereIntoOwnShape_Error(t *testing.T) {
 }
 
 func TestResolveExpressions_ExceptAndOverrideAmbiguousFromOutside_Error(t *testing.T) {
-	// The except-and override is legal to BUILD, but still unreferenceable
+	// The except+and override is legal to BUILD, but still unreferenceable
 	// from a PARENT's where/order_by — Scope sees the real "title" column regardless, genuinely ambiguous with the export value.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own_except_and", ["title"], {"title": "id"}]
+			"select": ["*~", ["title"], {"title": ["col", "id"]}]
 		}},
-		"where": [".", "movies", "title"]
+		"where": [".", [".", "movies"], "title"]
 	}`)
 	if err == nil {
 		t.Fatalf("expected hopping into \"movies.title\" (real column vs. overridden export key) to be rejected as ambiguous")
@@ -611,9 +615,9 @@ func TestResolveExpressions_ComputedKeyCollidesWithColumn_Error(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own_and", {"title": "id"}]
+			"select": ["*", {"title": ["col", "id"]}]
 		}},
-		"where": [".", "movies", "title"]
+		"where": [".", [".", "movies"], "title"]
 	}`)
 	if err == nil {
 		t.Fatalf("expected a computed key colliding with a real column name to be rejected as ambiguous")
@@ -626,9 +630,9 @@ func TestResolveExpressions_UnknownComputedKey_Error(t *testing.T) {
 		"schema": "public",
 		"join": {"movies": {
 			"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-			"select": ["own_and", {"t": "title"}]
+			"select": ["*", {"t": ["col", "title"]}]
 		}},
-		"where": [".", "movies", "no_such_key"]
+		"where": [".", [".", "movies"], "no_such_key"]
 	}`)
 	if err == nil {
 		t.Fatalf("expected an unknown key (neither a column, alias, nor computed key) to be rejected")
@@ -638,7 +642,7 @@ func TestResolveExpressions_UnknownComputedKey_Error(t *testing.T) {
 func TestResolveExpressions_ChainPastJsonOpaque_Error(t *testing.T) {
 	// "->" lands opaque (jsonb navigation, not "." semantics) : a further
 	// "." hop off it must be rejected, not silently chained off "metadata" itself.
-	err := resolveQueryExpectError(t, `{"relation": "venue", "schema": "public", "where": [".", ["->", "metadata", ["key"]], "x"]}`)
+	err := resolveQueryExpectError(t, `{"relation": "venue", "schema": "public", "where": [".", ["->", ["col", "metadata"], "key"], "x"]}`)
 	if err == nil {
 		t.Fatalf("expected chaining \".\" off a ->-opaque value to be rejected")
 	}
@@ -647,7 +651,7 @@ func TestResolveExpressions_ChainPastJsonOpaque_Error(t *testing.T) {
 func TestResolveExpressions_IndexOpaqueExpression_NoError(t *testing.T) {
 	// Indexing a non-ColumnPath (an inline "arr" literal) resolves fine to
 	// an opaque landing — only indexing a real, non-array COLUMN errors.
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["index", ["arr", "id", "id"], 1]}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["index", ["arr", ["col", "id"], ["col", "id"]], 1]}`)
 	idx, ok := node.Where.(IndexExpr)
 	if !ok {
 		t.Fatalf("expected IndexExpr, got %#v", node.Where)
@@ -657,7 +661,7 @@ func TestResolveExpressions_IndexOpaqueExpression_NoError(t *testing.T) {
 		t.Fatalf("expected the inline array's Items to still be resolved, got %#v", idx.Array)
 	}
 	for i, item := range arr.Items {
-		if _, ok := item.(*Identifier).Resolved.(ColumnPath); !ok {
+		if _, ok := item.(*ColExpr).Resolved.(ColumnPath); !ok {
 			t.Errorf("expected arr.Items[%d] to still resolve to a ColumnPath, got %#v", i, item)
 		}
 	}
@@ -665,12 +669,12 @@ func TestResolveExpressions_IndexOpaqueExpression_NoError(t *testing.T) {
 
 func TestResolveExpressions_FullAndKeyCollidesWithChildAlias_Error(t *testing.T) {
 	// buildShape's collision check must also catch an "and" key colliding
-	// with a CHILD ALIAS (only in "full"'s base) — ownFullBase folds aliases into the same base map a column occupies.
+	// with a CHILD ALIAS (only in full's base) — ownFullBase folds aliases into the same base map a column occupies.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director",
 		"schema": "public",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}},
-		"select": ["full_and", {"movies": "name"}]
+		"select": ["*", {"movies": ["col", "name"]}]
 	}`)
 	if err == nil {
 		t.Fatalf("expected an \"and\" key colliding with a child join alias (via full's base) to be rejected")
@@ -680,98 +684,100 @@ func TestResolveExpressions_FullAndKeyCollidesWithChildAlias_Error(t *testing.T)
 func TestResolveExpressions_BetweenSubExpressionsResolve(t *testing.T) {
 	// Min/Exp/Max are three distinct fields — three distinct queries, each
 	// with a bad identifier in exactly one position, to prove all three are actually threaded through.
-	if _, err := ParseAndResolve(t, `["between", "no_such_column", "id", "id"]`); err == nil {
+	if _, err := ParseAndResolve(t, `["between", ["col", "no_such_column"], ["col", "id"], ["col", "id"]]`); err == nil {
 		t.Fatalf("expected an unresolvable Min to be rejected")
 	}
-	if _, err := ParseAndResolve(t, `["between", "id", "no_such_column", "id"]`); err == nil {
+	if _, err := ParseAndResolve(t, `["between", ["col", "id"], ["col", "no_such_column"], ["col", "id"]]`); err == nil {
 		t.Fatalf("expected an unresolvable Exp to be rejected")
 	}
-	if _, err := ParseAndResolve(t, `["between", "id", "id", "no_such_column"]`); err == nil {
+	if _, err := ParseAndResolve(t, `["between", ["col", "id"], ["col", "id"], ["col", "no_such_column"]]`); err == nil {
 		t.Fatalf("expected an unresolvable Max to be rejected")
 	}
-	expr, err := ParseAndResolve(t, `["between", "id", "name", "id"]`)
+	expr, err := ParseAndResolve(t, `["between", ["col", "id"], ["col", "name"], ["col", "id"]]`)
 	if err != nil {
 		t.Fatalf("ParseAndResolve: %v", err)
 	}
 	b := expr.(BetweenExpr)
-	if _, ok := b.Min.(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := b.Min.(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected Min resolved, got %#v", b.Min)
 	}
-	if _, ok := b.Exp.(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := b.Exp.(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected Exp resolved, got %#v", b.Exp)
 	}
-	if _, ok := b.Max.(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := b.Max.(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected Max resolved, got %#v", b.Max)
 	}
 }
 
 func TestResolveExpressions_InCandidatesResolve(t *testing.T) {
-	// A bare JSON string candidate is ALWAYS a literal (query.ts's carve-out),
-	// never scope-resolved ; a non-literal one (wrapped in coalesce) DOES resolve, and an unresolvable one is rejected.
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["in", "id", "name", ["coalesce", "id"]]}`)
+	// A bare JSON string candidate is ALWAYS a literal now (the universal
+	// default), never scope-resolved ; a non-literal one (wrapped in
+	// coalesce) DOES resolve, and an unresolvable one is rejected.
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["in", ["col", "id"], "name", ["coalesce", ["col", "id"]]]}`)
 	in := node.Where.(InExpr)
-	if !in.Candidates[0].IsLiteral || in.Candidates[0].Literal != "name" {
+	lit, ok := in.Candidates[0].(StringLiteral)
+	if !ok || lit.Value != "name" {
 		t.Fatalf("expected candidate 0 to stay a literal \"name\", got %#v", in.Candidates[0])
 	}
-	coal, ok := in.Candidates[1].Expr.(CoalesceExpr)
+	coal, ok := in.Candidates[1].(CoalesceExpr)
 	if !ok {
-		t.Fatalf("expected candidate 1 to be a CoalesceExpr, got %#v", in.Candidates[1].Expr)
+		t.Fatalf("expected candidate 1 to be a CoalesceExpr, got %#v", in.Candidates[1])
 	}
-	if _, ok := coal.Args[0].(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := coal.Args[0].(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected candidate 1's inner identifier resolved, got %#v", coal.Args[0])
 	}
 
-	if _, err := ParseAndResolve(t, `["in", "id", ["coalesce", "no_such_column"]]`); err == nil {
+	if _, err := ParseAndResolve(t, `["in", ["col", "id"], ["coalesce", ["col", "no_such_column"]]]`); err == nil {
 		t.Fatalf("expected an unresolvable non-literal candidate to be rejected")
 	}
 }
 
 func TestResolveExpressions_AnyAllSubExpressionsResolve(t *testing.T) {
-	if _, err := ParseAndResolve(t, `["any", "=", "no_such_column", "id"]`); err == nil {
+	if _, err := ParseAndResolve(t, `["any", "=", ["col", "no_such_column"], ["col", "id"]]`); err == nil {
 		t.Fatalf("expected an unresolvable Subject to be rejected")
 	}
-	if _, err := ParseAndResolve(t, `["any", "=", "id", "no_such_column"]`); err == nil {
+	if _, err := ParseAndResolve(t, `["any", "=", ["col", "id"], ["col", "no_such_column"]]`); err == nil {
 		t.Fatalf("expected an unresolvable Array to be rejected")
 	}
-	expr, err := ParseAndResolve(t, `["all", "=", "id", "name"]`)
+	expr, err := ParseAndResolve(t, `["all", "=", ["col", "id"], ["col", "name"]]`)
 	if err != nil {
 		t.Fatalf("ParseAndResolve: %v", err)
 	}
 	a := expr.(AnyAllExpr)
-	if _, ok := a.Subject.(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := a.Subject.(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected Subject resolved, got %#v", a.Subject)
 	}
-	if _, ok := a.Array.(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := a.Array.(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected Array resolved, got %#v", a.Array)
 	}
 }
 
 func TestResolveExpressions_ConcatWsSubExpressionsResolve(t *testing.T) {
-	// Separator is a generic Expression, so a bare JSON string parses as an
-	// *Identifier* to resolve ; ["x"] is query.ts's escape hatch for an actual literal.
-	if _, err := ParseAndResolve(t, `["concat_ws", "no_such_column", "id"]`); err == nil {
+	// Separator is a generic Expression, so ["col", name] resolves like any
+	// other reference ; a bare string is now always a literal.
+	if _, err := ParseAndResolve(t, `["concat_ws", ["col", "no_such_column"], ["col", "id"]]`); err == nil {
 		t.Fatalf("expected an unresolvable Separator to be rejected")
 	}
-	if _, err := ParseAndResolve(t, `["concat_ws", ["-"], "no_such_column"]`); err == nil {
+	if _, err := ParseAndResolve(t, `["concat_ws", "-", ["col", "no_such_column"]]`); err == nil {
 		t.Fatalf("expected an unresolvable Args entry to be rejected")
 	}
-	expr, err := ParseAndResolve(t, `["concat_ws", ["-"], "id", "name"]`)
+	expr, err := ParseAndResolve(t, `["concat_ws", "-", ["col", "id"], ["col", "name"]]`)
 	if err != nil {
 		t.Fatalf("ParseAndResolve: %v", err)
 	}
 	c := expr.(ConcatWsExpr)
 	for i, a := range c.Args {
-		if _, ok := a.(*Identifier).Resolved.(ColumnPath); !ok {
+		if _, ok := a.(*ColExpr).Resolved.(ColumnPath); !ok {
 			t.Errorf("expected Args[%d] resolved, got %#v", i, a)
 		}
 	}
 }
 
 func TestResolveExpressions_ArrLstSubExpressionsResolve(t *testing.T) {
-	if _, err := ParseAndResolve(t, `["arr", "id", "no_such_column"]`); err == nil {
+	if _, err := ParseAndResolve(t, `["arr", ["col", "id"], ["col", "no_such_column"]]`); err == nil {
 		t.Fatalf("expected an unresolvable \"arr\" item to be rejected")
 	}
-	if _, err := ParseAndResolve(t, `["lst", "id", "no_such_column"]`); err == nil {
+	if _, err := ParseAndResolve(t, `["lst", ["col", "id"], ["col", "no_such_column"]]`); err == nil {
 		t.Fatalf("expected an unresolvable \"lst\" item to be rejected")
 	}
 }
@@ -779,34 +785,34 @@ func TestResolveExpressions_ArrLstSubExpressionsResolve(t *testing.T) {
 func TestResolveExpressions_SliceSubExpressionsResolve(t *testing.T) {
 	// Array/From/To are three distinct fields — an unresolvable identifier
 	// in each position individually proves all three are actually threaded, not just Array (a literal number would pass through unthreaded).
-	if _, err := parseAndResolveOn(t, "warehouse", `["slice", "no_such_column", "id", "id"]`); err == nil {
+	if _, err := parseAndResolveOn(t, "warehouse", `["slice", ["col", "no_such_column"], ["col", "id"], ["col", "id"]]`); err == nil {
 		t.Fatalf("expected an unresolvable Array to be rejected")
 	}
-	if _, err := parseAndResolveOn(t, "warehouse", `["slice", "addresses", "no_such_column", "id"]`); err == nil {
+	if _, err := parseAndResolveOn(t, "warehouse", `["slice", ["col", "addresses"], ["col", "no_such_column"], ["col", "id"]]`); err == nil {
 		t.Fatalf("expected an unresolvable From to be rejected")
 	}
-	if _, err := parseAndResolveOn(t, "warehouse", `["slice", "addresses", "id", "no_such_column"]`); err == nil {
+	if _, err := parseAndResolveOn(t, "warehouse", `["slice", ["col", "addresses"], ["col", "id"], ["col", "no_such_column"]]`); err == nil {
 		t.Fatalf("expected an unresolvable To to be rejected")
 	}
 
-	expr, err := parseAndResolveOn(t, "warehouse", `["slice", "addresses", "id", "id"]`)
+	expr, err := parseAndResolveOn(t, "warehouse", `["slice", ["col", "addresses"], ["col", "id"], ["col", "id"]]`)
 	if err != nil {
 		t.Fatalf("ParseAndResolve: %v", err)
 	}
 	s := expr.(SliceExpr)
-	if _, ok := s.Array.(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := s.Array.(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected Array resolved, got %#v", s.Array)
 	}
-	if _, ok := s.From.(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := s.From.(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected From resolved, got %#v", s.From)
 	}
-	if _, ok := s.To.(*Identifier).Resolved.(ColumnPath); !ok {
+	if _, ok := s.To.(*ColExpr).Resolved.(ColumnPath); !ok {
 		t.Errorf("expected To resolved, got %#v", s.To)
 	}
 
 	// A slice's landing is opaque : chaining "." past it must be rejected,
 	// same as any other non-composite/non-shape landing.
-	if _, err := parseAndResolveOn(t, "warehouse", `[".", ["slice", "addresses", 1, 2], "x"]`); err == nil {
+	if _, err := parseAndResolveOn(t, "warehouse", `[".", ["slice", ["col", "addresses"], 1, 2], "x"]`); err == nil {
 		t.Fatalf("expected chaining \".\" past a slice to be rejected")
 	}
 }
@@ -814,7 +820,7 @@ func TestResolveExpressions_SliceSubExpressionsResolve(t *testing.T) {
 func TestResolveExpressions_RootFunctionArgumentBareIdentifier_Error(t *testing.T) {
 	// A root-level function call (no parent) has nothing to correlate a bare
 	// identifier against — only literals/params are legal there.
-	err := resolveQueryExpectError(t, `{"function": "fn_plain_add", "schema": "public", "arguments": ["no_such_column", 2]}`)
+	err := resolveQueryExpectError(t, `{"function": "fn_plain_add", "schema": "public", "arguments": [["col", "no_such_column"], 2]}`)
 	if err == nil {
 		t.Fatalf("expected a bare identifier in a root function call's arguments to be rejected (no parent scope)")
 	}
@@ -828,7 +834,7 @@ func TestResolveExpressions_CorrelatedFunctionArgumentResolvesAgainstParentScope
 		"schema": "public",
 		"join": {"movies": {
 			"function": "fn_movies_by_director", "schema": "public",
-			"arguments": ["id"],
+			"arguments": [["col", "id"]],
 			"on": {"director_id": "id"}
 		}}
 	}`)
@@ -836,13 +842,13 @@ func TestResolveExpressions_CorrelatedFunctionArgumentResolvesAgainstParentScope
 	if len(child.FunctionArguments) != 1 {
 		t.Fatalf("expected exactly one FunctionArgument, got %#v", child.FunctionArguments)
 	}
-	id, ok := child.FunctionArguments[0].(*Identifier)
+	col, ok := child.FunctionArguments[0].(*ColExpr)
 	if !ok {
-		t.Fatalf("expected the argument to stay an *Identifier, got %#v", child.FunctionArguments[0])
+		t.Fatalf("expected the argument to stay a *ColExpr, got %#v", child.FunctionArguments[0])
 	}
-	cp, ok := id.Resolved.(ColumnPath)
+	cp, ok := col.Resolved.(ColumnPath)
 	if !ok || cp.Node != node || cp.Path[0].Name != "id" {
-		t.Fatalf("expected the argument to resolve to the PARENT director's own \"id\" column, got %#v", id.Resolved)
+		t.Fatalf("expected the argument to resolve to the PARENT director's own \"id\" column, got %#v", col.Resolved)
 	}
 }
 
@@ -854,7 +860,7 @@ func TestResolveExpressions_CorrelatedFunctionArgumentUnresolvable_Error(t *test
 		"schema": "public",
 		"join": {"movies": {
 			"function": "fn_movies_by_director", "schema": "public",
-			"arguments": ["no_such_column"],
+			"arguments": [["col", "no_such_column"]],
 			"on": {"director_id": "id"}
 		}}
 	}`)
@@ -871,7 +877,7 @@ func TestResolveExpressions_CorrelatedNamedFunctionArgumentResolvesAgainstParent
 		"schema": "public",
 		"join": {"movies": {
 			"function": "fn_movies_by_director", "schema": "public",
-			"arguments": {"p_director_id": "id"},
+			"arguments": {"p_director_id": ["col", "id"]},
 			"on": {"director_id": "id"}
 		}}
 	}`)
@@ -880,13 +886,13 @@ func TestResolveExpressions_CorrelatedNamedFunctionArgumentResolvesAgainstParent
 	if !ok {
 		t.Fatalf("expected FunctionArgumentMap[\"p_director_id\"] to be present, got %#v", child.FunctionArgumentMap)
 	}
-	id, ok := arg.(*Identifier)
+	col, ok := arg.(*ColExpr)
 	if !ok {
-		t.Fatalf("expected the argument to stay an *Identifier, got %#v", arg)
+		t.Fatalf("expected the argument to stay a *ColExpr, got %#v", arg)
 	}
-	cp, ok := id.Resolved.(ColumnPath)
+	cp, ok := col.Resolved.(ColumnPath)
 	if !ok || cp.Node != node || cp.Path[0].Name != "id" {
-		t.Fatalf("expected the named argument to resolve to the PARENT director's own \"id\" column, got %#v", id.Resolved)
+		t.Fatalf("expected the named argument to resolve to the PARENT director's own \"id\" column, got %#v", col.Resolved)
 	}
 }
 
@@ -896,7 +902,7 @@ func TestResolveExpressions_CorrelatedNamedFunctionArgumentUnresolvable_Error(t 
 		"schema": "public",
 		"join": {"movies": {
 			"function": "fn_movies_by_director", "schema": "public",
-			"arguments": {"p_director_id": "no_such_column"},
+			"arguments": {"p_director_id": ["col", "no_such_column"]},
 			"on": {"director_id": "id"}
 		}}
 	}`)
@@ -924,8 +930,8 @@ func TestResolveExpressions_SelfHopFromOrderByIntoOwnShape_Error(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"alias": "d",
-		"select": ["own_and", {"x": "name"}],
-		"order_by": [[".", "d", "x"]]
+		"select": ["*", {"x": ["col", "name"]}],
+		"order_by": [[".", [".", "d"], "x"]]
 	}`)
 	if err == nil {
 		t.Fatalf("expected order_by hopping into its own node's computed select key via a self-alias to be rejected")
@@ -939,7 +945,7 @@ func TestDeriveShapes_BareCompositeChainIsWritable(t *testing.T) {
 		"relation": "venue",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"id": "id", "c": [".", "home", "city"]}
+		"select": {"id": ["col", "id"], "c": [".", ["col", "home"], "city"]}
 	}`)
 	homeCityKey := (ColumnPath{Node: node, Path: []*pg.Column{
 		node.Relation.ColumnsMap["home"],
@@ -966,7 +972,7 @@ func TestDeriveShapes_ChildHopChainIsNotParentWritable(t *testing.T) {
 		"relation": "director",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"id": "id", "t": [".", "movies", "title"]},
+		"select": {"id": ["col", "id"], "t": [".", [".", "movies"], "title"]},
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
 	}`)
 	for _, ex := range node.Shape.Extractors {
@@ -983,7 +989,7 @@ func TestDeriveShapes_IndexedCompositeChainIsNotWritable(t *testing.T) {
 		"relation": "warehouse",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"id": "id", "c": [".", ["index", "addresses", 1], "city"]}
+		"select": {"id": ["col", "id"], "c": [".", ["index", ["col", "addresses"], 1], "city"]}
 	}`)
 	for _, ex := range node.Shape.Extractors {
 		if len(ex.JsonPath) == 1 && ex.JsonPath[0] == "c" {
@@ -999,7 +1005,7 @@ func TestDeriveShapes_DuplicateCompositeChainIsNotWritable(t *testing.T) {
 		"relation": "venue",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"c1": [".", "home", "city"], "c2": [".", "home", "city"]}
+		"select": {"c1": [".", ["col", "home"], "city"], "c2": [".", ["col", "home"], "city"]}
 	}`)
 	homeCityKey := (ColumnPath{Node: node, Path: []*pg.Column{
 		node.Relation.ColumnsMap["home"],
@@ -1019,7 +1025,7 @@ func TestDeriveShapes_CompositeChainAndContainingColumnAreIndependent(t *testing
 		"relation": "venue",
 		"schema": "public",
 		"write_mode": "update",
-		"select": {"whole": "home", "sub": [".", "home", "city"]}
+		"select": {"whole": ["col", "home"], "sub": [".", ["col", "home"], "city"]}
 	}`)
 	homeKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["home"]}}).Key()
 	homeCityKey := (ColumnPath{Node: node, Path: []*pg.Column{

@@ -36,17 +36,17 @@ func TestDecodeRelation_SpecWorkedExample(t *testing.T) {
 
 	wantJSON := `{
 	  "relation": "movie", "schema": "api", "alias": "m",
-	  "select": {"movie_id": "movie_id", "name": "name", "actors": "actors"},
-	  "where": ["and", [">=", "year", 1999], ["like", "name", ["%needle%"]]],
-	  "order_by": ["name", ["desc", "year"]],
+	  "select": {"movie_id": [".", "movie_id"], "name": [".", "name"], "actors": [".", "actors"]},
+	  "where": ["and", [">=", [".", "year"], 1999], ["like", [".", "name"], "%needle%"]],
+	  "order_by": [[".", "name"], ["desc", [".", "year"]]],
 	  "limit": 20, "offset": 0,
-	  "distinct": true, "distinct_on": ["name", "year"],
+	  "distinct": true, "distinct_on": [[".", "name"], [".", "year"]],
 	  "join": {
 	    "actors": {
 	      "relation": "actor", "schema": "api",
 	      "on": {"actor_id": "movie_id"},
-	      "select": {"name": "name"},
-	      "where": ["and", ["=", "active", true], ["=", "m.language", ["en"]]],
+	      "select": {"name": [".", "name"]},
+	      "where": ["and", ["=", [".", "active"], true], ["=", [".", "m.language"], "en"]],
 	      "join": {
 	        "awards": { "relation": "award", "on": {"actor_id": "actor_id"} }
 	      }
@@ -123,8 +123,10 @@ func TestDecodeRelation_SelectAliasNamedWriteModeIsNotFalselyRejected(t *testing
 		t.Fatalf("unmarshaling: %v", err)
 	}
 	sel, ok := got["select"].(map[string]any)
-	if !ok || sel["write_mode"] != "name" {
-		t.Fatalf("expected select.write_mode == \"name\", got %#v", got["select"])
+	wantVal := []any{".", "name"}
+	gotVal, _ := sel["write_mode"].([]any)
+	if !ok || !reflect.DeepEqual(gotVal, wantVal) {
+		t.Fatalf("expected select.write_mode == [\"col\", \"name\"], got %#v", got["select"])
 	}
 }
 

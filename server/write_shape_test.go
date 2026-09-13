@@ -26,7 +26,7 @@ func TestRelHandler_MalformedWritePayload(t *testing.T) {
 			// entry), not coerce, panic, or leak as an unclassified 500.
 			name: "string value for an integer column",
 			body: `{
-				"query": {"relation": "movie", "schema": "public", "select": ["own"], "write_mode": "insert"},
+				"query": {"relation": "movie", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 				"data": [{"title": "Malformed Movie", "director_id": "not-a-number"}]
 			}`,
 			wantStatus: http.StatusBadRequest,
@@ -39,9 +39,9 @@ func TestRelHandler_MalformedWritePayload(t *testing.T) {
 			body: `{
 				"query": {
 					"relation": "director", "schema": "public",
-					"select": {"id": "id", "name": "name", "movies": "movies"},
+					"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 					"write_mode": "insert",
-					"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "insert", "select": ["own"]}}
+					"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "insert", "select": ["*~"]}}
 				},
 				"data": [{"name": "Shape Mismatch Director", "movies": {"title": "Not An Array"}}]
 			}`,

@@ -61,7 +61,7 @@ func TestExecuteWrite_PlainInsert(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 
 	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Insert Director"}]`))
 	if err != nil {
@@ -96,9 +96,9 @@ func TestExecuteWrite_IncomingChildFK(t *testing.T) {
 	// must resolve from the just-inserted director's own key, not the payload.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 		"write_mode": "insert",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
 	}`)
 	movieNode := node.IncomingNodes[0]
 
@@ -138,9 +138,9 @@ func TestExecuteWrite_OutgoingChildFK(t *testing.T) {
 	// resolves from the child's own recovered key via outgoingKeySource's extra left join, not the plain "par" join.
 	node := mustResolveQuery(t, `{
 		"relation": "movie", "schema": "public",
-		"select": {"id": "id", "title": "title", "director": "director"},
+		"select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]},
 		"write_mode": "insert",
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}
 	}`)
 	directorNode := node.OutgoingNodes[0]
 
@@ -181,15 +181,15 @@ func TestExecuteWrite_ThreeLevelNestedIncomingChildren(t *testing.T) {
 	// own parent is itself an incoming child, not the root.
 	node := mustResolveQuery(t, `{
 		"relation": "studio", "schema": "public",
-		"select": {"id": "id", "name": "name", "directors": "directors"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "directors": [".", "directors"]},
 		"write_mode": "insert",
 		"join": {"directors": {
 			"relation": "director", "schema": "public", "on": {"studio_id": "id"},
 			"write_mode": "insert",
-			"select": {"id": "id", "name": "name", "studio_id": "studio_id", "movies": "movies"},
+			"select": {"id": ["col", "id"], "name": ["col", "name"], "studio_id": ["col", "studio_id"], "movies": [".", "movies"]},
 			"join": {"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-				"write_mode": "insert", "select": ["own"]
+				"write_mode": "insert", "select": ["*~"]
 			}}
 		}}
 	}`)
@@ -244,7 +244,7 @@ func TestExecuteWrite_Update(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "update"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update"}`)
 	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "After Update"}]`)
 	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
@@ -270,7 +270,7 @@ func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"name": "name"}, "write_mode": "update"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update"}`)
 	payload := []byte(`[{"name": "Renamed"}]`)
 	if _, err := ExecuteWrite(ctx, conn, node, payload); err == nil {
 		t.Fatalf("expected ExecuteWrite to reject a write whose select omits the identity column")
@@ -291,7 +291,7 @@ func TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation(t *testin
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	node := mustResolveQuery(t, `{"function": "fn_directors", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := mustResolveQuery(t, `{"function": "fn_directors", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 	payload := []byte(`[{"name": "Via Function Root"}]`)
 	if _, err := ExecuteWrite(ctx, conn, node, payload); err == nil {
 		t.Fatalf("expected ExecuteWrite to reject a write through a function-rooted node")
@@ -315,7 +315,7 @@ func TestExecuteWrite_Upsert(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "upsert"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "upsert"}`)
 
 	// Two rows in one payload : one conflicts (existing id, updates in
 	// place), one is fresh (no id, gets inserted).
@@ -362,7 +362,7 @@ func TestExecuteWriteStateParamsOpts_Sql(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 	payload := []byte(`[{"name": "Sql Insert Director"}]`)
 
 	result, err := ExecuteWriteStateParamsOpts(ctx, conn, node, payload, &WriteState{}, nil, WriteOptions{Sql: true})
@@ -387,7 +387,7 @@ func TestExecuteWriteStateParamsOpts_QueryPlan(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 	payload := []byte(`[{"name": "Query Plan Insert Director"}]`)
 
 	result, err := ExecuteWriteStateParamsOpts(ctx, conn, node, payload, &WriteState{}, nil, WriteOptions{QueryPlan: true})
@@ -425,7 +425,7 @@ func TestExecuteWriteStateParamsStats_Insert(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 	payload := []byte(`[{"name": "Stats Insert A"}, {"name": "Stats Insert B"}]`)
 
 	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
@@ -449,7 +449,7 @@ func TestExecuteWriteStateParamsStats_Insert(t *testing.T) {
 	// collectStats=false is the default (ExecuteWrite/ExecuteWriteState/
 	// ExecuteWriteStateParams all route through it) — no stats collected.
 	conn2 := acquireWriteConn(t)
-	node2 := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node2 := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 	result2, err := ExecuteWrite(ctx, conn2, node2, []byte(`[{"name": "No Stats Director"}]`))
 	if err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
@@ -470,7 +470,7 @@ func TestExecuteWriteStateParamsStats_Update(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "update"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update"}`)
 	// One row matches an existing id (updates), one doesn't (affects 0 rows).
 	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "Stats Update After"}, {"id": 999999999, "name": "No Match"}]`)
 
@@ -509,7 +509,7 @@ func TestExecuteWriteStateParamsStats_Upsert(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "upsert"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "upsert"}`)
 	payload := []byte(`[
 		{"id": ` + itoa(directorID) + `, "name": "Stats Upsert After"},
 		{"name": "Stats Upsert Fresh"}
@@ -552,8 +552,8 @@ func TestExecuteWriteStateParamsStats_Delete(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "director", "schema": "public",
-		"select": ["own"],
-		"where": ["=", "id", %d],
+		"select": ["*~"],
+		"where": ["=", ["col", "id"], %d],
 		"write_mode": "update",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "deleteonly"}}
 	}`, directorID))
@@ -597,9 +597,9 @@ func TestExecuteWrite_ReadonlyNestedChild_NeverWrittenOrInStats(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 		"write_mode": "insert",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "readonly", "select": ["own"]}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "readonly", "select": ["*~"]}}
 	}`)
 	payload := []byte(`[{"name": "Readonly Nested Director", "movies": [{"title": "Should Never Be Written"}]}]`)
 
@@ -640,9 +640,9 @@ func TestExecuteWrite_MergeDeletesAbsentRows(t *testing.T) {
 	// "Drop Me" (absent) gets deleted, "New One" is a fresh insert.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "movies": "movies"},
+		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
 		"write_mode": "update",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
 	}`)
 	payload := fmt.Appendf(nil, `[{"id": %d, "movies": [{"id": %d, "title": "Keep Me Renamed"}, {"title": "New One"}]}]`, directorID, keepID)
 
@@ -684,9 +684,9 @@ func TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "movies": "movies"},
+		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
 		"write_mode": "update",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
 	}`)
 	// "movies" key entirely absent — not even "[]".
 	payload := fmt.Appendf(nil, `[{"id": %d}]`, directorID)
@@ -730,9 +730,9 @@ func TestExecuteWrite_NullOutgoingSkipsChildStatements(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "studio": "studio"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "studio": [".", "studio"]},
 		"write_mode": "insert",
-		"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}, "select": ["own"]}}
+		"join": {"studio": {"relation": "studio", "schema": "public", "on": {"id": "studio_id"}, "select": ["*~"]}}
 	}`)
 	studioNode := node.OutgoingNodes[0]
 
@@ -782,9 +782,9 @@ func TestExecuteWrite_MergeNewLeavesExistingUntouched(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "movies": "movies"},
+		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
 		"write_mode": "update",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"], "write_mode": "merge-new"}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"], "write_mode": "merge-new"}}
 	}`)
 	movieNode := node.IncomingNodes[0]
 	// The existing movie has a DIFFERENT title — merge-new must NOT update
@@ -831,9 +831,9 @@ func TestExecuteWrite_UpsertParentInsertOnlyChild(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 		"write_mode": "upsert",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"], "write_mode": "insert"}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"], "write_mode": "insert"}}
 	}`)
 	payload := fmt.Appendf(nil, `[{"id": %d, "name": "Mixed Modes Director", "movies": [{"title": "Newly Inserted Movie"}]}]`, directorID)
 
@@ -863,7 +863,7 @@ func TestExecuteWrite_DefaultValueOmitted(t *testing.T) {
 
 	// director.id is serial (DefaultExpression = nextval(...)) and never
 	// supplied in the payload — the default-application case, named explicitly rather than incidental.
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Default Value Director"}]`))
 	if err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
@@ -882,7 +882,7 @@ func TestExecuteWrite_InsertColumnsFiltering(t *testing.T) {
 	// (director.name NOT NULL, no default) if the filter is actually respected.
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own"], "write_mode": "insert",
+		"select": ["*~"], "write_mode": "insert",
 		"insert_columns": ["id"]
 	}`)
 	_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Filtered Out"}]`))
@@ -899,7 +899,7 @@ func TestExecuteWrite_CompositeSubFieldInsert(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "venue", "schema": "public",
-		"select": {"id": "id", "name": "name", "city": [".", "home", "city"]},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "city": [".", ["col", "home"], "city"]},
 		"write_mode": "insert"
 	}`)
 	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Composite Insert Venue", "city": "Springfield"}]`))
@@ -937,7 +937,7 @@ func TestExecuteWrite_CompositeSubFieldUpdate(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "venue", "schema": "public",
-		"select": {"id": "id", "city": [".", "home", "city"]},
+		"select": {"id": ["col", "id"], "city": [".", ["col", "home"], "city"]},
 		"write_mode": "update"
 	}`)
 	payload := []byte(`[{"id": ` + itoa(venueID) + `, "city": "New City"}]`)
@@ -970,7 +970,7 @@ func TestExecuteWrite_CompositeSubFieldUpsert(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "venue", "schema": "public",
-		"select": {"id": "id", "name": "name", "city": [".", "home", "city"]},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "city": [".", ["col", "home"], "city"]},
 		"write_mode": "upsert"
 	}`)
 	// name is required : an UPSERT's INSERT side is still fully constructed
@@ -1004,9 +1004,9 @@ func TestExecuteWrite_CompositeSubFieldWithNestedChild(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "venue", "schema": "public",
-		"select": {"id": "id", "name": "name", "city": [".", "home", "city"], "amenities": "amenities"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "city": [".", ["col", "home"], "city"], "amenities": [".", "amenities"]},
 		"write_mode": "insert",
-		"join": {"amenities": {"relation": "venue_amenity", "schema": "public", "on": {"venue_id": "id"}, "write_mode": "insert", "select": ["own"]}}
+		"join": {"amenities": {"relation": "venue_amenity", "schema": "public", "on": {"venue_id": "id"}, "write_mode": "insert", "select": ["*~"]}}
 	}`)
 	payload := []byte(`[{"name": "Composite Nested Venue", "city": "Nested City", "amenities": [{"name": "Pool"}, {"name": "Gym"}]}]`)
 
@@ -1046,7 +1046,7 @@ func TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "venue", "schema": "public",
-		"select": ["own_and", {"city_again": [".", "home", "city"]}],
+		"select": ["*~", {"city_again": [".", ["col", "home"], "city"]}],
 		"write_mode": "insert"
 	}`)
 	_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Both Venue", "home": {"street": "S", "city": "C"}, "city_again": "C2"}]`))
@@ -1071,8 +1071,8 @@ func TestExecuteWrite_DeleteOnlyScopedByWhere(t *testing.T) {
 	// compiling node.Where into the delete, an empty _data deletes the whole table instead of just the matched row.
 	node := mustResolveQuery(t, `{
 		"relation": "movie", "schema": "public",
-		"select": ["own"], "write_mode": "deleteonly",
-		"where": ["=", "title", ["Only This"]]
+		"select": ["*~"], "write_mode": "deleteonly",
+		"where": ["=", ["col", "title"], "Only This"]
 	}`)
 	if _, err := ExecuteWrite(ctx, conn, node, []byte(`[]`)); err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
@@ -1110,8 +1110,8 @@ func TestExecuteWrite_ParamScopesDeleteOnlyWhere(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "movie", "schema": "public",
-		"select": ["own"], "write_mode": "deleteonly",
-		"where": ["=", "title", ["$param", "title", "text"]]
+		"select": ["*~"], "write_mode": "deleteonly",
+		"where": ["=", ["col", "title"], ["$param", "title", "text"]]
 	}`)
 	params := map[string]any{"title": "Only This"}
 	if _, err := ExecuteWriteStateParams(ctx, conn, node, []byte(`[]`), &WriteState{}, params); err != nil {
@@ -1182,10 +1182,10 @@ func TestExecuteWrite_MergeNewNonPKOnConflictRecoversRealKey(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "profile", "schema": "public",
-		"select": {"id": "id", "user_email": "user_email", "notes": "notes"},
+		"select": {"id": ["col", "id"], "user_email": ["col", "user_email"], "notes": [".", "notes"]},
 		"write_mode": "merge-new",
 		"on_conflict": ["user_email"],
-		"join": {"notes": {"relation": "profile_note", "schema": "public", "on": {"profile_id": "id"}, "select": ["own"]}}
+		"join": {"notes": {"relation": "profile_note", "schema": "public", "on": {"profile_id": "id"}, "select": ["*~"]}}
 	}`)
 	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"user_email": "phantom@example.com", "notes": []}]`))
 	if err != nil {
@@ -1229,10 +1229,10 @@ func TestExecuteWrite_UpsertNonPKOnConflictPreservesRealKey(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "profile", "schema": "public",
-		"select": {"id": "id", "user_email": "user_email", "notes": "notes"},
+		"select": {"id": ["col", "id"], "user_email": ["col", "user_email"], "notes": [".", "notes"]},
 		"write_mode": "upsert",
 		"on_conflict": ["user_email"],
-		"join": {"notes": {"relation": "profile_note", "schema": "public", "on": {"profile_id": "id"}, "select": ["own"]}}
+		"join": {"notes": {"relation": "profile_note", "schema": "public", "on": {"profile_id": "id"}, "select": ["*~"]}}
 	}`)
 	payload := []byte(`[{"user_email": "upsert-phantom@example.com", "notes": []}]`)
 
@@ -1282,7 +1282,7 @@ func TestExecuteWrite_UpsertMultiColumnOnConflict(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "target_t", "schema": "public",
-		"select": {"x": "x", "y": "y", "z": "z"},
+		"select": {"x": ["col", "x"], "y": ["col", "y"], "z": ["col", "z"]},
 		"write_mode": "upsert",
 		"on_conflict": ["x", "y"]
 	}`)
@@ -1342,7 +1342,7 @@ func TestExecuteWrite_UpsertDefaultPKConflictSelfReferencesOtherColumn(t *testin
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "depot", "schema": "public", "select": {"id": "id"}, "write_mode": "upsert"}`)
+	node := mustResolveQuery(t, `{"relation": "depot", "schema": "public", "select": {"id": ["col", "id"]}, "write_mode": "upsert"}`)
 	payload := []byte(`[{"id": ` + itoa(depotID) + `}]`)
 
 	result, err := ExecuteWrite(ctx, conn, node, payload)
@@ -1386,7 +1386,7 @@ func TestExecuteWrite_UpsertDefaultPKConflictWithNoOtherColumn(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "customer", "schema": "public", "select": {"id": "id"}, "write_mode": "upsert"}`)
+	node := mustResolveQuery(t, `{"relation": "customer", "schema": "public", "select": {"id": ["col", "id"]}, "write_mode": "upsert"}`)
 	payload := []byte(`[{"id": ` + itoa(customerID) + `}]`)
 
 	_, err := ExecuteWrite(ctx, conn, node, payload)
@@ -1411,9 +1411,9 @@ func TestExecuteWrite_MergeNewInsertsGenuinelyNewRow(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "movies": "movies"},
+		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
 		"write_mode": "update",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"], "write_mode": "merge-new"}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"], "write_mode": "merge-new"}}
 	}`)
 	movieNode := node.IncomingNodes[0]
 	payload := fmt.Appendf(nil, `[{"id": %d, "movies": [{"title": "Brand New Movie"}]}]`, directorID)
@@ -1437,14 +1437,14 @@ func TestExecuteWrite_MergeNewInsertsGenuinelyNewRow(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_OwnFullSkipsGeneratedColumn : ["own"]/["full"] must skip
+// TestExecuteWrite_OwnFullSkipsGeneratedColumn : ["*~"]/["*"] must skip
 // a STORED GENERATED column the same way a computed field is never a write
 // target — flagged_columns.tax is generated always as (price * 0.2) stored.
 func TestExecuteWrite_OwnFullSkipsGeneratedColumn(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
-	node := mustResolveQuery(t, `{"relation": "flagged_columns", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := mustResolveQuery(t, `{"relation": "flagged_columns", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 	payload := []byte(`[{"code": "OWN-SKIPS-GENERATED", "price": 100}]`)
 
 	result, err := ExecuteWrite(ctx, conn, node, payload)
@@ -1529,7 +1529,7 @@ func TestCompileSelectForDataNode_ScopesToWrittenRows(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
 	payload := []byte(`[{"name": "Reread Director A"}, {"name": "Reread Director B"}]`)
 	result, err := ExecuteWrite(ctx, conn, node, payload)
 	if err != nil {
@@ -1557,9 +1557,9 @@ func TestCompileSelectForDataNode_ScalarSelect(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 		"write_mode": "insert",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": "title", "write_mode": "readonly", "order_by": ["title"]}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["col", "title"], "write_mode": "readonly", "order_by": [["col", "title"]]}}
 	}`)
 	payload := []byte(`[{"name": "Scalar Reread Director", "movies": []}]`)
 	result, err := ExecuteWrite(ctx, conn, node, payload)
@@ -1597,9 +1597,9 @@ func TestCompileSelectForDataNode_WithEmbeddedChild(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"id": "id", "name": "name", "movies": "movies"},
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 		"write_mode": "insert",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
 	}`)
 	payload := []byte(`[{"name": "Reread With Movies", "movies": [{"title": "Movie X"}, {"title": "Movie Y"}]}]`)
 	result, err := ExecuteWrite(ctx, conn, node, payload)

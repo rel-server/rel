@@ -213,7 +213,7 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 		node.Select = raw.Select
 	} else {
 		// query.ts's documented default when select is unspecified.
-		node.Select = FullExpr{}
+		node.Select = StarExpr{}
 	}
 	node.Where = raw.Where
 	node.Distinct = raw.Distinct

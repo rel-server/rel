@@ -74,13 +74,10 @@ func TestOperatorWords_NoCollisionWithExistingTags(t *testing.T) {
 		// "aggregate" excluded: parseArrayExpression already treats it as
 		// a synonym of "agg", so the overlap is harmless, not a collision.
 		"agg": true, "call": true,
-		"own": true, "full": true,
-		"own_except": true, "full_except": true,
-		"own_and": true, "full_and": true,
-		"own_except_and": true, "full_except_and": true,
+		"*": true, "*~": true,
 		"arr": true, "array": true, "lst": true, "list": true,
 		"index": true, "slice": true,
-		"get-set": true, "get": true, "set": true,
+		"col": true, "get": true, "set": true,
 		"$param": true,
 	}
 

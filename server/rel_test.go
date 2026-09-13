@@ -86,8 +86,8 @@ func TestRelHandler_ReadArray(t *testing.T) {
 
 	rec := postRel(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own"],
-		"where": ["=", "name", ["HTTP Read Director"]]
+		"select": ["*~"],
+		"where": ["=", ["col", "name"], "HTTP Read Director"]
 	}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
@@ -112,8 +112,8 @@ func TestRelHandler_Int8AndNumericCastToTextForPrecision(t *testing.T) {
 
 	rec := postRel(t, `{
 		"relation": "precision_check", "schema": "public",
-		"select": ["own"],
-		"where": ["=", "id", 1]
+		"select": ["*~"],
+		"where": ["=", ["col", "id"], 1]
 	}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
@@ -152,8 +152,8 @@ func TestRelHandler_Int8WhereClauseStillComparesNumerically(t *testing.T) {
 
 	rec := postRel(t, `{
 		"relation": "precision_check", "schema": "public",
-		"select": ["own"],
-		"where": ["and", ["=", "id", 2], [">", "big", 50]]
+		"select": ["*~"],
+		"where": ["and", ["=", ["col", "id"], 2], [">", ["col", "big"], 50]]
 	}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
@@ -169,8 +169,8 @@ func TestRelHandler_ReadArray_EmptyResult(t *testing.T) {
 	// call) than for one-or-more — both must produce the same "[]".
 	rec := postRel(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own"],
-		"where": ["=", "name", ["No Such Director Ever"]]
+		"select": ["*~"],
+		"where": ["=", ["col", "name"], "No Such Director Ever"]
 	}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
@@ -195,9 +195,9 @@ func TestRelHandler_WriteThenReread(t *testing.T) {
 	rec := postRel(t, `{
 		"query": {
 			"relation": "director", "schema": "public",
-			"select": {"id": "id", "name": "name", "movies": "movies"},
+			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 			"write_mode": "insert",
-			"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["own"]}}
+			"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
 		},
 		"data": [{"name": "HTTP Write Director", "movies": [{"title": "HTTP Movie"}]}]
 	}`)
@@ -223,12 +223,12 @@ func TestRelHandler_WriteThenReread(t *testing.T) {
 func TestRelHandler_Sequence_WriteThenReadWhatItWrote(t *testing.T) {
 	rec := postRel(t, `[
 		{
-			"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"},
+			"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 			"data": [{"name": "Sequence Director"}]
 		},
 		{
-			"relation": "director", "schema": "public", "select": ["own"],
-			"where": ["=", "name", ["Sequence Director"]]
+			"relation": "director", "schema": "public", "select": ["*~"],
+			"where": ["=", ["col", "name"], "Sequence Director"]
 		}
 	]`)
 	if rec.Code != http.StatusOK {
@@ -262,7 +262,7 @@ func TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite(t *testing.T) {
 
 	rec := postRel(t, `[
 		{
-			"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"},
+			"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 			"data": [{"name": "`+name+`"}]
 		},
 		{
@@ -295,11 +295,11 @@ func TestRelHandler_TwoWriteItemsInOneSequence(t *testing.T) {
 	// restart at 0 and the second item's COPY would collide on the PK.
 	rec := postRel(t, `[
 		{
-			"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"},
+			"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 			"data": [{"name": "Sequence Write A"}]
 		},
 		{
-			"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"},
+			"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 			"data": [{"name": "Sequence Write B"}]
 		}
 	]`)
@@ -363,7 +363,7 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	conn.Release() // back to the pool ; MaxConns=1 guarantees the handler reacquires this exact connection
 
 	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["own"], "write_mode": "insert"},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 		"data": [{"name": "Leak Check B"}]
 	}`)
 	if rec.Code != http.StatusOK {
@@ -384,9 +384,9 @@ func TestRelHandler_WriteOutgoingChildFK_HTTP(t *testing.T) {
 	rec := postRel(t, `{
 		"query": {
 			"relation": "movie", "schema": "public",
-			"select": {"id": "id", "title": "title", "director": "director"},
+			"select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]},
 			"write_mode": "insert",
-			"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["own"]}}
+			"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}
 		},
 		"data": [{"title": "HTTP Outgoing Movie", "director": {"name": "HTTP Outgoing Director"}}]
 	}`)
@@ -427,16 +427,16 @@ func TestRelHandler_WhereWordFormOperatorSynonyms_HTTP(t *testing.T) {
 
 	wordForm := postRel(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own"],
-		"where": ["and", ["eq", "name", ["Word Form Operator Director"]], ["gte", "id", 1]]
+		"select": ["*~"],
+		"where": ["and", ["eq", ["col", "name"], "Word Form Operator Director"], ["gte", ["col", "id"], 1]]
 	}`)
 	if wordForm.Code != http.StatusOK {
 		t.Fatalf("word-form: expected 200, got %d : %s", wordForm.Code, wordForm.Body.String())
 	}
 	symbolForm := postRel(t, `{
 		"relation": "director", "schema": "public",
-		"select": ["own"],
-		"where": ["and", ["=", "name", ["Word Form Operator Director"]], [">=", "id", 1]]
+		"select": ["*~"],
+		"where": ["and", ["=", ["col", "name"], "Word Form Operator Director"], [">=", ["col", "id"], 1]]
 	}`)
 	if symbolForm.Code != http.StatusOK {
 		t.Fatalf("symbol-form: expected 200, got %d : %s", symbolForm.Code, symbolForm.Body.String())
@@ -465,7 +465,7 @@ func TestRelHandler_UnwritableSelect_Rejected(t *testing.T) {
 	}
 
 	rec := postRel(t, `{
-		"query": {"relation": "director", "schema": "public", "select": {"name": "name"}, "write_mode": "update"},
+		"query": {"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update"},
 		"data": [{"name": "Renamed"}]
 	}`)
 	if rec.Code != http.StatusBadRequest {

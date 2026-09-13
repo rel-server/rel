@@ -89,7 +89,7 @@ silent data loss.
 
 - A **column** is writable only if it appears exactly once in `select` (see [Selecting
   fields](selecting.md)), untransformed except by a coalescing operator (`??`, `||?`,
-  `coalesce`) or `set`/`get-set`. A [computed field](computed-fields.md) — whether reached by
+  `coalesce`) or `set`/`col`. A [computed field](computed-fields.md) — whether reached by
   bare name or through `call` — is never a write target: it isn't a real column to begin with.
 - A **relation** is writable only if its identity columns (the primary key, or whatever
   `on_conflict` names) are present and writable, by the rule above, exactly once in its own
@@ -111,10 +111,10 @@ is to rename a property and reprice one of its room types:
       "room_types": {
         "relation": "room_types", "schema": "hotel",
         "on": { "property_id": "id" },
-        "select": { "name": "name", "base_price": "base_price" }
+        "select": { "name": ["col", "name"], "base_price": ["col", "base_price"] }
       }
     },
-    "select": { "id": "id", "name": "name", "room_types": "room_types" }
+    "select": { "id": ["col", "id"], "name": ["col", "name"], "room_types": [".", "room_types"] }
   },
   "data": [{
     "id": 1,
