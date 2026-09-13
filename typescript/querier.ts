@@ -519,14 +519,30 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
     return this._send({ query: this.doQuery(params), data })
   }
 
-  private _send(query: unknown) {
-    return fetch("/rel", {
+  private async _send(query: unknown) {
+    const res = await fetch("/rel", {
       credentials: "include",
       method: "POST",
       body: JSON.stringify(query),
     })
-      .then((res) => res.json())
-      .then((data) => applyProto(data, this.query as ProtoQuery) as Shape)
+    if (res.status >= 400) {
+      throw new RelRequestError(res.status, await res.text())
+    }
+    const data = await res.json()
+    return applyProto(data, this.query as ProtoQuery) as Shape
+  }
+}
+
+// Thrown by get()/write() (both funnel through _send) whenever the server responds with a >= 400 status —
+// neither surfaced the failure before, silently handing a caller `undefined`/a parsed error body as if it were
+// Shape. `body` is the raw response text, not parsed : rel's own error envelope isn't specced yet, so this stays
+// a dumb passthrough rather than guessing a shape that might not match.
+export class RelRequestError extends Error {
+  constructor(
+    public status: number,
+    public body: string,
+  ) {
+    super(`rel request failed with status ${status}: ${body}`)
   }
 }
 
