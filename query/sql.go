@@ -487,7 +487,7 @@ func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f select
 
 // textCastSuffix is the cast suffix ("::text"/"::text[]"/"") a SELECT-position reference to a column of type t
 // needs, so int8/numeric arrive as JSON strings instead of bare numerals JSON.parse would silently round to the
-// nearest float64 (specs/typescript-wire-types.md ## Corrected type mapping). Domain-aware (Underlying unwraps
+// nearest float64 (docs/content/typescript/index.md ## Typed wire values). Domain-aware (Underlying unwraps
 // to the real base type) ; array-aware — ::text[] casts element-wise, confirmed against a live instance to
 // still produce a proper JSON array of strings, unlike casting the whole column to a bare ::text, which would
 // instead produce one flattened Postgres array-literal string (the wrong shape entirely).

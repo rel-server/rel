@@ -9,7 +9,7 @@ import type { ShapeOf, WriteShapeOf } from "./querier"
 import type { Functions } from "./schema.example"
 import type { DefaultRow, ResolveModel, RootShapeFromFunctionMember } from "./shapes"
 import type { Int8, PgNumeric, PgPoint } from "./pg_values"
-import { pointAccessor, timestampTzAccessor } from "./pg_values"
+import { bytesAccessor, moneyAccessor, pointAccessor, timestampTzAccessor } from "./pg_values"
 
 const properties = relation("hotel.properties", {
   select: {
@@ -365,7 +365,7 @@ export type RoomWithProtoShape = Awaited<ReturnType<typeof roomWithProto.get>>
 export type _AssertProtoRowHasOwnColumn = Expect<HasKey<RoomWithProtoShape[number], "room_number">>
 export type _AssertProtoRowHasProtoMember = Expect<HasKey<RoomWithProtoShape[number], "label">>
 
-// specs/typescript-wire-types.md ## Accessor helpers : an accessor helper's descriptor-map entry composes into
+// docs/content/typescript/index.md ## Typed wire values ### Reading a richer value : an accessor helper's descriptor-map entry composes into
 // `proto` via ordinary object spread, and its `get`/`set` type against the accessor's own `this` (not `ThisType`).
 const propertyWithAccessor = relation("hotel.properties", {
   proto: {
@@ -407,6 +407,30 @@ function assertWriteShapePointAccessorIsReadonly(row: PropertyWithAccessorWriteS
   row.location_as_point = { x: 0, y: 0 }
 }
 void assertWriteShapePointAccessorIsReadonly
+
+// moneyAccessor/bytesAccessor (## Reusable helpers, remaining work) — both get+set, same pattern as
+// timestampTzAccessor.
+const roomTypeWithAccessor = relation("hotel.room_types", {
+  proto: {
+    ...moneyAccessor("deposit"),
+    ...bytesAccessor("photo"),
+  },
+})
+
+export type RoomTypeWithAccessorShape = Awaited<ReturnType<typeof roomTypeWithAccessor.get>>
+
+export type _AssertMoneyAccessorProducesBigint = Expect<
+  RoomTypeWithAccessorShape[number]["deposit_as_cents"] extends bigint ? true : false
+>
+export type _AssertBytesAccessorProducesUint8Array = Expect<
+  RoomTypeWithAccessorShape[number]["photo_as_bytes"] extends Uint8Array ? true : false
+>
+
+function assertMoneyAndBytesAccessorsAreWritable(row: RoomTypeWithAccessorShape[number]) {
+  row.deposit_as_cents = 12345n
+  row.photo_as_bytes = new Uint8Array([1, 2, 3])
+}
+void assertMoneyAndBytesAccessorsAreWritable
 
 // A `proto` mixing a `get` and a plain method needs an explicit return type on EVERY member (WithProto's own doc
 // comment, shapes.ts) — without one, `this` silently degrades to `any` throughout the object instead of failing
@@ -510,14 +534,14 @@ export type _AssertScopedReusedProtoMemberIsVisible = Expect<
   HasKey<PropertyWithReusedProtoScopedShape[number]["rooms"][number], "label">
 >
 
-// specs/typescript-wire-types.md ## proto as a property-descriptor map : a get+set accessor entry must be
+// docs/content/typescript/index.md ## Attaching behavior to rows : a get+set accessor entry must be
 // writable in the merged shape, not `readonly` — assigning it directly is the test.
 function assertAccessorIsWritable(row: PropertyWithAccessorShape[number]) {
   row.created_at_as_date = Temporal.Now.instant()
 }
 void assertAccessorIsWritable
 
-// specs/typescript-wire-types.md ## create() : `rooms` joins "property"/"room_type" outgoing (">", to-one) —
+// docs/content/typescript/index.md ### Building a new row : `rooms` joins "property"/"room_type" outgoing (">", to-one) —
 // create() must seed both as a single nested row, not `[]`, and that nested row's own shape must already match
 // its relation's WriteShape (own columns only, per `select: ["own"]` on both joins).
 const createdRoom = rooms.create()

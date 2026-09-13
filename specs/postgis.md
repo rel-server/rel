@@ -1,6 +1,6 @@
 # PostGIS
 
-Adds `geometry`/`geography` support to the generated TypeScript client, the same treatment `specs/typescript-wire-types.md` gives every other Postgres type whose JSON wire representation the client currently either lies about or doesn't type at all.
+Adds `geometry`/`geography` support to the generated TypeScript client, the same treatment `docs/content/typescript/index.md ## Typed wire values` gives every other Postgres type whose JSON wire representation the client currently either lies about or doesn't type at all.
 
 This document starts from a preliminary exploration, confirmed against a live `postgis/postgis` instance, not from assumption.
 
@@ -49,7 +49,7 @@ A self-contained set of GeoJSON interfaces (`Point`, `LineString`, `Polygon`, `M
 
 ## No accessor needed
 
-Unlike every other type in `specs/typescript-wire-types.md`, no accessor/parsing helper is needed here at all.
+Unlike every other Postgres type this client re-types client-side, no accessor/parsing helper is needed here at all.
 
 > **Why:** the wire value is already a structured JSON object, not a string requiring a parse step. A client's own geometry library (Turf.js and similar) operates directly on the `Geometry` shape ; which library to use is left to the client, the same way `Date` vs. `Temporal` was for timestamps.
 

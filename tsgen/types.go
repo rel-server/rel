@@ -13,10 +13,10 @@ import (
 // back to `unknown`.
 //
 // The temporal/precision-sensitive/other types below map to a branded string type from pg_values.ts
-// (specs/typescript-wire-types.md), not to `Date`/`number`/`unknown` — each of those lies about the actual
-// JSON wire value in some way (a plain string typed `Date`, or a value that silently loses precision through
-// `JSON.parse`) ; see that spec for the full reasoning per type and the accessors (pg_values.ts) that derive a
-// richer client-side value from each branded string without losing type safety.
+// (docs/content/typescript/index.md ## Typed wire values), not to `Date`/`number`/`unknown` — each of those
+// lies about the actual JSON wire value in some way (a plain string typed `Date`, or a value that silently
+// loses precision through `JSON.parse`) ; see that doc for the full reasoning per type and the accessors
+// (pg_values.ts) that derive a richer client-side value from each branded string without losing type safety.
 var baseScalarTypes = map[string]string{
 	"text":    "string",
 	"varchar": "string",
@@ -62,7 +62,7 @@ var baseScalarTypes = map[string]string{
 	"interval":    "Interval",
 
 	// Range types : matched by name like every other entry in this map, no structural range introspection
-	// needed — see specs/typescript-wire-types.md ## Range types for why.
+	// needed — see docs/content/typescript/index.md ## Typed wire values ## Ranges for why.
 	"int4range":      "Int4Range",
 	"int8range":      "Int8Range",
 	"numrange":       "NumRange",
@@ -76,9 +76,9 @@ var baseScalarTypes = map[string]string{
 	"tsmultirange":   "TsMultiRange",
 	"tstzmultirange": "TstzMultiRange",
 
-	// Network, bit string, geometric, text search, and misc types (specs/typescript-wire-types.md ## Other
-	// types) : branded for hover clarity and to stop them being confused with an unrelated plain string, most
-	// with no accessor beyond the branded type itself (that section's own table says which).
+	// Network, bit string, geometric, text search, and misc types (docs/content/typescript/index.md ## Typed
+	// wire values) : branded for hover clarity and to stop them being confused with an unrelated plain string,
+	// most with no accessor beyond the branded type itself (pg_values.ts's own accessor helpers say which).
 	"inet":     "Inet",
 	"cidr":     "Cidr",
 	"macaddr":  "MacAddr",

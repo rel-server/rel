@@ -6,7 +6,7 @@
 // A type-only cycle with shapes.ts (which itself imports Functions/Relationships/Wellknowns etc. from here) : legal
 // in TS, since types are erased before this matters at runtime.
 import type { ResolveModel, RootShapeFromLiteralQuery, WriteShapeFromRelationQuery } from "./shapes"
-import type { Int8, PgDate, PgNumeric, PgPoint, Timestamptz } from "./pg_values"
+import type { Int8, Money, PgDate, PgNumeric, PgPoint, Timestamptz } from "./pg_values"
 
 // A bare `{}` type accepts anything non-null (biome's noBannedTypes) ; tsgen generates this instead for an
 // actually-empty object shape (a zero-argument function's own `args`, a zero-column relation/composite type —
@@ -45,7 +45,9 @@ interface Table__Hotel__Properties {
 interface Table__Hotel__RoomTypes {
   id: number
   name: string
-  base_price: number
+  base_price: PgNumeric
+  deposit: Money | null
+  photo: string | null // bytea, hex form — no brand, tsgen/types.go's own comment
 }
 
 export interface Relations {

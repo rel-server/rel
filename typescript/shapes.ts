@@ -51,7 +51,7 @@ type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) exten
 // root/join shape reaching here) : mapping over an array's own keys (numeric indices, `length`, methods) would
 // produce nonsense, and `keyof` on a non-object type doesn't exist at all.
 //
-// Also guarded against a branded primitive (specs/typescript-wire-types.md's `string & { readonly __pg: ... }`
+// Also guarded against a branded primitive (docs/content/typescript/index.md ## Typed wire values' `string & { readonly __pg: ... }`
 // types) : confirmed a real bug, not just a theoretical one — `string & { brand }` DOES satisfy `T extends
 // object` (an intersection with an object type), so without this guard `{[K in keyof T]: T[K]} & {}` maps over
 // every `String.prototype` member too, producing a method-bag object no longer assignable back to the original
@@ -501,7 +501,7 @@ export type ProtoRowShape<
   Depth extends number = 12,
 > = BaseShapeFromRelationQuery<Q, Rel, Depth>
 
-// specs/typescript-wire-types.md ## `proto` as a property-descriptor map : reads one `proto` entry's effective
+// docs/content/typescript/index.md ## Attaching behavior to rows : reads one `proto` entry's effective
 // member type, whether it's a plain method or a property descriptor (`{get, set}`/`{value}`).
 // biome-ignore-start lint/suspicious/noExplicitAny: matching an arbitrary function/setter signature is load-bearing here
 // `get`/`set`/`value` are matched as REQUIRED members here, not optional (`get?(): ...`) — a descriptor entry's

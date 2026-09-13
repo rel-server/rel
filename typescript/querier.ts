@@ -322,7 +322,7 @@ type ProtoQuery = {
   join?: { [name: string]: ProtoQuery }
 }
 
-// specs/typescript-wire-types.md ## Runtime construction : `query.proto` is a descriptor map, not a directly
+// docs/content/typescript/index.md ## Attaching behavior to rows : `query.proto` is a descriptor map, not a directly
 // usable prototype — a plain method entry needs wrapping as a data descriptor, and an already-descriptor-shaped
 // entry (from an accessor helper) passes through as-is. Built once per query node and cached, not reconstructed
 // per row.
@@ -378,13 +378,13 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
   return value
 }
 
-// specs/typescript-wire-types.md ## create() : a join node's cardinality (to-many `*` vs. to-one `<`/`>`) is
+// docs/content/typescript/index.md ### Building a new row : a join node's cardinality (to-many `*` vs. to-one `<`/`>`) is
 // read off its own `shortcut` string here, before stripShortcut (below) removes it — cached by the STRIPPED join
 // node object itself (the exact object `query.join[key]` ends up being), so create() can recover "array or
 // single nested object" at runtime without a shortcut string to re-parse.
 const joinCardinalityCache = new WeakMap<object, boolean>() // true = to-many
 
-// specs/typescript-wire-types.md ## create() : builds a fresh writable row from a query node's own `proto` (its
+// docs/content/typescript/index.md ### Building a new row : builds a fresh writable row from a query node's own `proto` (its
 // accessors, same mechanism as applyProto above) and its `join` map — seeding each key with `[]` for a to-many
 // join or a recursively create()-built row for a to-one one, per joinCardinalityCache.
 function buildCreatedRow(query: ProtoQuery): object {
@@ -443,7 +443,7 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
     return rest
   }
 
-  // specs/typescript-wire-types.md ## create() : a fresh writable row seeded with this query's own accessors
+  // docs/content/typescript/index.md ### Building a new row : a fresh writable row seeded with this query's own accessors
   // (`proto`) and its `join` map's cardinality, so a caller can build a row for `.write()` — including nested
   // to-one joins, already `create()`-built — without a manual `Object.setPrototypeOf` per level. `WriteShape` is
   // array-wrapped at the root (writing.md : "an array of rows at the root") ; create() builds ONE row, so its

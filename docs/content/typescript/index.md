@@ -312,6 +312,14 @@ const properties = await relation("hotel.properties", {
 | `Int8` | `int8Accessor` | `bigint`, via `BigInt()` — exact |
 | `Int4Range`/`Int8Range`/`NumRange`/`DateRange`/`TsRange`/`TstzRange` | `int4RangeAccessor`/... | `Range<T>` (below), `T` matching the table above |
 | `PgPoint` | `pointAccessor` | `{x: number, y: number}` |
+| `Money` | `moneyAccessor` | `bigint` (whole cents), via `..._as_cents` |
+| `bytea` (a bare `string`, no brand) | `bytesAccessor` | `Uint8Array`, via `..._as_bytes` |
+
+`moneyAccessor` parses whatever currency symbol and grouping character your server's locale
+formats `money` with (confirmed against a live Postgres instance to always use 2 fractional
+digits) and throws if the value doesn't match — the same discipline `intervalAccessor` uses for a
+non-default `IntervalStyle`. Writing a `..._as_cents` value back produces a plain, unformatted
+decimal string, which Postgres's own `money` input parser accepts regardless of locale.
 
 `PgTimetz` and `numeric` have no accessor: `Temporal` has no "time of day with a UTC offset, no
 date" class for the former, and no native JS type represents an arbitrary-scale decimal exactly

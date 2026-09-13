@@ -1,11 +1,11 @@
 /*!
-specs/typescript-wire-types.md : branded string types for every Postgres type whose JSON wire representation
+docs/content/typescript/index.md ## Typed wire values : branded string types for every Postgres type whose JSON wire representation
 isn't the JS type it might look like, plus the write-side casts and read-side accessors for deriving a richer
 client-side value from one, without losing type safety or requiring a runtime dependency. Concatenated first
 (tsgen/embed.go), so the generated schema section and every other section can reference these names directly.
 */
 
-// ---- Temporal-backed branded types (## Corrected type mapping, ## Read-side conversions) ----
+// ---- Temporal-backed branded types ----
 
 export type Timestamptz = string & { readonly __pg: "timestamptz" }
 export type Timestamp = string & { readonly __pg: "timestamp" }
@@ -14,13 +14,13 @@ export type PgTime = string & { readonly __pg: "time" }
 export type PgTimetz = string & { readonly __pg: "timetz" }
 export type Interval = string & { readonly __pg: "interval" }
 
-// ---- Precision-preserving branded types (## Corrected type mapping) ----
+// ---- Precision-preserving branded types ----
 
 export type Money = string & { readonly __pg: "money" }
 export type Int8 = string & { readonly __pg: "int8" }
 export type PgNumeric = string & { readonly __pg: "numeric" }
 
-// ---- Range types (## Range types) ----
+// ---- Range types ----
 
 export type Int4Range = string & { readonly __pg: "int4range" }
 export type Int8Range = string & { readonly __pg: "int8range" }
@@ -29,7 +29,7 @@ export type DateRange = string & { readonly __pg: "daterange" }
 export type TsRange = string & { readonly __pg: "tsrange" }
 export type TstzRange = string & { readonly __pg: "tstzrange" }
 
-// ---- Multirange types (## Multiranges) ----
+// ---- Multirange types ----
 
 export type Int4MultiRange = string & { readonly __pg: "int4multirange" }
 export type Int8MultiRange = string & { readonly __pg: "int8multirange" }
@@ -38,8 +38,8 @@ export type DateMultiRange = string & { readonly __pg: "datemultirange" }
 export type TsMultiRange = string & { readonly __pg: "tsmultirange" }
 export type TstzMultiRange = string & { readonly __pg: "tstzmultirange" }
 
-// ---- Other branded string types (## Other types) — no accessor written out for any of these yet, see that
-// section's own table for which ones a future accessor would even make sense for. ----
+// ---- Other branded string types — no accessor written out for any of these yet ; docs/content/typescript/
+// index.md ## Typed wire values says which ones a future accessor would even make sense for. ----
 
 export type Inet = string & { readonly __pg: "inet" }
 export type Cidr = string & { readonly __pg: "cidr" }
@@ -59,7 +59,7 @@ export type TsQuery = string & { readonly __pg: "tsquery" }
 export type Xml = string & { readonly __pg: "xml" }
 export type PgLsn = string & { readonly __pg: "pg_lsn" }
 
-// ---- Write-side casts (## Write-side casts) ----
+// ---- Write-side casts ----
 
 // asTimestamptz requires a trailing `Z` or `±HH:MM`/`±HH` offset — the one type in this file with a
 // meaningful runtime check, since Postgres would otherwise silently reinterpret an offset-less string using
@@ -100,7 +100,7 @@ export function asInterval(value: Temporal.Duration | string): Interval {
   return (typeof value === "string" ? value : value.toString()) as Interval
 }
 
-// ---- Comparators (## Range values) ----
+// ---- Comparators ----
 
 export function compareBigInt(a: bigint, b: bigint): number {
   return a < b ? -1 : a > b ? 1 : 0
@@ -138,7 +138,7 @@ function unquoteBound(raw: string): string {
   return raw
 }
 
-// ---- Range<T> (## Range values) : one shared, immutable class ; each range kind is Range<T> for whichever T
+// ---- Range<T> : one shared, immutable class ; each range kind is Range<T> for whichever T
 // its own accessor parses bounds into (Range<number> for Int4Range, Range<bigint> for Int8Range, Range<PgNumeric>
 // for NumRange — left as branded strings, not parsed further — Range<Temporal.PlainDate|PlainDateTime|Instant>
 // for the temporal ranges). ----
@@ -229,7 +229,7 @@ export class Range<T> {
   }
 }
 
-// ---- MultiRange<T> (## Multiranges) : `{` + comma-joined segments, each parsed the same way a single range's
+// ---- MultiRange<T> : `{` + comma-joined segments, each parsed the same way a single range's
 // own accessor would. ----
 
 function splitTopLevelCommas(text: string): string[] {
@@ -271,7 +271,7 @@ export class MultiRange<T> {
   }
 }
 
-// ---- Accessor helpers (## Accessor helpers, ## Read-side conversions) : each is a function taking a column
+// ---- Accessor helpers : each is a function taking a column
 // name and returning a one-entry descriptor map keyed by a derived name, composed into `proto` via ordinary
 // object spread. A helper's own get/set type `this` explicitly (ThisType doesn't apply outside the literal
 // `proto` is checked against directly). ----
@@ -416,7 +416,7 @@ export function intervalAccessor<Col extends string>(column: Col) {
   }
 }
 
-// ---- Range accessors (## Range values) ----
+// ---- Range accessors ----
 
 export function int4RangeAccessor<Col extends string>(column: Col) {
   return {
@@ -492,7 +492,7 @@ export function tstzRangeAccessor<Col extends string>(column: Col) {
   } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<Temporal.Instant>> }
 }
 
-// ---- Point accessor (## Other types) : the one geometric type prioritized for a real accessor, since it's the
+// ---- Point accessor : the one geometric type prioritized for a real accessor, since it's the
 // simplest and most commonly used ; line/lseg/box/path/polygon/circle stay branded strings with no accessor,
 // see that section's own Why. ----
 
@@ -509,4 +509,87 @@ export function pointAccessor<Col extends string>(column: Col) {
       enumerable: true,
     },
   } as { [K in `${Col}_as_point`]: GetOnlyDescriptor<{ x: number; y: number }> }
+}
+
+// ---- Money accessor : confirmed against a live Postgres instance
+// (en_US.utf8 lc_monetary) — money always renders exactly 2 fractional digits, a leading '-' before the currency
+// symbol for a negative value, and ',' as its grouping separator ("$1,234.50", "-$1,234.50", "$0.00"). Returns
+// exact whole cents as a bigint, the same reasoning as int8Accessor : a Number()-based conversion would
+// reintroduce float precision loss for a large amount. ----
+
+// Strips every character except digits/'.'/'-' before matching, so any currency symbol or grouping character is
+// tolerated ; throws instead of silently misparsing under a locale using different separators (e.g. '.' as the
+// grouping character), the same discipline as parseInterval's own IntervalStyle assumption.
+function parseMoneyCents(text: string): bigint {
+  const negative = text.includes("-")
+  const digits = text.replace(/[^0-9.]/g, "")
+  const m = /^(\d+)\.(\d{2})$/.exec(digits)
+  if (!m) {
+    throw new Error(`moneyAccessor: "${text}" doesn't match the expected money format`)
+  }
+  const cents = BigInt(m[1]) * 100n + BigInt(m[2])
+  return negative ? -cents : cents
+}
+
+// A plain, unformatted decimal string (no currency symbol, no grouping) — confirmed Postgres's own money input
+// parser accepts this regardless of lc_monetary, unlike its output formatting.
+function formatMoneyCents(cents: bigint | number): string {
+  const value = BigInt(cents)
+  const negative = value < 0n
+  const abs = negative ? -value : value
+  const whole = abs / 100n
+  const frac = (abs % 100n).toString().padStart(2, "0")
+  return `${negative ? "-" : ""}${whole}.${frac}`
+}
+
+export function moneyAccessor<Col extends string>(column: Col) {
+  return {
+    [`${column}_as_cents`]: {
+      get(this: Record<Col, Money>): bigint {
+        return parseMoneyCents(this[column])
+      },
+      set(this: Record<Col, Money>, value: bigint | number) {
+        this[column] = formatMoneyCents(value) as Money
+      },
+      enumerable: true,
+    },
+  } as { [K in `${Col}_as_cents`]: GetSetDescriptor<bigint, bigint | number> }
+}
+
+// ---- Bytes accessor : bytea (already correctly mapped to a bare `string`, hex form, per
+// tsgen/types.go's own comment — no brand, unlike every other type here) decodes to a Uint8Array, including the
+// empty case, confirmed to still render "\\x" (the prefix alone, no digits after it). ----
+
+function parseBytea(text: string): Uint8Array {
+  if (!text.startsWith("\\x")) {
+    throw new Error(`bytesAccessor: "${text}" doesn't start with the expected "\\x" hex prefix`)
+  }
+  const hex = text.slice(2)
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  }
+  return bytes
+}
+
+function formatBytea(bytes: Uint8Array): string {
+  let hex = "\\x"
+  for (const b of bytes) {
+    hex += b.toString(16).padStart(2, "0")
+  }
+  return hex
+}
+
+export function bytesAccessor<Col extends string>(column: Col) {
+  return {
+    [`${column}_as_bytes`]: {
+      get(this: Record<Col, string>): Uint8Array {
+        return parseBytea(this[column])
+      },
+      set(this: Record<Col, string>, value: Uint8Array) {
+        this[column] = formatBytea(value)
+      },
+      enumerable: true,
+    },
+  } as { [K in `${Col}_as_bytes`]: GetSetDescriptor<Uint8Array, Uint8Array> }
 }

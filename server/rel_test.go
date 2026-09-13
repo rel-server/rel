@@ -98,10 +98,9 @@ func TestRelHandler_ReadArray(t *testing.T) {
 	}
 }
 
-// specs/typescript-wire-types.md ## Corrected type mapping : int8/numeric must arrive as JSON strings, not bare
+// docs/content/typescript/index.md ## Typed wire values : int8/numeric must arrive as JSON strings, not bare
 // numerals, since JSON.parse would silently round a value like this to the nearest float64 (9007199254740992,
-// a different value, if the cast weren't applied — confirmed by hand against a live Postgres instance while
-// designing this spec).
+// a different value, if the cast weren't applied — confirmed by hand against a live Postgres instance).
 func TestRelHandler_Int8AndNumericCastToTextForPrecision(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into precision_check (id, big, amount) values (1, 9007199254740993, 12345678901234567890.123456789)`); err != nil {
