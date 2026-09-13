@@ -9,6 +9,7 @@ import type { ShapeOf, WriteShapeOf } from "./querier"
 import type { Functions } from "./schema.example"
 import type { DefaultRow, ResolveModel, RootShapeFromFunctionMember } from "./shapes"
 import type { Int8, PgNumeric, PgPoint } from "./pg_values"
+import { pointAccessor, timestampTzAccessor } from "./pg_values"
 
 const properties = relation("hotel.properties", {
   select: {
@@ -364,6 +365,28 @@ export type RoomWithProtoShape = Awaited<ReturnType<typeof roomWithProto.get>>
 export type _AssertProtoRowHasOwnColumn = Expect<HasKey<RoomWithProtoShape[number], "room_number">>
 export type _AssertProtoRowHasProtoMember = Expect<HasKey<RoomWithProtoShape[number], "label">>
 
+// specs/typescript-wire-types.md ## Accessor helpers : an accessor helper's descriptor-map entry composes into
+// `proto` via ordinary object spread, and its `get`/`set` type against the accessor's own `this` (not `ThisType`).
+const propertyWithAccessor = relation("hotel.properties", {
+  proto: {
+    ...timestampTzAccessor("created_at"),
+    ...pointAccessor("location"),
+  },
+})
+
+export type PropertyWithAccessorShape = Awaited<ReturnType<typeof propertyWithAccessor.get>>
+
+export type _AssertAccessorProducesTemporalInstant = Expect<
+  PropertyWithAccessorShape[number]["created_at_as_date"] extends Temporal.Instant ? true : false
+>
+
+// A get-only accessor entry (pointAccessor has no setter) must stay readonly in the merged shape.
+function assertPointAccessorIsReadonly(row: PropertyWithAccessorShape[number]) {
+  // @ts-expect-error location_as_point is get-only, assigning it is a compile error
+  row.location_as_point = { x: 0, y: 0 }
+}
+void assertPointAccessorIsReadonly
+
 // A `proto` mixing a `get` and a plain method needs an explicit return type on EVERY member (WithProto's own doc
 // comment, shapes.ts) — without one, `this` silently degrades to `any` throughout the object instead of failing
 // loudly, so this only guards the annotated form actually compiles with a correctly-typed `this`.
@@ -465,3 +488,10 @@ export type PropertyWithReusedProtoScopedShape = Awaited<
 export type _AssertScopedReusedProtoMemberIsVisible = Expect<
   HasKey<PropertyWithReusedProtoScopedShape[number]["rooms"][number], "label">
 >
+
+// specs/typescript-wire-types.md ## proto as a property-descriptor map : a get+set accessor entry must be
+// writable in the merged shape, not `readonly` — assigning it directly is the test.
+function assertAccessorIsWritable(row: PropertyWithAccessorShape[number]) {
+  row.created_at_as_date = Temporal.Now.instant()
+}
+void assertAccessorIsWritable

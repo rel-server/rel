@@ -276,6 +276,12 @@ export class MultiRange<T> {
 // object spread. A helper's own get/set type `this` explicitly (ThisType doesn't apply outside the literal
 // `proto` is checked against directly). ----
 
+// shapes.ts's ExtractDescriptor/IsWritable read a `proto` entry's `get`/`set` as REQUIRED members, so a
+// get-only vs. get+set distinction survives to the type level ; casting to `TypedPropertyDescriptor<T>` instead
+// would make every field optional-shaped, so neither check could tell writable apart from read-only at all.
+type GetSetDescriptor<T, S = T> = { get(): T; set(value: S): void; enumerable: true }
+type GetOnlyDescriptor<T> = { get(): T; enumerable: true }
+
 export function timestampTzAccessor<Col extends string>(column: Col) {
   return {
     [`${column}_as_date`]: {
@@ -287,7 +293,9 @@ export function timestampTzAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_date`]: TypedPropertyDescriptor<Temporal.Instant> }
+  } as {
+    [K in `${Col}_as_date`]: GetSetDescriptor<Temporal.Instant, Date | Temporal.Instant | string>
+  }
 }
 
 export function timestampAccessor<Col extends string>(column: Col) {
@@ -301,7 +309,12 @@ export function timestampAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_date`]: TypedPropertyDescriptor<Temporal.PlainDateTime> }
+  } as {
+    [K in `${Col}_as_date`]: GetSetDescriptor<
+      Temporal.PlainDateTime,
+      Temporal.PlainDateTime | string
+    >
+  }
 }
 
 export function dateAccessor<Col extends string>(column: Col) {
@@ -315,7 +328,9 @@ export function dateAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_date`]: TypedPropertyDescriptor<Temporal.PlainDate> }
+  } as {
+    [K in `${Col}_as_date`]: GetSetDescriptor<Temporal.PlainDate, Temporal.PlainDate | string>
+  }
 }
 
 export function int8Accessor<Col extends string>(column: Col) {
@@ -329,7 +344,7 @@ export function int8Accessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_bigint`]: TypedPropertyDescriptor<bigint> }
+  } as { [K in `${Col}_as_bigint`]: GetSetDescriptor<bigint, bigint | number | string> }
 }
 
 // Assumes IntervalStyle = postgres (Postgres's own default) and throws on a string it doesn't recognize, rather
@@ -396,7 +411,9 @@ export function intervalAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_duration`]: TypedPropertyDescriptor<Temporal.Duration> }
+  } as {
+    [K in `${Col}_as_duration`]: GetSetDescriptor<Temporal.Duration, Temporal.Duration | string>
+  }
 }
 
 // ---- Range accessors (## Range values) ----
@@ -409,7 +426,7 @@ export function int4RangeAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_range`]: TypedPropertyDescriptor<Range<number>> }
+  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<number>> }
 }
 
 export function int8RangeAccessor<Col extends string>(column: Col) {
@@ -420,7 +437,7 @@ export function int8RangeAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_range`]: TypedPropertyDescriptor<Range<bigint>> }
+  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<bigint>> }
 }
 
 export function numRangeAccessor<Col extends string>(column: Col) {
@@ -431,7 +448,7 @@ export function numRangeAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_range`]: TypedPropertyDescriptor<Range<PgNumeric>> }
+  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<PgNumeric>> }
 }
 
 export function dateRangeAccessor<Col extends string>(column: Col) {
@@ -446,7 +463,7 @@ export function dateRangeAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_range`]: TypedPropertyDescriptor<Range<Temporal.PlainDate>> }
+  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<Temporal.PlainDate>> }
 }
 
 export function tsRangeAccessor<Col extends string>(column: Col) {
@@ -461,7 +478,7 @@ export function tsRangeAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_range`]: TypedPropertyDescriptor<Range<Temporal.PlainDateTime>> }
+  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<Temporal.PlainDateTime>> }
 }
 
 export function tstzRangeAccessor<Col extends string>(column: Col) {
@@ -472,7 +489,7 @@ export function tstzRangeAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_range`]: TypedPropertyDescriptor<Range<Temporal.Instant>> }
+  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<Temporal.Instant>> }
 }
 
 // ---- Point accessor (## Other types) : the one geometric type prioritized for a real accessor, since it's the
@@ -491,5 +508,5 @@ export function pointAccessor<Col extends string>(column: Col) {
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_point`]: TypedPropertyDescriptor<{ x: number; y: number }> }
+  } as { [K in `${Col}_as_point`]: GetOnlyDescriptor<{ x: number; y: number }> }
 }

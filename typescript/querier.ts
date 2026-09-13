@@ -315,8 +315,31 @@ export function join<
 // Cardinality is read off the response value itself (array vs. object vs. null), never off any type-level
 // source — JoinCardinality (shapes.ts) is erased at compile time and has no runtime counterpart.
 type ProtoQuery = {
-  proto?: object
+  proto?: { [name: string]: ((...args: unknown[]) => unknown) | PropertyDescriptor }
   join?: { [name: string]: ProtoQuery }
+}
+
+// specs/typescript-wire-types.md ## Runtime construction : `query.proto` is a descriptor map, not a directly
+// usable prototype — a plain method entry needs wrapping as a data descriptor, and an already-descriptor-shaped
+// entry (from an accessor helper) passes through as-is. Built once per query node and cached, not reconstructed
+// per row.
+const protoCache = new WeakMap<object, object>()
+
+function buildPrototype(proto: {
+  [name: string]: ((...args: unknown[]) => unknown) | PropertyDescriptor
+}): object {
+  const cached = protoCache.get(proto)
+  if (cached) {
+    return cached
+  }
+  const descriptors: PropertyDescriptorMap = {}
+  for (const key of Object.keys(proto)) {
+    const entry = proto[key]
+    descriptors[key] = typeof entry === "function" ? { value: entry, enumerable: true } : entry
+  }
+  const prototype = Object.defineProperties({}, descriptors)
+  protoCache.set(proto, prototype)
+  return prototype
 }
 
 function applyProto(value: unknown, query: ProtoQuery): unknown {
@@ -336,7 +359,7 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
     }
   }
   if (query.proto) {
-    Object.setPrototypeOf(value, query.proto)
+    Object.setPrototypeOf(value, buildPrototype(query.proto))
   }
   return value
 }

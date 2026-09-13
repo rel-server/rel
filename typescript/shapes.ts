@@ -503,8 +503,45 @@ export type ProtoRowShape<
   Depth extends number = 12,
 > = BaseShapeFromRelationQuery<Q, Rel, Depth>
 
+// specs/typescript-wire-types.md ## `proto` as a property-descriptor map : reads one `proto` entry's effective
+// member type, whether it's a plain method or a property descriptor (`{get, set}`/`{value}`).
+// biome-ignore-start lint/suspicious/noExplicitAny: matching an arbitrary function/setter signature is load-bearing here
+// `get`/`set`/`value` are matched as REQUIRED members here, not optional (`get?(): ...`) — a descriptor entry's
+// own declared type must genuinely have (or omit) `set` for IsWritable to tell get-only from get+set apart ; see
+// pg_values.ts's accessor helpers, which return a precise `{get(): T; set(v): void}`-shaped type for that reason,
+// never `TypedPropertyDescriptor<T>` (whose get/set/value are ALL optional, making every entry structurally
+// match both a required-set check and its negation, so it cannot tell writable apart from get-only at all).
+type ExtractDescriptor<D> = D extends (...args: any[]) => any
+  ? D
+  : D extends { get(): infer T; set(v: any): void }
+    ? T
+    : D extends { get(): infer T }
+      ? T
+      : D extends { value: infer V }
+        ? V
+        : unknown
+
+// Whether a `proto` entry is assignable — a plain method or a get-only descriptor is not.
+type IsWritable<D> = D extends (...args: any[]) => any
+  ? false
+  : D extends { set(v: any): void }
+    ? true
+    : false
+// biome-ignore-end lint/suspicious/noExplicitAny: matching an arbitrary function/setter signature is load-bearing here
+
+// Turns a `proto` descriptor map into the plain member shape it produces once applied as a prototype. The
+// writable half MUST use `-readonly`, not bare mapped-type syntax : a homomorphic mapped type over a
+// `const`-inferred (deeply readonly) P inherits `readonly` per key regardless of IsWritable's own result.
+type FromDescriptorMap<P> = {
+  readonly [K in keyof P as IsWritable<P[K]> extends true ? never : K]: ExtractDescriptor<P[K]>
+} & {
+  -readonly [K in keyof P as IsWritable<P[K]> extends true ? K : never]: ExtractDescriptor<P[K]>
+}
+
 // Merges `proto`'s own members into the row shape it decorates.
-type MergeProto<Q, Base> = Q extends { proto: infer P extends object } ? Base & P : Base
+type MergeProto<Q, Base> = Q extends { proto: infer P extends object }
+  ? Base & FromDescriptorMap<P>
+  : Base
 
 // Prettify wraps every node's own output here, not just the root's : this is the one function root AND every
 // nested join member resolve their row shape through (JoinShapes, above, and RootShapeFromFunctionMemberEach
