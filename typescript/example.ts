@@ -20,7 +20,7 @@ const properties = relation("hotel.properties", {
     // root is "hotel.properties", so the key names *this* side of the relationship, not the target :
     // Relationships["hotel.properties"] is the properties -> rooms (one-to-many) entry — only one variant, so
     // there's only one valid shortcut to pick here.
-    rooms: join("hotel.properties", "hotel.rooms<;id:property_id", {
+    rooms: join("hotel.properties", "hotel.rooms*id:property_id", {
       select: ["full"],
     }),
   },
@@ -49,10 +49,10 @@ const rooms = relation("hotel.rooms", {
     // "hotel.rooms" has TWO FKs (properties, room_types) — Relationships["hotel.rooms"] is a union, so `join()`
     // needs the explicit shortcut to pick between them ; this is exactly the case ## Schema interfaces' old
     // `> Question:` block was about.
-    property: join("hotel.rooms", "hotel.properties>;id:property_id", {
+    property: join("hotel.rooms", "hotel.properties>id:property_id", {
       select: ["own"],
     }),
-    room_type: join("hotel.rooms", "hotel.room_types>;id:room_type_id", {
+    room_type: join("hotel.rooms", "hotel.room_types>id:room_type_id", {
       select: ["own"],
     }),
   },
@@ -69,10 +69,10 @@ const propertiesScoped = relation("hotel.properties", (join) => ({
     test: ["$param", "toto", "string"],
   },
   join: {
-    rooms: join("hotel.rooms<;id:property_id", (join) => ({
+    rooms: join("hotel.rooms*id:property_id", (join) => ({
       select: ["full"],
       join: {
-        room_type: join("hotel.room_types>;id:room_type_id"),
+        room_type: join("hotel.room_types>id:room_type_id"),
       },
     })),
   },
@@ -411,7 +411,7 @@ export type _AssertMixedProtoHasMethod = Expect<HasKey<RoomWithMixedProtoShape[n
 // on a joined relation ; only join()/ScopedJoin supply it).
 const propertyWithNestedProto = relation("hotel.properties", {
   join: {
-    rooms: join("hotel.properties", "hotel.rooms<;id:property_id", {
+    rooms: join("hotel.properties", "hotel.rooms*id:property_id", {
       proto: {
         get label() {
           return `${this.room_number} !`
@@ -436,7 +436,7 @@ export type _AssertParentProtoSeesJoinedProtoMember = Expect<
 // `proto` and all) reused as a join's own `request`, instead of rewriting its `proto` inline.
 const propertyWithReusedProto = relation("hotel.properties", {
   join: {
-    rooms: join("hotel.properties", "hotel.rooms<;id:property_id", roomWithProto),
+    rooms: join("hotel.properties", "hotel.rooms*id:property_id", roomWithProto),
   },
 })
 
@@ -452,7 +452,7 @@ export type _AssertReusedProtoMemberIsVisible = Expect<
 // returns silently loses `this`'s typing the same way a union parameter type would (ScopedJoin's own doc comment).
 const propertyWithNestedProtoScoped = relation("hotel.properties", (join) => ({
   join: {
-    rooms: join("hotel.rooms<;id:property_id", {
+    rooms: join("hotel.rooms*id:property_id", {
       proto: {
         get label() {
           return `${this.room_number} !`
@@ -477,7 +477,7 @@ export type _AssertScopedParentProtoSeesJoinedProtoMember = Expect<
 
 const propertyWithReusedProtoScoped = relation("hotel.properties", (join) => ({
   join: {
-    rooms: join("hotel.rooms<;id:property_id", roomWithProto),
+    rooms: join("hotel.rooms*id:property_id", roomWithProto),
   },
 }))
 

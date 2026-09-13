@@ -37,7 +37,7 @@ import { relation } from "./database"
 const properties = await relation("hotel.properties", (join) => ({
   where: [">=", "star_rating", 4],
   join: {
-    rooms: join("hotel.rooms<;id:property_id", {
+    rooms: join("hotel.rooms*id:property_id", {
       select: "*",
     }),
   },
@@ -66,9 +66,9 @@ applies at every depth without you having to tell it what relation you're embedd
 ```ts
 const properties = await relation("hotel.properties", (join) => ({
   join: {
-    rooms: join("hotel.rooms<;id:property_id", (join) => ({
+    rooms: join("hotel.rooms*id:property_id", (join) => ({
       join: {
-        room_type: join("hotel.room_types>;id:room_type_id"),
+        room_type: join("hotel.room_types>id:room_type_id"),
       },
     })),
   },
@@ -85,7 +85,7 @@ const roomWithFeatures = relation("hotel.rooms", {
 
 const properties = await relation("hotel.properties", (join) => ({
   join: {
-    rooms: join("hotel.rooms<;id:property_id", roomWithFeatures),
+    rooms: join("hotel.rooms*id:property_id", roomWithFeatures),
   },
 })).get()
 ```
@@ -183,7 +183,7 @@ relation's own `proto`, so a parent's `proto` can read a nested join's decorated
 ```ts
 const properties = await relation("hotel.properties", (join) => ({
   join: {
-    rooms: join("hotel.rooms<;id:property_id", {
+    rooms: join("hotel.rooms*id:property_id", {
       proto: {
         get label() {
           return `Room ${this.room_number}`

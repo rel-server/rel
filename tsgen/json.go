@@ -345,22 +345,30 @@ func buildRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool)
 			ownerKey := relationKey(owner.Identifier.Schema, owner.Identifier.Name)
 			referencedKey := relationKey(referenced.Identifier.Schema, referenced.Identifier.Name)
 
+			// `shortcut`'s incoming marker mirrors `unique` below : `<` when this relation's own FK
+			// columns are themselves unique (a 1:1 reverse relationship), `*` otherwise.
+			incomingUnique := owner.FindUniqueConstraint(ownerCols) != nil
+			incomingMarker := "*"
+			if incomingUnique {
+				incomingMarker = "<"
+			}
+
 			out[ownerKey] = append(out[ownerKey], RelationshipVariantJSON{
 				Target:         referencedKey,
 				Direction:      "outgoing",
 				On:             onOutgoing,
 				Unique:         true, // an FK's target columns are always PRIMARY KEY/UNIQUE-backed
 				Eligible:       eligible,
-				Shortcut:       referencedKey + ">;" + pairStr,
+				Shortcut:       referencedKey + ">" + pairStr,
 				ConstraintName: c.Name,
 			})
 			out[referencedKey] = append(out[referencedKey], RelationshipVariantJSON{
 				Target:         ownerKey,
 				Direction:      "incoming",
 				On:             onIncoming,
-				Unique:         owner.FindUniqueConstraint(ownerCols) != nil,
+				Unique:         incomingUnique,
 				Eligible:       eligible,
-				Shortcut:       ownerKey + "<;" + pairStr,
+				Shortcut:       ownerKey + incomingMarker + pairStr,
 				ConstraintName: c.Name,
 			})
 		}

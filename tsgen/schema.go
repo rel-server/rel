@@ -306,11 +306,12 @@ func renderRequiredColumns(relations []*pg.Relation) string {
 }
 
 // relationshipVariant is one FK-derived entry under Relationships[key] —
-// specs/typescript.md ## Schema interfaces' "Relationships" paragraph.
+// specs/typescript.md ## Schema interfaces' "Relationships" paragraph. Cardinality is carried
+// entirely by shortcut's own direction marker (`>`/`<`/`*` — docs/content/typescript/index.md
+// ## Building a query), not a separate field.
 type relationshipVariant struct {
 	key      string // owning key this variant is filed under
 	shortcut string
-	unique   bool
 	relation string // the OTHER side's Table__/View__ name
 }
 
@@ -352,16 +353,21 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 			ownerName := relationInterfaceName(owner.Identifier.Schema, owner.Identifier.Name, owner.IsView)
 			referencedName := relationInterfaceName(referenced.Identifier.Schema, referenced.Identifier.Name, referenced.IsView)
 
+			// `>` outgoing is always to-one (an FK's target columns are always PK/UNIQUE-backed) ;
+			// incoming is `<` (to-one, a unique reverse FK) or `*` (to-many), never a separate field.
+			incomingMarker := "*"
+			if owner.FindUniqueConstraint(ownerCols) != nil {
+				incomingMarker = "<"
+			}
+
 			addVariant(relationshipVariant{
 				key:      relationKey(owner.Identifier.Schema, owner.Identifier.Name),
-				shortcut: relationKey(referenced.Identifier.Schema, referenced.Identifier.Name) + ">;" + pairStr,
-				unique:   true, // an FK's target columns are always PK/UNIQUE-backed in Postgres
+				shortcut: relationKey(referenced.Identifier.Schema, referenced.Identifier.Name) + ">" + pairStr,
 				relation: referencedName,
 			})
 			addVariant(relationshipVariant{
 				key:      relationKey(referenced.Identifier.Schema, referenced.Identifier.Name),
-				shortcut: relationKey(owner.Identifier.Schema, owner.Identifier.Name) + "<;" + pairStr,
-				unique:   owner.FindUniqueConstraint(ownerCols) != nil,
+				shortcut: relationKey(owner.Identifier.Schema, owner.Identifier.Name) + incomingMarker + pairStr,
 				relation: ownerName,
 			})
 		}
@@ -392,7 +398,7 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 }
 
 func variantLiteral(v relationshipVariant) string {
-	return fmt.Sprintf("{ shortcut: %s; unique: %t; relation: %s }", strconv.Quote(v.shortcut), v.unique, v.relation)
+	return fmt.Sprintf("{ shortcut: %s; relation: %s }", strconv.Quote(v.shortcut), v.relation)
 }
 
 func columnNames(columns []*pg.Column) []string {

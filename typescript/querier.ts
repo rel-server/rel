@@ -48,10 +48,10 @@ type ResolveRelationModel<R extends string> = ResolveModel<{ relation: R }>
 // rather than a type error at the declaration site.
 type SafeRelationships<K extends string> = K extends keyof Relationships ? Relationships[K] : never
 
-// The target relation name embedded in a shortcut string itself : "hotel.rooms<;id:property_id" ->
+// The target relation name embedded in a shortcut string itself : "hotel.rooms*id:property_id" ->
 // "hotel.rooms". This is what lets a nested join's own callback re-scope itself to ITS target without a second
 // explicit argument — the shortcut the caller already had to type carries it.
-type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">"}${string}`
+type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">" | "*"}${string}`
   ? Rel
   : never
 
@@ -220,22 +220,25 @@ export function call<F extends FunctionName, const Args extends FunctionArgs<Fun
   >(query).get()
 }
 
-// Splits a `Relationships` shortcut string ("schema.relation<dir>;referenced_col:referencing_col[,...]") into its
-// `on` clause plus target schema/relation. `dir` is `>` when the current relation owns the FK (outgoing — the pair
-// reads target_col:source_col as-is) or `<` when the joined relation owns it (incoming — the pair must be
-// reversed, since it's always written referenced_col:referencing_col regardless of direction).
+// Splits a `Relationships` shortcut string ("schema.relation<marker>referenced_col:referencing_col[,...]") into
+// its `on` clause plus target schema/relation. The marker character is both the direction/cardinality tag and
+// the field separator (no `;` — none of `<`/`>`/`*` can otherwise appear in an unquoted schema/relation/column
+// name) : `>` is outgoing (this relation owns the FK — the pair reads target_col:source_col as-is), `<` and `*`
+// are both incoming (the joined relation owns it — the pair must be reversed, since it's always written
+// referenced_col:referencing_col regardless of direction) ; `<`/`*` differ only in cardinality (JoinCardinality,
+// shapes.ts), which this function doesn't need to know.
 function parseShortcut(shortcut: string): {
   schema: string
   relation: string
   on: { [column: string]: string }
 } {
-  const dir = shortcut.includes(">") ? ">" : "<"
-  const [relPart, pairsPart] = shortcut.split(";")
-  const [schema, relation] = relPart.slice(0, -1).split(".")
+  const markerIndex = shortcut.search(/[<>*]/)
+  const marker = shortcut[markerIndex]
+  const [schema, relation] = shortcut.slice(0, markerIndex).split(".")
   const on: { [column: string]: string } = {}
-  for (const pair of pairsPart.split(",")) {
+  for (const pair of shortcut.slice(markerIndex + 1).split(",")) {
     const [referenced_col, referencing_col] = pair.split(":")
-    if (dir === ">") {
+    if (marker === ">") {
       on[referenced_col] = referencing_col
     } else {
       on[referencing_col] = referenced_col

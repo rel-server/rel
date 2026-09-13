@@ -67,9 +67,13 @@ export interface RequiredColumns {
 
 // `shortcut` is interpreted client-side by join() (querier.ts) to fill in `on:`/`relation:`/`schema:` and is
 // never sent to the server. Its purpose is limited to provide auto-completion to the developer.
-// `on:` alone can't tell TypeScript whether the embed is an object or an array ; `unique` does.
-// The pair after `;` is always `<joined relation's column>:<enclosing relation's column>`, matching `on:`'s own
-// key/value convention regardless of which side owns the foreign key. `>`/`<` says which side owns the FK.
+// `on:` alone can't tell TypeScript whether the embed is an object or an array — the marker does : `>` outgoing
+// (always to-one, this relation owns the FK), `<` incoming-and-unique (to-one, a 1:1 reverse relationship), `*`
+// incoming-and-multiple (to-many, the joined relation owns the FK and it isn't unique).
+// The marker character is also the separator — no `;` — since none of `<`/`>`/`*` can otherwise appear in an
+// unquoted schema/relation/column name. The pair after it is always
+// `<joined relation's column>:<enclosing relation's column>`, matching `on:`'s own key/value convention
+// regardless of which side owns the foreign key.
 //
 // A key's value is a UNION of variants, one per FK reachable from that relation, discriminated by `shortcut` —
 // `hotel.rooms` has two FKs (properties, room_types), so it has two ; `join()` (querier.ts) takes both the key
@@ -77,23 +81,19 @@ export interface RequiredColumns {
 export interface Relationships {
   "hotel.rooms":
     | {
-        shortcut: "hotel.properties>;id:property_id" // rooms.property_id -> properties.id
-        unique: true // true : single object, false : array
+        shortcut: "hotel.properties>id:property_id" // rooms.property_id -> properties.id
         relation: Table__Hotel__Properties // Extract<Relationships[key], {shortcut}>["relation"] is what ResolveModel resolves this join's row shape to
       }
     | {
-        shortcut: "hotel.room_types>;id:room_type_id" // rooms.room_type_id -> room_types.id
-        unique: true
+        shortcut: "hotel.room_types>id:room_type_id" // rooms.room_type_id -> room_types.id
         relation: Table__Hotel__RoomTypes
       }
   "hotel.properties": {
-    shortcut: "hotel.rooms<;id:property_id" // rooms.property_id -> properties.id, viewed from properties
-    unique: false
+    shortcut: "hotel.rooms*id:property_id" // rooms.property_id -> properties.id, viewed from properties ; to-many
     relation: Table__Hotel__Rooms
   }
   "hotel.room_types": {
-    shortcut: "hotel.rooms<;id:room_type_id" // rooms.room_type_id -> room_types.id, viewed from room_types
-    unique: false
+    shortcut: "hotel.rooms*id:room_type_id" // rooms.room_type_id -> room_types.id, viewed from room_types ; to-many
     relation: Table__Hotel__Rooms
   }
 }

@@ -244,16 +244,14 @@ export type RootShapeFromLiteralQuery<
 // biome-ignore lint/complexity/noBannedTypes: see above — `{}` is deliberate here, not a placeholder
 type ExtractJoinMap<Q> = Q extends { join: infer J extends { [name: string]: unknown } } ? J : {}
 
-// Cardinality comes from the Relationships variant matching `shortcut`'s own literal value (found by scanning
-// every variant across every key, not just one — `shortcut` alone already uniquely identifies the FK) when a
-// join used the `shortcut` sugar ; a join written out by hand (no `shortcut`) has no cardinality source, so it
-// defaults to an array as before.
+// Cardinality comes straight off `shortcut`'s own direction marker (`>`/`<`/`*` — docs/content/
+// typescript/index.md ## Building a query), pattern-matched on its template literal type, not a
+// separate `unique` field lookup : `*` is to-many, `<`/`>` are both to-one. A join written out by
+// hand (no `shortcut`) has no cardinality source, so it defaults to an array as before.
 type JoinCardinality<J> = J extends { shortcut: infer S extends string }
-  ? Extract<Relationships[keyof Relationships], { shortcut: S }> extends {
-      unique: infer U extends boolean
-    }
-    ? U
-    : false
+  ? S extends `${string}*${string}`
+    ? false
+    : true
   : false
 
 type JoinShapes<Join extends { [name: string]: unknown }, Depth extends number> = {
