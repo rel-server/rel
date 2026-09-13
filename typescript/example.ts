@@ -387,6 +387,27 @@ function assertPointAccessorIsReadonly(row: PropertyWithAccessorShape[number]) {
 }
 void assertPointAccessorIsReadonly
 
+// shapes.ts's WriteShapeFromRelationQuery doc comment : `proto` merges into WriteShape too, not just the read
+// shape — a get+set accessor member must be assignable when building a write payload ; a get-only one must not.
+export type PropertyWithAccessorWriteShape = Parameters<
+  typeof propertyWithAccessor.write
+>[0][number]
+
+export type _AssertWriteShapeHasWritableAccessor = Expect<
+  HasKey<PropertyWithAccessorWriteShape, "created_at_as_date">
+>
+
+function assertWriteShapeAccessorIsWritable(row: PropertyWithAccessorWriteShape) {
+  row.created_at_as_date = Temporal.Now.instant()
+}
+void assertWriteShapeAccessorIsWritable
+
+function assertWriteShapePointAccessorIsReadonly(row: PropertyWithAccessorWriteShape) {
+  // @ts-expect-error location_as_point is get-only, assigning it is a compile error even in the write shape
+  row.location_as_point = { x: 0, y: 0 }
+}
+void assertWriteShapePointAccessorIsReadonly
+
 // A `proto` mixing a `get` and a plain method needs an explicit return type on EVERY member (WithProto's own doc
 // comment, shapes.ts) — without one, `this` silently degrades to `any` throughout the object instead of failing
 // loudly, so this only guards the annotated form actually compiles with a correctly-typed `this`.
@@ -495,3 +516,28 @@ function assertAccessorIsWritable(row: PropertyWithAccessorShape[number]) {
   row.created_at_as_date = Temporal.Now.instant()
 }
 void assertAccessorIsWritable
+
+// specs/typescript-wire-types.md ## create() : `rooms` joins "property"/"room_type" outgoing (">", to-one) —
+// create() must seed both as a single nested row, not `[]`, and that nested row's own shape must already match
+// its relation's WriteShape (own columns only, per `select: ["own"]` on both joins).
+const createdRoom = rooms.create()
+
+export type _AssertCreateNestedToOneIsObject = Expect<
+  typeof createdRoom.property extends readonly unknown[] ? false : true
+>
+export type _AssertCreateNestedToOneHasOwnColumn = Expect<HasKey<typeof createdRoom.property, "id">>
+
+// `propertyWithNestedProto` joins "rooms" incoming-and-multiple ("*", to-many) — create() must seed it as `[]`.
+// (Unlike `properties`, its select defaults to "full" rather than an expression map that omits "rooms".)
+const createdProperty = propertyWithNestedProto.create()
+
+export type _AssertCreateNestedToManyIsArray = Expect<
+  typeof createdProperty.rooms extends readonly unknown[] ? true : false
+>
+
+// create()'s own row carries the same `proto` accessors a read row does, writable the same way.
+function assertCreatedRowAccessorIsWritable() {
+  const createdPropertyWithAccessor = propertyWithAccessor.create()
+  createdPropertyWithAccessor.created_at_as_date = Temporal.Now.instant()
+}
+void assertCreatedRowAccessorIsWritable

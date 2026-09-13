@@ -201,8 +201,9 @@ const properties = await relation("hotel.properties", (join) => ({
 properties[0].rooms[0].label // uses the join's own `proto`
 ```
 
-`proto` only adds behavior — it never changes what a row's write shape looks like, so writing
-back with `.write()` is unaffected by whether the query you read it with declared a `proto`.
+`proto`'s members also appear in the write shape `.write()`/`create()` (below) expect — a `get`-only
+member stays read-only there too, but a `get`/`set` pair is assignable on a row you're about to
+write back, the same as it is on one you just read.
 
 A `proto` entry can also be a property descriptor (`{get, set, enumerable}`), not just a plain
 getter/method written inline — this is what lets a reusable helper compose accessors into
@@ -228,6 +229,35 @@ properties[0].created_at_as_date = Temporal.Now.instant() // writable, if the he
 A helper's own suffix (`_as_date`, `_as_bigint`, `_as_range`, ...) says what it converts to, and
 whether the resulting member is writable depends on whether the helper defines a setter — a
 range accessor, for instance, is read-only.
+
+### Building a new row
+
+A `Querier`'s `.create()` method builds a fresh row for `.write()` — own columns absent, joins
+seeded to the right shape, and the same `proto` accessors a row you `.get()` would have:
+
+```ts
+const properties = relation("hotel.properties", {
+  proto: {
+    ...timestampTzAccessor("created_at"),
+  },
+  join: {
+    rooms: join("hotel.properties", "hotel.rooms*id:property_id", { select: ["own"] }),
+  },
+})
+
+const row = properties.create()
+row.name = "Marina Bay Grand Hotel"
+row.created_at_as_date = Temporal.Now.instant() // same accessor, same setter, as a read row
+row.rooms.push({ room_number: "101" }) // seeded [] : this join is to-many
+
+await properties.write([row])
+```
+
+A joined relation is seeded `[]` when it's to-many, or a nested `.create()`-built row (recursively,
+proto and all) when it's to-one — which one depends on how the join was reached, not on anything
+you configure yourself. `.write()` still expects an array of rows at the root, same as always ;
+`.create()` builds one row, so wrap it in `[...]` yourself, the same way you would a row you built
+by hand.
 
 ## Typed wire values
 

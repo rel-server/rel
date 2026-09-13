@@ -805,21 +805,24 @@ export type WriteShapeFromRelationQuery<
 > = Depth extends 0
   ? unknown
   : Prettify<
-      Q extends { select: infer Sel }
-        ? [Sel] extends [undefined]
-          ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
-          : WriteShapeFromExpression<
-                Sel,
-                Rel,
-                ExtractJoinMap<Q>,
-                Digits[Depth],
-                ReqCol
-              > extends infer S
-            ? S extends Omitted
-              ? unknown
-              : S
-            : never
-        : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
+      MergeProto<
+        Q,
+        Q extends { select: infer Sel }
+          ? [Sel] extends [undefined]
+            ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
+            : WriteShapeFromExpression<
+                  Sel,
+                  Rel,
+                  ExtractJoinMap<Q>,
+                  Digits[Depth],
+                  ReqCol
+                > extends infer S
+              ? S extends Omitted
+                ? unknown
+                : S
+              : never
+          : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
+      >
     >
 
 // Public entry point, mirroring ShapeFromQuery. ReqCol's default mirrors WriteShapeFromRelationQuery's own —
