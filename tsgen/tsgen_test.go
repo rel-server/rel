@@ -199,7 +199,7 @@ func TestGenerateSchema_HotelExample(t *testing.T) {
 		"export interface ComputedProperties {",
 		`"hotel.properties": Computed__Hotel__Properties`,
 		"interface Computed__Hotel__Properties {",
-		"property_average_rating: number",
+		"property_average_rating: PgNumeric",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("generated schema missing %q ; full output:\n%s", want, out)

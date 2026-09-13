@@ -50,11 +50,19 @@ type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) exten
 // aliases that produced it. Guarded against arrays and non-object types (a scalar, or an already-array-wrapped
 // root/join shape reaching here) : mapping over an array's own keys (numeric indices, `length`, methods) would
 // produce nonsense, and `keyof` on a non-object type doesn't exist at all.
+//
+// Also guarded against a branded primitive (specs/typescript-wire-types.md's `string & { readonly __pg: ... }`
+// types) : confirmed a real bug, not just a theoretical one — `string & { brand }` DOES satisfy `T extends
+// object` (an intersection with an object type), so without this guard `{[K in keyof T]: T[K]} & {}` maps over
+// every `String.prototype` member too, producing a method-bag object no longer assignable back to the original
+// branded string at all. Checking the primitive union first, before `extends object`, is what avoids this.
 export type Prettify<T> = T extends readonly unknown[]
   ? T
-  : T extends object
-    ? { [K in keyof T]: T[K] } & {}
-    : T
+  : T extends string | number | boolean | bigint | symbol
+    ? T
+    : T extends object
+      ? { [K in keyof T]: T[K] } & {}
+      : T
 
 // Walks a query to extract whatever params there were inside
 export type Params<Q> = Prettify<UnionToIntersection<ParamUnion<Q>>>

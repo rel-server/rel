@@ -1,13 +1,14 @@
-// Package typescript embeds the three hand-maintained files specs/
-// typescript.md ## database.ts's generated output concatenates verbatim
-// (querier.ts, query.ts, shapes.ts — schema.example.ts and example.ts are
-// deliberately NOT embedded, see that spec section's own file listing).
-// The embed directive can't reach outside its own package directory, which
-// is why this lives here rather than in tsgen (github.com/rel-server/rel/
-// tsgen), the package that actually does the concatenation.
+// Package typescript embeds the four hand-maintained files the generated database.ts's output concatenates
+// verbatim (pg_values.ts, querier.ts, query.ts, shapes.ts — schema.example.ts and example.ts are deliberately
+// NOT embedded, see tsgen/embed.go's own file listing). The embed directive can't reach outside its own package
+// directory, which is why this lives here rather than in tsgen (github.com/rel-server/rel/tsgen), the package
+// that actually does the concatenation.
 package typescript
 
 import _ "embed"
+
+//go:embed pg_values.ts
+var PgValuesTS string
 
 //go:embed querier.ts
 var QuerierTS string

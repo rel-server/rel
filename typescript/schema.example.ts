@@ -6,6 +6,7 @@
 // A type-only cycle with shapes.ts (which itself imports Functions/Relationships/Wellknowns etc. from here) : legal
 // in TS, since types are erased before this matters at runtime.
 import type { ResolveModel, RootShapeFromLiteralQuery, WriteShapeFromRelationQuery } from "./shapes"
+import type { Int8, PgDate, PgNumeric, PgPoint, Timestamptz } from "./pg_values"
 
 // A bare `{}` type accepts anything non-null (biome's noBannedTypes) ; tsgen generates this instead for an
 // actually-empty object shape (a zero-argument function's own `args`, a zero-column relation/composite type —
@@ -14,10 +15,6 @@ import type { ResolveModel, RootShapeFromLiteralQuery, WriteShapeFromRelationQue
 // those keep a literal, biome-ignored empty interface because their `keyof` is load-bearing (`F extends keyof
 // Functions`, ...), and `keyof Record<string, never>` is `string`, not `never`.
 type EmptyObject = Record<string, never>
-
-// Placeholder for Postgres' `point` type until a real pg_types module exists — specs/typescript.md doesn't cover
-// non-trivial pg type mappings yet.
-type Point = { x: number; y: number }
 
 // A pg enum : Type__<Schema>__<Name>, same as Table__/View__.
 type Type__Hotel__RoomStatus = "clean" | "dirty"
@@ -37,10 +34,10 @@ interface Table__Hotel__Properties {
   id: number
   chain_id: number | null
   name: string
-  location: Point //: this type does not really have a direct equivalent, probably that it will have to be created in some pg_types.ts file
+  location: PgPoint
   star_rating: number | null
   description: string | null
-  created_at: Date | null //: do we do Temporal directly or do we keep Date ? It could be interesting to have it as a requirement ? (or at least a polyfill)
+  created_at: Timestamptz | null
 }
 
 // A second relation `hotel.rooms` has a FK into, alongside `hotel.properties` — exists specifically so
@@ -108,7 +105,7 @@ export interface Relationships {
 // doc comment carries the full reasoning). property_average_rating's SECOND overload (below) takes `number`, not
 // `Table__Hotel__Properties`, as its first argument, so it's excluded here even though the bare name is shared.
 interface Computed__Hotel__Properties {
-  property_average_rating: number
+  property_average_rating: PgNumeric
 }
 
 export interface ComputedProperties {
@@ -125,7 +122,7 @@ export interface Functions {
     | {
         positional_args: [Table__Hotel__Properties]
         args: { property: Table__Hotel__Properties }
-        returns: number
+        returns: PgNumeric
       }
     | {
         positional_args: [property_id: number]
@@ -134,8 +131,8 @@ export interface Functions {
         returns: Table__Hotel__Properties[]
       }
   "hotel.rooms_available": {
-    positional_args: [property_id: number, on_date?: Date]
-    args: { property_id: number; on_date?: Date }
+    positional_args: [property_id: number, on_date?: PgDate]
+    args: { property_id: number; on_date?: PgDate }
     relation: Table__Hotel__Properties // this function has an underlying
     returns: Table__Hotel__Properties[]
   }
@@ -144,7 +141,7 @@ export interface Functions {
   "hotel.property_count": {
     positional_args: []
     args: EmptyObject
-    returns: number
+    returns: Int8
   }
 }
 

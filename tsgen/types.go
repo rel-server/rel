@@ -9,14 +9,14 @@ import (
 	"github.com/rel-server/rel/pg"
 )
 
-// baseScalarTypes maps a built-in pg_catalog type name to its TS
-// equivalent. Anything not listed here falls back to `unknown` (specs/
-// typescript.md ## Goals hasn't settled a fuller pg_types mapping yet —
-// schema.example.ts's own Point placeholder is exactly this gap).
+// baseScalarTypes maps a built-in pg_catalog type name to its TS equivalent. Anything not listed here falls
+// back to `unknown`.
 //
-// timestamp/date map to Date, and numeric/bigint map to number — both
-// explicit calls made when this generator was implemented, not spec-derived
-// defaults (see the redactor's own answers in the implementation session).
+// The temporal/precision-sensitive/other types below map to a branded string type from pg_values.ts
+// (specs/typescript-wire-types.md), not to `Date`/`number`/`unknown` — each of those lies about the actual
+// JSON wire value in some way (a plain string typed `Date`, or a value that silently loses precision through
+// `JSON.parse`) ; see that spec for the full reasoning per type and the accessors (pg_values.ts) that derive a
+// richer client-side value from each branded string without losing type safety.
 var baseScalarTypes = map[string]string{
 	"text":    "string",
 	"varchar": "string",
@@ -33,22 +33,69 @@ var baseScalarTypes = map[string]string{
 	// it's usable as binary content. No separate Type__ marks this ; nothing
 	// in the introspected schema JSON distinguishes "true text" from
 	// "bytea-shaped string" once it's collapsed to `string` here.
-	"bytea":       "string",
-	"bool":        "boolean",
-	"int2":        "number",
-	"int4":        "number",
-	"int8":        "number",
-	"float4":      "number",
-	"float8":      "number",
-	"numeric":     "number",
-	"money":       "number",
-	"date":        "Date",
-	"time":        "Date",
-	"timetz":      "Date",
-	"timestamp":   "Date",
-	"timestamptz": "Date",
-	"json":        "unknown",
-	"jsonb":       "unknown",
+	"bytea":  "string",
+	"bool":   "boolean",
+	"int2":   "number",
+	"int4":   "number",
+	"float4": "number",
+	"float8": "number",
+	"json":   "unknown",
+	"jsonb":  "unknown",
+
+	// Precision-sensitive : Postgres emits these as bare, unquoted JSON numerals, so JSON.parse rounds each to
+	// the nearest float64 before any client code runs. The query compiler casts both to text (query/sql.go) ;
+	// pg_values.ts's Int8/PgNumeric are the branded string types that land in.
+	"int8":    "Int8",
+	"numeric": "PgNumeric",
+	// money renders as a locale-formatted, quoted string ("$10.50") today already — mapping it to `number` was
+	// already a lie before this table's other corrections, not something the query compiler needs to change.
+	"money": "Money",
+
+	// Temporal : all arrive as plain strings today ; `date`/`time`/`timetz` are also currently mistyped as
+	// `Date` even though nothing about them is unsafe to read (only `timestamp`, no time zone, actually has an
+	// ambiguity to caveat).
+	"date":        "PgDate",
+	"time":        "PgTime",
+	"timetz":      "PgTimetz",
+	"timestamp":   "Timestamp",
+	"timestamptz": "Timestamptz",
+	"interval":    "Interval",
+
+	// Range types : matched by name like every other entry in this map, no structural range introspection
+	// needed — see specs/typescript-wire-types.md ## Range types for why.
+	"int4range":      "Int4Range",
+	"int8range":      "Int8Range",
+	"numrange":       "NumRange",
+	"daterange":      "DateRange",
+	"tsrange":        "TsRange",
+	"tstzrange":      "TstzRange",
+	"int4multirange": "Int4MultiRange",
+	"int8multirange": "Int8MultiRange",
+	"nummultirange":  "NumMultiRange",
+	"datemultirange": "DateMultiRange",
+	"tsmultirange":   "TsMultiRange",
+	"tstzmultirange": "TstzMultiRange",
+
+	// Network, bit string, geometric, text search, and misc types (specs/typescript-wire-types.md ## Other
+	// types) : branded for hover clarity and to stop them being confused with an unrelated plain string, most
+	// with no accessor beyond the branded type itself (that section's own table says which).
+	"inet":     "Inet",
+	"cidr":     "Cidr",
+	"macaddr":  "MacAddr",
+	"macaddr8": "MacAddr8",
+	"bit":      "PgBit",
+	"varbit":   "PgVarbit",
+	"point":    "PgPoint",
+	"line":     "PgLine",
+	"lseg":     "PgLseg",
+	"box":      "PgBox",
+	"path":     "PgPath",
+	"polygon":  "PgPolygon",
+	"circle":   "PgCircle",
+	"tsvector": "TsVector",
+	"tsquery":  "TsQuery",
+	"xml":      "Xml",
+	"pg_lsn":   "PgLsn",
 }
 
 // typeCollector accumulates the named (Type__) declarations discovered while

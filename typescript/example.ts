@@ -8,6 +8,7 @@ import { call, func, join, relation, wellknown } from "./querier"
 import type { ShapeOf, WriteShapeOf } from "./querier"
 import type { Functions } from "./schema.example"
 import type { DefaultRow, ResolveModel, RootShapeFromFunctionMember } from "./shapes"
+import type { Int8, PgNumeric, PgPoint } from "./pg_values"
 
 const properties = relation("hotel.properties", {
   select: {
@@ -160,7 +161,7 @@ export type _AssertScalarFunctionRootIsNotArray = Expect<
   PropertyCountShape extends readonly unknown[] ? false : true
 >
 export type _AssertScalarFunctionRootIsNumber = Expect<
-  PropertyCountShape extends number ? true : false
+  PropertyCountShape extends Int8 ? true : false
 >
 
 // An unrecognized function name resolves to `never` (RootShapeFromLiteralQuery/func()'s own F-driven lookup, both
@@ -195,7 +196,7 @@ type ContainsArrayMember<T> = T extends readonly unknown[] ? true : never
 type ContainsIdKeyedMember<T> = T extends { id: number } ? true : never
 
 export type _AssertOverloadKeepsScalarMember = Expect<
-  Extract<PropertyAverageRatingResolved, number> extends never ? false : true
+  Extract<PropertyAverageRatingResolved, PgNumeric> extends never ? false : true
 >
 export type _AssertOverloadUnwrapsRelationMember = Expect<
   ContainsIdKeyedMember<PropertyAverageRatingResolved>
@@ -228,10 +229,10 @@ export type PropertyWithComputedWriteShape = Parameters<
 // that `number` is reachable at all (it wouldn't be, pre-fix, since ["call", ...] fell through to `unknown`
 // entirely).
 export type _AssertCallBareNameResolvesFunctionReturns = Expect<
-  Extract<PropertyWithComputedShape["avg_bare"], number> extends never ? false : true
+  Extract<PropertyWithComputedShape["avg_bare"], PgNumeric> extends never ? false : true
 >
 export type _AssertCallQualifiedResolvesFunctionReturns = Expect<
-  Extract<PropertyWithComputedShape["avg_qualified"], number> extends never ? false : true
+  Extract<PropertyWithComputedShape["avg_qualified"], PgNumeric> extends never ? false : true
 >
 // A computed column is never writable (query-engine.md ## Reading Algorithm) — dropped from the write shape
 // entirely, same as `get`, rather than kept with a nonsensical `unknown` type.
@@ -312,7 +313,7 @@ function _neverRun_callChecks() {
       id: 1,
       chain_id: null,
       name: "x",
-      location: { x: 0, y: 0 },
+      location: "(0,0)" as PgPoint,
       star_rating: null,
       description: null,
       created_at: null,
@@ -340,7 +341,7 @@ function _neverRun_callChecks() {
 type CallChecks = ReturnType<typeof _neverRun_callChecks>
 
 export type _AssertCallMatchesScalarOverload = Expect<
-  Awaited<CallChecks["avgByRow"]> extends number ? true : false
+  Awaited<CallChecks["avgByRow"]> extends PgNumeric ? true : false
 >
 export type _AssertCallMatchesSetReturningOverload = Expect<
   Awaited<CallChecks["avgById"]> extends readonly unknown[] ? true : false
