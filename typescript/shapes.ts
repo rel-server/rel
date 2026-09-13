@@ -530,15 +530,27 @@ type IsWritable<D> = D extends (...args: any[]) => any
 // Turns a `proto` descriptor map into the plain member shape it produces once applied as a prototype. The
 // writable half MUST use `-readonly`, not bare mapped-type syntax : a homomorphic mapped type over a
 // `const`-inferred (deeply readonly) P inherits `readonly` per key regardless of IsWritable's own result.
-type FromDescriptorMap<P> = {
-  readonly [K in keyof P as IsWritable<P[K]> extends true ? never : K]: ExtractDescriptor<P[K]>
-} & {
+//
+// ForWrite makes the get-only half OPTIONAL rather than required — only WriteShapeFromRelationQuery sets it. A
+// get-only member is never populated by the caller (assigning it is a compile error, same as the read shape) ;
+// it's only ever present because `create()` (querier.ts) seeds it onto the row's prototype. Requiring it in the
+// write shape would force a hand-built write literal (one NOT built via `create()`) to fake a value for a column
+// that doesn't exist server-side, for no benefit — the read shape keeps it required, since `applyProto` guarantees
+// every fetched row genuinely has it.
+type FromDescriptorMap<P, ForWrite extends boolean = false> = (ForWrite extends true
+  ? {
+      readonly [K in keyof P as IsWritable<P[K]> extends true ? never : K]?: ExtractDescriptor<P[K]>
+    }
+  : {
+      readonly [K in keyof P as IsWritable<P[K]> extends true ? never : K]: ExtractDescriptor<P[K]>
+    }) & {
   -readonly [K in keyof P as IsWritable<P[K]> extends true ? K : never]: ExtractDescriptor<P[K]>
 }
 
-// Merges `proto`'s own members into the row shape it decorates.
-type MergeProto<Q, Base> = Q extends { proto: infer P extends object }
-  ? Base & FromDescriptorMap<P>
+// Merges `proto`'s own members into the row shape it decorates. ForWrite threads through to
+// FromDescriptorMap — see that type's own doc comment.
+type MergeProto<Q, Base, ForWrite extends boolean = false> = Q extends { proto: infer P extends object }
+  ? Base & FromDescriptorMap<P, ForWrite>
   : Base
 
 // Prettify wraps every node's own output here, not just the root's : this is the one function root AND every
@@ -821,7 +833,8 @@ export type WriteShapeFromRelationQuery<
                 ? unknown
                 : S
               : never
-          : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
+          : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>,
+        true
       >
     >
 
