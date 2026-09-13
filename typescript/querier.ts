@@ -479,9 +479,12 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
       const res: { [name: string]: unknown } = {}
       const _obj = obj as { [name: string]: unknown }
       for (const x of Object.getOwnPropertyNames(obj)) {
-        // `proto`'s own members are live getters/methods, not query data ; see stripShortcut's own comment.
+        // `proto` is client-side only — never sent to the server. Dropped here, not just left unrecursed-into
+        // (stripShortcut's own comment) : `JSON.stringify`-ing it would invoke every inline getter it carries
+        // (wrongly, against `proto` itself rather than a fetched row) and silently drop every plain method, so
+        // the wire payload would end up with bogus computed fields instead of no `proto` key at all.
         if (x === "proto") {
-          res[x] = _obj[x]
+          diff = true
           continue
         }
         const orig = _obj[x]
