@@ -1711,10 +1711,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#get-set-and-get-set" class="md-nav__link">
+  <a href="#get-set-and-col" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>get</code>, <code>set</code>, and <code>get-set</code>
+        <code>get</code>, <code>set</code>, and <code>col</code>
       </span>
     </span>
   </a>
@@ -2688,10 +2688,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#get-set-and-get-set" class="md-nav__link">
+  <a href="#get-set-and-col" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>get</code>, <code>set</code>, and <code>get-set</code>
+        <code>get</code>, <code>set</code>, and <code>col</code>
       </span>
     </span>
   </a>
@@ -2815,7 +2815,7 @@
 
 
 <h1 id="selecting-fields">Selecting fields<a class="headerlink" href="#selecting-fields" title="Permanent link">&para;</a></h1>
-<p><code>select</code> shapes the response. Left unset, it defaults to <code>["full"]</code> — every column of the
+<p><code>select</code> shapes the response. Left unset, it defaults to <code>["*"]</code> — every column of the
 relation plus every joined relation. The building blocks:</p>
 <table>
 <thead>
@@ -2826,61 +2826,77 @@ relation plus every joined relation. The building blocks:</p>
 </thead>
 <tbody>
 <tr>
-<td><code>"name"</code></td>
-<td>one column, alias, or <a href="../computed-fields/">computed field</a>, by its own name</td>
+<td><code>["col", "name"]</code></td>
+<td>one <em>real, physical</em> column, by name</td>
 </tr>
 <tr>
-<td><code>["own"]</code></td>
+<td><code>[".", "name"]</code></td>
+<td>anything in scope by name — a column, alias, joined relation, or <a href="../computed-fields/">computed field</a></td>
+</tr>
+<tr>
+<td><code>["*"]</code></td>
+<td>every physical column of this relation, plus every joined relation</td>
+</tr>
+<tr>
+<td><code>["*~"]</code></td>
 <td>every physical column of this relation, no joins</td>
 </tr>
 <tr>
-<td><code>["full"]</code></td>
-<td>every physical column, plus every joined relation</td>
-</tr>
-<tr>
-<td><code>["own_except", ["id"]]</code> / <code>["full_except", [...]]</code></td>
+<td><code>["*", ["id"]]</code> / <code>["*~", ["id"]]</code></td>
 <td>all columns except the ones named</td>
 </tr>
 <tr>
-<td><code>["own_and", {"nights": "booking_nights"}]</code></td>
+<td><code>["*", {"nights": "booking_nights"}]</code></td>
 <td>all columns plus computed keys</td>
 </tr>
 <tr>
-<td><code>["own_except_and", ["id"], {"id": ["call", "..."]}]</code></td>
-<td>omit some, add/override others</td>
+<td><code>["*", ["id"], {"id": ["call", "..."]}]</code></td>
+<td>omit some, add/override others, both at once</td>
 </tr>
 <tr>
-<td><code>{"id": "id", "name": "name"}</code></td>
+<td><code>{"id": ["col", "id"], "name": ["col", "name"]}</code></td>
 <td>an explicit object literal — only these keys</td>
 </tr>
 </tbody>
 </table>
-<p>Object literals nest arbitrarily and can mix real columns, joined relations, and computed
-values in one shape:</p>
+<p>A bare JSON string is always a <em>literal</em> value now, never a reference — see <a href="../filtering/#a-bare-string-is-a-literal">Filtering with
+<code>where</code></a>. To point at something, use <code>col</code> (asserts a
+real column; fails clearly on a typo'd alias) or <code>.</code> (looks up anything in scope, no
+restriction). Object literals nest arbitrarily and can mix real columns, joined relations, and
+computed values in one shape:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">"select"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"name"</span><span class="p">,</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">"star_rating"</span><span class="p">:</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">,</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">"chain_name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"chain"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="s2">"room_types"</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">"star_rating"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">],</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">"chain_name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"chain"</span><span class="p">],</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">]</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="p">}</span>
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">}</span>
 </span></code></pre></div>
 <h2 id="the-dot-chain-form">The dot-chain form<a class="headerlink" href="#the-dot-chain-form" title="Permanent link">&para;</a></h2>
-<p><code>[".", "chain", "name"]</code> pulls one field from a joined relation flat into this level, instead
-of nesting it as its own object. <code>chain</code> still has to be declared in <code>join</code> for this to
-resolve — see <a href="../joining/">Joining and embedding relations</a>.</p>
-<p><code>own</code>/<code>full</code> never pull in a <a href="../computed-fields/">computed field</a> automatically — name it
-explicitly, by its bare name, to include it. Naming one in <code>own_except</code>/<code>full_except</code> is an
+<p><code>.</code> is the general-purpose "look this up" building block. With one operand, it's a plain scope
+lookup — <code>[".", "name"]</code> resolves <code>name</code> against the current relation exactly like a bare
+string used to, no restriction to real columns. With two or more, it's a chain: the first
+operand is a full expression producing a base value, and every operand after that is always a
+bare hop-name (never re-parsed as a literal), stepping one field into that base —
+<code>[".", [".", "chain"], "name"]</code> pulls one field from a joined relation flat into this level,
+instead of nesting it as its own object. <code>chain</code> still has to be declared in <code>join</code> for this to
+resolve — see <a href="../joining/">Joining and embedding relations</a>. When the base is itself a real
+column of a to-one relation type (an FK column doubling as the join target), <code>["col", "..."]</code>
+can stand in as the base instead of <code>[".", "..."]</code> — see
+<a href="../computed-fields/#using-one">Computed fields</a> for an example.</p>
+<p><code>*</code>/<code>*~</code> never pull in a <a href="../computed-fields/">computed field</a> automatically — name it
+explicitly, by its bare name via <code>.</code>, to include it. Naming one in the except-list is an
 error: it was never included in the first place, so there's nothing to except.</p>
-<h2 id="get-set-and-get-set"><code>get</code>, <code>set</code>, and <code>get-set</code><a class="headerlink" href="#get-set-and-get-set" title="Permanent link">&para;</a></h2>
-<p>These three control read/write visibility and defaults on one column independently:</p>
+<h2 id="get-set-and-col"><code>get</code>, <code>set</code>, and <code>col</code><a class="headerlink" href="#get-set-and-col" title="Permanent link">&para;</a></h2>
+<p>These three control read/write visibility and defaults on one column independently, and — like
+<code>col</code> on its own — always require a real, physical column, never an alias or computed field:</p>
 <ul>
 <li><code>["get", "notes", "n/a"]</code> reads <code>notes</code> (falling back to <code>"n/a"</code> when null), but never
   accepts it on a write.</li>
 <li><code>["set", "notes"]</code> accepts <code>notes</code> on a write, but never reads it back.</li>
-<li><code>["get-set", "notes", "n/a", "pending"]</code> reads with one default (<code>"n/a"</code>) and writes with
-  another (<code>"pending"</code>).</li>
+<li><code>["col", "notes", "n/a", "pending"]</code> reads with one default (<code>"n/a"</code>) and writes with
+  another (<code>"pending"</code>) — <code>col</code> with no default arguments is just a plain column reference.</li>
 </ul>
 <p>See <a href="../writing/">Writing data back</a> for how a column's presence here decides whether it's
 writable at all.</p>

@@ -3025,13 +3025,12 @@ plain <code>GET</code>, per <a href="../../query-language/get-requests/">Queryin
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="s1">    "relation": "properties",</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="s1">    "schema": "hotel",</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="s1">    "where": ["and", ["&gt;=", "star_rating", 4], ["like", "name", ["%Grand%"]]],</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="s1">    "select": { "id": "id", "name": "name", "star_rating": "star_rating" }</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="s1">    "where": ["and", ["&gt;=", ["col", "star_rating"], 4], ["like", ["col", "name"], "%Grand%"]],</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="s1">    "select": { "id": ["col", "id"], "name": ["col", "name"], "star_rating": ["col", "star_rating"] }</span>
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="s1">  }'</span>
 </span></code></pre></div>
-<p>A bare string in an expression is always a column/alias reference; <code>["%Grand%"]</code> — a
-one-element array — is how a literal string is spelled instead. See <a href="../../query-language/filtering/">Filtering with
-<code>where</code></a>.</p>
+<p>A bare string in an expression is always a literal value; <code>["col", "name"]</code> points at a real
+column instead. See <a href="../../query-language/filtering/">Filtering with <code>where</code></a>.</p>
 <h2 id="the-same-kind-of-filter-as-a-plain-get">The same kind of filter, as a plain <code>GET</code><a class="headerlink" href="#the-same-kind-of-filter-as-a-plain-get" title="Permanent link">&para;</a></h2>
 <p>Room types priced between 100 and 300, cheapest first:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span><span class="s1">'http://localhost:8080/rel?relation=room_types&amp;schema=hotel&amp;where=between(100,base_price,300)&amp;select=id,property_id,name,base_price&amp;order_by=base_price&amp;limit=5'</span>
@@ -3047,13 +3046,13 @@ and the room it's for (outgoing: <code>bookings.room_id → rooms.id</code>):</p
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="s1">    "relation": "bookings",</span>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="s1">    "schema": "hotel",</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="s1">    "where": ["=", "status", ["confirmed"]],</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="s1">    "where": ["=", ["col", "status"], "confirmed"],</span>
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="s1">    "limit": 2,</span>
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="s1">    "join": {</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="s1">      "guest": { "relation": "guests", "schema": "hotel", "on": { "id": "guest_id" }, "select": { "id": "id", "email": "email" } },</span>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="s1">      "room": { "relation": "rooms", "schema": "hotel", "on": { "id": "room_id" }, "select": { "id": "id", "room_number": "room_number" } }</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="s1">      "guest": { "relation": "guests", "schema": "hotel", "on": { "id": "guest_id" }, "select": { "id": ["col", "id"], "email": ["col", "email"] } },</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="s1">      "room": { "relation": "rooms", "schema": "hotel", "on": { "id": "room_id" }, "select": { "id": ["col", "id"], "room_number": ["col", "room_number"] } }</span>
 </span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="s1">    },</span>
-</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="s1">    "select": { "id": "id", "stay": "stay", "guest": "guest", "room": "room" }</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="s1">    "select": { "id": ["col", "id"], "stay": ["col", "stay"], "guest": [".", "guest"], "room": [".", "room"] }</span>
 </span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <p>Both <code>guest</code> and <code>room</code> come back as single objects, never arrays — <code>bookings</code> holds both
@@ -3070,9 +3069,9 @@ instance of the self-join case:</p>
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="s1">    "alias": "s",</span>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="s1">    "limit": 5,</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="s1">    "join": {</span>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="s1">      "manager": { "relation": "staff", "schema": "hotel", "on": { "id": "manager_id" }, "select": { "id": "id", "name": "name" } }</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="s1">      "manager": { "relation": "staff", "schema": "hotel", "on": { "id": "manager_id" }, "select": { "id": ["col", "id"], "name": ["col", "name"] } }</span>
 </span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="s1">    },</span>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="s1">    "select": { "id": "id", "name": "name", "role": "role", "manager": "manager" }</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="s1">    "select": { "id": ["col", "id"], "name": ["col", "name"], "role": ["col", "role"], "manager": [".", "manager"] }</span>
 </span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <p>The General Manager at the top of each property's chain comes back with <code>"manager": null</code> —
@@ -3090,9 +3089,9 @@ self-joins</a>.</p>
 </span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="s1">      "room_types": { "relation": "room_types", "schema": "hotel", "on": { "property_id": "id" } }</span>
 </span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="s1">    },</span>
 </span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="s1">    "select": {</span>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="s1">      "name": "name",</span>
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="s1">      "room_type_count": ["agg", "count", [[".", "room_types", "id"]]],</span>
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="s1">      "budget_type_count": ["agg", "count", [[".", "room_types", "id"]], ["&lt;", [".", "room_types", "base_price"], 150]]</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="s1">      "name": ["col", "name"],</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="s1">      "room_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]]],</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="s1">      "budget_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]], ["&lt;", [".", [".", "room_types"], "base_price"], 150]]</span>
 </span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="s1">    }</span>
 </span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="s1">  }'</span>
 </span></code></pre></div>
@@ -3109,7 +3108,7 @@ row, selectable by bare name exactly like a real column:</p>
 </span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="s1">    "relation": "bookings",</span>
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="s1">    "schema": "hotel",</span>
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="s1">    "limit": 3,</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="s1">    "select": { "id": "id", "nights": "booking_nights", "total_paid": "booking_total_paid" }</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="s1">    "select": { "id": ["col", "id"], "nights": [".", "booking_nights"], "total_paid": [".", "booking_total_paid"] }</span>
 </span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <p>See <a href="../../query-language/computed-fields/">Computed fields</a> for every computed field this
@@ -3124,7 +3123,7 @@ relation rather than a computed column — it searches <code>properties.descript
 </span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="s1">    "function": "search_properties",</span>
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="s1">    "schema": "hotel",</span>
 </span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="s1">    "arguments": { "query": ["beach"] },</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="s1">    "select": { "id": "id", "name": "name" }</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="s1">    "select": { "id": ["col", "id"], "name": ["col", "name"] }</span>
 </span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h2 id="a-function-rooted-query-with-a-default-argument">A function-rooted query with a default argument<a class="headerlink" href="#a-function-rooted-query-with-a-default-argument" title="Permanent link">&para;</a></h2>
@@ -3136,7 +3135,7 @@ with no overlapping booking on a given date — <code>on_date</code> is optional
 </span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="s1">    "function": "rooms_available",</span>
 </span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="s1">    "schema": "hotel",</span>
 </span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="s1">    "arguments": { "property_id": 1, "on_date": ["2026-06-01"] },</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="s1">    "select": ["own"]</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="s1">    "select": ["*~"]</span>
 </span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <p>See <a href="../../query-language/functions/">Calling functions</a> — <code>arguments</code> can be positional (an
@@ -3155,9 +3154,9 @@ array) or named (an object, as above), never both.</p>
 </span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
 </span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="s1">    "relation": "rooms",</span>
 </span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="s1">    "schema": "hotel",</span>
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="s1">    "where": ["@&gt;", "features", ["arr", ["Sea View"]]],</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="s1">    "where": ["@&gt;", ["col", "features"], ["arr", ["Sea View"]]],</span>
 </span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="s1">    "limit": 3,</span>
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="s1">    "select": { "id": "id", "room_number": "room_number", "features": "features" }</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="s1">    "select": { "id": ["col", "id"], "room_number": ["col", "room_number"], "features": ["col", "features"] }</span>
 </span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h2 id="a-three-level-nested-write-safe-to-run-over-and-over">A three-level nested write, safe to run over and over<a class="headerlink" href="#a-three-level-nested-write-safe-to-run-over-and-over" title="Permanent link">&para;</a></h2>
@@ -3191,16 +3190,16 @@ the request just inserted into:</p>
 </span><span id="__span-10-16"><a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="s1">            "room_types": { "relation": "room_types", "schema": "hotel", "on": { "property_id": "id" } }</span>
 </span><span id="__span-10-17"><a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="s1">          },</span>
 </span><span id="__span-10-18"><a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a><span class="s1">          "select": {</span>
-</span><span id="__span-10-19"><a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="s1">            "id": "id",</span>
-</span><span id="__span-10-20"><a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a><span class="s1">            "chain_id": "chain_id",</span>
-</span><span id="__span-10-21"><a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a><span class="s1">            "name": "name",</span>
-</span><span id="__span-10-22"><a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a><span class="s1">            "star_rating": "star_rating",</span>
-</span><span id="__span-10-23"><a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a><span class="s1">            "room_types": "room_types",</span>
-</span><span id="__span-10-24"><a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a><span class="s1">            "room_type_count": ["agg", "count", [[".", "room_types", "id"]]]</span>
+</span><span id="__span-10-19"><a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="s1">            "id": ["col", "id"],</span>
+</span><span id="__span-10-20"><a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a><span class="s1">            "chain_id": ["col", "chain_id"],</span>
+</span><span id="__span-10-21"><a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a><span class="s1">            "name": ["col", "name"],</span>
+</span><span id="__span-10-22"><a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a><span class="s1">            "star_rating": ["col", "star_rating"],</span>
+</span><span id="__span-10-23"><a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a><span class="s1">            "room_types": [".", "room_types"],</span>
+</span><span id="__span-10-24"><a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a><span class="s1">            "room_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]]]</span>
 </span><span id="__span-10-25"><a id="__codelineno-10-25" name="__codelineno-10-25" href="#__codelineno-10-25"></a><span class="s1">          }</span>
 </span><span id="__span-10-26"><a id="__codelineno-10-26" name="__codelineno-10-26" href="#__codelineno-10-26"></a><span class="s1">        }</span>
 </span><span id="__span-10-27"><a id="__codelineno-10-27" name="__codelineno-10-27" href="#__codelineno-10-27"></a><span class="s1">      },</span>
-</span><span id="__span-10-28"><a id="__codelineno-10-28" name="__codelineno-10-28" href="#__codelineno-10-28"></a><span class="s1">      "select": { "id": "id", "name": "name", "properties": "properties" }</span>
+</span><span id="__span-10-28"><a id="__codelineno-10-28" name="__codelineno-10-28" href="#__codelineno-10-28"></a><span class="s1">      "select": { "id": ["col", "id"], "name": ["col", "name"], "properties": [".", "properties"] }</span>
 </span><span id="__span-10-29"><a id="__codelineno-10-29" name="__codelineno-10-29" href="#__codelineno-10-29"></a><span class="s1">    },</span>
 </span><span id="__span-10-30"><a id="__codelineno-10-30" name="__codelineno-10-30" href="#__codelineno-10-30"></a><span class="s1">    "data": [{</span>
 </span><span id="__span-10-31"><a id="__codelineno-10-31" name="__codelineno-10-31" href="#__codelineno-10-31"></a><span class="s1">      "name": "Example Group",</span>
@@ -3234,9 +3233,9 @@ one of its fields the same way it flattens a joined relation's column:</p>
 </span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
 </span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="s1">    "relation": "guests",</span>
 </span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="s1">    "schema": "hotel",</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="s1">    "where": ["is_not_null", "billing_address"],</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="s1">    "where": ["is_not_null", ["col", "billing_address"]],</span>
 </span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="s1">    "limit": 3,</span>
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="s1">    "select": { "id": "id", "email": "email", "city": [".", "billing_address", "city"] }</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="s1">    "select": { "id": ["col", "id"], "email": ["col", "email"], "city": [".", ["col", "billing_address"], "city"] }</span>
 </span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 

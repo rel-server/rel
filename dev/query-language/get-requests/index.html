@@ -2923,10 +2923,10 @@ quote-and-paren-aware scanner a function call's argument list uses — a literal
 call can itself contain a comma (<code>select=matched:in(status,'a,b')</code>) without breaking the split.</p>
 <h3 id="select"><code>select</code><a class="headerlink" href="#select" title="Permanent link">&para;</a></h3>
 <p>A plain comma-list of <code>[alias:]expr</code> entries is the common case — a bare entry becomes its own
-key (<code>select=id,name</code> → <code>{"id":"id","name":"name"}</code>); prefix one with <code>alias:</code> to select a
-computed value under a chosen name (<code>select=total:agg(sum,payments.amount)</code>). The one
-alternative is a single <code>own</code>/<code>full</code>-family call taking up the whole value — the two forms
-never mix in one <code>select=</code>:</p>
+key (<code>select=id,name</code> → <code>{"id":[".","id"],"name":[".","name"]}</code>); prefix one with <code>alias:</code> to
+select a computed value under a chosen name (<code>select=total:agg(sum,payments.amount)</code>). The one
+alternative is a single <code>*</code>/<code>*~</code>-family call taking up the whole value — the two forms never
+mix in one <code>select=</code>:</p>
 <table>
 <thead>
 <tr>
@@ -2936,19 +2936,19 @@ never mix in one <code>select=</code>:</p>
 </thead>
 <tbody>
 <tr>
-<td><code>own</code> / <code>full</code></td>
-<td><code>["own"]</code> / <code>["full"]</code></td>
+<td><code>*</code> / <code>*~</code></td>
+<td><code>["*"]</code> / <code>["*~"]</code></td>
 </tr>
 <tr>
-<td><code>own_except(a,b)</code> / <code>full_except(a,b)</code></td>
+<td><code>*(a,b)</code> / <code>*~(a,b)</code></td>
 <td>all columns except <code>a</code>, <code>b</code></td>
 </tr>
 <tr>
-<td><code>own_and(total:agg(sum,payments.amount))</code></td>
-<td>all columns plus a computed <code>total</code></td>
+<td><code>*(;total:agg(sum,payments.amount))</code></td>
+<td>all columns plus a computed <code>total</code> — a leading <code>;</code> is required even with an empty except-list</td>
 </tr>
 <tr>
-<td><code>own_except_and(a,b; total:agg(...))</code></td>
+<td><code>*(a,b; total:agg(...))</code></td>
 <td>except-list, then <code>;</code>, then the and-map</td>
 </tr>
 </tbody>
@@ -2962,18 +2962,20 @@ nulls-last, matching <code>POST /rel</code>'s own default. There's no query-stri
 <p><code>where=</code>, a <code>select=</code> computed entry, and <code>order_by=</code> all share one small expression language:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>where=and(gte(year,1999),like(name,'%needle%'))
 </span></code></pre></div>
-<p>A bare word is a column/alias reference (<code>year</code>); a quoted string (<code>'needle'</code>, doubled quotes
-to escape one — <code>'it''s open'</code>), a bare number, or <code>true</code>/<code>false</code>/<code>null</code> is a literal. Every
-operator is written as a call, <code>name(arg, arg, ...)</code>, using its <strong>word form</strong>, never its
-symbol — <code>gte</code>, not <code>&gt;=</code>; see the <a href="../operators/">Operators reference</a> for the full symbol ↔
-word-form table (every table there lists the word form this grammar uses). <code>in</code>/<code>not_in</code>/
-<code>any</code>/<code>all</code>/<code>between</code>/<code>not_between</code>/<code>agg</code>/<code>call</code> all work the same way, as calls with several
-arguments: <code>in(status,'confirmed','checked_in')</code>, <code>between(100,base_price,500)</code>.</p>
+<p>A bare word compiles to a scope lookup (<code>year</code> → <code>[".", "year"]</code> — a column, alias, or computed
+field, no restriction); a quoted string (<code>'needle'</code>, doubled quotes to escape one —
+<code>'it''s open'</code>) is a literal, same as a bare number or <code>true</code>/<code>false</code>/<code>null</code>. Every operator is
+written as a call, <code>name(arg, arg, ...)</code>, using its <strong>word form</strong>, never its symbol — <code>gte</code>,
+not <code>&gt;=</code>; see the <a href="../operators/">Operators reference</a> for the full symbol ↔ word-form table
+(every table there lists the word form this grammar uses). <code>in</code>/<code>not_in</code>/<code>any</code>/<code>all</code>/
+<code>between</code>/<code>not_between</code>/<code>agg</code>/<code>call</code> all work the same way, as calls with several arguments:
+<code>in(status,'confirmed','checked_in')</code>, <code>between(100,base_price,500)</code>.</p>
 <p>Not expressible in a query string at all — reach for <a href="../writing/"><code>POST /rel</code></a> instead: a bare
-inline-object expression outside of <code>select=</code>; <code>get</code>/<code>set</code>/<code>get-set</code>; <code>$param</code>; <code>arr</code>/<code>lst</code>
-literals; <code>own</code>/<code>full</code> used as a sub-expression rather than the whole of <code>select=</code>; an <code>agg</code>
-with a filter (its fourth, optional argument — every <code>GET</code> <code>agg(...)</code> argument after the
-function name lands in its argument list instead).</p>
+inline-object expression outside of <code>select=</code>; <code>col</code> (asserting a real column rather than a
+plain scope lookup), <code>get</code>/<code>set</code>; <code>$param</code>; <code>arr</code>/<code>lst</code> literals; <code>*</code>/<code>*~</code> used as a
+sub-expression rather than the whole of <code>select=</code>; an <code>agg</code> with a filter (its fourth, optional
+argument — every <code>GET</code> <code>agg(...)</code> argument after the function name lands in its argument list
+instead).</p>
 <h2 id="well-known-queries-over-get">Well-known queries over <code>GET</code><a class="headerlink" href="#well-known-queries-over-get" title="Permanent link">&para;</a></h2>
 <p>A <a href="../well-known-queries/#calling-one-over-get-rel">well-known query</a> has its own, simpler
 <code>GET</code> form — <code>wellknown=&lt;name&gt;&amp;params.&lt;name&gt;=&lt;value&gt;</code> — and doesn't use this grammar at all,

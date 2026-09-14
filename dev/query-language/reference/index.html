@@ -2980,7 +2980,7 @@ the node is the query's root or a <code>join</code> target nested arbitrarily de
 </tr>
 <tr>
 <td><code>select</code></td>
-<td><a href="../selecting/">Selecting fields</a> — defaults to <code>["full"]</code>.</td>
+<td><a href="../selecting/">Selecting fields</a> — defaults to <code>["*"]</code>.</td>
 </tr>
 <tr>
 <td><code>distinct</code></td>
@@ -3072,24 +3072,24 @@ take.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>null</code> / <code>true</code> / <code>false</code> / a number</td>
+<td><code>null</code> / <code>true</code> / <code>false</code> / a number / a bare string</td>
 <td>A literal value.</td>
-<td><a href="../filtering/">Filtering with <code>where</code></a>.</td>
+<td><a href="../filtering/#a-bare-string-is-a-literal">Filtering with <code>where</code></a>.</td>
 </tr>
 <tr>
-<td><code>"*"</code></td>
-<td>Every field of the current relation, plus every join alias.</td>
+<td><code>["col", name]</code></td>
+<td>A real, physical column, by name — errors if it isn't one.</td>
 <td><a href="../selecting/">Selecting fields</a>.</td>
 </tr>
 <tr>
-<td>a bare string</td>
-<td>A column, alias, or computed field reference.</td>
-<td><a href="../filtering/">Filtering with <code>where</code></a>, <a href="../computed-fields/">Computed fields</a>.</td>
+<td><code>[".", name]</code></td>
+<td>Anything in scope, by name — column, alias, joined relation, or computed field, no restriction.</td>
+<td><a href="../selecting/#the-dot-chain-form">Selecting fields</a>.</td>
 </tr>
 <tr>
-<td><code>[string]</code></td>
-<td>A one-element array — a string <em>literal</em>, not a reference.</td>
-<td><a href="../filtering/">Filtering with <code>where</code></a>.</td>
+<td><code>[".", base, ...hops]</code></td>
+<td>A dot-chain: step from <code>base</code> into one or more named fields.</td>
+<td><a href="../selecting/#the-dot-chain-form">Selecting fields</a>.</td>
 </tr>
 <tr>
 <td><code>[UnaryOperator, Expression]</code></td>
@@ -3118,7 +3118,7 @@ take.</p>
 </tr>
 <tr>
 <td><code>["in"&#124;"not_in", subject, ...candidates]</code></td>
-<td>Set membership; candidates are always literals.</td>
+<td>Set membership.</td>
 <td><a href="../operators/">Operators reference</a>.</td>
 </tr>
 <tr>
@@ -3157,22 +3157,22 @@ take.</p>
 <td><a href="../selecting/">Selecting fields</a>.</td>
 </tr>
 <tr>
-<td><code>["own"]</code> / <code>["full"]</code></td>
-<td>All columns / all columns plus joins.</td>
+<td><code>["*"]</code> / <code>["*~"]</code></td>
+<td>All columns plus joins / all columns, no joins.</td>
 <td><a href="../selecting/">Selecting fields</a>.</td>
 </tr>
 <tr>
-<td><code>["own_except"&#124;"full_except", except]</code></td>
+<td><code>["*"&#124;"*~", except]</code></td>
 <td>All columns except the ones named.</td>
 <td><a href="../selecting/">Selecting fields</a>.</td>
 </tr>
 <tr>
-<td><code>["own_and"&#124;"full_and", and]</code></td>
+<td><code>["*"&#124;"*~", and]</code></td>
 <td>All columns plus computed keys.</td>
 <td><a href="../selecting/">Selecting fields</a>.</td>
 </tr>
 <tr>
-<td><code>["own_except_and"&#124;"full_except_and", except, and]</code></td>
+<td><code>["*"&#124;"*~", except, and]</code></td>
 <td>Both of the above at once.</td>
 <td><a href="../selecting/">Selecting fields</a>.</td>
 </tr>
@@ -3207,7 +3207,7 @@ take.</p>
 <td><a href="../selecting/">Selecting fields</a>.</td>
 </tr>
 <tr>
-<td><code>["get-set", column, default_get?, default_set?]</code></td>
+<td><code>["col", column, default_get?, default_set?]</code></td>
 <td>Independent read/write defaults on one column.</td>
 <td><a href="../selecting/">Selecting fields</a>.</td>
 </tr>

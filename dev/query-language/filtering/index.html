@@ -1619,6 +1619,25 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14 12v7.88c.04.3-.06.62-.29.83a.996.996 0 0 1-1.41 0l-2.01-2.01a.99.99 0 0 1-.29-.83V12h-.03L4.21 4.62a1 1 0 0 1 .17-1.4c.19-.14.4-.22.62-.22h14c.22 0 .43.08.62.22a1 1 0 0 1 .17 1.4L14.03 12z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Filtering
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="././" class="md-nav__link md-nav__link--active">
         
   
@@ -1636,6 +1655,37 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#a-bare-string-is-a-literal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A bare string is a literal
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2598,6 +2648,38 @@
               
             
             
+              <hr class="md-nav__toc-separator">
+              
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#a-bare-string-is-a-literal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A bare string is a literal
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+            
           
         </div>
       </div>
@@ -2713,24 +2795,33 @@
 <h1 id="filtering-with-where">Filtering with <code>where</code><a class="headerlink" href="#filtering-with-where" title="Permanent link">&para;</a></h1>
 <p><code>where</code> takes an expression that must evaluate to a boolean. Comparisons, boolean logic, and
 arithmetic all use the same folded form — an operator followed by its operands:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"where"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"and"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"&gt;="</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="s2">"chain_id"</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">]]</span><span class="w"> </span><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"where"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"and"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"&gt;="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">],</span><span class="w"> </span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"chain_id"</span><span class="p">],</span><span class="w"> </span><span class="mi">3</span><span class="p">]]</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
 <p>Folded operators (<code>and</code>, <code>or</code>, <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>&lt;=</code>, <code>&gt;=</code>, <code>&lt;&gt;</code>, ...) also
 accept more than two operands and fold left-to-right — <code>["and", a, b, c]</code> is <code>a and b and c</code>;
 <code>["&lt;", 1, 2, 3]</code> is <code>1 &lt; 2 and 2 &lt; 3</code>. The full operator list is the <a href="../operators/">Operators
 reference</a>; a few forms come up often enough to call out here:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">[</span><span class="s2">"between"</span><span class="p">,</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="s2">"base_price"</span><span class="p">,</span><span class="w"> </span><span class="mi">500</span><span class="p">]</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="p">[</span><span class="s2">"in"</span><span class="p">,</span><span class="w"> </span><span class="s2">"status"</span><span class="p">,</span><span class="w"> </span><span class="s2">"confirmed"</span><span class="p">,</span><span class="w"> </span><span class="s2">"checked_in"</span><span class="p">]</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">[</span><span class="s2">"not_in"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">[</span><span class="s2">"like"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"%Grand%"</span><span class="p">]]</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">[</span><span class="s2">"between"</span><span class="p">,</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"base_price"</span><span class="p">],</span><span class="w"> </span><span class="mi">500</span><span class="p">]</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="p">[</span><span class="s2">"in"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"status"</span><span class="p">],</span><span class="w"> </span><span class="s2">"confirmed"</span><span class="p">,</span><span class="w"> </span><span class="s2">"checked_in"</span><span class="p">]</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">[</span><span class="s2">"not_in"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">],</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">[</span><span class="s2">"like"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span><span class="w"> </span><span class="s2">"%Grand%"</span><span class="p">]</span>
 </span></code></pre></div>
-<p>A bare string in an expression is always a column or alias reference; to filter on a literal
-string, wrap it as a one-element array — <code>["%Grand%"]</code> above is the string <code>"%Grand%"</code>, not a
-reference to a column named <code>%Grand%</code>. <code>like</code>/<code>ilike</code>/<code>~</code>/<code>~*</code> (pattern and regex matching) and
-<code>@@</code> (full-text search) are worth knowing about but disabled by default — see
+<h3 id="a-bare-string-is-a-literal">A bare string is a literal<a class="headerlink" href="#a-bare-string-is-a-literal" title="Permanent link">&para;</a></h3>
+<p>A bare string in an expression is always a <em>literal</em> value, exactly like a bare number,
+<code>true</code>, <code>false</code>, or <code>null</code> — <code>"%Grand%"</code> above is just the string <code>%Grand%</code>, never a reference.
+To point at something instead, use:</p>
+<ul>
+<li><code>["col", "name"]</code> — a real, physical column, asserted as such (errors clearly if <code>name</code>
+  turns out to be an alias, a joined relation, or a computed field);</li>
+<li><code>[".", "name"]</code> — anything in the current scope, no restriction: a column, an alias, a
+  joined relation, or a <a href="../computed-fields/#using-one">computed field</a>.</li>
+</ul>
+<p>Reach for <code>col</code> when you mean an actual column (most filters); reach for <code>.</code> for anything else,
+or when you'd rather not assert. <code>like</code>/<code>ilike</code>/<code>~</code>/<code>~*</code> (pattern and regex matching) and <code>@@</code>
+(full-text search) are worth knowing about but disabled by default — see
 <a href="../../configuration/">Configuration</a> to turn them on.</p>
 <p><code>any</code>/<code>all</code> compare a value against every element of an array or a to-many relation's column:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">[</span><span class="s2">"any"</span><span class="p">,</span><span class="w"> </span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"arr"</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">]]</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">[</span><span class="s2">"any"</span><span class="p">,</span><span class="w"> </span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"arr"</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">]]</span>
 </span></code></pre></div>
 
 
