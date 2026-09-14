@@ -2851,6 +2851,12 @@ do it for you.</p>
 <p>Schema introspection (startup, and every reload) logs one <code>info</code> summary line with the
 table/function/type counts it found ; at <code>debug</code>, one line per relation/function/type
 discovered, and one line per route/middleware actually registered and exposed over HTTP.</p>
+<p>The same startup/reload lifecycle also logs one <code>info</code> line with the effective, fully-assembled
+<code>Content-Security-Policy</code> header value (<code>http.csp.*</code>, or the raw <code>http.csp.policy</code> override if
+set) — the base policy actually sent on <code>/rel</code> and the static fallback, before any per-request
+nonce or route's own <code>resp.csp</code> changes it further. Check this line first if a configured CSP
+directive doesn't seem to be taking effect : it's the value rel resolved your configuration to,
+independent of whatever a browser's own CSP violation report claims.</p>
 <h2 id="error-responses">Error responses<a class="headerlink" href="#error-responses" title="Permanent link">&para;</a></h2>
 <p>Every error response, from <code>/rel</code> or <code>/route</code>, carries a <code>code</code>: a stable, safe-to-switch-on
 token, always present, never derived from user input. It arrives two ways at once — an
