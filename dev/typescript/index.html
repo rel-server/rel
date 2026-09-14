@@ -3221,9 +3221,9 @@ relation's own <code>proto</code>, so a parent's <code>proto</code> can read a n
 </span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>
 </span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">rooms</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">label</span><span class="w"> </span><span class="c1">// uses the join's own `proto`</span>
 </span></code></pre></div>
-<p><code>proto</code>'s members also appear in the write shape <code>.write()</code>/<code>create()</code> (below) expect — a <code>get</code>-only
-member stays read-only there too, but a <code>get</code>/<code>set</code> pair is assignable on a row you're about to
-write back, the same as it is on one you just read.</p>
+<p><code>proto</code>'s members also appear in the write shape <code>.write()</code>/<code>init()</code> (below) expect — a <code>get</code>-only
+member stays read-only there too, but a <code>get</code>/<code>set</code> pair is required and assignable on a row you're
+about to write back, the same as it is on one you just read.</p>
 <p>A <code>proto</code> entry can also be a property descriptor (<code>{get, set, enumerable}</code>), not just a plain
 getter/method written inline — this is what lets a reusable helper compose accessors into
 <code>proto</code> via object spread. <code>database.ts</code> ships one such helper per <a href="#typed-wire-values">typed wire value</a>
@@ -3246,8 +3246,9 @@ member alongside anything else in <code>proto</code>:</p>
 whether the resulting member is writable depends on whether the helper defines a setter — a
 range accessor, for instance, is read-only.</p>
 <h3 id="building-a-new-row">Building a new row<a class="headerlink" href="#building-a-new-row" title="Permanent link">&para;</a></h3>
-<p>A <code>Querier</code>'s <code>.create()</code> method builds a fresh row for <code>.write()</code> — own columns absent, joins
-seeded to the right shape, and the same <code>proto</code> accessors a row you <code>.get()</code> would have:</p>
+<p>A <code>Querier</code>'s <code>.init()</code> method doesn't build or create anything itself — it typechecks a row you
+already built against this query's own write shape (every required column, and every join,
+present) and attaches the same <code>proto</code> accessors a row you <code>.get()</code> would have:</p>
 <div class="language-ts highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="p">...</span><span class="nx">timestampTzAccessor</span><span class="p">(</span><span class="s2">"created_at"</span><span class="p">),</span>
@@ -3257,18 +3258,19 @@ seeded to the right shape, and the same <code>proto</code> accessors a row you <
 </span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="p">},</span>
 </span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="p">})</span>
 </span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
-</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="kd">const</span><span class="w"> </span><span class="nx">row</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">create</span><span class="p">()</span>
-</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="nx">row</span><span class="p">.</span><span class="nx">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span>
-</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="nx">row</span><span class="p">.</span><span class="nx">created_at_as_date</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Temporal</span><span class="p">.</span><span class="nx">Now</span><span class="p">.</span><span class="nx">instant</span><span class="p">()</span><span class="w"> </span><span class="c1">// same accessor, same setter, as a read row</span>
-</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="nx">row</span><span class="p">.</span><span class="nx">rooms</span><span class="p">.</span><span class="nx">push</span><span class="p">({</span><span class="w"> </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="s2">"101"</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="c1">// seeded [] : this join is to-many</span>
-</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>
-</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">write</span><span class="p">([</span><span class="nx">row</span><span class="p">])</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="kd">const</span><span class="w"> </span><span class="nx">row</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">init</span><span class="p">({</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">  </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">  </span><span class="nx">created_at_as_date</span><span class="o">:</span><span class="w"> </span><span class="kt">Temporal.Now.instant</span><span class="p">(),</span><span class="w"> </span><span class="c1">// same accessor, same setter, as a read row</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">  </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="s2">"101"</span><span class="w"> </span><span class="p">}],</span><span class="w"> </span><span class="c1">// this join is to-many, so an array</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="p">})</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">write</span><span class="p">([</span><span class="nx">row</span><span class="p">])</span>
 </span></code></pre></div>
-<p>A joined relation is seeded <code>[]</code> when it's to-many, or a nested <code>.create()</code>-built row (recursively,
-proto and all) when it's to-one — which one depends on how the join was reached, not on anything
-you configure yourself. <code>.write()</code> still expects an array of rows at the root, same as always ;
-<code>.create()</code> builds one row, so wrap it in <code>[...]</code> yourself, the same way you would a row you built
-by hand.</p>
+<p>A to-many join's value must be an array ; a to-one join's must be a single nested row, itself
+matching that relation's own write shape (proto included, if it has one) — <code>init()</code> checks this the
+same way it checks the root row, it just doesn't build any of it for you. <code>.write()</code> still expects
+an array of rows at the root, same as always ; <code>.init()</code> takes and returns ONE row, so wrap it in
+<code>[...]</code> yourself, the same way you would a row you built entirely by hand.</p>
 <h2 id="typed-wire-values">Typed wire values<a class="headerlink" href="#typed-wire-values" title="Permanent link">&para;</a></h2>
 <p>Every column comes back typed as the JS type its wire value actually has, not the type its
 Postgres type name might suggest. A <code>timestamptz</code> column doesn't come back as <code>number</code> or <code>Date</code>;
