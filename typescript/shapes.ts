@@ -254,10 +254,15 @@ type JoinCardinality<J> = J extends { shortcut: infer S extends string }
     : true
   : false
 
+// One joined member's own shape — to-one unwrapped, to-many array-wrapped per JoinCardinality. Shared by JoinShapes
+// (every member, mapped) and ShapeFromDotTag (below, one member looked up by name via a bare "." hop).
+type JoinMemberShape<J, Depth extends number> =
+  JoinCardinality<J> extends true
+    ? ShapeFromRelationQuery<J, ResolveModel<J>, Depth>
+    : ShapeFromRelationQuery<J, ResolveModel<J>, Depth>[]
+
 type JoinShapes<Join extends { [name: string]: unknown }, Depth extends number> = {
-  [A in keyof Join]: JoinCardinality<Join[A]> extends true
-    ? ShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>
-    : ShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>[]
+  [A in keyof Join]: JoinMemberShape<Join[A], Digits[Depth]>
 }
 
 type OwnShape<Rel extends object> = { [K in keyof Rel]: Rel[K] }
@@ -394,6 +399,52 @@ type ShapeFromCallTag<Rest extends readonly unknown[]> = Rest extends readonly [
 // which can't happen here : `returns` is unconditional).
 type ReturnsOf<M> = M extends { returns: infer Ret } ? Ret : unknown
 
+// "."/"dot" : docs/content/query-language/selecting.md ## The dot-chain form — the generic "look this up in
+// scope" building block a bare string used to be. A single hop resolves `name` against the current scope : a
+// real column of Rel, a joined relation named in Join (same per-member shape JoinShapes gives it, to-one/to-many
+// per JoinMemberShape above), or a computed field (docs/content/query-language/computed-fields.md) registered
+// under that bare name via FunctionsByName — the same lookup ShapeFromCallTag already does for an explicit
+// ["call", name], since a computed field is exactly a search-path function over the relation's own row type.
+// FunctionsByName isn't itself scoped to Rel (it's a global, search_path-disambiguated index — tsgen's own doc
+// comment on it), so a name collision with another relation's identically-named computed field could
+// mistype here ; narrowing that further would need per-relation computed-field data this type doesn't have.
+// A 2+-hop chain instead drills a base Expression's own resolved shape field by field, each hop a bare name
+// (never re-parsed as a literal — query.ts's own Expression doc comment on "."/"dot").
+type ShapeFromDotSingleHop<
+  Name extends string,
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = Name extends keyof Rel
+  ? Rel[Name]
+  : Name extends keyof Join
+    ? JoinMemberShape<Join[Name], Depth>
+    : Name extends keyof FunctionsByName
+      ? ReturnsOf<FunctionsByName[Name]>
+      : unknown
+
+type ShapeFromDotChain<Base, Hops extends readonly string[]> = Hops extends readonly [
+  infer Hop extends string,
+  ...infer Rest extends readonly string[],
+]
+  ? Base extends { [name: string]: unknown }
+    ? Hop extends keyof Base
+      ? ShapeFromDotChain<Base[Hop], Rest>
+      : unknown
+    : unknown
+  : Base
+
+type ShapeFromDotTag<
+  Rest extends readonly unknown[],
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = Rest extends readonly [infer Name extends string]
+  ? ShapeFromDotSingleHop<Name, Rel, Join, Depth>
+  : Rest extends readonly [infer Base, ...infer Hops extends readonly string[]]
+    ? ShapeFromDotChain<ShapeFromExpression<Base, Rel, Join, Depth>, Hops>
+    : unknown
+
 // arr/array/lst/list preserve each item's position (a tuple, not a collapsed union) ; coalesce instead
 // produces one value — the union of what each argument could be.
 type ShapeFromContainerTag<
@@ -439,13 +490,15 @@ type ShapeFromExpression<
       ? ShapeFromOwnFullTag<Tag, Rest, Rel, Join, Digits[Depth]>
       : Tag extends "get" | "col" | "set"
         ? ShapeFromFieldTag<Tag, Rest, Rel>
-        : Tag extends "$param"
-          ? ShapeFromParamTag<Rest>
-          : Tag extends ContainerTag
-            ? ShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth]>
-            : Tag extends "call"
-              ? ShapeFromCallTag<Rest>
-              : unknown // any other operator/agg/index/slice/format tuple — see comment above
+        : Tag extends "." | "dot"
+          ? ShapeFromDotTag<Rest, Rel, Join, Digits[Depth]>
+          : Tag extends "$param"
+            ? ShapeFromParamTag<Rest>
+            : Tag extends ContainerTag
+              ? ShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth]>
+              : Tag extends "call"
+                ? ShapeFromCallTag<Rest>
+                : unknown // any other operator/agg/index/slice/format tuple — see comment above
     : E extends { [name: string]: unknown }
       ? ShapeFromExpressionMap<E, Rel, Join, Digits[Depth]>
       : ShapeFromLeaf<E>

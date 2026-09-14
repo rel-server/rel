@@ -597,3 +597,55 @@ const propertiesWithReusedConstants = relation("hotel.properties", {
   where: propertyWhere,
 })
 void propertiesWithReusedConstants
+
+// "."/"dot" (shapes.ts's ShapeFromDotTag) : the general "look this up in scope" tag docs/content/query-language/
+// selecting.md ## The dot-chain form describes — pins that a real column, a joined relation (by its `join` key,
+// not the target relation's name), and a bare-name computed field all resolve through it, and that a 2+-hop
+// chain drills into a joined relation's own field. Pre-fix, "."/"dot" fell straight through ShapeFromExpression's
+// dispatcher to the generic `unknown` catch-all — none of these ever resolved.
+const roomsWithDot = relation("hotel.rooms", (join) => ({
+  select: {
+    property_id: [".", "property_id"],
+    room_type_name: [".", [".", "room_type"], "name"],
+  },
+  join: {
+    room_type: join("hotel.room_types>id:room_type_id"),
+  },
+}))
+export type RoomsWithDotShape = Awaited<ReturnType<typeof roomsWithDot.get>>[number]
+
+export type _AssertDotColumnResolvesRealType = Expect<
+  RoomsWithDotShape["property_id"] extends number ? true : false
+>
+export type _AssertDotChainIntoJoinResolvesRealType = Expect<
+  RoomsWithDotShape["room_type_name"] extends string ? true : false
+>
+
+const propertyWithDotJoinAndComputed = relation("hotel.properties", (join) => ({
+  select: {
+    id: [".", "id"],
+    rooms: [".", "rooms"],
+    avg_rating: [".", "property_average_rating"],
+  },
+  join: {
+    rooms: join("hotel.rooms*id:property_id"),
+  },
+}))
+export type PropertyWithDotJoinShape = Awaited<
+  ReturnType<typeof propertyWithDotJoinAndComputed.get>
+>[number]
+
+// "rooms" is reached through a "*" (incoming-and-multiple) shortcut, so a bare "." single-hop lookup must stay
+// array-shaped, same as JoinShapes already gets right for the default "*" select — ShapeFromDotSingleHop reuses
+// the same JoinMemberShape cardinality logic rather than a separate, potentially-drifting copy.
+export type _AssertDotJoinLookupIsArray = Expect<
+  PropertyWithDotJoinShape["rooms"] extends readonly unknown[] ? true : false
+>
+export type _AssertDotJoinLookupHasOwnColumn = Expect<
+  HasKey<PropertyWithDotJoinShape["rooms"][number], "room_number">
+>
+export type _AssertDotBareNameResolvesComputedField = Expect<
+  Extract<PropertyWithDotJoinShape["avg_rating"], PgNumeric> extends never ? false : true
+>
+void roomsWithDot
+void propertyWithDotJoinAndComputed
