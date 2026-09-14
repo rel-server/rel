@@ -264,6 +264,7 @@ type HttpCsp struct {
 	ImgSrc         string
 	FontSrc        string
 	ConnectSrc     string
+	WorkerSrc      string
 	ObjectSrc      string
 	FrameAncestors string
 	BaseUri        string

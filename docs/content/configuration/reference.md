@@ -73,7 +73,7 @@ the binary itself, if you want it without leaving a terminal.
 | Key | Env var | Default | What it does |
 |---|---|---|---|
 | `http.csp.default_src` | `REL_HTTP__CSP__DEFAULT_SRC` | `'self'` | The baseline CSP directive, applied unless a more specific one below overrides it. |
-| `http.csp.<directive>`, one of `script_src`, `style_src`, `img_src`, `font_src`, `connect_src`, `object_src`, `frame_ancestors`, `base_uri`, `form_action` | `REL_HTTP__CSP__<DIRECTIVE>` | falls back to `default_src` | Overrides that one directive specifically. |
+| `http.csp.<directive>`, one of `script_src`, `style_src`, `img_src`, `font_src`, `connect_src`, `worker_src`, `object_src`, `frame_ancestors`, `base_uri`, `form_action` | `REL_HTTP__CSP__<DIRECTIVE>` | falls back to `default_src` | Overrides that one directive specifically. |
 | `http.csp.policy` | `REL_HTTP__CSP__POLICY` | unset | The full, raw `Content-Security-Policy` header value — replaces every individual `http.csp.*` directive above entirely when set. |
 
 See [CORS and CSP](../http/cors-csp.md) for how these compose with a

@@ -47,7 +47,7 @@ http.csp.img_src = "'self' data:"
 ```
 
 - `http.csp.default_src` (default `'self'`) and one key per other directive
-  (`script_src`/`style_src`/`img_src`/`font_src`/`connect_src`/`object_src`/
+  (`script_src`/`style_src`/`img_src`/`font_src`/`connect_src`/`worker_src`/`object_src`/
   `frame_ancestors`/`base_uri`/`form_action`) — each falls back to `default_src` when unset.
 - `http.csp.policy` — a full, raw `Content-Security-Policy` header value; replaces every
   individual `http.csp.*` directive above entirely when set, rather than merging with them.

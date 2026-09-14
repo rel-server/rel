@@ -593,6 +593,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Csp.ImgSrc = root.GetStringOrDefault("http.csp.img_src", "")
 	cfg.Http.Csp.FontSrc = root.GetStringOrDefault("http.csp.font_src", "")
 	cfg.Http.Csp.ConnectSrc = root.GetStringOrDefault("http.csp.connect_src", "")
+	cfg.Http.Csp.WorkerSrc = root.GetStringOrDefault("http.csp.worker_src", "")
 	cfg.Http.Csp.ObjectSrc = root.GetStringOrDefault("http.csp.object_src", "")
 	cfg.Http.Csp.FrameAncestors = root.GetStringOrDefault("http.csp.frame_ancestors", "")
 	cfg.Http.Csp.BaseUri = root.GetStringOrDefault("http.csp.base_uri", "")

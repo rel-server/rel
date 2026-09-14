@@ -5,7 +5,7 @@
 // — synthesizing either directive from the effective default-src value
 // when it isn't otherwise present, per ### Nonce's "Synthesis when the
 // directive is absent" rule. The exact same injection logic applies
-// whether the base policy came from the ten named config directives, a raw
+// whether the base policy came from the eleven named config directives, a raw
 // http.csp.policy, or a route function's own resp.csp — ## CSP's
 // ### Per-response override is explicit that it's "the same synthesize-
 // if-absent rule from ### Nonce above."
@@ -25,7 +25,7 @@ type Directive struct {
 	Value string
 }
 
-// cspDirectiveOrder is ## CSP ### Configuration's ten named directives, in
+// cspDirectiveOrder is ## CSP ### Configuration's eleven named directives, in
 // emission order — default-src first, since script/style-src synthesize from it.
 var cspDirectiveOrder = []struct {
 	name string
@@ -37,13 +37,14 @@ var cspDirectiveOrder = []struct {
 	{"img-src", func(c config.HttpCsp) string { return c.ImgSrc }},
 	{"font-src", func(c config.HttpCsp) string { return c.FontSrc }},
 	{"connect-src", func(c config.HttpCsp) string { return c.ConnectSrc }},
+	{"worker-src", func(c config.HttpCsp) string { return c.WorkerSrc }},
 	{"object-src", func(c config.HttpCsp) string { return c.ObjectSrc }},
 	{"frame-ancestors", func(c config.HttpCsp) string { return c.FrameAncestors }},
 	{"base-uri", func(c config.HttpCsp) string { return c.BaseUri }},
 	{"form-action", func(c config.HttpCsp) string { return c.FormAction }},
 }
 
-// BuildPolicyFromConfig assembles the directive list from the ten
+// BuildPolicyFromConfig assembles the directive list from the eleven
 // individual http.csp.* keys — only directives with a non-empty value are
 // emitted ; an unset one simply doesn't appear in the header (CSP's own
 // fallback rule then applies it to default-src at the BROWSER level, not
@@ -152,7 +153,7 @@ func appendToken(value, token string) string {
 // response : override (RelHttpResponse.csp, "" when unset) takes
 // precedence over csp.Policy (http.csp.policy, "" when unset), which in
 // turn REPLACES the individual directives entirely when set ; otherwise
-// the ten named directives are used. The nonce is always injected on top,
+// the eleven named directives are used. The nonce is always injected on top,
 // per ### Per-response override's "same synthesize-if-absent rule."
 func Policy(csp config.HttpCsp, override string, nonce string) string {
 	var directives []Directive

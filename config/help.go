@@ -85,6 +85,7 @@ var Options = []Option{
 	{"http.csp.img_src", "(unset — falls back to default-src)", "CSP img-src directive value."},
 	{"http.csp.font_src", "(unset — falls back to default-src)", "CSP font-src directive value."},
 	{"http.csp.connect_src", "(unset — falls back to default-src)", "CSP connect-src directive value."},
+	{"http.csp.worker_src", "(unset — falls back to default-src)", "CSP worker-src directive value."},
 	{"http.csp.object_src", "(unset — falls back to default-src)", "CSP object-src directive value."},
 	{"http.csp.frame_ancestors", "(unset — falls back to default-src)", "CSP frame-ancestors directive value."},
 	{"http.csp.base_uri", "(unset — falls back to default-src)", "CSP base-uri directive value."},
