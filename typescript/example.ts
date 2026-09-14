@@ -649,3 +649,33 @@ export type _AssertDotBareNameResolvesComputedField = Expect<
 >
 void roomsWithDot
 void propertyWithDotJoinAndComputed
+
+// Write side mirrors the read side (shapes.ts's WriteShapeFromDotTag) : same ShapeFromExpression-dispatcher gap,
+// so pre-fix a `.`-selected column/join fell through to `unknown` in init()/write() too, even though a
+// single-hop `.` reference to a real column is just as writable as `col`/`set` (server/query/shape.go's
+// walkSelectForWritability records a plain *Identifier the same way) — this is the "init() types less strongly
+// than get()" regression, not a display-only issue like the hover one above.
+export type RoomsWithDotWriteShape = Parameters<typeof roomsWithDot.write>[0][number]
+export type _AssertDotColumnIsRequiredInWriteShape = Expect<
+  HasKey<RoomsWithDotWriteShape, "property_id">
+>
+// A multi-hop chain never backs a single real column (BackingColumnOf), and per docs/content/query-language/
+// writing.md ## Writability rules a computed/derived value is never a write target either way — dropped
+// entirely, same as `get`/`call`, rather than kept with a nonsensical type.
+export type _AssertDotChainOmittedFromWriteShape = Expect<
+  HasKey<RoomsWithDotWriteShape, "room_type_name"> extends false ? true : false
+>
+
+export type PropertyWithDotJoinWriteShape = Parameters<
+  typeof propertyWithDotJoinAndComputed.write
+>[0][number]
+// A single-hop `.` reference to a joined relation recurses into that relation's own write shape, same as a
+// "*"-selected join already does (WriteJoinMemberShape, shared with WriteJoinShapes).
+export type _AssertDotJoinWritableInWriteShape = Expect<
+  HasKey<PropertyWithDotJoinWriteShape, "rooms">
+>
+// A bare-name computed field is never a write target (writing.md ## Writability rules) — dropped, same as the
+// multi-hop chain above.
+export type _AssertDotComputedFieldOmittedFromWriteShape = Expect<
+  HasKey<PropertyWithDotJoinWriteShape, "avg_rating"> extends false ? true : false
+>

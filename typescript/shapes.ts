@@ -658,21 +658,26 @@ export type RequiredKeysOf<Key> = Key extends keyof RequiredColumns ? RequiredCo
 
 // The single physical column name E refers to, when that's unambiguous — a col/set field tag naming one (`get`
 // is excluded : it's read-only, already dropped from the write shape via Omitted before this is ever
-// consulted). A bare string is never a column reference any more (it's a literal), so it can't back one either.
-// Anything else — "*"/"*~" and their variants, a computed/call expression, a container, `$param` — has no ONE
-// backing column, so it's `never` ; IsRequiredEntry (below) reads that as "can't be required," never as a false
-// positive.
+// consulted), or a single-hop "."/"dot" ([".", name] — exactly two elements, so a 2+-hop chain's own `base`
+// never gets mistaken for a bare name here) naming a real column the same way (server/query/shape.go's own
+// walkSelectForWritability records a plain `*Identifier` toward writability exactly like `col`/`set` — a
+// single-hop `.` reference to a real column is just as "clean" server-side). A bare string is never a column
+// reference any more (it's a literal), so it can't back one either. Anything else — "*"/"*~" and their variants,
+// a computed/call expression, a multi-hop dot chain, a container, `$param` — has no ONE backing column, so it's
+// `never` ; IsRequiredEntry (below) reads that as "can't be required," never as a false positive.
 type BackingColumnOf<E, Rel extends object> = E extends readonly [
-  infer Tag extends string,
+  "col" | "set",
   infer Col,
   ...unknown[],
 ]
-  ? Tag extends "col" | "set"
-    ? Col extends keyof Rel
-      ? Col
+  ? Col extends keyof Rel
+    ? Col
+    : never
+  : E extends readonly ["." | "dot", infer Name extends string]
+    ? Name extends keyof Rel
+      ? Name
       : never
     : never
-  : never
 
 // Whether Obj[K]'s own expression, in WriteShapeFromExpressionMap below, must be marked mandatory — `false`,
 // not merely "not required," when there's no single backing column at all (the `[X] extends [never]` form,
@@ -690,10 +695,16 @@ type IsRequiredEntry<E, Rel extends object, ReqCol extends string> = [
 // func()'s root call — see WriteShapeFromQuery's own doc comment) — WriteShapeFromRelationQuery's own ReqCol
 // default (RequiredKeysOf<ResolveKey<Q>>) reads its required columns straight off that literal, same as
 // ResolveModel<Join[A]> already does for its row shape ; no need to compute or pass it explicitly here.
+// Write-side counterpart to JoinMemberShape (above) — same to-one/to-many cardinality split, resolved through
+// WriteShapeFromRelationQuery instead of ShapeFromRelationQuery. Shared by WriteJoinShapes and
+// WriteShapeFromDotTag, same reasoning as JoinMemberShape's own doc comment.
+type WriteJoinMemberShape<J, Depth extends number> =
+  JoinCardinality<J> extends true
+    ? WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>
+    : WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>[]
+
 type WriteJoinShapes<Join extends { [name: string]: unknown }, Depth extends number> = {
-  [A in keyof Join]: JoinCardinality<Join[A]> extends true
-    ? WriteShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>
-    : WriteShapeFromRelationQuery<Join[A], ResolveModel<Join[A]>, Digits[Depth]>[]
+  [A in keyof Join]: WriteJoinMemberShape<Join[A], Digits[Depth]>
 }
 
 // Same physical columns as OwnShape, but a column named in ReqCol (RequiredKeysOf<ResolveKey<Q>>, threaded down
@@ -720,6 +731,35 @@ type WriteShapeFromFieldTag<
       ? Rel[Col]
       : unknown
     : unknown
+
+// "."/"dot" on the write side — docs/content/query-language/writing.md ## Writability rules : "a physical
+// column is writable ... untransformed except by a coalescing operator, or set/col" and "a computed field ...
+// is never a write target" ; server/query/shape.go's own walkSelectForWritability mirrors this at the FoldDot
+// case (single-hop only — a multi-hop chain hopping into a child's own column is excluded from writability
+// there too). So : a single-hop reference to a real column is writable, same type as col/set (BackingColumnOf,
+// above, already counts it toward IsRequiredEntry) ; a single-hop reference to a joined relation recurses into
+// that relation's own write shape, same as a "*"-selected join would ; anything else a single hop could name
+// (a computed field) or any multi-hop chain (never a real column, whatever it ends in) is Omitted — dropped
+// from the write shape entirely, same treatment "call" already gets below.
+type WriteShapeFromDotSingleHop<
+  Name extends string,
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = Name extends keyof Rel
+  ? Rel[Name]
+  : Name extends keyof Join
+    ? WriteJoinMemberShape<Join[Name], Depth>
+    : Omitted
+
+type WriteShapeFromDotTag<
+  Rest extends readonly unknown[],
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = Rest extends readonly [infer Name extends string]
+  ? WriteShapeFromDotSingleHop<Name, Rel, Join, Depth>
+  : Omitted
 
 type WriteOwnFullBase<
   Tag extends OwnFullTag,
@@ -792,13 +832,15 @@ type WriteShapeFromExpression<
       ? WriteShapeFromOwnFullTag<Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
       : Tag extends "get" | "col" | "set"
         ? WriteShapeFromFieldTag<Tag, Rest, Rel>
-        : Tag extends "$param"
-          ? ShapeFromParamTag<Rest>
-          : Tag extends ContainerTag
-            ? WriteShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
-            : Tag extends "call"
-              ? Omitted // never a real column (query-engine.md : "never a candidate for writability") ; dropped
-              : unknown // from the write shape entirely, same as `get` above, rather than kept with a nonsensical type.
+        : Tag extends "." | "dot"
+          ? WriteShapeFromDotTag<Rest, Rel, Join, Digits[Depth]>
+          : Tag extends "$param"
+            ? ShapeFromParamTag<Rest>
+            : Tag extends ContainerTag
+              ? WriteShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
+              : Tag extends "call"
+                ? Omitted // never a real column (query-engine.md : "never a candidate for writability") ; dropped
+                : unknown // from the write shape entirely, same as `get` above, rather than kept with a nonsensical type.
     : E extends { [name: string]: unknown }
       ? WriteShapeFromExpressionMap<E, Rel, Join, Digits[Depth], ReqCol>
       : ShapeFromLeaf<E>
