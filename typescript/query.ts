@@ -4,7 +4,7 @@ This file specifies the shape of the JSON queries that rel is to understand.
 
 // A query is one query, or a sequence run in order in one transaction ; any failure fails the whole transaction.
 // For more complex needs, use a function instead.
-export type Query = ComplexQuery | RelationQuery | WellKnownQuery | Query[]
+export type Query = ComplexQuery | RelationQuery | WellKnownQuery | readonly Query[]
 
 /* Call a query that's registered in rel. This can be seen as a view, except it's a rel's signature bi-directional query that's both readable and writable. */
 export interface WellKnownQuery {
@@ -103,7 +103,7 @@ export interface RelationQuery<
   // FunctionArgs/DeferredFunctionArgs) rather than against Rel's columns the way every other Expression-typed
   // field on this interface does — a function argument is a value the caller already has in hand, not a
   // reference into the relation being queried.
-  FunctionArguments = Expression<Keys<Rel>>[] | { [name: string]: Expression<Keys<Rel>> },
+  FunctionArguments = readonly Expression<Keys<Rel>>[] | { [name: string]: Expression<Keys<Rel>> },
 > {
   // Identifying fields for the relation : exactly one of `relation` or
   // `function` must be given ; supplying both, or neither, is an error.
@@ -173,13 +173,13 @@ export interface RelationQuery<
 
   /** The UNIQUE/PRIMARY KEY constraint (name, or its columns) used for conflict resolution on insert/update/merge.
    Defaults to the PRIMARY KEY only ; a UNIQUE constraint is never picked automatically when there is none. */
-  on_conflict?: string | string[]
+  on_conflict?: string | readonly string[]
 
   /** Limits which columns are inserted from the payload ; also applies to updates unless `update_columns` is given. Defaults to all writable columns. */
-  insert_columns?: string[]
+  insert_columns?: readonly string[]
 
   /** Columns to update if a row already exists. Defaults to all columns from the payload. */
-  update_columns?: string[]
+  update_columns?: readonly string[]
 
   /** Related tables to embed, keyed by the alias used in `select`. To-many joins produce an array, to-one joins an object. */
   join?: Join
@@ -196,13 +196,13 @@ export interface RelationQuery<
 
   distinct?: boolean
 
-  distinct_on?: Expression[]
+  distinct_on?: readonly Expression[]
 
   // if not supplied, "asc" is the default, just like in SQL
-  order_by?: (
+  order_by?: readonly (
     | Expression
     // asc and desc are nulls last by default
-    | ["asc" | "desc" | "asc-nulls-first" | "desc-nulls-last", Expression]
+    | readonly ["asc" | "desc" | "asc-nulls-first" | "desc-nulls-last", Expression]
   )[]
 
   // The following two clauses are SQL's clauses. When used in a subquery, applies them for each parent-row
@@ -338,6 +338,11 @@ export type BinaryOperator =
 Never a combined "schema.name" string : a quoted Postgres identifier can itself contain a literal dot. */
 export type FunctionIdentifier = string | { schema: string; name: string }
 
+// Every tuple/array variant below is `readonly` — nothing in the client ever mutates a built Expression, it's
+// only ever serialized to JSON — so a pre-declared `as const` value (or any other readonly-typed array) can be
+// passed in directly, not just an inline literal. See specs/typescript.md's note on relation()'s `const Q extends
+// RelationQuery<...>` : a `const` type parameter infers `readonly` from `as const`/readonly-typed inputs, which a
+// mutable array/tuple type here would then reject.
 export type Expression<K extends string = string> =
   | null
   | true
@@ -346,45 +351,45 @@ export type Expression<K extends string = string> =
   /** A bare string is always a literal string value — never a column/alias reference.
   To reference a column, use ["col", name] (or the read-only/write-only ["get", ...] / ["set", ...]). */
   | string
-  | [UnaryOperator, Expression<K>]
-  | [BinaryOperator, left: Expression<K>, right: Expression<K>]
-  | ["between", min: Expression<K>, exp: Expression<K>, max: Expression<K>]
-  | ["not_between", min: Expression<K>, exp: Expression<K>, max: Expression<K>]
+  | readonly [UnaryOperator, Expression<K>]
+  | readonly [BinaryOperator, left: Expression<K>, right: Expression<K>]
+  | readonly ["between", min: Expression<K>, exp: Expression<K>, max: Expression<K>]
+  | readonly ["not_between", min: Expression<K>, exp: Expression<K>, max: Expression<K>]
 
   // explicit bigint support for queries. in responses, the user can choose to have another parser than JSON.parse _if_ they absolutely need bigints
-  | ["bigint", value: string]
-  | ["numeric", value: string] // for really big numbers
+  | readonly ["bigint", value: string]
+  | readonly ["numeric", value: string] // for really big numbers
   /** "."/"dot" is the one operator whose hop names are always bare names (K), never a nested Expression — a
   bare string elsewhere means a literal now, so this needs its own tuple form rather than the generic one below.
   A single hop with no base — ["." | "dot", "name"] — resolves `name` directly against the current scope: a real
   column, an alias, a joined/embedded field, or an earlier computed key. This is the generic "reference this
   name" building block bare strings used to provide — unlike ["col", ...], it is not restricted to real columns.
   With 2+ operands, the first is a base Expression and each further hop drills into it field by field. */
-  | ["." | "dot", name: K]
-  | ["." | "dot", base: Expression<K>, hop: K, ...hops: K[]]
-  | [Exclude<FoldedOperator, "." | "dot">, ...Expression<K>[]]
-  | ["in" | "not_in", subject: Expression<K>, ...canditates: Expression<K>[]]
-  | [
+  | readonly ["." | "dot", name: K]
+  | readonly ["." | "dot", base: Expression<K>, hop: K, ...hops: K[]]
+  | readonly [Exclude<FoldedOperator, "." | "dot">, ...Expression<K>[]]
+  | readonly ["in" | "not_in", subject: Expression<K>, ...canditates: Expression<K>[]]
+  | readonly [
       "any" | "all",
       op: FoldedOperator | BinaryOperator,
       subject: Expression<K>,
       array_or_list: Expression<K>,
     ]
-  | ["concat_ws", separator: Expression<K>, ...Expression<K>[]]
-  | ["coalesce", ...Expression<K>[]]
-  | ["format", format: string, ...Expression<K>[]]
+  | readonly ["concat_ws", separator: Expression<K>, ...Expression<K>[]]
+  | readonly ["coalesce", ...Expression<K>[]]
+  | readonly ["format", format: string, ...Expression<K>[]]
 
   /** Aggregate an incoming relation's expression, callable only from the parent relation ; the optional last
   expression filters. `identifier` is a FunctionIdentifier, not an Expression, so allowlisting (query-engine.md
   ## Scoping) can check a static, schema-qualified name at compile time. */
-  | [
+  | readonly [
       "agg" | "aggregate",
       identifier: FunctionIdentifier,
-      arguments: Expression<K>[],
+      arguments: readonly Expression<K>[],
       filter?: Expression<K>,
     ]
   /** A function call ; `identifier` must be allowed — same static-name constraint as "agg" above. */
-  | ["call", identifier: FunctionIdentifier, ...arguments: Expression<K>[]]
+  | readonly ["call", identifier: FunctionIdentifier, ...arguments: Expression<K>[]]
 
   // Expressions that produce objects
   /* an inline object that will become an object expression */
@@ -394,15 +399,15 @@ export type Expression<K extends string = string> =
   add/override), dispatched by shape rather than position or count — any number of either, in any order. Every
   except-list is concatenated, every and-map merged (later keys overriding earlier) — `and` may reintroduce an
   omitted key, but not shadow a real, non-omitted one implicitly (error). */
-  | ["*" | "*~", ...(K[] | { [name: string]: Expression<K> })[]]
-  | ["arr" | "array", ...Expression[]] // may need to be behind a flag ?
-  | ["index", array: Expression, index: Expression] // 1-indexed, just like PG
-  | ["slice", array: Expression, from: Expression, to: Expression] // 1-indexed, just like PG
-  | ["lst" | "list", ...Expression[]] // may need to be behind a flag ?
+  | readonly ["*" | "*~", ...(readonly K[] | { [name: string]: Expression<K> })[]]
+  | readonly ["arr" | "array", ...Expression[]] // may need to be behind a flag ?
+  | readonly ["index", array: Expression, index: Expression] // 1-indexed, just like PG
+  | readonly ["slice", array: Expression, from: Expression, to: Expression] // 1-indexed, just like PG
+  | readonly ["lst" | "list", ...Expression[]] // may need to be behind a flag ?
 
   // More granular field selection.
   // The default expression may be the "default" keyword if the column has a default value
-  | ["col", column: K, default_get?: Expression, default_set?: Expression] // this is to set default values instead of null in read or write
-  | ["get", column: K, default_value?: Expression] // this column will not be looked for / modified in write mode
-  | ["set", column: K, default_value?: Expression] // this column is not fetched in query mode, but is expected there in write mode.
-  | ["$param", name: string, cast?: string] // for use with well known queries
+  | readonly ["col", column: K, default_get?: Expression, default_set?: Expression] // this is to set default values instead of null in read or write
+  | readonly ["get", column: K, default_value?: Expression] // this column will not be looked for / modified in write mode
+  | readonly ["set", column: K, default_value?: Expression] // this column is not fetched in query mode, but is expected there in write mode.
+  | readonly ["$param", name: string, cast?: string] // for use with well known queries

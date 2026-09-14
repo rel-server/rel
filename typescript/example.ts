@@ -584,3 +584,16 @@ function assertCreatedRowAccessorIsWritable() {
   createdPropertyWithAccessor.created_at_as_date = Temporal.Now.instant()
 }
 void assertCreatedRowAccessorIsWritable
+
+// relation()'s `const Q extends RelationQuery<...>` signature infers Q's literal type from `request` ; a
+// PRE-DECLARED `as const` value (unlike an inline literal, which is checked against RelationQuery's own field
+// types via contextual typing before the `const` modifier's readonly-inference applies) keeps its `readonly`
+// array/tuple type once inferred as Q. Every array/tuple position on RelationQuery/Expression (query.ts) is
+// `readonly` specifically so this still typechecks, not just the inline-literal form above.
+const propertyInsertColumns = ["name", "star_rating"] as const
+const propertyWhere = ["=", ["col", "star_rating"], 5] as const
+const propertiesWithReusedConstants = relation("hotel.properties", {
+  insert_columns: propertyInsertColumns,
+  where: propertyWhere,
+})
+void propertiesWithReusedConstants

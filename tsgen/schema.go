@@ -137,10 +137,11 @@ func wellknownConstIdent(name string) string {
 // embedded verbatim as a `const ... as const` literal and
 // RootShapeFromLiteralQuery/WriteShapeFromRelationQuery (shapes.ts) infer its
 // shape from that literal directly — the unconstrained entry points, not
-// ShapeFromQuery/WriteShapeFromQuery, since `as const` makes every nested
-// array/tuple readonly, which the constrained Q extends RelationQuery<...>
-// signature rejects (RelationQuery's own where/select fields are typed as
-// mutable tuples). `shape` goes through RootShapeFromLiteralQuery, not the
+// ShapeFromQuery/WriteShapeFromQuery, since the literal already carries its
+// own `relation`/`schema`/`function` fields (ResolveModel<Q> reads Rel
+// straight off Q itself), unlike relation()/func()'s own Q (querier.ts),
+// which never carries them and needs Rel threaded in as a separate type
+// argument. `shape` goes through RootShapeFromLiteralQuery, not the
 // bare ShapeFromRelationQuery : a well-known query's root is array-shaped
 // like any other root (docs/content/query-language/writing.md — "an array
 // of rows at the root" ; server/rel.go's streamItem), whether it's

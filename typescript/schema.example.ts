@@ -158,9 +158,9 @@ export interface FunctionsByName {
 // Well-known queries (specs/typescript.md ## Wellknowns) : each compiled query's own raw "query" JSON is embedded
 // verbatim as a `const ... as const` literal, and ShapeFromRelationQuery/WriteShapeFromRelationQuery (shapes.ts)
 // infer its shape from that literal directly, rather than re-deriving it in Go — the UNCONSTRAINED entry points,
-// not ShapeFromQuery/WriteShapeFromQuery : `as const` makes every nested array/tuple readonly, which the
-// constrained `Q extends RelationQuery<...>` signature rejects (its own where/select fields are typed as mutable
-// tuples).
+// not ShapeFromQuery/WriteShapeFromQuery, since the literal already carries its own `relation`/`schema`/`function`
+// fields (ResolveModel<Q> reads Rel straight off Q itself), unlike relation()/func()'s own Q (querier.ts), which
+// never carries them and needs Rel threaded in as a separate type argument.
 const __wellknown_properties_by_star_rating_query = {
   schema: "hotel",
   relation: "properties",
