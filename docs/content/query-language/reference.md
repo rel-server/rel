@@ -133,9 +133,7 @@ take.
 | `["call", identifier, ...arguments]` | Call an allowed function explicitly — needed for a cross-schema computed field, or any other function call. | [Computed fields](computed-fields.md). |
 | `{[name]: Expression}` | An object literal — a select shape. | [Selecting fields](selecting.md). |
 | `["*"]` / `["*~"]` | All columns plus joins / all columns, no joins. | [Selecting fields](selecting.md). |
-| <code>["\*"&#124;"\*~", except]</code> | All columns except the ones named. | [Selecting fields](selecting.md). |
-| <code>["\*"&#124;"\*~", and]</code> | All columns plus computed keys. | [Selecting fields](selecting.md). |
-| <code>["\*"&#124;"\*~", except, and]</code> | Both of the above at once. | [Selecting fields](selecting.md). |
+| <code>["\*"&#124;"\*~", ...except_or_and]</code> | Any number of except-arrays and/or and-objects, any order, merged. | [Selecting fields](selecting.md). |
 | <code>["arr"&#124;"array", ...Expression[]]</code> | An array literal. | [Operators reference](operators.md). |
 | `["index", array, index]` | 1-indexed array access. | [Operators reference](operators.md). |
 | `["slice", array, from, to]` | 1-indexed array slice. | [Operators reference](operators.md). |

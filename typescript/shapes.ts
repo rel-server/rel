@@ -306,6 +306,27 @@ type OwnFullBase<
   Depth extends number,
 > = Tag extends "*~" ? OwnShape<Rel> : FullShape<Rel, Join, Depth>
 
+// Folds an arbitrary-length "*"/"*~" rest-tuple (each item either a K[] except-list or an
+// and-map, in any order, any count) into one union of excepted keys / one merged and-map —
+// every except-list concatenated, every and-map merged with later keys overriding earlier.
+type ExceptFromRest<Rest extends readonly unknown[]> = Rest extends readonly [
+  infer Head,
+  ...infer Tail,
+]
+  ? Head extends readonly string[]
+    ? Head[number] | ExceptFromRest<Tail>
+    : ExceptFromRest<Tail>
+  : never
+
+type AndFromRest<Rest extends readonly unknown[]> = Rest extends readonly [
+  infer Head,
+  ...infer Tail,
+]
+  ? Head extends { [name: string]: unknown }
+    ? Omit<Head, keyof AndFromRest<Tail>> & AndFromRest<Tail>
+    : AndFromRest<Tail>
+  : Record<string, never>
+
 type ShapeFromOwnFullTag<
   Tag extends OwnFullTag,
   Rest extends readonly unknown[],
@@ -314,18 +335,7 @@ type ShapeFromOwnFullTag<
   Depth extends number,
 > =
   OwnFullBase<Tag, Rel, Join, Depth> extends infer Base extends object
-    ? Rest extends readonly []
-      ? Base
-      : Rest extends readonly [infer Ex extends readonly string[]]
-        ? Omit<Base, Ex[number]>
-        : Rest extends readonly [infer And extends { [name: string]: unknown }]
-          ? Base & ShapeFromExpressionMap<And, Rel, Join, Depth>
-          : Rest extends readonly [
-                infer Ex extends readonly string[],
-                infer And extends { [name: string]: unknown },
-              ]
-            ? Omit<Base, Ex[number]> & ShapeFromExpressionMap<And, Rel, Join, Depth>
-            : never
+    ? Omit<Base, ExceptFromRest<Rest>> & ShapeFromExpressionMap<AndFromRest<Rest>, Rel, Join, Depth>
     : never
 
 // get/col : the referenced column's own type, on the read side (col's default_set only matters on write). `set`
@@ -675,18 +685,8 @@ type WriteShapeFromOwnFullTag<
   ReqCol extends string = never,
 > =
   WriteOwnFullBase<Tag, Rel, Join, Depth, ReqCol> extends infer Base extends object
-    ? Rest extends readonly []
-      ? Base
-      : Rest extends readonly [infer Ex extends readonly string[]]
-        ? Omit<Base, Ex[number]>
-        : Rest extends readonly [infer And extends { [name: string]: unknown }]
-          ? Base & WriteShapeFromExpressionMap<And, Rel, Join, Depth, ReqCol>
-          : Rest extends readonly [
-                infer Ex extends readonly string[],
-                infer And extends { [name: string]: unknown },
-              ]
-            ? Omit<Base, Ex[number]> & WriteShapeFromExpressionMap<And, Rel, Join, Depth, ReqCol>
-            : never
+    ? Omit<Base, ExceptFromRest<Rest>> &
+        WriteShapeFromExpressionMap<AndFromRest<Rest>, Rel, Join, Depth, ReqCol>
     : never
 
 type WriteShapeFromContainerTag<

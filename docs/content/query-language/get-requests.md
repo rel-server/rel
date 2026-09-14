@@ -55,6 +55,10 @@ mix in one `select=`:
 | `*(;total:agg(sum,payments.amount))` | all columns plus a computed `total` — a leading `;` is required even with an empty except-list |
 | `*(a,b; total:agg(...))` | except-list, then `;`, then the and-map |
 
+The JSON body's `*`/`*~` form actually accepts any number of except-arrays and and-objects, in
+either order, merged together — see [Selecting fields](selecting.md). This URL grammar only
+ever produces one of each; use `POST /rel` if you genuinely need more.
+
 ### `order_by`
 
 Each entry is an expression, optionally prefixed with a leading `-` for descending:

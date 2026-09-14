@@ -390,13 +390,11 @@ export type Expression<K extends string = string> =
   /* an inline object that will become an object expression */
   | { [name: string]: Expression<K> }
   /** "*" = full (own columns + joined rels ; select's default value). "*~" = own (this relation's columns only).
-  Each optionally takes an `except` array of column names to drop and/or an `and` object of computed columns to
-  add/override, dispatched by shape (array vs object) rather than by position — `and` may reintroduce an
+  Each trailing argument is either a K[] except-list (columns to drop) or an object and-map (computed columns to
+  add/override), dispatched by shape rather than position or count — any number of either, in any order. Every
+  except-list is concatenated, every and-map merged (later keys overriding earlier) — `and` may reintroduce an
   omitted key, but not shadow a real, non-omitted one implicitly (error). */
-  | ["*" | "*~"]
-  | ["*" | "*~", except: K[]]
-  | ["*" | "*~", and: { [name: string]: Expression<K> }]
-  | ["*" | "*~", except: K[], and: { [name: string]: Expression<K> }]
+  | ["*" | "*~", ...(K[] | { [name: string]: Expression<K> })[]]
   | ["arr" | "array", ...Expression[]] // may need to be behind a flag ?
   | ["index", array: Expression, index: Expression] // 1-indexed, just like PG
   | ["slice", array: Expression, from: Expression, to: Expression] // 1-indexed, just like PG

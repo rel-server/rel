@@ -334,14 +334,17 @@ type ObjectExpr struct {
 	Fields map[string]Expression
 }
 
-// StarExpr is ["*", except?, and?] (Own false, full : the current relation's
-// own columns plus the joined relations' aliases — select's default when
-// unspecified) or ["*~", except?, and?] (Own true : own columns only, no
-// joined aliases). except (a []string) and and (a map[string]Expression) are
-// each optional and order-independent — dispatched by JSON type, not
-// position, at parse time (see parseStarTag in expression_parse.go). And
-// cannot shadow keys implicitly per query.ts's comment ; that's a pass 2
-// validation concern, not enforced by this shape.
+// StarExpr is ["*", ...except_or_and] (Own false, full : the current
+// relation's own columns plus the joined relations' aliases — select's
+// default when unspecified) or ["*~", ...except_or_and] (Own true : own
+// columns only, no joined aliases). Each trailing argument is either a
+// []string except-list or a map[string]Expression and-map, dispatched by
+// JSON type rather than position or count (see parseStarTag in
+// expression_parse.go) — any number of either, in any order ; every
+// except-list is concatenated into Except, every and-map merged into And
+// (later keys overriding earlier). And cannot shadow keys implicitly per
+// query.ts's comment ; that's a pass 2 validation concern, not enforced by
+// this shape.
 type StarExpr struct {
 	notYetValidated
 	Own    bool

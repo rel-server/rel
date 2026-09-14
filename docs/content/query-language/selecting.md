@@ -18,6 +18,12 @@ relation plus every joined relation. The building blocks:
 | `["*", ["id"], {"id": ["call", "..."]}]` | omit some, add/override others, both at once |
 | `{"id": ["col", "id"], "name": ["col", "name"]}` | an explicit object literal — only these keys |
 
+`*`/`*~` take any number of trailing arguments after the tag, each either an array (names to
+except) or an object (computed keys to add/override) — dispatched by shape, not position, so
+they can come in either order, and more than one of either kind is fine too: every array is
+concatenated into one except-list, every object merged into one and-map (a later key overriding
+an earlier one). In practice you'll almost always give at most one of each.
+
 A bare JSON string is always a *literal* value now, never a reference — see [Filtering with
 `where`](filtering.md#a-bare-string-is-a-literal). To point at something, use `col` (asserts a
 real column; fails clearly on a typo'd alias) or `.` (looks up anything in scope, no

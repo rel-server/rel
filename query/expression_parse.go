@@ -541,40 +541,37 @@ func parseObjectFields(n *ast.Node) (map[string]Expression, error) {
 	return out, nil
 }
 
-// parseStarTag parses "*"/"*~"'s trailing arguments : an except []string
-// array and/or an and map[string]Expression object, each optional and
-// dispatched by JSON type rather than position (so ["*", and] and
-// ["*", except, and] are both valid, but two arrays or two objects aren't).
+// parseStarTag parses "*"/"*~"'s trailing arguments : any number of except
+// []string arrays and/or and map[string]Expression objects, dispatched by
+// JSON type rather than position or count — every array is concatenated
+// into one except list, every object merged into one and map (later keys
+// overriding earlier), in the order given.
 func parseStarTag(own bool, rest []ast.Node) (Expression, error) {
 	tagName := "*"
 	if own {
 		tagName = "*~"
-	}
-	if len(rest) > 2 {
-		return nil, fmt.Errorf("query: %q takes at most an except array and an and object, got %d trailing arguments", tagName, len(rest))
 	}
 	var except []string
 	var and map[string]Expression
 	for i := range rest {
 		switch rest[i].TypeSafe() {
 		case ast.V_ARRAY:
-			if except != nil {
-				return nil, fmt.Errorf("query: %q given two except arrays", tagName)
-			}
 			e, err := parseStringListValue(&rest[i])
 			if err != nil {
 				return nil, err
 			}
-			except = e
+			except = append(except, e...)
 		case ast.V_OBJECT:
-			if and != nil {
-				return nil, fmt.Errorf("query: %q given two and objects", tagName)
-			}
 			a, err := parseObjectFields(&rest[i])
 			if err != nil {
 				return nil, err
 			}
-			and = a
+			if and == nil {
+				and = map[string]Expression{}
+			}
+			for k, v := range a {
+				and[k] = v
+			}
 		default:
 			return nil, fmt.Errorf("query: %q's trailing arguments must each be an except array or an and object", tagName)
 		}
