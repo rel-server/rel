@@ -254,15 +254,68 @@ type JoinCardinality<J> = J extends { shortcut: infer S extends string }
     : true
   : false
 
-// One joined member's own shape — to-one unwrapped, to-many array-wrapped per JoinCardinality. Shared by JoinShapes
-// (every member, mapped) and ShapeFromDotTag (below, one member looked up by name via a bare "." hop).
-type JoinMemberShape<J, Depth extends number> =
+// Nullability of a to-one join (querier.ts's parseShortcut doc comment covers the marker semantics this reads
+// off `shortcut`'s own literal type) :
+// - `<` (incoming-and-unique) : the OTHER relation owns the FK, so nothing on THIS relation's own row
+//   guarantees a matching row exists over there — always potentially absent, unconditionally nullable.
+// - `>` (outgoing) : THIS relation owns the FK, so the join resolves whenever every column in its own `on`
+//   pair is non-null (Postgres' default MATCH SIMPLE : a composite FK isn't enforced at all if ANY of its
+//   columns is null) — nullable iff at least one of those referencing columns is itself nullable on ParentRel.
+// Only ever consulted from JoinMemberShape's/WriteJoinMemberShape's to-one branch, so `*` never reaches here —
+// a hand-written join (no `shortcut`) never reaches here either, JoinCardinality's own to-many fallback for it.
+//
+// Column-splitting mirrors querier.ts's own runtime parseShortcut exactly (one split on the marker, one split
+// on "," between pairs, one split on ":" within a pair) — schema/relation/column names can't themselves contain
+// `<`/`>`/`*`/","/":" unquoted (parseShortcut's own doc comment), so each split is unambiguous.
+type PairsOfOutgoingShortcut<S extends string> = S extends `${string}>${infer Pairs}`
+  ? Pairs
+  : never
+
+type SplitOnComma<S extends string> = S extends `${infer Head},${infer Rest}`
+  ? Head | SplitOnComma<Rest>
+  : S
+
+type ReferencingColumnOf<Pair extends string> = Pair extends `${string}:${infer Referencing}`
+  ? Referencing
+  : never
+
+type ReferencingColumnsOfShortcut<S extends string> = ReferencingColumnOf<
+  SplitOnComma<PairsOfOutgoingShortcut<S>>
+>
+
+type AnyColumnNullable<Cols extends string, Rel extends object> = Cols extends keyof Rel
+  ? null extends Rel[Cols]
+    ? true
+    : never
+  : never
+
+type IsNullableJoin<S extends string, ParentRel extends object> = S extends `${string}<${string}`
+  ? true
+  : [AnyColumnNullable<ReferencingColumnsOfShortcut<S>, ParentRel>] extends [never]
+    ? false
+    : true
+
+// One joined member's own shape — to-one unwrapped (nullable per IsNullableJoin above), to-many array-wrapped
+// (never null — an empty array, not an absent one) per JoinCardinality. `ParentRel` is the DECLARING relation's
+// own row type, not the joined member's — needed only for an outgoing join's own FK-column nullability check,
+// same reasoning as ShapeFromDotSingleHop already threading `Rel` through for its own join lookup below. Shared
+// by JoinShapes (every member, mapped) and ShapeFromDotTag (below, one member looked up by name via a bare "."
+// hop).
+type JoinMemberShape<J, ParentRel extends object, Depth extends number> =
   JoinCardinality<J> extends true
-    ? ShapeFromRelationQuery<J, ResolveModel<J>, Depth>
+    ? J extends { shortcut: infer S extends string }
+      ? IsNullableJoin<S, ParentRel> extends true
+        ? ShapeFromRelationQuery<J, ResolveModel<J>, Depth> | null
+        : ShapeFromRelationQuery<J, ResolveModel<J>, Depth>
+      : ShapeFromRelationQuery<J, ResolveModel<J>, Depth>
     : ShapeFromRelationQuery<J, ResolveModel<J>, Depth>[]
 
-type JoinShapes<Join extends { [name: string]: unknown }, Depth extends number> = {
-  [A in keyof Join]: JoinMemberShape<Join[A], Digits[Depth]>
+type JoinShapes<
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = {
+  [A in keyof Join]: JoinMemberShape<Join[A], Rel, Digits[Depth]>
 }
 
 type OwnShape<Rel extends object> = { [K in keyof Rel]: Rel[K] }
@@ -271,7 +324,7 @@ type FullShape<
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
-> = OwnShape<Rel> & JoinShapes<Join, Depth>
+> = OwnShape<Rel> & JoinShapes<Rel, Join, Depth>
 
 // A nominal marker meaning "this Expression's key doesn't exist on this side" — `get` on the write side, `set`
 // on the read side (query.ts's `get`/`col`/`set` doc comments ; specs/query-engine.md ## Writability : "get
@@ -418,7 +471,7 @@ type ShapeFromDotSingleHop<
 > = Name extends keyof Rel
   ? Rel[Name]
   : Name extends keyof Join
-    ? JoinMemberShape<Join[Name], Depth>
+    ? JoinMemberShape<Join[Name], Rel, Depth>
     : Name extends keyof FunctionsByName
       ? ReturnsOf<FunctionsByName[Name]>
       : unknown
@@ -694,19 +747,41 @@ type BackingJoinOf<E, Join extends { [name: string]: unknown }> = E extends read
     : never
   : never
 
+// Whether E is a NESTED object-literal Expression (the `{ [name: string]: Expression<K> }` form itself, not a
+// tag tuple at all) — e.g. `{ project: { id: ["col", "id"], name: ["col", "name"] } }`, grouping several of this
+// relation's own columns under one alias key rather than selecting them flat at this level. A readonly tuple
+// (every tag form) never structurally satisfies a string index signature, so this only ever matches a genuine
+// object-map value.
+type IsNestedExpressionMap<E> = E extends { [name: string]: unknown }
+  ? E extends readonly unknown[]
+    ? false
+    : true
+  : false
+
 // Whether Obj[K]'s own expression, in WriteShapeFromExpressionMap below, must be marked mandatory. A join-backed
-// entry (BackingJoinOf) is unconditionally required ; otherwise `false` — not merely "not required" — when
-// there's no single backing column at all (the `[X] extends [never]` form, rather than a bare `X extends
-// never`, matters here : ReqCol can itself legitimately BE `never`, and a bare `never extends never` would then
-// read every entry as required instead of none).
+// entry (BackingJoinOf) is unconditionally required. A column-backed entry (BackingColumnOf) is required iff
+// ReqCol names it. A nested object-literal entry has no single backing column OR join of its own — recurse into
+// its own recursively-computed write shape instead, and require the outer key iff that inner shape has at least
+// one required key of its own (an entirely-optional inner group can just as well be omitted wholesale) ;
+// `Record<never, never> extends ...` is the standard required-vs-optional probe (same one example.ts's own
+// IsRequiredKey test helper uses) — true iff `{}` alone would already satisfy it, i.e. nothing inside is
+// mandatory. Otherwise (no backing column, no backing join, not a nested map — "*"/"*~", $param, a container,
+// ...) : `false`, not merely "not required" — the `[X] extends [never]` form, rather than a bare `X extends
+// never`, matters for the column case : ReqCol can itself legitimately BE `never`, and a bare `never extends
+// never` would then read every entry as required instead of none.
 type IsRequiredEntry<
   E,
   Rel extends object,
   Join extends { [name: string]: unknown },
+  Depth extends number,
   ReqCol extends string,
 > = [BackingJoinOf<E, Join>] extends [never]
   ? [BackingColumnOf<E, Rel>] extends [never]
-    ? false
+    ? IsNestedExpressionMap<E> extends true
+      ? Record<never, never> extends WriteShapeFromExpression<E, Rel, Join, Depth, ReqCol>
+        ? false
+        : true
+      : false
     : BackingColumnOf<E, Rel> extends ReqCol
       ? true
       : false
@@ -719,13 +794,21 @@ type IsRequiredEntry<
 // Write-side counterpart to JoinMemberShape (above) — same to-one/to-many cardinality split, resolved through
 // WriteShapeFromRelationQuery instead of ShapeFromRelationQuery. Shared by WriteJoinShapes and
 // WriteShapeFromDotTag, same reasoning as JoinMemberShape's own doc comment.
-type WriteJoinMemberShape<J, Depth extends number> =
+type WriteJoinMemberShape<J, ParentRel extends object, Depth extends number> =
   JoinCardinality<J> extends true
-    ? WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>
+    ? J extends { shortcut: infer S extends string }
+      ? IsNullableJoin<S, ParentRel> extends true
+        ? WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth> | null
+        : WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>
+      : WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>
     : WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>[]
 
-type WriteJoinShapes<Join extends { [name: string]: unknown }, Depth extends number> = {
-  [A in keyof Join]: WriteJoinMemberShape<Join[A], Digits[Depth]>
+type WriteJoinShapes<
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+> = {
+  [A in keyof Join]: WriteJoinMemberShape<Join[A], Rel, Digits[Depth]>
 }
 
 // Same physical columns as OwnShape, but a column named in ReqCol (RequiredKeysOf<ResolveKey<Q>>, threaded down
@@ -738,7 +821,7 @@ type WriteFullShape<
   Join extends { [name: string]: unknown },
   Depth extends number,
   ReqCol extends string = never,
-> = WriteOwnShape<Rel, ReqCol> & WriteJoinShapes<Join, Depth>
+> = WriteOwnShape<Rel, ReqCol> & WriteJoinShapes<Rel, Join, Depth>
 
 // get is dropped (read-only) ; col/set are writable, same underlying column type as the read side.
 type WriteShapeFromFieldTag<
@@ -770,7 +853,7 @@ type WriteShapeFromDotSingleHop<
 > = Name extends keyof Rel
   ? Rel[Name]
   : Name extends keyof Join
-    ? WriteJoinMemberShape<Join[Name], Depth>
+    ? WriteJoinMemberShape<Join[Name], Rel, Depth>
     : Omitted
 
 type WriteShapeFromDotTag<
@@ -828,13 +911,13 @@ type WriteShapeFromExpressionMap<
   {
     [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
       ? never
-      : IsRequiredEntry<Obj[K], Rel, Join, ReqCol> extends true
+      : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol> extends true
         ? never
         : K]?: WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol>
   } & {
     [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
       ? never
-      : IsRequiredEntry<Obj[K], Rel, Join, ReqCol> extends true
+      : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol> extends true
         ? K
         : never]: WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol>
   }

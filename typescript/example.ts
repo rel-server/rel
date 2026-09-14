@@ -687,3 +687,97 @@ export type _AssertDotJoinIsRequiredInWriteShape = Expect<
 export type _AssertDotComputedFieldOmittedFromWriteShape = Expect<
   HasKey<PropertyWithDotJoinWriteShape, "avg_rating"> extends false ? true : false
 >
+
+// Join nullability (shapes.ts's IsNullableJoin) : "*" (incoming-and-multiple) is never null — an empty array,
+// not an absent one ; "<" (incoming-and-unique) is unconditionally nullable — nothing on THIS relation's own
+// row guarantees a matching row exists on the other side ; ">" (outgoing) is nullable iff at least one of its
+// own FK columns (named in the shortcut's own pairs) is itself nullable on the declaring relation.
+// schema.example.ts's Table__Hotel__PropertySettings/Relationships["hotel.properties"] doc comments cover why
+// each fixture relationship exists.
+const propertyWithAllJoinKinds = relation("hotel.properties", (join) => ({
+  join: {
+    // "*" : rooms.property_id -> properties.id, incoming-and-multiple.
+    rooms: join("hotel.rooms*id:property_id"),
+    // ">" : properties.chain_id -> properties.id, chain_id IS nullable.
+    chain: join("hotel.properties>id:chain_id"),
+    // "<" : property_settings.property_id -> properties.id, incoming-and-unique.
+    settings: join("hotel.property_settings<property_id:id"),
+  },
+}))
+export type PropertyWithAllJoinKindsShape = Awaited<
+  ReturnType<typeof propertyWithAllJoinKinds.get>
+>[number]
+
+export type _AssertToManyJoinNeverNull = Expect<
+  null extends PropertyWithAllJoinKindsShape["rooms"] ? false : true
+>
+export type _AssertOutgoingNullableFkJoinIsNullable = Expect<
+  null extends PropertyWithAllJoinKindsShape["chain"] ? true : false
+>
+export type _AssertIncomingUniqueJoinIsAlwaysNullable = Expect<
+  null extends PropertyWithAllJoinKindsShape["settings"] ? true : false
+>
+
+// property_settings' own outgoing join back to properties (property_id, NOT NULL) contrasts with "chain" above —
+// same ">" marker, non-nullable FK column this time, so no `| null`.
+const propertySettingsWithOutgoingJoin = relation("hotel.property_settings", (join) => ({
+  join: {
+    property: join("hotel.properties>id:property_id"),
+  },
+}))
+export type PropertySettingsWithOutgoingJoinShape = Awaited<
+  ReturnType<typeof propertySettingsWithOutgoingJoin.get>
+>[number]
+export type _AssertOutgoingNonNullableFkJoinIsNotNullable = Expect<
+  null extends PropertySettingsWithOutgoingJoinShape["property"] ? false : true
+>
+void propertyWithAllJoinKinds
+void propertySettingsWithOutgoingJoin
+
+// A nested object-literal select value — grouping several of this relation's own columns under one alias key,
+// rather than a `col`/`set`/`.` tag naming ONE column or join — has no single BackingColumnOf/BackingJoinOf of
+// its own ; IsRequiredEntry must recurse into its own write shape instead of defaulting straight to "optional"
+// the way a genuinely unbacked entry (a container, `$param`, ...) does. "project" groups `name` (required, per
+// RequiredColumns["hotel.properties"]) with `id` (not required) — required-ness propagates up : since ANY of
+// its own keys is required, "project" itself must be present whenever writing this query.
+const projectFields = {
+  id: [".", "id"] as const,
+  name: [".", "name"] as const,
+}
+const propertyWithNestedSelectGroup = relation("hotel.properties", (join) => ({
+  select: {
+    project: projectFields,
+    rooms: [".", "rooms"],
+  },
+  join: {
+    rooms: join("hotel.rooms*id:property_id"),
+  },
+}))
+export type PropertyWithNestedSelectGroupWriteShape = Parameters<
+  typeof propertyWithNestedSelectGroup.write
+>[0][number]
+export type _AssertNestedSelectGroupIsRequiredInWriteShape = Expect<
+  IsRequiredKey<PropertyWithNestedSelectGroupWriteShape, "project">
+>
+
+// A nested group whose own columns are ALL optional (no required column inside) stays optional itself — the
+// whole group can just as well be omitted wholesale, same as any other optional column.
+const optionalFields = {
+  star_rating: [".", "star_rating"] as const,
+  description: [".", "description"] as const,
+}
+const propertyWithOptionalNestedSelectGroup = relation("hotel.properties", {
+  select: {
+    optional_group: optionalFields,
+  },
+})
+export type PropertyWithOptionalNestedSelectGroupWriteShape = Parameters<
+  typeof propertyWithOptionalNestedSelectGroup.write
+>[0][number]
+export type _AssertFullyOptionalNestedSelectGroupStaysOptional = Expect<
+  IsRequiredKey<PropertyWithOptionalNestedSelectGroupWriteShape, "optional_group"> extends false
+    ? true
+    : false
+>
+void propertyWithNestedSelectGroup
+void propertyWithOptionalNestedSelectGroup

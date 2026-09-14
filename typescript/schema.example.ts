@@ -50,10 +50,21 @@ interface Table__Hotel__RoomTypes {
   photo: string | null // bytea, hex form — no brand, tsgen/types.go's own comment
 }
 
+// Exists purely to regression-test shapes.ts's IsNullableJoin against an incoming-and-unique ("<") join —
+// `property_id` is UNIQUE (one settings row per property, at most), so from `hotel.properties`' own side
+// nothing guarantees a matching row exists ; that join must type as nullable unconditionally, regardless of any
+// column's own nullability, unlike the outgoing direction below (see example.ts's own assertions on this).
+interface Table__Hotel__PropertySettings {
+  id: number
+  property_id: number // not null, unique references hotel.properties (id)
+  currency: string
+}
+
 export interface Relations {
   "hotel.rooms": Table__Hotel__Rooms
   "hotel.properties": Table__Hotel__Properties
   "hotel.room_types": Table__Hotel__RoomTypes
+  "hotel.property_settings": Table__Hotel__PropertySettings
 }
 
 // specs/required-fields.md : the physical columns a write MUST supply a value for — not nullable, no default,
@@ -65,6 +76,7 @@ export interface RequiredColumns {
   "hotel.properties": "name"
   "hotel.rooms": "property_id" | "room_type_id" | "room_number"
   "hotel.room_types": "name" | "base_price"
+  "hotel.property_settings": "property_id" | "currency"
 }
 
 // `shortcut` is interpreted client-side by join() (querier.ts) to fill in `on:`/`relation:`/`schema:` and is
@@ -90,13 +102,32 @@ export interface Relationships {
         shortcut: "hotel.room_types>id:room_type_id" // rooms.room_type_id -> room_types.id
         relation: Table__Hotel__RoomTypes
       }
-  "hotel.properties": {
-    shortcut: "hotel.rooms*id:property_id" // rooms.property_id -> properties.id, viewed from properties ; to-many
-    relation: Table__Hotel__Rooms
-  }
+  "hotel.properties":
+    | {
+        shortcut: "hotel.rooms*id:property_id" // rooms.property_id -> properties.id, viewed from properties ; to-many
+        relation: Table__Hotel__Rooms
+      }
+    | {
+        // Contrived self-referential FK (properties.chain_id -> properties.id) purely to regression-test
+        // shapes.ts's IsNullableJoin against an OUTGOING ("<") join whose own FK column is nullable —
+        // chain_id is `number | null` above, so this join must type as nullable too (example.ts).
+        shortcut: "hotel.properties>id:chain_id" // properties.chain_id -> properties.id
+        relation: Table__Hotel__Properties
+      }
+    | {
+        // Table__Hotel__PropertySettings' own doc comment covers the incoming-and-unique nullability case this
+        // exists to regression-test.
+        shortcut: "hotel.property_settings<property_id:id" // property_settings.property_id -> properties.id ; 1:1
+        relation: Table__Hotel__PropertySettings
+      }
   "hotel.room_types": {
     shortcut: "hotel.rooms*id:room_type_id" // rooms.room_type_id -> room_types.id, viewed from room_types ; to-many
     relation: Table__Hotel__Rooms
+  }
+  "hotel.property_settings": {
+    // NOT NULL, so this outgoing join is non-nullable — contrast with "hotel.properties>id:chain_id" above.
+    shortcut: "hotel.properties>id:property_id" // property_settings.property_id -> properties.id
+    relation: Table__Hotel__Properties
   }
 }
 
