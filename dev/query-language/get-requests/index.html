@@ -2953,6 +2953,9 @@ mix in one <code>select=</code>:</p>
 </tr>
 </tbody>
 </table>
+<p>The JSON body's <code>*</code>/<code>*~</code> form actually accepts any number of except-arrays and and-objects, in
+either order, merged together — see <a href="../selecting/">Selecting fields</a>. This URL grammar only
+ever produces one of each; use <code>POST /rel</code> if you genuinely need more.</p>
 <h3 id="order_by"><code>order_by</code><a class="headerlink" href="#order_by" title="Permanent link">&para;</a></h3>
 <p>Each entry is an expression, optionally prefixed with a leading <code>-</code> for descending:
 <code>order_by=-star_rating,name</code> is "star rating descending, then name ascending" — both

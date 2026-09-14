@@ -2859,6 +2859,11 @@ relation plus every joined relation. The building blocks:</p>
 </tr>
 </tbody>
 </table>
+<p><code>*</code>/<code>*~</code> take any number of trailing arguments after the tag, each either an array (names to
+except) or an object (computed keys to add/override) — dispatched by shape, not position, so
+they can come in either order, and more than one of either kind is fine too: every array is
+concatenated into one except-list, every object merged into one and-map (a later key overriding
+an earlier one). In practice you'll almost always give at most one of each.</p>
 <p>A bare JSON string is always a <em>literal</em> value now, never a reference — see <a href="../filtering/#a-bare-string-is-a-literal">Filtering with
 <code>where</code></a>. To point at something, use <code>col</code> (asserts a
 real column; fails clearly on a typo'd alias) or <code>.</code> (looks up anything in scope, no
