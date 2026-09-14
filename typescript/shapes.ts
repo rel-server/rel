@@ -679,17 +679,38 @@ type BackingColumnOf<E, Rel extends object> = E extends readonly [
       : never
     : never
 
-// Whether Obj[K]'s own expression, in WriteShapeFromExpressionMap below, must be marked mandatory — `false`,
-// not merely "not required," when there's no single backing column at all (the `[X] extends [never]` form,
-// rather than a bare `X extends never`, matters here : ReqCol can itself legitimately BE `never`, and a bare
-// `never extends never` would then read every entry as required instead of none).
-type IsRequiredEntry<E, Rel extends object, ReqCol extends string> = [
-  BackingColumnOf<E, Rel>,
-] extends [never]
-  ? false
-  : BackingColumnOf<E, Rel> extends ReqCol
-    ? true
-    : false
+// The join key E's single-hop "."/"dot" refers to, when unambiguous — same two-element-tuple shape
+// BackingColumnOf checks against Rel, checked against Join instead. A joined relation is never optional in the
+// write shape — WriteJoinShapes (below) never wraps it in Partial regardless of select, whether the default
+// "*"/"*~" or an explicit object map reaches it — so IsRequiredEntry (below) treats any entry backed by one as
+// unconditionally required, the one case that isn't actually about ReqCol (which only ever describes COLUMN
+// required-ness).
+type BackingJoinOf<E, Join extends { [name: string]: unknown }> = E extends readonly [
+  "." | "dot",
+  infer Name extends string,
+]
+  ? Name extends keyof Join
+    ? Name
+    : never
+  : never
+
+// Whether Obj[K]'s own expression, in WriteShapeFromExpressionMap below, must be marked mandatory. A join-backed
+// entry (BackingJoinOf) is unconditionally required ; otherwise `false` — not merely "not required" — when
+// there's no single backing column at all (the `[X] extends [never]` form, rather than a bare `X extends
+// never`, matters here : ReqCol can itself legitimately BE `never`, and a bare `never extends never` would then
+// read every entry as required instead of none).
+type IsRequiredEntry<
+  E,
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  ReqCol extends string,
+> = [BackingJoinOf<E, Join>] extends [never]
+  ? [BackingColumnOf<E, Rel>] extends [never]
+    ? false
+    : BackingColumnOf<E, Rel> extends ReqCol
+      ? true
+      : false
+  : true
 
 // Each joined member carries its own `relation`/`schema`/`shortcut` fields on its own literal (unlike relation()/
 // func()'s root call — see WriteShapeFromQuery's own doc comment) — WriteShapeFromRelationQuery's own ReqCol
@@ -807,13 +828,13 @@ type WriteShapeFromExpressionMap<
   {
     [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
       ? never
-      : IsRequiredEntry<Obj[K], Rel, ReqCol> extends true
+      : IsRequiredEntry<Obj[K], Rel, Join, ReqCol> extends true
         ? never
         : K]?: WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol>
   } & {
     [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
       ? never
-      : IsRequiredEntry<Obj[K], Rel, ReqCol> extends true
+      : IsRequiredEntry<Obj[K], Rel, Join, ReqCol> extends true
         ? K
         : never]: WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol>
   }

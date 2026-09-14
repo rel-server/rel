@@ -674,6 +674,14 @@ export type PropertyWithDotJoinWriteShape = Parameters<
 export type _AssertDotJoinWritableInWriteShape = Expect<
   HasKey<PropertyWithDotJoinWriteShape, "rooms">
 >
+// A joined relation is never optional in the write shape — WriteJoinShapes (default "*") never wraps it in
+// Partial, and an explicit object-literal select map (IsRequiredEntry's own BackingJoinOf branch) must match
+// that, not fall through to "no backing column, so optional" the way a genuinely optional column does.
+// `{} extends Pick<T, K>` is the standard required-vs-optional probe : true iff K could be entirely absent.
+type IsRequiredKey<T, K extends keyof T> = Record<never, never> extends Pick<T, K> ? false : true
+export type _AssertDotJoinIsRequiredInWriteShape = Expect<
+  IsRequiredKey<PropertyWithDotJoinWriteShape, "rooms">
+>
 // A bare-name computed field is never a write target (writing.md ## Writability rules) — dropped, same as the
 // multi-hop chain above.
 export type _AssertDotComputedFieldOmittedFromWriteShape = Expect<
