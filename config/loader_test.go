@@ -807,7 +807,7 @@ func TestRejectArrays_ScalarsPass(t *testing.T) {
 func TestConfigReader_GetString(t *testing.T) {
 	k := koanf.New(".")
 	_ = k.Load(confmap.Provider(map[string]any{"pg.host": "localhost", "pg.port": 5432}, "."), nil)
-	r := newReader(k, "", nil)
+	r := newReader(k, "", nil, nil)
 
 	if s, err := r.GetString("pg.host"); err != nil || s != "localhost" {
 		t.Errorf("GetString(pg.host) = %q, %v", s, err)
@@ -831,7 +831,7 @@ func TestConfigReader_GetInt_NativeAndStringCoercion(t *testing.T) {
 		"bad":    "not-a-number",
 		"bool":   true,
 	}, "."), nil)
-	r := newReader(k, "", nil)
+	r := newReader(k, "", nil, nil)
 
 	if n, err := r.GetInt("native"); err != nil || n != 42 {
 		t.Errorf("GetInt(native) = %d, %v", n, err)
@@ -850,7 +850,7 @@ func TestConfigReader_GetInt_NativeAndStringCoercion(t *testing.T) {
 func TestConfigReader_GetObject_NotAnObjectErrors(t *testing.T) {
 	k := koanf.New(".")
 	_ = k.Load(confmap.Provider(map[string]any{"pg.host": "localhost"}, "."), nil)
-	r := newReader(k, "", nil)
+	r := newReader(k, "", nil, nil)
 	if _, err := r.GetObject("pg.host"); err == nil {
 		t.Errorf("expected GetObject on a scalar to error")
 	}
@@ -865,7 +865,7 @@ func TestConfigReader_GetIterator_ScalarAndObjectChildren(t *testing.T) {
 		"logging.filter.a": "regexA",
 		"logging.filter.b": "regexB",
 	}, "."), nil)
-	r := newReader(k, "", nil)
+	r := newReader(k, "", nil, nil)
 
 	it, err := r.GetIterator("logging.filter")
 	if err != nil {
@@ -886,5 +886,65 @@ func TestConfigReader_GetIterator_ScalarAndObjectChildren(t *testing.T) {
 	}
 	if len(order) != 2 || order[0] != "a" || order[1] != "b" {
 		t.Errorf("expected alphabetical order [a b], got %v", order)
+	}
+}
+
+// warnUnusedKeys/keyTracker : a key present in the merged tree from ANY
+// source (file/env/flag — already indistinguishable once merged into one
+// koanf tree) that assemble never actually reads must be flagged, not
+// silently ignored. Load itself never errors over this (non-fatal), so the
+// assertions go straight at tracker.found/closestKey rather than Load's
+// return value.
+func TestAssemble_TracksUnreadKeys(t *testing.T) {
+	t.Chdir(t.TempDir())
+	k := koanf.New(".")
+	_ = k.Load(confmap.Provider(map[string]any{
+		"pg.uri":                    "postgres://u:p@localhost:5432/db",
+		"http.cros.allowed_origins": "https://example.com", // typo of http.cors.allowed_origins
+		"http.cors.allowed_methods": "GET",                 // real key : must NOT be flagged
+	}, "."), nil)
+
+	var errs []error
+	tracker := newKeyTracker()
+	root := newReader(k, "", &errs, tracker)
+	_ = root.GetStringOrDefault("pg.uri", "")
+	_ = root.GetStringOrDefault("http.cors.allowed_origins", "")
+	_ = root.GetStringOrDefault("http.cors.allowed_methods", DefaultHttpCorsAllowedMethods)
+
+	if _, ok := tracker.found["http.cors.allowed_methods"]; !ok {
+		t.Errorf("expected http.cors.allowed_methods to be recorded as read")
+	}
+	if _, ok := tracker.found["http.cros.allowed_origins"]; ok {
+		t.Errorf("expected the typo'd key to NOT be recorded as read")
+	}
+
+	suggestion, ok := closestKey("http.cros.allowed_origins", tracker.attempted)
+	if !ok || suggestion != "http.cors.allowed_origins" {
+		t.Errorf("expected closestKey to suggest http.cors.allowed_origins, got %q (ok=%v)", suggestion, ok)
+	}
+}
+
+func TestClosestKey_NoSuggestionWhenNothingClose(t *testing.T) {
+	candidates := map[string]struct{}{"http.cors.allowed_origins": {}, "pg.uri": {}}
+	if _, ok := closestKey("totally.unrelated.nonsense", candidates); ok {
+		t.Errorf("expected no suggestion for an unrelated key")
+	}
+}
+
+func TestLevenshtein(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"", "", 0},
+		{"abc", "abc", 0},
+		{"abc", "", 3},
+		{"cors", "cros", 2},
+		{"allowed_origins", "allowed_orgins", 1},
+	}
+	for _, c := range cases {
+		if got := levenshtein(c.a, c.b); got != c.want {
+			t.Errorf("levenshtein(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
 	}
 }

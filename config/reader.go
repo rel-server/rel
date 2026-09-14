@@ -31,16 +31,54 @@ import (
 // per ## The assembled Config object : "every error... is collected rather
 // than raised immediately... If any errors were collected, Rel logs all of
 // them together and exits."
+//
+// tracker, likewise shared and likewise nilable, is unusedKeys' (loader.go)
+// own bookkeeping — see keyTracker's own doc comment.
 type ConfigReader struct {
-	k    *koanf.Koanf
-	path string
-	errs *[]error
+	k       *koanf.Koanf
+	path    string
+	errs    *[]error
+	tracker *keyTracker
+}
+
+// keyTracker is shared by every ConfigReader derived from one root, the
+// same way errs is : attempted records every full dotted path ANY accessor
+// below ever computed, present in the merged config or not — practically,
+// the full set of keys assemble() (loader.go) knows how to read, since a
+// *OrDefault call touches it unconditionally regardless of presence. found
+// records only the paths an accessor actually resolved a value FOR (the
+// key was present, and something consulted it by name). unusedKeys diffs
+// the merged tree's own full key set against found to catch a
+// configuration-looking key — from a config file, a REL_ environment
+// variable, or a CLI flag alike — that nothing in rel ever reads ; attempted
+// is then the candidate pool "did you mean" matches against.
+type keyTracker struct {
+	attempted map[string]struct{}
+	found     map[string]struct{}
+}
+
+func newKeyTracker() *keyTracker {
+	return &keyTracker{attempted: map[string]struct{}{}, found: map[string]struct{}{}}
+}
+
+// touch records that full was consulted by some accessor ; present marks
+// whether a value actually existed there. A nil tracker (every test-only
+// newReader call in loader_test.go passes one) makes this a no-op, same as
+// recordMalformed's own nil-errs tolerance.
+func (t *keyTracker) touch(full string, present bool) {
+	if t == nil {
+		return
+	}
+	t.attempted[full] = struct{}{}
+	if present {
+		t.found[full] = struct{}{}
+	}
 }
 
 // newReader wraps k, scoped to path ("" for the root reader), sharing errs
-// with every reader derived from it.
-func newReader(k *koanf.Koanf, path string, errs *[]error) *ConfigReader {
-	return &ConfigReader{k: k, path: path, errs: errs}
+// and tracker with every reader derived from it.
+func newReader(k *koanf.Koanf, path string, errs *[]error, tracker *keyTracker) *ConfigReader {
+	return &ConfigReader{k: k, path: path, errs: errs, tracker: tracker}
 }
 
 // join builds the full dotted path for a sub-lookup : r's own scope prefix
@@ -85,7 +123,10 @@ func notFoundErr(path string) error {
 // where precedence between two keys depends on which was actually set, not
 // merely on its resolved value (specs/pg-uri-precedence.md).
 func (r *ConfigReader) Exists(path string) bool {
-	return r.k.Exists(r.join(path))
+	full := r.join(path)
+	ok := r.k.Exists(full)
+	r.tracker.touch(full, ok)
+	return ok
 }
 
 // GetObject scopes to path, returning a ConfigReader over just that
@@ -94,13 +135,14 @@ func (r *ConfigReader) Exists(path string) bool {
 func (r *ConfigReader) GetObject(path string) (*ConfigReader, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
+	r.tracker.touch(full, v != nil)
 	if v == nil {
 		return nil, notFoundErr(full)
 	}
 	if _, ok := v.(map[string]any); !ok {
 		return nil, logErr(full, fmt.Errorf("config: %q: not an object", full))
 	}
-	return newReader(r.k, full, r.errs), nil
+	return newReader(r.k, full, r.errs, r.tracker), nil
 }
 
 // GetObjectOrDefault returns def() instead of an error on a missing/bad
@@ -128,6 +170,7 @@ func (r *ConfigReader) GetObjectOrDefault(path string, def func() *ConfigReader)
 func (r *ConfigReader) GetIterator(path string) (iter.Seq2[string, *ConfigReader], error) {
 	full := r.join(path)
 	v := r.k.Get(full)
+	r.tracker.touch(full, v != nil)
 	if v == nil {
 		return nil, notFoundErr(full)
 	}
@@ -136,9 +179,10 @@ func (r *ConfigReader) GetIterator(path string) (iter.Seq2[string, *ConfigReader
 	}
 	keys := r.k.MapKeys(full) // already alphabetically sorted
 	errs := r.errs
+	tracker := r.tracker
 	return func(yield func(string, *ConfigReader) bool) {
 		for _, key := range keys {
-			if !yield(key, newReader(r.k, full+"."+key, errs)) {
+			if !yield(key, newReader(r.k, full+"."+key, errs, tracker)) {
 				return
 			}
 		}
@@ -151,6 +195,7 @@ func (r *ConfigReader) GetIterator(path string) (iter.Seq2[string, *ConfigReader
 func (r *ConfigReader) GetString(path string) (string, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
+	r.tracker.touch(full, v != nil)
 	if v == nil {
 		return "", notFoundErr(full)
 	}
@@ -184,6 +229,7 @@ func (r *ConfigReader) GetStringOrDefault(path string, def string) string {
 func (r *ConfigReader) GetInt(path string) (int, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
+	r.tracker.touch(full, v != nil)
 	if v == nil {
 		return 0, notFoundErr(full)
 	}
@@ -226,6 +272,7 @@ func (r *ConfigReader) GetIntOrDefault(path string, def int) int {
 func (r *ConfigReader) GetFloat64(path string) (float64, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
+	r.tracker.touch(full, v != nil)
 	if v == nil {
 		return 0, notFoundErr(full)
 	}
@@ -267,6 +314,7 @@ func (r *ConfigReader) GetFloat64OrDefault(path string, def float64) float64 {
 func (r *ConfigReader) GetBool(path string) (bool, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
+	r.tracker.touch(full, v != nil)
 	if v == nil {
 		return false, notFoundErr(full)
 	}

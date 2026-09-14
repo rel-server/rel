@@ -89,6 +89,26 @@ and trimmed at the point it's read.
 
 See [Configuration reference](reference.md) for the exhaustive key list.
 
+## Unused keys
+
+A config file, `REL_` environment variable, or `--flag` — all three merge into one tree before
+rel reads any of it, so this applies uniformly regardless of source — that looks like
+configuration but that nothing in rel ever actually reads (a typo, a setting that got renamed,
+a stray var left behind from a previous version) logs one `WARN` line at startup rather than
+being silently ignored:
+
+```
+WARN config: key set but never read by rel — check for a typo or a stale/renamed setting  key=http.cros.allowed_origins env=REL_HTTP__CROS__ALLOWED_ORIGINS did_you_mean=http.cors.allowed_origins did_you_mean_env=REL_HTTP__CORS__ALLOWED_ORIGINS
+```
+
+`did_you_mean` only appears when something else rel actually reads is close enough to be worth
+suggesting — no match, no field, rather than a misleading guess. This is non-fatal: rel starts
+up regardless, since a deployment can have good reason to carry an unrelated `REL_*` var (a
+`.env` shared with another service, say). It's also logged through the plain standard-library
+logger, not `logging.*` — config loading happens before `logging.level`/`logging.handler` are
+even known, so this line always prints, at startup only, regardless of your configured log
+level.
+
 ## Development mode
 
 `dev` (default `false`) adds the real Postgres error text and a stack trace to an otherwise

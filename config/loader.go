@@ -495,7 +495,8 @@ func rejectArrays(k *koanf.Koanf) error {
 // (errors.Join), so a misconfigured deployment sees everything at once.
 func assemble(k *koanf.Koanf) (*Config, error) {
 	var errs []error
-	root := newReader(k, "", &errs)
+	tracker := newKeyTracker()
+	root := newReader(k, "", &errs, tracker)
 
 	cfg := &Config{}
 
@@ -635,6 +636,14 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	def := DefaultBlacklist()
 	cfg.Blacklist.Functions = readBlacklist(root, "blacklist.functions", def.Functions)
 	cfg.Blacklist.Relations = readBlacklist(root, "blacklist.relations", def.Relations)
+
+	// Run BEFORE the pg.*/cfg.Raw block below : that block k.Set()s pg.uri/
+	// pg.host/... back onto k unconditionally (even when the user never set
+	// them), which would otherwise show up here as "present but never read"
+	// false positives — every key actually read above is already recorded
+	// in tracker.found by now, so warnUnusedKeys only needs k's CURRENT
+	// state, not the synthetic one those Sets are about to produce.
+	warnUnusedKeys(k, tracker)
 
 	// Config.Raw's doc comment : reload.cmd's {name} interpolation needs
 	// pg.host/pg.port/pg.database/pg.uri/pg.user/pg.password kept in sync
