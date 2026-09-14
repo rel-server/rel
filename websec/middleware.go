@@ -20,6 +20,16 @@ import (
 // (## CSP ### Nonce), overwrites this base header again with a nonce
 // appended, for the paths that can actually use one.
 func Middleware(cfg *config.Config) func(http.Handler) http.Handler {
+	// Logged once here, not per request : Middleware is built exactly once
+	// per boot/reload cycle (boot.BuildMux's own doc comment — startup and
+	// every SIGUSR1), the same lifecycle schema introspection's own "info"
+	// summary line (docs/content/configuration/operations.md ## Logging)
+	// logs at. The base (no-override, no-nonce) policy is what actually
+	// governs /rel and /static ; NonceMiddleware/a route's own resp.csp can
+	// still change it per-request, but this is the value to check first
+	// when a configured directive doesn't seem to be taking effect.
+	log.Info("effective content-security-policy", "policy", Policy(cfg.Http.Csp, "", ""))
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")

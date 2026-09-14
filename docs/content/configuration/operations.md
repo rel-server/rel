@@ -50,6 +50,13 @@ Schema introspection (startup, and every reload) logs one `info` summary line wi
 table/function/type counts it found ; at `debug`, one line per relation/function/type
 discovered, and one line per route/middleware actually registered and exposed over HTTP.
 
+The same startup/reload lifecycle also logs one `info` line with the effective, fully-assembled
+`Content-Security-Policy` header value (`http.csp.*`, or the raw `http.csp.policy` override if
+set) — the base policy actually sent on `/rel` and the static fallback, before any per-request
+nonce or route's own `resp.csp` changes it further. Check this line first if a configured CSP
+directive doesn't seem to be taking effect : it's the value rel resolved your configuration to,
+independent of whatever a browser's own CSP violation report claims.
+
 ## Error responses
 
 Every error response, from `/rel` or `/route`, carries a `code`: a stable, safe-to-switch-on
