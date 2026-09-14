@@ -2538,6 +2538,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#unused-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Unused keys
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#development-mode" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2743,6 +2754,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#unused-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Unused keys
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#development-mode" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2923,6 +2945,21 @@ fine for a quick local run and wrong for anything that needs sessions to survive
 A list of plain scalars — CORS origins, for instance — is one comma-separated string, split
 and trimmed at the point it's read.</p>
 <p>See <a href="reference/">Configuration reference</a> for the exhaustive key list.</p>
+<h2 id="unused-keys">Unused keys<a class="headerlink" href="#unused-keys" title="Permanent link">&para;</a></h2>
+<p>A config file, <code>REL_</code> environment variable, or <code>--flag</code> — all three merge into one tree before
+rel reads any of it, so this applies uniformly regardless of source — that looks like
+configuration but that nothing in rel ever actually reads (a typo, a setting that got renamed,
+a stray var left behind from a previous version) logs one <code>WARN</code> line at startup rather than
+being silently ignored:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>WARN config: key set but never read by rel — check for a typo or a stale/renamed setting  key=http.cros.allowed_origins env=REL_HTTP__CROS__ALLOWED_ORIGINS did_you_mean=http.cors.allowed_origins did_you_mean_env=REL_HTTP__CORS__ALLOWED_ORIGINS
+</span></code></pre></div>
+<p><code>did_you_mean</code> only appears when something else rel actually reads is close enough to be worth
+suggesting — no match, no field, rather than a misleading guess. This is non-fatal: rel starts
+up regardless, since a deployment can have good reason to carry an unrelated <code>REL_*</code> var (a
+<code>.env</code> shared with another service, say). It's also logged through the plain standard-library
+logger, not <code>logging.*</code> — config loading happens before <code>logging.level</code>/<code>logging.handler</code> are
+even known, so this line always prints, at startup only, regardless of your configured log
+level.</p>
 <h2 id="development-mode">Development mode<a class="headerlink" href="#development-mode" title="Permanent link">&para;</a></h2>
 <p><code>dev</code> (default <code>false</code>) adds the real Postgres error text and a stack trace to an otherwise
 generic error response. It has no effect on log verbosity — that's <code>logging.level</code> alone, set

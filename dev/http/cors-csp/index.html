@@ -2887,7 +2887,7 @@ even with no configuration at all. Tighten or loosen individual directives:</p>
 </span></code></pre></div>
 <ul>
 <li><code>http.csp.default_src</code> (default <code>'self'</code>) and one key per other directive
-  (<code>script_src</code>/<code>style_src</code>/<code>img_src</code>/<code>font_src</code>/<code>connect_src</code>/<code>object_src</code>/
+  (<code>script_src</code>/<code>style_src</code>/<code>img_src</code>/<code>font_src</code>/<code>connect_src</code>/<code>worker_src</code>/<code>object_src</code>/
   <code>frame_ancestors</code>/<code>base_uri</code>/<code>form_action</code>) — each falls back to <code>default_src</code> when unset.</li>
 <li><code>http.csp.policy</code> — a full, raw <code>Content-Security-Policy</code> header value; replaces every
   individual <code>http.csp.*</code> directive above entirely when set, rather than merging with them.</li>
