@@ -60,7 +60,7 @@ func TestAccessLog_ReadRequest(t *testing.T) {
 	if line == nil {
 		t.Fatalf("expected a \"request\" access line, got %v", lines)
 	}
-	for _, key := range []string{"method", "path", "status", "response_size", "duration", "verified", "role", "claims", "item_count", "write"} {
+	for _, key := range []string{"method", "path", "status", "response_size", "duration", "verified", "role", "claims", "item_count", "write", "targets"} {
 		if _, ok := line[key]; !ok {
 			t.Errorf("access log line missing %q : %v", key, line)
 		}
@@ -70,6 +70,10 @@ func TestAccessLog_ReadRequest(t *testing.T) {
 	}
 	if line["write"] != false {
 		t.Errorf("expected write=false for a bare read, got %v", line["write"])
+	}
+	targets, _ := line["targets"].([]any)
+	if len(targets) != 1 || targets[0] != "public.director" {
+		t.Errorf(`expected targets=["public.director"], got %v`, line["targets"])
 	}
 
 	read := findLogLine(lines, "executing read")

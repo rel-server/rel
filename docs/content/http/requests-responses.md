@@ -145,6 +145,22 @@ path masking](static-files.md#static-path-masking). `context` is only ever set o
 middleware ahead of this function has actually merged something in — see [HTTP routes ##
 Middleware](index.md#middleware).
 
+## `JWT`
+
+```typescript
+interface JWT {
+  role: string              // the Postgres role this session's queries run as
+  iat: number                // rel-filled ; set by rel, not settable on a response
+  exp: number                // rel-filled ; set by rel, not settable on a response
+  auth_time: number          // rel-filled ; set by rel, not settable on a response
+  [claim: string]: unknown  // any other keys set when minting the session, carried verbatim
+}
+```
+
+`role` is the only claim rel itself reads back (to `SET ROLE` with); everything else is a
+custom claim your own functions can read via `req.jwt`. See [Authentication ## Minting a
+session](authentication.md#minting-a-session) for how a route or middleware sets one.
+
 ## `HttpResponse`
 
 Only a full-control function (the two-`OUT`-column shape) can return this — a plain-return

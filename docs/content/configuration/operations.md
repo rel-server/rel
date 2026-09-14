@@ -37,10 +37,14 @@ header is absent — so you can grep one request's full lifecycle out of the log
 `/rel` and `/route/*` each log one line per completed request unconditionally, at `info`, with
 the method, path, status code, duration, response size, resolved role, and the full JWT claims
 of whoever made the request (including any custom claim a login function attached, such as a
-user ID) — you don't need to instrument individual routes to get that. At `debug`, one further
-line per query is logged for the same request, with the exact SQL text and parameters sent to
-Postgres — nothing held back or redacted, so narrow it down with `logging.filter`/
-`logging.exclude` rather than expecting rel to do it for you.
+user ID) — you don't need to instrument individual routes to get that. `/rel`'s line also
+carries `targets`, one schema-qualified `schema.name` entry per item in the request (a function
+name for a function-root item, otherwise the relation name it read or wrote), in request order ;
+`/route/*`'s line carries the single `function` its path is bound to instead, since one route
+always resolves to exactly one function. At `debug`, one further line per query is logged for
+the same request, with the exact SQL text and parameters sent to Postgres — nothing held back or
+redacted, so narrow it down with `logging.filter`/`logging.exclude` rather than expecting rel to
+do it for you.
 
 Schema introspection (startup, and every reload) logs one `info` summary line with the
 table/function/type counts it found ; at `debug`, one line per relation/function/type

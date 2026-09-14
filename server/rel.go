@@ -58,6 +58,19 @@ type resolvedItem struct {
 	rollback  bool
 }
 
+// queryTargetIdentifier is specs/logging.md ## Access logging's per-item
+// "targets" entry : the schema-qualified function name for a function-root
+// item, otherwise the schema-qualified relation name.
+func queryTargetIdentifier(root *query.QueryNode) string {
+	if root.Function != nil {
+		return root.Function.Identifier.String()
+	}
+	if root.Relation != nil {
+		return root.Relation.Identifier.String()
+	}
+	return ""
+}
+
 // NewRelHandler serves POST/GET /rel per specs/query-engine.md's
 // ## Configuration ("all of them MUST be POST") and ## Response Shape.
 // db.Pool is acquired from once per request ; wkReg resolves a well-known
@@ -180,17 +193,18 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	var role string
 	var itemCount int
 	var anyWrite bool
+	var targets []string
 
 	// specs/logging.md ## Access logging : fires exactly once, from every
 	// return path (including an early rejection), since role/itemCount/
-	// anyWrite not yet known at that point are simply the zero value.
+	// anyWrite/targets not yet known at that point are simply the zero value.
 	defer func() {
 		claims, verified := jwtpkg.FromContext(ctx)
 		logging.FromContext(ctx).Info("request",
 			"method", r.Method, "path", r.URL.Path,
 			"status", rec.Status, "response_size", rec.Size, "duration", time.Since(start),
 			"verified", verified, "role", role, "claims", claims,
-			"item_count", itemCount, "write", anyWrite)
+			"item_count", itemCount, "write", anyWrite, "targets", targets)
 	}()
 
 	// authentication.md "## Roles ## Anonymous role existence" : reject
@@ -313,11 +327,12 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 		resolved = append(resolved, ri)
 	}
-	for _, ri := range resolved {
+	targets = make([]string, len(resolved))
+	for i, ri := range resolved {
 		if ri.isWrite {
 			anyWrite = true
-			break
 		}
+		targets[i] = queryTargetIdentifier(ri.root)
 	}
 
 	conn, err := db.Pool.Acquire(ctx)
