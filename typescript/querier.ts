@@ -378,30 +378,6 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
   return value
 }
 
-// docs/content/typescript/index.md ### Building a new row : a join node's cardinality (to-many `*` vs. to-one `<`/`>`) is
-// read off its own `shortcut` string here, before stripShortcut (below) removes it — cached by the STRIPPED join
-// node object itself (the exact object `query.join[key]` ends up being), so create() can recover "array or
-// single nested object" at runtime without a shortcut string to re-parse.
-const joinCardinalityCache = new WeakMap<object, boolean>() // true = to-many
-
-// docs/content/typescript/index.md ### Building a new row : builds a fresh writable row from a query node's own `proto` (its
-// accessors, same mechanism as applyProto above) and its `join` map — seeding each key with `[]` for a to-many
-// join or a recursively create()-built row for a to-one one, per joinCardinalityCache.
-function buildCreatedRow(query: ProtoQuery): object {
-  const row: { [name: string]: unknown } = {}
-  const join = query.join
-  if (join) {
-    for (const key of Object.keys(join)) {
-      const node = join[key]
-      row[key] = joinCardinalityCache.get(node) ? [] : buildCreatedRow(node)
-    }
-  }
-  if (query.proto) {
-    Object.setPrototypeOf(row, buildPrototype(query.proto))
-  }
-  return row
-}
-
 // Both wellknown() and relation() produce a Querier with its Shape/WriteShape/Params known through their own
 // return types. WriteShape defaults to Shape so a hand-built Querier (or wellknown(), which doesn't compute one)
 // still works ; relation()/func() always supply the real, narrower WriteShapeFromQuery explicitly. Q defaults to
@@ -418,8 +394,7 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
   }
 
   // `shortcut` is join()'s client-side sugar (schema.example.ts's Relationships lookup) — never part of the wire
-  // format. Stripped once here, on construction, rather than on every doQuery() call. Its cardinality (`*` vs.
-  // `<`/`>`) is recorded in joinCardinalityCache before it's discarded — see create(), below.
+  // format. Stripped once here, on construction, rather than on every doQuery() call.
   private static stripShortcut(obj: unknown): unknown {
     if (obj == null || typeof obj !== "object") {
       return obj
@@ -427,7 +402,7 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
     if (Array.isArray(obj)) {
       return obj.map((item) => Querier.stripShortcut(item))
     }
-    const { shortcut, ...rest } = obj as { shortcut?: unknown; [name: string]: unknown }
+    const { shortcut: _shortcut, ...rest } = obj as { shortcut?: unknown; [name: string]: unknown }
     for (const key of Object.keys(rest)) {
       // `proto`'s own members are live getters/methods, not query data — recursing into it (or even reading it
       // via a destructuring spread) would invoke them as a side effect, purely to discard the result. Left
@@ -437,19 +412,20 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
       }
       rest[key] = Querier.stripShortcut(rest[key])
     }
-    if (typeof shortcut === "string") {
-      joinCardinalityCache.set(rest, shortcut.includes("*"))
-    }
     return rest
   }
 
-  // docs/content/typescript/index.md ### Building a new row : a fresh writable row seeded with this query's own accessors
-  // (`proto`) and its `join` map's cardinality, so a caller can build a row for `.write()` — including nested
-  // to-one joins, already `create()`-built — without a manual `Object.setPrototypeOf` per level. `WriteShape` is
-  // array-wrapped at the root (writing.md : "an array of rows at the root") ; create() builds ONE row, so its
-  // return type unwraps that one level of array — pass the result inside a `[...]` to `.write()`.
-  create(): WriteShape extends readonly (infer Row)[] ? Row : WriteShape {
-    return buildCreatedRow(this.query as ProtoQuery) as WriteShape extends readonly (infer Row)[]
+  // docs/content/typescript/index.md ### Building a new row : typechecks `data` against this query's own WriteShape —
+  // every required column, and every join, must already be present — and attaches this query's `proto` accessors
+  // (its own, and each join's, recursively) onto `data` and its nested rows, the same mechanism applyProto uses
+  // for a fetched row. init() doesn't build or seed anything itself : `data` must already carry the right shape,
+  // `[]`/nested-object join values included, since WriteShape's own required keys already reflect the join tree.
+  // `WriteShape` is array-wrapped at the root (writing.md : "an array of rows at the root") ; init() takes and
+  // returns ONE row, so both types unwrap that one level of array — pass the result inside a `[...]` to `.write()`.
+  init(
+    data: WriteShape extends readonly (infer Row)[] ? Row : WriteShape,
+  ): WriteShape extends readonly (infer Row)[] ? Row : WriteShape {
+    return applyProto(data, this.query as ProtoQuery) as WriteShape extends readonly (infer Row)[]
       ? Row
       : WriteShape
   }

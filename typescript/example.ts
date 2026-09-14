@@ -9,7 +9,13 @@ import type { ShapeOf, WriteShapeOf } from "./querier"
 import type { Functions } from "./schema.example"
 import type { DefaultRow, ResolveModel, RootShapeFromFunctionMember } from "./shapes"
 import type { Int8, PgNumeric, PgPoint } from "./pg_values"
-import { bytesAccessor, moneyAccessor, pointAccessor, timestampTzAccessor } from "./pg_values"
+import {
+  asNumeric,
+  bytesAccessor,
+  moneyAccessor,
+  pointAccessor,
+  timestampTzAccessor,
+} from "./pg_values"
 
 const properties = relation("hotel.properties", {
   select: {
@@ -542,26 +548,39 @@ function assertAccessorIsWritable(row: PropertyWithAccessorShape[number]) {
 void assertAccessorIsWritable
 
 // docs/content/typescript/index.md ### Building a new row : `rooms` joins "property"/"room_type" outgoing (">", to-one) —
-// create() must seed both as a single nested row, not `[]`, and that nested row's own shape must already match
-// its relation's WriteShape (own columns only, per `select: ["*~"]` on both joins).
-const createdRoom = rooms.create()
+// init()'s own `data` parameter must supply both as a single nested row, not `[]`, and that nested row's own
+// shape must already match its relation's WriteShape (own columns only, per `select: ["*~"]` on both joins).
+const createdRoom = rooms.init({
+  property_id: 1,
+  room_type_id: 1,
+  room_number: "101",
+  property: { name: "Marina Bay Grand Hotel" },
+  room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
+})
 
 export type _AssertCreateNestedToOneIsObject = Expect<
   typeof createdRoom.property extends readonly unknown[] ? false : true
 >
 export type _AssertCreateNestedToOneHasOwnColumn = Expect<HasKey<typeof createdRoom.property, "id">>
 
-// `propertyWithNestedProto` joins "rooms" incoming-and-multiple ("*", to-many) — create() must seed it as `[]`.
-// (Unlike `properties`, its select defaults to "*" rather than an expression map that omits "rooms".)
-const createdProperty = propertyWithNestedProto.create()
+// `propertyWithNestedProto` joins "rooms" incoming-and-multiple ("*", to-many) — init()'s own `data` parameter
+// must supply it as an array. (Unlike `properties`, its select defaults to "*" rather than an expression map
+// that omits "rooms".)
+const createdProperty = propertyWithNestedProto.init({
+  name: "Marina Bay Grand Hotel",
+  rooms: [{ property_id: 1, room_type_id: 1, room_number: "101" }],
+})
 
 export type _AssertCreateNestedToManyIsArray = Expect<
   typeof createdProperty.rooms extends readonly unknown[] ? true : false
 >
 
-// create()'s own row carries the same `proto` accessors a read row does, writable the same way.
+// init()'s own returned row carries the same `proto` accessors a read row does, writable the same way.
 function assertCreatedRowAccessorIsWritable() {
-  const createdPropertyWithAccessor = propertyWithAccessor.create()
+  const createdPropertyWithAccessor = propertyWithAccessor.init({
+    name: "Marina Bay Grand Hotel",
+    created_at_as_date: Temporal.Now.instant(),
+  })
   createdPropertyWithAccessor.created_at_as_date = Temporal.Now.instant()
 }
 void assertCreatedRowAccessorIsWritable

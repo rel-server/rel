@@ -510,10 +510,10 @@ type IsWritable<D> = D extends (...args: any[]) => any
 //
 // ForWrite makes the get-only half OPTIONAL rather than required — only WriteShapeFromRelationQuery sets it. A
 // get-only member is never populated by the caller (assigning it is a compile error, same as the read shape) ;
-// it's only ever present because `create()` (querier.ts) seeds it onto the row's prototype. Requiring it in the
-// write shape would force a hand-built write literal (one NOT built via `create()`) to fake a value for a column
-// that doesn't exist server-side, for no benefit — the read shape keeps it required, since `applyProto` guarantees
-// every fetched row genuinely has it.
+// it's only ever present because `init()` (querier.ts) attaches it onto the row's prototype. Requiring it in the
+// write shape would force a hand-built write literal (one NOT passed through `init()`) to fake a value for a
+// column that doesn't exist server-side, for no benefit — the read shape keeps it required, since `applyProto`
+// guarantees every fetched row genuinely has it.
 type FromDescriptorMap<P, ForWrite extends boolean = false> = (ForWrite extends true
   ? {
       readonly [K in keyof P as IsWritable<P[K]> extends true ? never : K]?: ExtractDescriptor<P[K]>

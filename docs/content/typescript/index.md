@@ -201,9 +201,9 @@ const properties = await relation("hotel.properties", (join) => ({
 properties[0].rooms[0].label // uses the join's own `proto`
 ```
 
-`proto`'s members also appear in the write shape `.write()`/`create()` (below) expect — a `get`-only
-member stays read-only there too, but a `get`/`set` pair is assignable on a row you're about to
-write back, the same as it is on one you just read.
+`proto`'s members also appear in the write shape `.write()`/`init()` (below) expect — a `get`-only
+member stays read-only there too, but a `get`/`set` pair is required and assignable on a row you're
+about to write back, the same as it is on one you just read.
 
 A `proto` entry can also be a property descriptor (`{get, set, enumerable}`), not just a plain
 getter/method written inline — this is what lets a reusable helper compose accessors into
@@ -232,8 +232,9 @@ range accessor, for instance, is read-only.
 
 ### Building a new row
 
-A `Querier`'s `.create()` method builds a fresh row for `.write()` — own columns absent, joins
-seeded to the right shape, and the same `proto` accessors a row you `.get()` would have:
+A `Querier`'s `.init()` method doesn't build or create anything itself — it typechecks a row you
+already built against this query's own write shape (every required column, and every join,
+present) and attaches the same `proto` accessors a row you `.get()` would have:
 
 ```ts
 const properties = relation("hotel.properties", {
@@ -245,19 +246,20 @@ const properties = relation("hotel.properties", {
   },
 })
 
-const row = properties.create()
-row.name = "Marina Bay Grand Hotel"
-row.created_at_as_date = Temporal.Now.instant() // same accessor, same setter, as a read row
-row.rooms.push({ room_number: "101" }) // seeded [] : this join is to-many
+const row = properties.init({
+  name: "Marina Bay Grand Hotel",
+  created_at_as_date: Temporal.Now.instant(), // same accessor, same setter, as a read row
+  rooms: [{ room_number: "101" }], // this join is to-many, so an array
+})
 
 await properties.write([row])
 ```
 
-A joined relation is seeded `[]` when it's to-many, or a nested `.create()`-built row (recursively,
-proto and all) when it's to-one — which one depends on how the join was reached, not on anything
-you configure yourself. `.write()` still expects an array of rows at the root, same as always ;
-`.create()` builds one row, so wrap it in `[...]` yourself, the same way you would a row you built
-by hand.
+A to-many join's value must be an array ; a to-one join's must be a single nested row, itself
+matching that relation's own write shape (proto included, if it has one) — `init()` checks this the
+same way it checks the root row, it just doesn't build any of it for you. `.write()` still expects
+an array of rows at the root, same as always ; `.init()` takes and returns ONE row, so wrap it in
+`[...]` yourself, the same way you would a row you built entirely by hand.
 
 ## Typed wire values
 
