@@ -1,7 +1,7 @@
 /*!
-Section 3 of `specs/typescript.md ## File layout` : `RelationQuery`'s supporting type-level machinery — turning
-a query's own `select`/`join`/`relation`/`function`/`shortcut` fields into the JSON shape it produces, and
-extracting whatever `$param`s it declares. No runtime code lives here ; everything below is erased at compile time.
+`RelationQuery`'s supporting type-level machinery — turning a query's own `select`/`join`/`relation`/`function`/
+`shortcut` fields into the JSON shape it produces, and extracting whatever `$param`s it declares. No runtime code
+lives here ; everything below is erased at compile time.
 */
 import type { RelationQuery } from "./query"
 import type {
@@ -46,16 +46,18 @@ type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) exten
   ? I
   : never
 
-// Forces an intersection/mapped-type chain to display as one flat object on hover, instead of the chain of
-// aliases that produced it. Guarded against arrays and non-object types (a scalar, or an already-array-wrapped
-// root/join shape reaching here) : mapping over an array's own keys (numeric indices, `length`, methods) would
-// produce nonsense, and `keyof` on a non-object type doesn't exist at all.
-//
-// Also guarded against a branded primitive (docs/content/typescript/index.md ## Typed wire values' `string & { readonly __pg: ... }`
-// types) : confirmed a real bug, not just a theoretical one — `string & { brand }` DOES satisfy `T extends
-// object` (an intersection with an object type), so without this guard `{[K in keyof T]: T[K]} & {}` maps over
-// every `String.prototype` member too, producing a method-bag object no longer assignable back to the original
-// branded string at all. Checking the primitive union first, before `extends object`, is what avoids this.
+/**
+ Forces an intersection/mapped-type chain to display as one flat object on hover, instead of the chain of
+ aliases that produced it. Guarded against arrays and non-object types (a scalar, or an already-array-wrapped
+ root/join shape reaching here) : mapping over an array's own keys (numeric indices, `length`, methods) would
+ produce nonsense, and `keyof` on a non-object type doesn't exist at all.
+
+ Also guarded against a branded primitive (docs/content/typescript/index.md ## Typed wire values' `string & { readonly __pg: ... }`
+ types) : confirmed a real bug, not just a theoretical one — `string & { brand }` DOES satisfy `T extends
+ object` (an intersection with an object type), so without this guard `{[K in keyof T]: T[K]} & {}` maps over
+ every `String.prototype` member too, producing a method-bag object no longer assignable back to the original
+ branded string at all. Checking the primitive union first, before `extends object`, is what avoids this.
+ */
 export type Prettify<T> = T extends readonly unknown[]
   ? T
   : T extends string | number | boolean | bigint | symbol
@@ -64,7 +66,9 @@ export type Prettify<T> = T extends readonly unknown[]
       ? { [K in keyof T]: T[K] } & {}
       : T
 
-// Walks a query to extract whatever params there were inside
+/**
+ Walks a query to extract whatever params there were inside
+ */
 export type Params<Q> = Prettify<UnionToIntersection<ParamUnion<Q>>>
 
 ///////////////////////////////////////////////////////////////////////
@@ -75,11 +79,13 @@ export type Params<Q> = Prettify<UnionToIntersection<ParamUnion<Q>>>
 
 export type DefaultRow = { [name: string]: unknown }
 
-// Resolves ANY query node's row shape — root or nested join alike — from whichever of `shortcut` (join sugar),
-// `relation`, or `function` it carries. One resolver for every node means root and join resolution can't drift
-// apart the way two hand-maintained types could. Falls back to the permissive default when schema is omitted (no
-// search_path available here), the name is unrecognized, or neither `shortcut`/`relation`/`function` is given (a
-// real query would fail server-side either way).
+/**
+ Resolves ANY query node's row shape — root or nested join alike — from whichever of `shortcut` (join sugar),
+ `relation`, or `function` it carries. One resolver for every node means root and join resolution can't drift
+ apart the way two hand-maintained types could. Falls back to the permissive default when schema is omitted (no
+ search_path available here), the name is unrecognized, or neither `shortcut`/`relation`/`function` is given (a
+ real query would fail server-side either way).
+ */
 export type ResolveModel<Node> = Node extends { shortcut: infer S extends string }
   ? Extract<Relationships[keyof Relationships], { shortcut: S }> extends {
       relation: infer R extends object
@@ -104,12 +110,14 @@ export type ResolveModel<Node> = Node extends { shortcut: infer S extends string
             : DefaultRow
           : DefaultRow
 
-// The literal "schema.table" key ResolveModel resolved a real relation's row shape from — needed to look up
-// RequiredColumns[key] (specs/required-fields.md) for write-shape required-ness, below. A join's `shortcut`
-// already spells this out as its own leading segment (querier.ts's own TargetRelationName does the identical
-// extraction for its recursive join scoping) ; `never` for a function-rooted node (a function's row was never
-// introspected as an insertable relation — functions.md : "always read-only") or an unrecognized name, the same
-// cases ResolveModel itself falls back to DefaultRow for.
+/**
+ The literal "schema.table" key ResolveModel resolved a real relation's row shape from — needed to look up
+ RequiredColumns[key] for write-shape required-ness, below. A join's `shortcut`
+ already spells this out as its own leading segment (querier.ts's own TargetRelationName does the identical
+ extraction for its recursive join scoping) ; `never` for a function-rooted node (a function's row was never
+ introspected as an insertable relation — functions.md : "always read-only") or an unrecognized name, the same
+ cases ResolveModel itself falls back to DefaultRow for.
+ */
 export type ResolveKey<Node> = Node extends { shortcut: infer S extends string }
   ? S extends `${infer Key}${"<" | ">"}${string}`
     ? Key
@@ -147,9 +155,11 @@ type DistributeOverload<M> = M extends { relation: infer R extends object }
 // Boxed the same way DistributeOverload is (M stays a naked type parameter), so an overloaded function's two
 // argument shapes are offered as a union rather than collapsing onto one.
 
-// call()'s own argument type : plain values only, exactly as `positional_args`/`args` declare them — no
-// `$param`, no identifier/sub-expression forms. call() executes immediately (no deferred Querier, no `.get()`
-// params step), so there is nothing to substitute later.
+/**
+ call()'s own argument type : plain values only, exactly as `positional_args`/`args` declare them — no
+ `$param`, no identifier/sub-expression forms. call() executes immediately (no deferred Querier, no `.get()`
+ params step), so there is nothing to substitute later.
+ */
 export type FunctionArgs<M> = M extends {
   positional_args: infer P extends readonly unknown[]
   args: infer A extends object
@@ -157,9 +167,11 @@ export type FunctionArgs<M> = M extends {
   ? P | A
   : never
 
-// func()'s own argument type : same shape as FunctionArgs, but each argument slot also accepts a `["$param",
-// name, cast?]` placeholder (query.ts's own Expression tag) — func() returns a deferred Querier, reused across
-// calls with different `.get(params)`/`.write(params, data)` values, the same way its `where`/`select` already do.
+/**
+ func()'s own argument type : same shape as FunctionArgs, but each argument slot also accepts a `["$param",
+ name, cast?]` placeholder (query.ts's own Expression tag) — func() returns a deferred Querier, reused across
+ calls with different `.get(params)`/`.write(params, data)` values, the same way its `where`/`select` already do.
+ */
 export type DeferredFunctionArgs<M> = M extends {
   positional_args: infer P extends readonly unknown[]
   args: infer A extends object
@@ -171,12 +183,14 @@ type ParamPlaceholder = readonly ["$param", string, string?]
 
 type MappedWithParam<T> = { [K in keyof T]: T[K] | ParamPlaceholder }
 
-// The overload(s) of an overloaded function whose OWN `positional_args`/`args` accepts the caller's actual
-// `Args` — call()'s return type is resolved through this rather than through DistributeOverload/
-// ResolveFunctionModel directly, so e.g. hotel.property_average_rating's two overloads (one scalar, one
-// set-returning) each still resolve to their own return type based on which one the caller's arguments match,
-// rather than collapsing onto a union of both regardless of which was actually called. Boxed the same way
-// DistributeOverload is (M stays a naked type parameter).
+/**
+ The overload(s) of an overloaded function whose OWN `positional_args`/`args` accepts the caller's actual
+ `Args` — call()'s return type is resolved through this rather than through DistributeOverload/
+ ResolveFunctionModel directly, so e.g. hotel.property_average_rating's two overloads (one scalar, one
+ set-returning) each still resolve to their own return type based on which one the caller's arguments match,
+ rather than collapsing onto a union of both regardless of which was actually called. Boxed the same way
+ DistributeOverload is (M stays a naked type parameter).
+ */
 export type MatchOverload<M, Args> = M extends {
   positional_args: infer P
   args: infer A
@@ -195,17 +209,19 @@ export type MatchOverload<M, Args> = M extends {
 // node via JoinCardinality ; this section is the root-only counterpart querier.ts's relation()/func() and a
 // well-known query's own generated `shape`/`write_shape` all need on top of it.
 
-// One function overload's own root contribution : set-returning (`relation` present) wraps its row shape in an
-// array, same as any other relation root ; scalar (`returns` only, no `relation`) is the one exception — its
-// bare `returns` value IS the response, select/join never applies to it. Boxed the same way DistributeOverload
-// is (M stays a naked type parameter) so a MIXED overload set (e.g. hotel.property_average_rating) resolves
-// each member through its own branch and unions them, rather than collapsing onto whichever branch every member
-// happens to satisfy.
-//
-// The `[M] extends [never]` guard : an unrecognized function name (relation()/func()'s R/F, or
-// RootShapeFromLiteralQuery below, all fall back to `never` for that case) must still resolve to the safe
-// DefaultRow[] default — a bare `M extends {...}` here would instead DISTRIBUTE over `never` (M is a naked type
-// parameter), collapsing the whole conditional to `never` itself rather than reaching either branch.
+/**
+ One function overload's own root contribution : set-returning (`relation` present) wraps its row shape in an
+ array, same as any other relation root ; scalar (`returns` only, no `relation`) is the one exception — its
+ bare `returns` value IS the response, select/join never applies to it. Boxed the same way DistributeOverload
+ is (M stays a naked type parameter) so a MIXED overload set (e.g. hotel.property_average_rating) resolves
+ each member through its own branch and unions them, rather than collapsing onto whichever branch every member
+ happens to satisfy.
+
+ The `[M] extends [never]` guard : an unrecognized function name (relation()/func()'s R/F, or
+ RootShapeFromLiteralQuery below, all fall back to `never` for that case) must still resolve to the safe
+ DefaultRow[] default — a bare `M extends {...}` here would instead DISTRIBUTE over `never` (M is a naked type
+ parameter), collapsing the whole conditional to `never` itself rather than reaching either branch.
+ */
 export type RootShapeFromFunctionMember<M, Q, Depth extends number = 12> = [M] extends [never]
   ? DefaultRow[]
   : RootShapeFromFunctionMemberEach<M, Q, Depth>
@@ -218,11 +234,13 @@ type RootShapeFromFunctionMemberEach<M, Q, Depth extends number> = M extends {
     ? Prettify<Ret>
     : DefaultRow[]
 
-// Root-level wrap for a query node that still carries its own `relation`/`function` fields on its own literal —
-// a well-known query's embedded `as const` literal (schema.example.ts), unlike relation()/func()'s own Q (which
-// never carries them ; see querier.ts's relation()/func(), which apply the equivalent wrap themselves, driven by
-// the relation/function NAME rather than by inspecting Q). A relation root is unconditionally array-wrapped ; a
-// function root defers to RootShapeFromFunctionMember above.
+/**
+ Root-level wrap for a query node that still carries its own `relation`/`function` fields on its own literal —
+ a well-known query's embedded `as const` literal (schema.example.ts), unlike relation()/func()'s own Q (which
+ never carries them ; see querier.ts's relation()/func(), which apply the equivalent wrap themselves, driven by
+ the relation/function NAME rather than by inspecting Q). A relation root is unconditionally array-wrapped ; a
+ function root defers to RootShapeFromFunctionMember above.
+ */
 export type RootShapeFromLiteralQuery<
   Q extends { [name: string]: unknown },
   Depth extends number = 12,
@@ -329,8 +347,8 @@ type FullShape<
 > = OwnShape<Rel> & JoinShapes<Rel, Join, Depth>
 
 // A nominal marker meaning "this Expression's key doesn't exist on this side" — `get` on the write side, `set`
-// on the read side (query.ts's `get`/`col`/`set` doc comments ; specs/query-engine.md ## Writability : "get
-// doesn't count toward this at all"). A branded object rather than `never`, so a column that's legitimately typed
+// on the read side (query.ts's `get`/`col`/`set` doc comments : `get` is read-only and never counts as a write
+// reference). A branded object rather than `never`, so a column that's legitimately typed
 // `never` isn't also silently dropped by the same key-remapping mechanism.
 declare const OmittedTag: unique symbol
 type Omitted = { [OmittedTag]: true }
@@ -538,7 +556,7 @@ type ShapeFromExpressionMap<
 // "call" resolves through ShapeFromCallTag (above), a literal-identifier lookup against FunctionsByName/
 // Functions. Raw operators, "agg", "index"/"slice", "format", ... still fall back to `unknown` : narrowing them
 // from THIS type-level position would need a type-level schema description, which GET /rel/database.json
-// (specs/database-json.md) doesn't help with directly — it's a runtime JSON export a consumer resolves
+// doesn't help with directly — it's a runtime JSON export a consumer resolves
 // against at request time, not something the TypeScript compiler can consult while checking this file —
 // separate, not-yet-built (v2) work.
 type ShapeFromExpression<
@@ -585,9 +603,11 @@ type BaseShapeFromRelationQuery<Q, Rel extends object, Depth extends number> = Q
       : never
   : FullShape<Rel, ExtractJoinMap<Q>, Digits[Depth]>
 
-// docs/content/typescript/index.md ## Attaching behavior to rows : the row shape `proto`'s own getters/methods
-// type `this` against — the node's shape before ITS OWN `proto` merges in, so a `proto` object never has to type
-// its own members as part of its own input.
+/**
+ docs/content/typescript/index.md ## Attaching behavior to rows : the row shape `proto`'s own getters/methods
+ type `this` against — the node's shape before ITS OWN `proto` merges in, so a `proto` object never has to type
+ its own members as part of its own input.
+ */
 export type ProtoRowShape<
   Q,
   Rel extends object,
@@ -648,10 +668,12 @@ type MergeProto<Q, Base, ForWrite extends boolean = false> = Q extends {
   ? Base & FromDescriptorMap<P, ForWrite>
   : Base
 
-// Prettify wraps every node's own output here, not just the root's : this is the one function root AND every
-// nested join member resolve their row shape through (JoinShapes, above, and RootShapeFromFunctionMemberEach
-// both call back into this same function per node), so wrapping it here makes every nesting level readable on
-// hover for free, without a separate deep-recursive prettify walk of its own.
+/**
+ Prettify wraps every node's own output here, not just the root's : this is the one function root AND every
+ nested join member resolve their row shape through (JoinShapes, above, and RootShapeFromFunctionMemberEach
+ both call back into this same function per node), so wrapping it here makes every nesting level readable on
+ hover for free, without a separate deep-recursive prettify walk of its own.
+ */
 export type ShapeFromRelationQuery<
   Q,
   Rel extends object,
@@ -660,38 +682,42 @@ export type ShapeFromRelationQuery<
   ? unknown
   : Prettify<MergeProto<Q, BaseShapeFromRelationQuery<Q, Rel, Digits[Depth]>>>
 
-// docs/content/typescript/index.md ## Attaching behavior to rows : the type relation()/func()/join() (querier.ts)
-// put their own request literal's type through, intersected on top of `Q`, so `proto`'s own getters/methods have
-// `this` typed against that exact node's `ProtoRowShape` — including, recursively, any nested join's own
-// `proto`-merged shape (JoinShapes, above, already resolves every join member through `ShapeFromRelationQuery`).
-//
-// `proto`'s own type carries `ThisType<...>`, not a `base_class` parameter : a parameter's contextual type is
-// resolved eagerly, during inference, before Q's other sibling fields (`join` in particular) are done inferring —
-// a callback-shaped `proto` field breaks both its own `this` typing AND the rest of Q's inference in the process.
-// `ThisType` instead resolves `this` lazily, once the object literal's members are already checked, matching how
-// plain object methods/getters (no parameters) are the one part of an object literal that ISN'T
-// context-sensitive. `NoInfer<Q>` keeps `proto` from being a second, conflicting inference site for Q — Q is
-// inferred from the rest of the literal only.
-//
-// A `proto` mixing a `get` and a plain method (rather than only one kind) needs an explicit return type
-// annotation on EVERY member, or TypeScript's own `this`-inference for the mix degrades silently to `any`
-// throughout the object — confirmed empirically, not a documented TS behavior. Same-kind objects (all getters,
-// or all plain methods) don't need the annotations.
+/**
+ docs/content/typescript/index.md ## Attaching behavior to rows : the type relation()/func()/join() (querier.ts)
+ put their own request literal's type through, intersected on top of `Q`, so `proto`'s own getters/methods have
+ `this` typed against that exact node's `ProtoRowShape` — including, recursively, any nested join's own
+ `proto`-merged shape (JoinShapes, above, already resolves every join member through `ShapeFromRelationQuery`).
+
+ `proto`'s own type carries `ThisType<...>`, not a `base_class` parameter : a parameter's contextual type is
+ resolved eagerly, during inference, before Q's other sibling fields (`join` in particular) are done inferring —
+ a callback-shaped `proto` field breaks both its own `this` typing AND the rest of Q's inference in the process.
+ `ThisType` instead resolves `this` lazily, once the object literal's members are already checked, matching how
+ plain object methods/getters (no parameters) are the one part of an object literal that ISN'T
+ context-sensitive. `NoInfer<Q>` keeps `proto` from being a second, conflicting inference site for Q — Q is
+ inferred from the rest of the literal only.
+
+ A `proto` mixing a `get` and a plain method (rather than only one kind) needs an explicit return type
+ annotation on EVERY member, or TypeScript's own `this`-inference for the mix degrades silently to `any`
+ throughout the object — confirmed empirically, not a documented TS behavior. Same-kind objects (all getters,
+ or all plain methods) don't need the annotations.
+ */
 export type WithProto<Q, Rel extends object> = Q & {
   proto?: object & ThisType<ProtoRowShape<NoInfer<Q>, Rel>>
 }
 
-// Public entry point. Rel defaults to RelationQuery's own permissive default so `ShapeFromQuery<Q>` alone still
-// typechecks without going through relation()'s R -> Rel resolution (which passes the real Rel explicitly).
-// Unconstrained, same as WriteShapeFromQuery below : ShapeFromRelationQuery itself works purely by structural
-// extraction on Q's own `select`/`join`/`proto` (ExtractJoinMap, MergeProto, ...), never by consulting
-// RelationQuery's own generic Join parameter — a `Q extends RelationQuery<Rel, Join>` bound here would be
-// re-validating Q's select/where against SOME Join, redundant with the real validation relation()/func()/join()
-// already do at the point Q is actually built (querier.ts's own JoinOf<Q>-bound Q parameters), and prone to
-// exactly that Join going out of sync with Q's own real `join` field (confirmed : it did, once Rel there also
-// had to widen for computed-field names — the two independent checks disagreed).
-//
-// Read shape only — see `WriteShapeFromQuery`, below, for the `data` shape `write()` actually needs.
+/**
+ Public entry point. Rel defaults to RelationQuery's own permissive default so `ShapeFromQuery<Q>` alone still
+ typechecks without going through relation()'s R -> Rel resolution (which passes the real Rel explicitly).
+ Unconstrained, same as WriteShapeFromQuery below : ShapeFromRelationQuery itself works purely by structural
+ extraction on Q's own `select`/`join`/`proto` (ExtractJoinMap, MergeProto, ...), never by consulting
+ RelationQuery's own generic Join parameter — a `Q extends RelationQuery<Rel, Join>` bound here would be
+ re-validating Q's select/where against SOME Join, redundant with the real validation relation()/func()/join()
+ already do at the point Q is actually built (querier.ts's own JoinOf<Q>-bound Q parameters), and prone to
+ exactly that Join going out of sync with Q's own real `join` field (confirmed : it did, once Rel there also
+ had to widen for computed-field names — the two independent checks disagreed).
+
+ Read shape only — see `WriteShapeFromQuery`, below, for the `data` shape `write()` actually needs.
+ */
 export type ShapeFromQuery<
   Q,
   Rel extends object = { [name: string]: unknown },
@@ -699,31 +725,32 @@ export type ShapeFromQuery<
 
 ///////////////////////////////////////////////////////////////////////
 // WriteShapeFromQuery : the `data` shape a write actually expects, mirroring ShapeFromQuery above field-for-field
-// except at the `get`/`col`/`set` leaf, where read and write genuinely diverge (query.ts's own doc comments ;
-// specs/query-engine.md ## Writability). `get` is dropped (read-only) ; `set`/`col` are kept — a bare column
-// reference no longer exists (a bare string is a literal now), matching "a physical column is writable iff
-// referenced ... wrapped only by coalescing operators, or by set/col ; get doesn't count toward this at all."
+// except at the `get`/`col`/`set` leaf, where read and write genuinely diverge (query.ts's own doc comments).
+// `get` is dropped (read-only) ; `set`/`col` are kept — a bare column reference no longer exists (a bare string
+// is a literal now) : a physical column is writable iff referenced only through coalescing operators, or through
+// `set`/`col` ; `get` never counts toward that.
 //
-// A column named in RequiredColumns[key] (specs/required-fields.md — not nullable, no default, not
+// A column named in RequiredColumns[key] (not nullable, no default, not
 // identity/generated) stays mandatory ; every other physical column — nullable, defaulted, or simply one a
 // hand-written select map chose not to include — is optional, matching what an actual INSERT can leave out.
 // This applies per relation reached in the tree, root and every joined relation alike (WriteJoinShapes below
 // recomputes it for each), and follows a column through a select map's own key rename (`{"renamed": "col"}"`) —
 // BackingColumnOf resolves each entry's own VALUE back to the physical column it names, independent of whatever
-// key it's filed under, so the association is never actually lost the way this spec's own `> Thoughts:` worried
-// it might be.
+// key it's filed under, so the association is never actually lost.
 //
 // NOT modeled, and left entirely to the server : the exactly-once occurrence rule, `insert_columns`/
 // `update_columns` allowlisting, identity-target writability, and write_mode-dependent required/optional columns
 // (a column required for a fresh INSERT is still typed mandatory even when the actual write_mode in play is an
-// update-only one, where Postgres wouldn't need it at all) — specs/typescript.md ## Goals already calls out full
-// expression/column type-checking as a separate, harder (v2) concern, and this is the write-side instance of
+// update-only one, where Postgres wouldn't need it at all) — full
+// expression/column type-checking is a separate, harder (v2) concern, and this is the write-side instance of
 // that same gap. This type is a best-effort narrowing, not a validator ; the server remains the actual authority
 // on what's writable.
 
-// RequiredColumns[key], or `never` when key isn't a real, recognized relation (ResolveKey's own fallback) —
-// `never` indexed against RequiredColumns' own required `[schema.table]: ...` shape would otherwise be a type
-// error, not a graceful empty union, hence the guard.
+/**
+ RequiredColumns[key], or `never` when key isn't a real, recognized relation (ResolveKey's own fallback) —
+ `never` indexed against RequiredColumns' own required `[schema.table]: ...` shape would otherwise be a type
+ error, not a graceful empty union, hence the guard.
+ */
 export type RequiredKeysOf<Key> = Key extends keyof RequiredColumns ? RequiredColumns[Key] : never
 
 // The single physical column name E refers to, when that's unambiguous — a col/set field tag naming one (`get`
@@ -966,15 +993,17 @@ type WriteShapeFromExpression<
       ? WriteShapeFromExpressionMap<E, Rel, Join, Digits[Depth], ReqCol>
       : ShapeFromLeaf<E>
 
-// A bare top-level `get` has nowhere to drop its own key, same edge case ShapeFromRelationQuery guards against
-// for a bare top-level `set` — falls back to `unknown` rather than leaking `Omitted`. ReqCol defaults to
-// RequiredKeysOf<ResolveKey<Q>> — Q's OWN `relation`/`schema`/`shortcut` fields, when it carries them (a join
-// member's literal, or a Wellknowns entry's embedded query literal) — so a direct caller never has to compute or
-// pass it itself. relation()/func() (querier.ts) are the one exception : they split the relation/function name
-// out from the request object entirely, so Q alone never carries it — WriteShapeFromQuery's own explicit ReqCol
-// parameter exists specifically for relation() to pass RequiredKeysOf<R> in from the name string it still has.
-// Prettify wraps every node's own output here too, same reasoning as ShapeFromRelationQuery's own doc comment —
-// WriteJoinShapes (above) resolves every nested join member back through this same function.
+/**
+ A bare top-level `get` has nowhere to drop its own key, same edge case ShapeFromRelationQuery guards against
+ for a bare top-level `set` — falls back to `unknown` rather than leaking `Omitted`. ReqCol defaults to
+ RequiredKeysOf<ResolveKey<Q>> — Q's OWN `relation`/`schema`/`shortcut` fields, when it carries them (a join
+ member's literal, or a Wellknowns entry's embedded query literal) — so a direct caller never has to compute or
+ pass it itself. relation()/func() (querier.ts) are the one exception : they split the relation/function name
+ out from the request object entirely, so Q alone never carries it — WriteShapeFromQuery's own explicit ReqCol
+ parameter exists specifically for relation() to pass RequiredKeysOf<R> in from the name string it still has.
+ Prettify wraps every node's own output here too, same reasoning as ShapeFromRelationQuery's own doc comment —
+ WriteJoinShapes (above) resolves every nested join member back through this same function.
+ */
 export type WriteShapeFromRelationQuery<
   Q,
   Rel extends object,
@@ -1004,8 +1033,10 @@ export type WriteShapeFromRelationQuery<
       >
     >
 
-// Public entry point, mirroring ShapeFromQuery. ReqCol's default mirrors WriteShapeFromRelationQuery's own —
-// see that type's doc comment for why relation() (querier.ts) is the one caller that overrides it explicitly.
+/**
+ Public entry point, mirroring ShapeFromQuery. ReqCol's default mirrors WriteShapeFromRelationQuery's own —
+ see that type's doc comment for why relation() (querier.ts) is the one caller that overrides it explicitly.
+ */
 export type WriteShapeFromQuery<
   Q,
   Rel extends object = { [name: string]: unknown },

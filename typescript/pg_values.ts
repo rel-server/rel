@@ -61,9 +61,11 @@ export type PgLsn = string & { readonly __pg: "pg_lsn" }
 
 // ---- Write-side casts ----
 
-// asTimestamptz requires a trailing `Z` or `±HH:MM`/`±HH` offset — the one type in this file with a
-// meaningful runtime check, since Postgres would otherwise silently reinterpret an offset-less string using
-// the session's own time zone.
+/**
+ asTimestamptz requires a trailing `Z` or `±HH:MM`/`±HH` offset — the one type in this file with a
+ meaningful runtime check, since Postgres would otherwise silently reinterpret an offset-less string using
+ the session's own time zone.
+ */
 export function asTimestamptz(value: Date | Temporal.Instant | string): Timestamptz {
   const s = typeof value === "string" ? value : value.toString()
   if (!/[Zz]$|[+-]\d{2}(:\d{2})?$/.test(s)) {
@@ -72,8 +74,10 @@ export function asTimestamptz(value: Date | Temporal.Instant | string): Timestam
   return s as Timestamptz
 }
 
-// Round-tripping a Temporal.PlainDateTime back to a Timestamp is lossless and unambiguous — PlainDateTime never
-// invented a time-zone assumption in the first place.
+/**
+ Round-tripping a Temporal.PlainDateTime back to a Timestamp is lossless and unambiguous — PlainDateTime never
+ invented a time-zone assumption in the first place.
+ */
 export function asTimestamp(value: Temporal.PlainDateTime | string): Timestamp {
   return (typeof value === "string" ? value : value.toString()) as Timestamp
 }
@@ -86,8 +90,10 @@ export function asMoney(value: string): Money {
   return value as Money
 }
 
-// bigint/number are always valid ; a string is passed through as-is, with no client-side re-validation, since
-// Postgres's own int8 input parser already rejects a malformed one on write.
+/**
+ bigint/number are always valid ; a string is passed through as-is, with no client-side re-validation, since
+ Postgres's own int8 input parser already rejects a malformed one on write.
+ */
 export function asInt8(value: bigint | number | string): Int8 {
   return String(value) as Int8
 }
@@ -106,9 +112,11 @@ export function compareBigInt(a: bigint, b: bigint): number {
   return a < b ? -1 : a > b ? 1 : 0
 }
 
-// Exact decimal-string comparison, no Number() conversion — comparing (not computing on) two arbitrary-scale
-// decimals doesn't need a full decimal library, just digit-string comparison. NaN sorts last, Postgres's own
-// convention for its numeric NaN value.
+/**
+ Exact decimal-string comparison, no Number() conversion — comparing (not computing on) two arbitrary-scale
+ decimals doesn't need a full decimal library, just digit-string comparison. NaN sorts last, Postgres's own
+ convention for its numeric NaN value.
+ */
 export function compareNumeric(a: PgNumeric, b: PgNumeric): number {
   if (a === "NaN" || b === "NaN") return a === b ? 0 : a === "NaN" ? 1 : -1
   const negA = a.startsWith("-")

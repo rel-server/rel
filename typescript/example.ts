@@ -1,5 +1,5 @@
 // Compile-only fixture exercising relation()/join()/func() against the "hotel" example schema
-// (schema.example.ts). specs/typescript.md ## Testing : until a proper runtime test harness exists, this file's
+// (schema.example.ts). Until a proper runtime test harness exists, this file's
 // only job is to fail `just check` if the generic machinery in querier.ts/shapes.ts stops accepting a
 // well-formed query, or silently loosens some field's inferred type. Never calls .get()/.write() — those hit a
 // real `fetch()` — so this file is safe to simply import, not just type-check.
@@ -66,7 +66,7 @@ const rooms = relation("hotel.rooms", {
 
 export type RoomsShape = Awaited<ReturnType<typeof rooms.get>>
 
-// Scoped-join callback form (specs/typescript-better-join.md) : equivalent to `properties` above, but the
+// Scoped-join callback form : equivalent to `properties` above, but the
 // `join` handed to the callback is already scoped to "hotel.properties", so nested join() calls never repeat it.
 // Nested two levels deep (properties -> rooms -> room_type) to exercise TargetRelationName's recursive scoping.
 const propertiesScoped = relation("hotel.properties", (join) => ({
@@ -254,7 +254,7 @@ export type _AssertZeroArgFunctionArgsRejectsArbitraryKeys = Expect<
   { foo: "bar" } extends Functions["hotel.property_count"]["args"] ? false : true
 >
 
-// Required Fields (specs/required-fields.md) : RequiredColumns["hotel.room_types"] names "name"/"base_price" —
+// Required fields : RequiredColumns["hotel.room_types"] names "name"/"base_price" —
 // "id" is neither nullable nor required (a serial/identity column in a real deployment), so it must be OPTIONAL
 // in the write shape rather than mandatory the way tsgen used to render every physical column, verbatim.
 const roomTypeWrite = relation("hotel.room_types", {
@@ -288,7 +288,7 @@ export type _AssertAliasedRequiredColumnStaysMandatory = Expect<
   IsOptionalKey<RoomTypeWriteAliasedShape, "renamed_name"> extends false ? true : false
 >
 
-// Wellknowns (specs/typescript.md ## Wellknowns) : wellknown()'s params are supplied upfront, and its Shape/
+// Wellknowns : wellknown()'s params are supplied upfront, and its Shape/
 // WriteShape come from the raw query literal via ShapeFromRelationQuery/ResolveModel (schema.example.ts) — no
 // `.get(params)` argument needed, unlike relation()/func()'s own `$param`-driven Params.
 const starRatedProperties = wellknown("properties_by_star_rating", { min_rating: 4 })
@@ -498,7 +498,7 @@ export type _AssertReusedProtoMemberIsVisible = Expect<
 >
 
 // Same two cases as propertyWithNestedProto/propertyWithReusedProto above, but through the scoped-join callback
-// form (specs/typescript-better-join.md) rather than a plain `join:` object literal — ScopedJoin's own callback
+// form rather than a plain `join:` object literal — ScopedJoin's own callback
 // overload return type must ALSO be `WithProto`, not a bare `Q`, or a `proto` nested inside what the callback
 // returns silently loses `this`'s typing the same way a union parameter type would (ScopedJoin's own doc comment).
 const propertyWithNestedProtoScoped = relation("hotel.properties", (join) => ({

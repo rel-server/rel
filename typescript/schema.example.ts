@@ -1,4 +1,4 @@
-// Draft/example of `specs/typescript.md ## File layout`'s section 2 — the database schema. A real deployment
+// Draft/example of the database.ts's generated schema section. A real deployment
 // gets this section generated dynamically from introspection and inserted between querier.ts and query.ts/
 // shapes.ts (never written to disk as its own file) ; this "hotel" fixture is kept in the repo so querier.ts/
 // shapes.ts have something real to type-check and exercise against (see example.ts).
@@ -67,7 +67,7 @@ export interface Relations {
   "hotel.property_settings": Table__Hotel__PropertySettings
 }
 
-// specs/required-fields.md : the physical columns a write MUST supply a value for — not nullable, no default,
+// The physical columns a write MUST supply a value for — not nullable, no default,
 // not identity/generated. `id` is excluded everywhere here (`serial`/identity in the real schema) ; `star_rating`/
 // `chain_id`/`location`/`description`/`created_at`/`floor`/`status`/`features` are all either nullable or
 // defaulted, so they're excluded too — see shapes.ts's WriteOwnShape/WriteShapeFromExpressionMap for how this
@@ -131,8 +131,8 @@ export interface Relationships {
   }
 }
 
-// Discoverability half of computed columns (specs/typescript.md ; query-engine.md ## Reading Algorithm's own
-// definition) : per relation, which BARE function names are callable against it as a zero-extra-argument
+// Discoverability half of computed columns : per relation, which BARE function names are callable against it as
+// a zero-extra-argument
 // property (`t.func_name()`/`func_name(t)`), and what each returns. Deliberately redundant with FunctionsByName
 // below rather than derived from it — see this session's own design discussion (tsgen's renderComputedProperties
 // doc comment carries the full reasoning). property_average_rating's SECOND overload (below) takes `number`, not
@@ -186,7 +186,7 @@ export interface FunctionsByName {
   rooms_available: Functions["hotel.rooms_available"]
 }
 
-// Well-known queries (specs/typescript.md ## Wellknowns) : each compiled query's own raw "query" JSON is embedded
+// Well-known queries : each compiled query's own raw "query" JSON is embedded
 // verbatim as a `const ... as const` literal, and ShapeFromRelationQuery/WriteShapeFromRelationQuery (shapes.ts)
 // infer its shape from that literal directly, rather than re-deriving it in Go — the UNCONSTRAINED entry points,
 // not ShapeFromQuery/WriteShapeFromQuery, since the literal already carries its own `relation`/`schema`/`function`

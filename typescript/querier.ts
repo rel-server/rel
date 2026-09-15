@@ -1,8 +1,7 @@
 /*!
-Section 1 of `specs/typescript.md ## File layout` : the actual code — `Querier`, `relation()`, `func()`, `join()`,
-`wellknown()`. This is what a developer calls directly ; it comes first in the generated file precisely so it's
-the first thing seen when opening it, ahead of the developer's own schema (section 2) and the type machinery that
-powers both (section 3, `query.ts`/`shapes.ts`).
+The actual code — `Querier`, `relation()`, `func()`, `join()`, `wellknown()`. This is what a developer calls
+directly ; it comes first in the generated file precisely so it's the first thing seen when opening it, ahead of
+the developer's own schema and the type machinery that powers both (`query.ts`/`shapes.ts`).
 */
 import type { Query, RelationQuery } from "./query"
 import type { ComputedProperties, Functions, Relationships, Wellknowns } from "./schema.example"
@@ -23,10 +22,12 @@ import type {
   WriteShapeFromQuery,
 } from "./shapes"
 
-// Builder for well-known queries (specs/typescript.md ## Wellknowns). `name` must be one of Wellknowns' own keys ;
-// `params` is that entry's declared params object, supplied upfront here rather than deferred to .get()/.write() —
-// unlike relation()/func(), a well-known query's `$param` usages are never exposed to the caller as Querier's own
-// Params, hence `void` below.
+/**
+ Builder for well-known queries. `name` must be one of Wellknowns' own keys ;
+ `params` is that entry's declared params object, supplied upfront here rather than deferred to .get()/.write() —
+ unlike relation()/func(), a well-known query's `$param` usages are never exposed to the caller as Querier's own
+ Params, hence `void` below.
+ */
 export function wellknown<W extends keyof Wellknowns>(
   name: W,
   params: Wellknowns[W]["params"],
@@ -42,7 +43,7 @@ export function wellknown<W extends keyof Wellknowns>(
 type ResolveRelationModel<R extends string> = ResolveModel<{ relation: R }>
 
 // `join()` scoped to relation K, so a nested join never has to repeat the enclosing relation's name — see
-// scopedJoin() below and specs/typescript-better-join.md. K isn't constrained to keyof Relationships here (unlike
+// scopedJoin() below. K isn't constrained to keyof Relationships here (unlike
 // relation()'s own R) because it's also fed a shortcut's parsed TargetRelationName, a plain template-literal
 // string ; SafeRelationships resolves to `never` for an unrecognized one, making the scoped join uncallable there
 // rather than a type error at the declaration site.
@@ -84,11 +85,13 @@ type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">" |
   ? Rel
   : never
 
-// Three call signatures, not one signature with a union parameter type : `proto`'s `ThisType` (specs/typescript-
-// proto.md ## `proto` field, shapes.ts's WithProto doc comment) only resolves `this` correctly when the object
-// literal is checked against a single, non-union parameter type — folded into a union with the other forms, it
-// silently stops applying. The callback form's own return type is `WithProto<Q, Rel>`, not bare `Q`, for the same
-// reason : a `proto` inside the object the callback returns needs that same isolated contextual type.
+/**
+ Three call signatures, not one signature with a union parameter type : `proto`'s `ThisType` (shapes.ts's
+ WithProto doc comment) only resolves `this` correctly when the object
+ literal is checked against a single, non-union parameter type — folded into a union with the other forms, it
+ silently stops applying. The callback form's own return type is `WithProto<Q, Rel>`, not bare `Q`, for the same
+ reason : a `proto` inside the object the callback returns needs that same isolated contextual type.
+ */
 export type ScopedJoin<K extends string> = {
   <
     S extends SafeRelationships<K>["shortcut"],
@@ -207,12 +210,14 @@ type RelationQuerier<R extends RelationName, Q> = Querier<
   Q
 >
 
-// Builder for relations. `rel` must be a fully qualified "schema.relation" name. `request` is optional (a bare
-// select-all query, per resolveRequest above) and can be a plain query object or a callback receiving a `join`
-// already scoped to `rel`, so a nested join never has to repeat the relation it's being joined from.
-//
-// Two overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
-// `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type.
+/**
+ Builder for relations. `rel` must be a fully qualified "schema.relation" name. `request` is optional (a bare
+ select-all query, per resolveRequest above) and can be a plain query object or a callback receiving a `join`
+ already scoped to `rel`, so a nested join never has to repeat the relation it's being joined from.
+
+ Two overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
+ `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type.
+ */
 export function relation<
   R extends RelationName,
   const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>> & {
@@ -254,10 +259,12 @@ export function relation<
 type ResolveCalledFunctionModel<F extends string> =
   ResolveModel<{ function: F }> extends infer M extends object ? M : DefaultRow
 
-// Builder for functions. `fn` must be a fully qualified "schema.function" name. `function` can't be used as an
-// identifier (reserved word), hence `func`. `request.arguments`, if given, is checked against the function's own
-// declared `positional_args`/`args` (shapes.ts's DeferredFunctionArgs) rather than RelationQuery's own generic,
-// unchecked default — see shapes.ts's own doc comment on FunctionArgs/DeferredFunctionArgs.
+/**
+ Builder for functions. `fn` must be a fully qualified "schema.function" name. `function` can't be used as an
+ identifier (reserved word), hence `func`. `request.arguments`, if given, is checked against the function's own
+ declared `positional_args`/`args` (shapes.ts's DeferredFunctionArgs) rather than RelationQuery's own generic,
+ unchecked default — see shapes.ts's own doc comment on FunctionArgs/DeferredFunctionArgs.
+ */
 export function func<
   F extends FunctionName,
   const Q extends RelationQuery<
@@ -288,13 +295,15 @@ export function func<
   return new Querier(query)
 }
 
-// Direct call to `fn`, with no select/join/where step : sends `args` and resolves to the function's own return
-// value (a scalar for a scalar overload, an array of rows for a set-returning one — same root cardinality as
-// func(), see shapes.ts's RootShapeFromFunctionMember), rather than a Querier to further shape or defer. `args`
-// must match one of `fn`'s declared `positional_args`/`args` shapes exactly (shapes.ts's FunctionArgs — plain
-// values only, no `$param`) ; which overload it matches (shapes.ts's MatchOverload) drives the return type, so an
-// overloaded function like "hotel.property_average_rating" resolves to the specific overload actually called,
-// not a union of every overload's return type.
+/**
+ Direct call to `fn`, with no select/join/where step : sends `args` and resolves to the function's own return
+ value (a scalar for a scalar overload, an array of rows for a set-returning one — same root cardinality as
+ func(), see shapes.ts's RootShapeFromFunctionMember), rather than a Querier to further shape or defer. `args`
+ must match one of `fn`'s declared `positional_args`/`args` shapes exactly (shapes.ts's FunctionArgs — plain
+ values only, no `$param`) ; which overload it matches (shapes.ts's MatchOverload) drives the return type, so an
+ overloaded function like "hotel.property_average_rating" resolves to the specific overload actually called,
+ not a union of every overload's return type.
+ */
 export function call<F extends FunctionName, const Args extends FunctionArgs<Functions[F]>>(
   fn: F,
   args: Args,
@@ -337,23 +346,25 @@ function parseShortcut(shortcut: string): {
   return { schema, relation, on }
 }
 
-// Builder for joins. `key` narrows to one owning relation's relationship variants (`Relationships[key]`, possibly
-// a union — one member per FK reachable from that relation) ; `shortcut` then picks exactly one member, so a
-// relation with several FKs never collides on a single shape. `shortcut` is parsed directly into `on`/`relation`/
-// `schema`, and kept on the returned object's own type so shapes.ts's JoinCardinality/ResolveModel can resolve
-// this join's row shape and cardinality from it alone, without needing `key` again. `request` is optional and can
-// be a callback, same as relation() — see ScopedJoin/scopedJoin above and specs/typescript-better-join.md ; the
-// callback it receives is scoped to `shortcut`'s own TARGET (parsed via TargetRelationName), not `key`, so a
-// join-of-a-join never repeats a relation name either.
-// docs/content/typescript/index.md ## Building a query : `request` also accepts a Querier built by a standalone
-// relation()/func() call, so a `select`/`proto` already written once can be joined in as-is instead of being
-// retyped. `on`/`schema`/`relation`/`shortcut` always come from `shortcut` regardless of which form `request`
-// takes — a Querier built through relation() never carries `on`, since a root query isn't itself a join.
-// Three overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
-// `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type, whether it's
-// this node's own `proto` (first overload) or one nested inside the callback form's own returned object (third
-// overload, hence its `WithProto`-typed return rather than a bare `Q`). The Querier-reuse form (second overload)
-// doesn't involve a `proto` object literal at all, so it's safe to keep on its own without needing `WithProto`.
+/**
+ Builder for joins. `key` narrows to one owning relation's relationship variants (`Relationships[key]`, possibly
+ a union — one member per FK reachable from that relation) ; `shortcut` then picks exactly one member, so a
+ relation with several FKs never collides on a single shape. `shortcut` is parsed directly into `on`/`relation`/
+ `schema`, and kept on the returned object's own type so shapes.ts's JoinCardinality/ResolveModel can resolve
+ this join's row shape and cardinality from it alone, without needing `key` again. `request` is optional and can
+ be a callback, same as relation() — see ScopedJoin/scopedJoin above ; the
+ callback it receives is scoped to `shortcut`'s own TARGET (parsed via TargetRelationName), not `key`, so a
+ join-of-a-join never repeats a relation name either.
+ docs/content/typescript/index.md ## Building a query : `request` also accepts a Querier built by a standalone
+ relation()/func() call, so a `select`/`proto` already written once can be joined in as-is instead of being
+ retyped. `on`/`schema`/`relation`/`shortcut` always come from `shortcut` regardless of which form `request`
+ takes — a Querier built through relation() never carries `on`, since a root query isn't itself a join.
+ Three overloads, not one signature with a union parameter type : see ScopedJoin's own doc comment, above — a
+ `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type, whether it's
+ this node's own `proto` (first overload) or one nested inside the callback form's own returned object (third
+ overload, hence its `WithProto`-typed return rather than a bare `Q`). The Querier-reuse form (second overload)
+ doesn't involve a `proto` object literal at all, so it's safe to keep on its own without needing `WithProto`.
+ */
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
@@ -480,11 +491,13 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
   return value
 }
 
-// Both wellknown() and relation() produce a Querier with its Shape/WriteShape/Params known through their own
-// return types. WriteShape defaults to Shape so a hand-built Querier (or wellknown(), which doesn't compute one)
-// still works ; relation()/func() always supply the real, narrower WriteShapeFromQuery explicitly. Q defaults to
-// the widened `Query` for the same reason ; relation()/func() supply their own literal Q instead, so join() can
-// recover it from a reused Querier — docs/content/typescript/index.md ## Building a query.
+/**
+ Both wellknown() and relation() produce a Querier with its Shape/WriteShape/Params known through their own
+ return types. WriteShape defaults to Shape so a hand-built Querier (or wellknown(), which doesn't compute one)
+ still works ; relation()/func() always supply the real, narrower WriteShapeFromQuery explicitly. Q defaults to
+ the widened `Query` for the same reason ; relation()/func() supply their own literal Q instead, so join() can
+ recover it from a reused Querier — docs/content/typescript/index.md ## Building a query.
+ */
 export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Query> {
   public query: Q
 
@@ -621,10 +634,12 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
   }
 }
 
-// Thrown by get()/write() (both funnel through _send) whenever the server responds with a >= 400 status —
-// neither surfaced the failure before, silently handing a caller `undefined`/a parsed error body as if it were
-// Shape. `body` is the raw response text, not parsed : rel's own error envelope isn't specced yet, so this stays
-// a dumb passthrough rather than guessing a shape that might not match.
+/**
+ Thrown by get()/write() (both funnel through _send) whenever the server responds with a >= 400 status —
+ neither surfaced the failure before, silently handing a caller `undefined`/a parsed error body as if it were
+ Shape. `body` is the raw response text, not parsed : rel's own error envelope isn't specced yet, so this stays
+ a dumb passthrough rather than guessing a shape that might not match.
+ */
 export class RelRequestError extends Error {
   constructor(
     public status: number,
@@ -634,13 +649,15 @@ export class RelRequestError extends Error {
   }
 }
 
-// Named types to hold onto a Querier's own Shape/WriteShape, e.g. as a function parameter's type, without
-// re-deriving it via `Awaited<ReturnType<typeof someQuery.get>>` every time. `Prettify` (shapes.ts) is applied
-// here too, on top of it already being applied at every level `Shape`/`WriteShape` were built from (shapes.ts's
-// ShapeFromRelationQuery/WriteShapeFromRelationQuery doc comments) — a hand-built `Querier` (unlike one
-// relation()/func() produced) never went through either, so these still prettify a raw `Shape`/`WriteShape` for
-// one. Array-wrapped (the common case, root or to-many join) prettifies the element, not the array itself, same
-// guard as `Prettify` (shapes.ts) has to have anyway.
+/**
+ Named types to hold onto a Querier's own Shape/WriteShape, e.g. as a function parameter's type, without
+ re-deriving it via `Awaited<ReturnType<typeof someQuery.get>>` every time. `Prettify` (shapes.ts) is applied
+ here too, on top of it already being applied at every level `Shape`/`WriteShape` were built from (shapes.ts's
+ ShapeFromRelationQuery/WriteShapeFromRelationQuery doc comments) — a hand-built `Querier` (unlike one
+ relation()/func() produced) never went through either, so these still prettify a raw `Shape`/`WriteShape` for
+ one. Array-wrapped (the common case, root or to-many join) prettifies the element, not the array itself, same
+ guard as `Prettify` (shapes.ts) has to have anyway.
+ */
 export type ShapeOf<Q extends Querier<unknown, unknown, unknown, unknown>> =
   Q extends Querier<infer S, unknown, unknown, unknown>
     ? S extends readonly (infer E)[]

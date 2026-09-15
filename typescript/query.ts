@@ -2,8 +2,10 @@
 This file specifies the shape of the JSON queries that rel is to understand.
 */
 
-// A query is one query, or a sequence run in order in one transaction ; any failure fails the whole transaction.
-// For more complex needs, use a function instead.
+/**
+ A query is one query, or a sequence run in order in one transaction ; any failure fails the whole transaction.
+ For more complex needs, use a function instead.
+ */
 export type Query = ComplexQuery | RelationQuery | WellKnownQuery | readonly Query[]
 
 /* Call a query that's registered in rel. This can be seen as a view, except it's a rel's signature bi-directional query that's both readable and writable. */
@@ -14,7 +16,7 @@ export interface WellKnownQuery {
 
 /**
  Wraps a `RelationQuery`/`WellKnownQuery`, optionally writing to it and/or shaping the response beyond the plain
- selection. See `specs/complex-query.md`.
+ selection.
  */
 export interface ComplexQuery {
   query: RelationQuery | WellKnownQuery
@@ -78,7 +80,7 @@ export interface SqlResult {
   delete?: string
 }
 
-/** The envelope shape a `ComplexQuery` response takes once any flag is set — see `specs/complex-query.md ## Response shape`. */
+/** The envelope shape a `ComplexQuery` response takes once any flag is set. */
 export interface ComplexResult {
   /** The plain selection ; absent iff `returns == "none"`. */
   result?: unknown
@@ -238,10 +240,12 @@ export type UnaryOperator =
   | "||/"
   | "cbrt" // cube root
 
-// These operators are binary operators but that can be applied over a long list starting from the left and two by two
-// ["-", 4, 3, 2, 1] -> ["-", ["-", ["-", 4, 3], 2], 1]
-// Boolean operators are treated as and
-// ["<", 1, 2, 3, 4] -> ["and", ["<", 1, 2], ["<", 2, 3], ["<", 3, 4]]
+/**
+ These operators are binary operators but that can be applied over a long list starting from the left and two by two
+ ["-", 4, 3, 2, 1] -> ["-", ["-", ["-", 4, 3], 2], 1]
+ Boolean operators are treated as and
+ ["<", 1, 2, 3, 4] -> ["and", ["<", 1, 2], ["<", 2, 3], ["<", 3, 4]]
+ */
 export type FoldedOperator =
   | "and"
   | "or"
@@ -295,7 +299,9 @@ export type FoldedOperator =
   | "is_not_distinct_from"
   | "===" // javascript alias
 
-// Here are all binary for who folding makes little sense
+/**
+ Here are all binary for who folding makes little sense
+ */
 export type BinaryOperator =
   | "like" // warning : need configuration as they can be abused for DDoS attacks
   | "ilike" // warning : need configuration as they can be abused for DDoS attacks
@@ -338,11 +344,13 @@ export type BinaryOperator =
 Never a combined "schema.name" string : a quoted Postgres identifier can itself contain a literal dot. */
 export type FunctionIdentifier = string | { schema: string; name: string }
 
-// Every tuple/array variant below is `readonly` — nothing in the client ever mutates a built Expression, it's
-// only ever serialized to JSON — so a pre-declared `as const` value (or any other readonly-typed array) can be
-// passed in directly, not just an inline literal. See specs/typescript.md's note on relation()'s `const Q extends
-// RelationQuery<...>` : a `const` type parameter infers `readonly` from `as const`/readonly-typed inputs, which a
-// mutable array/tuple type here would then reject.
+/**
+ Every tuple/array variant below is `readonly` — nothing in the client ever mutates a built Expression, it's
+ only ever serialized to JSON — so a pre-declared `as const` value (or any other readonly-typed array) can be
+ passed in directly, not just an inline literal. Relevant to relation()'s own `const Q extends
+ RelationQuery<...>` (querier.ts) : a `const` type parameter infers `readonly` from `as const`/readonly-typed
+ inputs, which a mutable array/tuple type here would then reject.
+ */
 export type Expression<K extends string = string> =
   | null
   | true
