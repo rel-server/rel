@@ -98,7 +98,7 @@ export type ScopedJoin<K extends string> = {
         TargetRelationName<S>
       >,
       JoinOf<Q>
-    >,
+    > & { join?: ValidatedJoin<TargetRelationName<S>, JoinOf<Q>> },
   >(
     shortcut: S,
     request?: WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
@@ -131,6 +131,41 @@ export type ScopedJoin<K extends string> = {
       join: ScopedJoin<TargetRelationName<S>>,
     ) => WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
   ): Q & { shortcut: S }
+}
+
+// Validates a query node's own `join` map when its entries are written as plain object literals carrying
+// `shortcut` directly (no join()/ScopedJoin call) — each entry's `shortcut` must be one `SafeRelationships<K>`
+// actually offers, its `select`/`where` must resolve against that shortcut's own target relation PLUS the
+// entry's own nested join aliases (same `Expression<Keys<Rel>|Keys<Join>>` check join()'s own `const Q extends
+// RelationQuery<Rel, JoinOf<Q>>` gets at a real call site — a bare nested object literal never goes through such
+// a call, so nothing else re-imposes it), and its own nested `join` (if any) is validated the same way,
+// recursively, against that shortcut's own TargetRelationName. J is JoinOf<Q> (or one entry's own JoinOf), i.e.
+// Q's REAL inferred join map, so entry J[A] keeps exactly its inferred type when it already satisfies that
+// RelationQuery shape — this only adds a constraint, it never rebuilds the entry from scratch. Either mismatch
+// (wrong `shortcut`, or a `select`/`where` referencing something not on Rel/Join) surfaces as a TS2322 at the
+// ENCLOSING key, not the leaf field — object-literal assignability errors bubble to the outer property, unlike a
+// function-argument error. An entry with no `shortcut` at all (the raw on/relation/schema form) passes through
+// unchecked, same as today.
+type ValidatedJoin<K extends string, J> = {
+  [A in keyof J]: J[A] extends { shortcut: infer S extends string }
+    ? S extends SafeRelationships<K>["shortcut"]
+      ? J[A] extends RelationQuery<
+          WithComputedKeys<
+            Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+            TargetRelationName<S>
+          >,
+          JoinOf<J[A]>
+        >
+        ? J[A] & { join?: ValidatedJoin<TargetRelationName<S>, JoinOf<J[A]>> }
+        : RelationQuery<
+            WithComputedKeys<
+              Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+              TargetRelationName<S>
+            >,
+            JoinOf<J[A]>
+          > & { shortcut: S }
+      : { shortcut: SafeRelationships<K>["shortcut"] }
+    : J[A]
 }
 
 // Builds the `(shortcut, request?) => ...` closure handed to a relation()/join() callback, scoped to `key` —
@@ -180,18 +215,24 @@ type RelationQuerier<R extends RelationName, Q> = Querier<
 // `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type.
 export function relation<
   R extends RelationName,
-  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>>,
+  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>> & {
+    join?: ValidatedJoin<R, JoinOf<Q>>
+  },
 >(rel: R, request?: WithProto<Q, ResolveRelationModel<R>>): RelationQuerier<R, Q>
 export function relation<
   R extends RelationName,
-  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>>,
+  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>> & {
+    join?: ValidatedJoin<R, JoinOf<Q>>
+  },
 >(
   rel: R,
   request: (join: ScopedJoin<R>) => WithProto<Q, ResolveRelationModel<R>>,
 ): RelationQuerier<R, Q>
 export function relation<
   R extends RelationName,
-  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>>,
+  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>> & {
+    join?: ValidatedJoin<R, JoinOf<Q>>
+  },
 >(
   rel: R,
   request?: WithProto<Q, ResolveRelationModel<R>> | ((join: ScopedJoin<R>) => Q),
@@ -319,7 +360,7 @@ export function join<
   const Q extends RelationQuery<
     WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
     JoinOf<Q>
-  >,
+  > & { join?: ValidatedJoin<TargetRelationName<S>, JoinOf<Q>> },
 >(
   key: K,
   shortcut: S,
@@ -455,7 +496,10 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
   }
 
   // `shortcut` is join()'s client-side sugar (schema.example.ts's Relationships lookup) — never part of the wire
-  // format. Stripped once here, on construction, rather than on every doQuery() call.
+  // format. join() itself already expands a shortcut into on/relation/schema before this runs ; a join written
+  // as a plain object literal (ValidatedJoin, above) never went through join(), so it only carries `shortcut` —
+  // expanded here too (guarded by the absence of `on`, so an already-expanded node isn't re-parsed) before being
+  // stripped, once per construction rather than on every doQuery() call.
   private static stripShortcut(obj: unknown): unknown {
     if (obj == null || typeof obj !== "object") {
       return obj
@@ -463,7 +507,14 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
     if (Array.isArray(obj)) {
       return obj.map((item) => Querier.stripShortcut(item))
     }
-    const { shortcut: _shortcut, ...rest } = obj as { shortcut?: unknown; [name: string]: unknown }
+    const { shortcut, ...rest } = obj as {
+      shortcut?: string
+      on?: unknown
+      [name: string]: unknown
+    }
+    if (typeof shortcut === "string" && rest.on == null) {
+      Object.assign(rest, parseShortcut(shortcut))
+    }
     for (const key of Object.keys(rest)) {
       // `proto`'s own members are live getters/methods, not query data — recursing into it (or even reading it
       // via a destructuring spread) would invoke them as a side effect, purely to discard the result. Left

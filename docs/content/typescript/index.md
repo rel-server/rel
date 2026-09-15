@@ -55,13 +55,46 @@ Hovering over `properties` (or any `.get()`/`.write()`/`call()` result) shows a 
 object literal — `{ id: number; name: string; rooms: {...}[] }` — at every nesting level, not the
 chain of internal type names that computed it.
 
-`relation()`'s second argument is a callback, and it's what makes a joined column's shortcut
-type-check correctly: the `join` it receives already knows which relation it's being called
-from, so it only offers the foreign keys reachable from *that* relation, and only accepts a
-shortcut that's actually valid there — get it wrong and it's a compile error, with your editor's
-autocomplete listing the valid shortcuts for that relation. The scoping recurses: a join nested
-inside another join gets a `join` of its own, scoped to *its* target, so the same type-checking
-applies at every depth without you having to tell it what relation you're embedding into:
+A joined column's shortcut type-checks correctly even without a callback — write it as a plain
+object literal, with `shortcut` right on the join entry, and it's still checked against exactly
+the foreign keys reachable from the relation you're joining *from*, with autocomplete listing the
+valid shortcuts there:
+
+```ts
+const properties = await relation("hotel.properties", {
+  join: {
+    rooms: { shortcut: "hotel.rooms*id:property_id", select: ["*"] },
+  },
+}).get()
+```
+
+The scoping recurses the same way a nested join does through the callback form, below: a `join`
+nested inside a join entry is checked against *its own* target relation, not the root's, so the
+same type-checking applies at every depth without repeating a relation name anywhere:
+
+```ts
+const properties = await relation("hotel.properties", {
+  join: {
+    rooms: {
+      shortcut: "hotel.rooms*id:property_id",
+      join: {
+        room_type: { shortcut: "hotel.room_types>id:room_type_id" },
+      },
+    },
+  },
+}).get()
+```
+
+One thing the plain-object form doesn't give you: a `proto` (see below) on a *nested* join entry
+written this way doesn't get its methods' `this` typed against that entry's own row shape — use
+`join()`'s callback form for a nested join that needs a typed `proto`. A wrong shortcut a few
+levels deep also reports the error against the enclosing join key rather than the exact line,
+since that's how TypeScript locates errors inside a plain object literal.
+
+`relation()`'s second argument can also be a callback, which is what you need for a nested join's
+`proto`, or when the alias/shortcut needs to be computed rather than written as a literal. The
+callback's `join` is scoped the same way: it only offers the foreign keys reachable from the
+relation it's called from, and the scoping recurses into nested joins automatically:
 
 ```ts
 const properties = await relation("hotel.properties", (join) => ({

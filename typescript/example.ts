@@ -839,4 +839,82 @@ type RoomsWithBogusHopShape = Awaited<
 export type _AssertUncheckedHopFallsBackToUnknownAtShapeLevel = Expect<
   [RoomsWithBogusHopShape["x"]] extends [string] ? false : true
 >
+
+// querier.ts's ValidatedJoin : a join can be written as a plain object literal carrying `shortcut` directly,
+// with no call to join()/ScopedJoin — shortcut/select/nested-join are all checked exactly as the join()-built
+// form is, since ValidatedJoin constrains Q's own REAL inferred `join` field rather than reconstructing it.
+const propertyPlainJoin = relation("hotel.rooms", {
+  join: {
+    property: {
+      shortcut: "hotel.properties>id:property_id",
+      select: ["*~"],
+    },
+  },
+})
+export type PropertyPlainJoinShape = Awaited<ReturnType<typeof propertyPlainJoin.get>>
+// Same row shape as the join()-built equivalent (rooms' first overload test, near the top of this file) : the
+// plain-object path goes through the exact same ResolveModel/ShapeFromRelationQuery machinery.
+export type _AssertPlainJoinShapeHasTargetColumns = Expect<
+  HasKey<PropertyPlainJoinShape[number]["property"], "name">
+>
+
+// A mismatched overload set reports the error against the LAST overload tried (the callback one), not the plain-
+// object one actually intended — TS's own behavior once no overload matches, not something ValidatedJoin
+// controls — so the useful "shortcut not assignable" diagnostic lands one line down, on the object literal
+// itself, rather than on the `relation(...)` call line.
+void relation("hotel.rooms", {
+  // @ts-expect-error "hotel.property_settings<property_id:id" isn't reachable from "hotel.rooms"
+  join: { property: { shortcut: "hotel.property_settings<property_id:id" } },
+})
+
+// Nested two levels deep, same as the callback form's own nesting test above (propertiesScoped) : each level's
+// `shortcut` is checked against ITS OWN target relation, not the root's.
+const propertyPlainJoinNested = relation("hotel.properties", {
+  join: {
+    rooms: {
+      shortcut: "hotel.rooms*id:property_id",
+      select: { x: [".", "room_type", "name"] },
+      join: {
+        room_type: { shortcut: "hotel.room_types>id:room_type_id" },
+      },
+    },
+  },
+})
+void propertyPlainJoinNested
+
+// The nested shortcut is valid for "hotel.properties" -> rooms, but NOT reachable from rooms' own target
+// (hotel.room_types).
+void relation("hotel.properties", {
+  // @ts-expect-error nested shortcut invalid one level down
+  join: {
+    rooms: {
+      shortcut: "hotel.rooms*id:property_id",
+      join: {
+        room_type: { shortcut: "hotel.rooms*id:property_id" },
+      },
+    },
+  },
+})
+
+// A plain join entry's own nested-join alias is still `.`-reachable from that entry's own select, same as the
+// join()-built form (JoinOf<Q> is read off the entry's real inferred type, not rebuilt).
+void relation("hotel.properties", {
+  join: {
+    rooms: {
+      shortcut: "hotel.rooms*id:property_id",
+      select: { rt: [".", "room_type"] },
+      join: { room_type: { shortcut: "hotel.room_types>id:room_type_id" } },
+    },
+  },
+})
+void relation("hotel.properties", {
+  // @ts-expect-error "room_typ" isn't a join alias on this entry (typo of "room_type")
+  join: {
+    rooms: {
+      shortcut: "hotel.rooms*id:property_id",
+      select: { rt: [".", "room_typ"] },
+      join: { room_type: { shortcut: "hotel.room_types>id:room_type_id" } },
+    },
+  },
+})
 void roomsWithBogusHopButValidLeadingName
