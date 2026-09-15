@@ -788,3 +788,55 @@ export type _AssertFullyOptionalNestedSelectGroupStaysOptional = Expect<
 >
 void propertyWithNestedSelectGroup
 void propertyWithOptionalNestedSelectGroup
+
+// querier.ts's JoinOf<Q>/WithComputedKeys : relation()/func()/join()/ScopedJoin's own `const Q extends
+// RelationQuery<Rel, ...>` previously left Join at its permissive default (`{ [name: string]: RelationQuery }`,
+// keyof = bare `string`), which silently made EVERY column/alias reference in select/where accept any string at
+// all — no compile error, no editor completions, regardless of Rel's real shape. JoinOf<Q> reads Join back off
+// Q itself (F-bounded), closing that ; these pin both directions : a real column/alias/computed-field name still
+// compiles, and a typo of one is now rejected.
+// @ts-expect-error unrecognized column name via "col"
+void relation("hotel.rooms", { select: { x: ["col", "totally_bogus_column"] } })
+// @ts-expect-error unrecognized name via "." (not a column, not a join alias, not a computed field)
+void relation("hotel.rooms", { select: { x: [".", "totally_bogus_name"] } })
+// Same, one level down through a nested join — TS reports the error on the inner join() call itself.
+void relation("hotel.properties", (join) => ({
+  join: {
+    // @ts-expect-error unrecognized column name via "col", inside a nested join
+    rooms: join("hotel.rooms*id:property_id", { select: { x: ["col", "totally_bogus_nested"] } }),
+  },
+}))
+
+// A bare-name computed field (schema.example.ts's ComputedProperties) is `.`-reachable exactly like a real
+// column or join alias — WithComputedKeys folds it into K at the ONE place that needs it (the Q constraint),
+// without leaking into "*"'s own default shape (PropertyReadShape, further above, never carries it).
+const propertyWithValidComputedDot = relation("hotel.properties", {
+  select: { avg: [".", "property_average_rating"] },
+})
+void propertyWithValidComputedDot
+// @ts-expect-error typo of a real computed field name
+void relation("hotel.properties", { select: { avg: [".", "property_average_ratingg"] } })
+
+export type _AssertComputedFieldExcludedFromStarShape = Expect<
+  HasKey<PropertiesBareShape[number], "property_average_rating"> extends false ? true : false
+>
+
+// A `.` chain's trailing hops (past the leading name) are intentionally UNCHECKED strings, not K : a hop past
+// the first lands on whatever the PREVIOUS hop resolved to — a different relation's own keys, which
+// Expression<K>'s single type parameter has no way to reference (query.ts's own doc comment on "."/"dot", above
+// roomsWithDot). Only the leading operand is checked, so a nonexistent COLUMN there is still caught even though
+// a nonexistent HOP past it (checked instead by shapes.ts's ShapeFromDotChain, at the read-shape level, falling
+// back to `unknown` per Hop extends keyof Base) is not caught until then.
+const roomsWithBogusHopButValidLeadingName = relation("hotel.rooms", (join) => ({
+  select: { x: [".", "room_type", "this_hop_name_is_not_checked_against_anything"] },
+  join: { room_type: join("hotel.room_types>id:room_type_id") },
+}))
+type RoomsWithBogusHopShape = Awaited<
+  ReturnType<typeof roomsWithBogusHopButValidLeadingName.get>
+>[number]
+// The bogus hop compiles (unchecked), but ShapeFromDotChain still can't resolve it against room_types' own
+// fields at the SHAPE level — falls back to `unknown` there instead, same as any other unresolvable hop.
+export type _AssertUncheckedHopFallsBackToUnknownAtShapeLevel = Expect<
+  [RoomsWithBogusHopShape["x"]] extends [string] ? false : true
+>
+void roomsWithBogusHopButValidLeadingName

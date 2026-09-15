@@ -241,8 +241,10 @@ export type RootShapeFromLiteralQuery<
 // Record<keyof any, never>/{[name: string]: unknown} (biome's own suggested replacements) both have `keyof` =
 // string|number(|symbol) instead, which would map to a bogus index signature on FullShape for every query that
 // joins nothing at all.
-// biome-ignore lint/complexity/noBannedTypes: see above — `{}` is deliberate here, not a placeholder
-type ExtractJoinMap<Q> = Q extends { join: infer J extends { [name: string]: unknown } } ? J : {}
+type ExtractJoinMap<Q> = Q extends { join: infer J extends { [name: string]: RelationQuery } }
+  ? J
+  : // biome-ignore lint/complexity/noBannedTypes: see above — `{}` is deliberate here, not a placeholder
+    {}
 
 // Cardinality comes straight off `shortcut`'s own direction marker (`>`/`<`/`*` — docs/content/
 // typescript/index.md ## Building a query), pattern-matched on its template literal type, not a
@@ -681,10 +683,17 @@ export type WithProto<Q, Rel extends object> = Q & {
 
 // Public entry point. Rel defaults to RelationQuery's own permissive default so `ShapeFromQuery<Q>` alone still
 // typechecks without going through relation()'s R -> Rel resolution (which passes the real Rel explicitly).
+// Unconstrained, same as WriteShapeFromQuery below : ShapeFromRelationQuery itself works purely by structural
+// extraction on Q's own `select`/`join`/`proto` (ExtractJoinMap, MergeProto, ...), never by consulting
+// RelationQuery's own generic Join parameter — a `Q extends RelationQuery<Rel, Join>` bound here would be
+// re-validating Q's select/where against SOME Join, redundant with the real validation relation()/func()/join()
+// already do at the point Q is actually built (querier.ts's own JoinOf<Q>-bound Q parameters), and prone to
+// exactly that Join going out of sync with Q's own real `join` field (confirmed : it did, once Rel there also
+// had to widen for computed-field names — the two independent checks disagreed).
 //
 // Read shape only — see `WriteShapeFromQuery`, below, for the `data` shape `write()` actually needs.
 export type ShapeFromQuery<
-  Q extends RelationQuery<Rel>,
+  Q,
   Rel extends object = { [name: string]: unknown },
 > = ShapeFromRelationQuery<Q, Rel>
 

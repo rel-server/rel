@@ -359,19 +359,27 @@ export type Expression<K extends string = string> =
   // explicit bigint support for queries. in responses, the user can choose to have another parser than JSON.parse _if_ they absolutely need bigints
   | readonly ["bigint", value: string]
   | readonly ["numeric", value: string] // for really big numbers
-  /** "."/"dot" is the one operator whose hop names are always bare names (K), never a nested Expression — a
-  bare string elsewhere means a literal now, so this needs its own tuple form rather than the generic one below.
+  /** "."/"dot" is the one operator whose hop names are always bare names, never a nested Expression — a bare
+  string elsewhere means a literal now, so this needs its own tuple form rather than the generic one below.
   A bare name in the LEADING position — ["." | "dot", "name", ...] — always resolves `name` directly against the
-  current scope: a real column, an alias, a joined/embedded field, or an earlier computed key. This is the
-  generic "reference this name" building block bare strings used to provide — unlike ["col", ...], it is not
-  restricted to real columns. Every further operand is always a further bare-name hop off the previous result,
-  chaining arbitrarily deep — ["." | "dot", "chain", "name"] is ["." | "dot", ["." | "dot", "chain"], "name"],
-  no nested "." required just to get the first hop resolved as a lookup instead of a literal. Only when the
-  leading operand ISN'T a bare name (a real sub-expression — ["col", "home"], a nested [".", ...], ["call", ...],
-  ...) does it fall through to the second form below : that base is used as-is, and every operand after it is
-  still a bare-name hop into it. */
-  | readonly ["." | "dot", name: K, ...hops: K[]]
-  | readonly ["." | "dot", base: Expression<K>, hop: K, ...hops: K[]]
+  current scope (K : a real column, an alias, a joined/embedded field, or an earlier computed key) — this is the
+  generic "reference this name" building block bare strings used to provide, unlike ["col", ...], which is
+  restricted to real columns. Only when the leading operand ISN'T a bare name (a real sub-expression —
+  ["col", "home"], a nested [".", ...], ["call", ...], ...) does it fall through to the second form below : that
+  base is used as-is instead.
+
+  Every operand AFTER the leading one is always a further bare-name hop off the previous result, chaining
+  arbitrarily deep — ["." | "dot", "chain", "name"] is ["." | "dot", ["." | "dot", "chain"], "name"], no nested
+  "." required just to get the first hop resolved as a lookup instead of a literal. These trailing hops are
+  typed as plain `string`, not K : K is this ONE relation's own column/alias/computed-key names, but a hop past
+  the first one lands on whatever the PREVIOUS hop resolved to — a different relation's own keys entirely, one
+  Expression<K> has no way to reference at this level (the same reason ShapeFromDotChain, shapes.ts, resolves
+  each hop structurally rather than through a second K). The leading operand is the one hop this type CAN check
+  ahead of time, and is worth checking — it's also by far the most common case (one hop into an immediate join
+  alias or computed field) ; hops past it fall back to the same unchecked-string trust the whole tree already
+  places in `on`/`schema`/`relation` elsewhere. */
+  | readonly ["." | "dot", name: K, ...hops: string[]]
+  | readonly ["." | "dot", base: Expression<K>, hop: string, ...hops: string[]]
   | readonly [Exclude<FoldedOperator, "." | "dot">, ...Expression<K>[]]
   | readonly ["in" | "not_in", subject: Expression<K>, ...canditates: Expression<K>[]]
   | readonly [

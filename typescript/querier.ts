@@ -5,7 +5,7 @@ the first thing seen when opening it, ahead of the developer's own schema (secti
 powers both (section 3, `query.ts`/`shapes.ts`).
 */
 import type { Query, RelationQuery } from "./query"
-import type { Functions, Relationships, Wellknowns } from "./schema.example"
+import type { ComputedProperties, Functions, Relationships, Wellknowns } from "./schema.example"
 import type {
   DefaultRow,
   DeferredFunctionArgs,
@@ -48,6 +48,35 @@ type ResolveRelationModel<R extends string> = ResolveModel<{ relation: R }>
 // rather than a type error at the declaration site.
 type SafeRelationships<K extends string> = K extends keyof Relationships ? Relationships[K] : never
 
+// Self-bound Join extraction for the const-inferred Q of relation()/func()/join()/ScopedJoin below : Q's own
+// `select`/`where` are checked against `Expression<Keys<Rel> | Keys<Join>>` (query.ts's RelationQuery), but
+// RelationQuery's own Join type parameter defaults to the fully permissive `{ [name: string]: RelationQuery }`
+// (keyof = bare `string`) whenever it's left unsupplied — which, as the constraint's own Join argument, would
+// make every column/alias reference in select/where accept ANY string, silently disabling both compile-time
+// validation and editor completions for col/./etc regardless of Rel's real shape (confirmed empirically : that
+// was exactly the pre-fix behavior — a nonexistent column typechecked cleanly through every one of these). This
+// reads Join back off Q ITSELF instead, F-bounded (`const Q extends RelationQuery<Rel, JoinOf<Q>>` at each call
+// site below) : Q is still inferred fresh from the caller's own literal, but then checked against a constraint
+// that narrows Join to whatever `join` Q's own literal actually declares. `{}` (rather than
+// Record<string, never>/{[name:string]:unknown}, biome's own suggested replacements) is deliberate for the "no
+// join" fallback, same reasoning as shapes.ts's own ExtractJoinMap : `keyof {}` is `never`, exactly what
+// RelationQuery's own `Keys<Join>` needs there — the suggested replacements both have `keyof` = string instead,
+// which would defeat this whole fix by making every join-alias lookup accept any string again.
+type JoinOf<Q> = Q extends { join: infer J extends { [name: string]: RelationQuery } }
+  ? J
+  : // biome-ignore lint/complexity/noBannedTypes: see above — `{}` is deliberate here, not a placeholder
+    {}
+
+// A bare-name computed field (docs/content/query-language/computed-fields.md, schema.example.ts's own
+// ComputedProperties doc comment) is just as `.`-reachable as a real column or join alias, so it has to widen K
+// too — folded into the Rel argument passed to the Q constraint ONLY (relation()/join()/ScopedJoin below), never
+// into RelationQuerier's/ShapeFromQuery's own Rel : "*"/"*~" must never pull a computed field in automatically
+// (computed-fields.md's own rule), and those two no longer re-derive K from Rel/Join at all (see ShapeFromQuery's
+// own doc comment, shapes.ts) — this widening is scoped to exactly the one place it's needed.
+type WithComputedKeys<Rel extends object, R extends string> = R extends keyof ComputedProperties
+  ? Rel & { [K in keyof ComputedProperties[R]]?: unknown }
+  : Rel
+
 // The target relation name embedded in a shortcut string itself : "hotel.rooms*id:property_id" ->
 // "hotel.rooms". This is what lets a nested join's own callback re-scope itself to ITS target without a second
 // explicit argument — the shortcut the caller already had to type carries it.
@@ -63,21 +92,39 @@ type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">" |
 export type ScopedJoin<K extends string> = {
   <
     S extends SafeRelationships<K>["shortcut"],
-    const Q extends RelationQuery<Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
+    const Q extends RelationQuery<
+      WithComputedKeys<
+        Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+        TargetRelationName<S>
+      >,
+      JoinOf<Q>
+    >,
   >(
     shortcut: S,
     request?: WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
   ): Q & { shortcut: S }
   <
     S extends SafeRelationships<K>["shortcut"],
-    const Q extends RelationQuery<Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
+    const Q extends RelationQuery<
+      WithComputedKeys<
+        Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+        TargetRelationName<S>
+      >,
+      JoinOf<Q>
+    >,
   >(
     shortcut: S,
     request: Querier<unknown, unknown, unknown, Q>,
   ): Q & { shortcut: S }
   <
     S extends SafeRelationships<K>["shortcut"],
-    const Q extends RelationQuery<Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
+    const Q extends RelationQuery<
+      WithComputedKeys<
+        Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+        TargetRelationName<S>
+      >,
+      JoinOf<Q>
+    >,
   >(
     shortcut: S,
     request: (
@@ -113,10 +160,12 @@ function resolveRequest<K extends string, Q>(
 // is split apart from `request`/Q, so Q alone never carries the `relation`/`schema` fields WriteShapeFromQuery's
 // own default would otherwise read a relation's required columns off of (see that type's own doc comment,
 // shapes.ts). Same root-array wrap as the read side — writing.md : "data" is "an array of rows at the root".
-type RelationQuerier<
-  R extends RelationName,
-  Q extends RelationQuery<ResolveRelationModel<R>>,
-> = Querier<
+// Q is unconstrained here, matching shapes.ts's own ShapeFromQuery/WriteShapeFromQuery bounds (see ShapeFromQuery's
+// doc comment) : every field below works by structural extraction on Q's own properties, never by consulting
+// RelationQuery's generic Join parameter, so re-asserting `Q extends RelationQuery<Rel, Join>` here would just be
+// a second, redundant validation prone to drifting out of sync with the real one relation()/func() already do at
+// the point Q is actually built (their own JoinOf<Q>-bound Q parameters, below).
+type RelationQuerier<R extends RelationName, Q> = Querier<
   ShapeFromQuery<Q, ResolveRelationModel<R>>[],
   WriteShapeFromQuery<Q, ResolveRelationModel<R>, RequiredKeysOf<R>>[],
   Params<Q>,
@@ -131,18 +180,18 @@ type RelationQuerier<
 // `proto`'s `ThisType` only resolves `this` correctly against a single, non-union parameter type.
 export function relation<
   R extends RelationName,
-  const Q extends RelationQuery<ResolveRelationModel<R>>,
+  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>>,
 >(rel: R, request?: WithProto<Q, ResolveRelationModel<R>>): RelationQuerier<R, Q>
 export function relation<
   R extends RelationName,
-  const Q extends RelationQuery<ResolveRelationModel<R>>,
+  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>>,
 >(
   rel: R,
   request: (join: ScopedJoin<R>) => WithProto<Q, ResolveRelationModel<R>>,
 ): RelationQuerier<R, Q>
 export function relation<
   R extends RelationName,
-  const Q extends RelationQuery<ResolveRelationModel<R>>,
+  const Q extends RelationQuery<WithComputedKeys<ResolveRelationModel<R>, R>, JoinOf<Q>>,
 >(
   rel: R,
   request?: WithProto<Q, ResolveRelationModel<R>> | ((join: ScopedJoin<R>) => Q),
@@ -172,7 +221,7 @@ export function func<
   F extends FunctionName,
   const Q extends RelationQuery<
     ResolveCalledFunctionModel<F>,
-    { [name: string]: RelationQuery },
+    JoinOf<Q>,
     DeferredFunctionArgs<Functions[F]>
   >,
 >(
@@ -267,7 +316,10 @@ function parseShortcut(shortcut: string): {
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
-  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
+  const Q extends RelationQuery<
+    WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
+    JoinOf<Q>
+  >,
 >(
   key: K,
   shortcut: S,
@@ -276,12 +328,18 @@ export function join<
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
-  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
+  const Q extends RelationQuery<
+    WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
+    JoinOf<Q>
+  >,
 >(key: K, shortcut: S, request: Querier<unknown, unknown, unknown, Q>): Q & { shortcut: S }
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
-  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
+  const Q extends RelationQuery<
+    WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
+    JoinOf<Q>
+  >,
 >(
   key: K,
   shortcut: S,
@@ -292,7 +350,10 @@ export function join<
 export function join<
   K extends keyof Relationships,
   S extends Relationships[K]["shortcut"],
-  const Q extends RelationQuery<Extract<Relationships[K], { shortcut: S }>["relation"]>,
+  const Q extends RelationQuery<
+    WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
+    JoinOf<Q>
+  >,
 >(
   _key: K,
   shortcut: S,
