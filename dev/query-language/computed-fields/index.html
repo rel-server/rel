@@ -2870,8 +2870,9 @@ won't reach it:</p>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>This also works through a <code>.</code> chain into a joined, to-one relation's own computed field, the
-same way a real column does — resolve the alias from scope first, then hop into it:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"manager_name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"manager"</span><span class="p">],</span><span class="w"> </span><span class="s2">"guest_full_name"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+same way a real column does — a bare name in <code>.</code>'s leading position is resolved against scope
+first, then each further operand hops one field deeper:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"manager_name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"manager"</span><span class="p">,</span><span class="w"> </span><span class="s2">"guest_full_name"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
 <p>When the to-one relation is reached through a real FK column rather than a separate <code>join</code>
 alias, <code>col</code> can stand in for that first hop instead, since the column itself is real:</p>
