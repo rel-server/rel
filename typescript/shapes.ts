@@ -487,16 +487,24 @@ type ShapeFromDotChain<Base, Hops extends readonly string[]> = Hops extends read
     : unknown
   : Base
 
+// A bare string in the leading operand position is ALWAYS a name to resolve against scope — same rule the
+// degenerate one-hop case already applied to a lone operand, now just the natural start of a longer chain too
+// (query/expression_parse.go's own "." case mirrors this exactly) : [".", "chain", "name"] IS
+// [".", [".", "chain"], "name"], no nested "." required just to get the first hop resolved as a lookup rather
+// than parsed as a literal. Only a non-string leading operand (["col", "home"], a nested [".", ...],
+// ["call", ...], ...) falls through to a genuine sub-expression base. The single-hop case (empty Hops) is just
+// this same shape with nothing left to chain — ShapeFromDotChain returns Base as-is when Hops is empty, so it's
+// not a separate branch here any more.
 type ShapeFromDotTag<
   Rest extends readonly unknown[],
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
-> = Rest extends readonly [infer Name extends string]
-  ? ShapeFromDotSingleHop<Name, Rel, Join, Depth>
-  : Rest extends readonly [infer Base, ...infer Hops extends readonly string[]]
-    ? ShapeFromDotChain<ShapeFromExpression<Base, Rel, Join, Depth>, Hops>
-    : unknown
+> = Rest extends readonly [infer Head, ...infer Hops extends readonly string[]]
+  ? Head extends string
+    ? ShapeFromDotChain<ShapeFromDotSingleHop<Head, Rel, Join, Depth>, Hops>
+    : ShapeFromDotChain<ShapeFromExpression<Head, Rel, Join, Depth>, Hops>
+  : unknown
 
 // arr/array/lst/list preserve each item's position (a tuple, not a collapsed union) ; coalesce instead
 // produces one value — the union of what each argument could be.

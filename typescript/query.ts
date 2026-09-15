@@ -361,11 +361,16 @@ export type Expression<K extends string = string> =
   | readonly ["numeric", value: string] // for really big numbers
   /** "."/"dot" is the one operator whose hop names are always bare names (K), never a nested Expression — a
   bare string elsewhere means a literal now, so this needs its own tuple form rather than the generic one below.
-  A single hop with no base — ["." | "dot", "name"] — resolves `name` directly against the current scope: a real
-  column, an alias, a joined/embedded field, or an earlier computed key. This is the generic "reference this
-  name" building block bare strings used to provide — unlike ["col", ...], it is not restricted to real columns.
-  With 2+ operands, the first is a base Expression and each further hop drills into it field by field. */
-  | readonly ["." | "dot", name: K]
+  A bare name in the LEADING position — ["." | "dot", "name", ...] — always resolves `name` directly against the
+  current scope: a real column, an alias, a joined/embedded field, or an earlier computed key. This is the
+  generic "reference this name" building block bare strings used to provide — unlike ["col", ...], it is not
+  restricted to real columns. Every further operand is always a further bare-name hop off the previous result,
+  chaining arbitrarily deep — ["." | "dot", "chain", "name"] is ["." | "dot", ["." | "dot", "chain"], "name"],
+  no nested "." required just to get the first hop resolved as a lookup instead of a literal. Only when the
+  leading operand ISN'T a bare name (a real sub-expression — ["col", "home"], a nested [".", ...], ["call", ...],
+  ...) does it fall through to the second form below : that base is used as-is, and every operand after it is
+  still a bare-name hop into it. */
+  | readonly ["." | "dot", name: K, ...hops: K[]]
   | readonly ["." | "dot", base: Expression<K>, hop: K, ...hops: K[]]
   | readonly [Exclude<FoldedOperator, "." | "dot">, ...Expression<K>[]]
   | readonly ["in" | "not_in", subject: Expression<K>, ...canditates: Expression<K>[]]

@@ -289,25 +289,33 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		if len(rest) < 1 {
 			return nil, fmt.Errorf("query: %q needs at least 1 operand, got %d", tag, len(rest))
 		}
-		if len(rest) == 1 {
-			// The degenerate one-hop case, with no preceding base to fold
-			// onto : just resolve this name against the current scope. This
-			// is query.ts's general-purpose "reference anything in scope"
-			// building block — a column, alias, joined/embedded field, or an
-			// earlier key in the same select/and-map — as opposed to "col",
-			// which is narrower (a real physical column only).
-			name, err := rest[0].StrictString()
-			if err != nil {
-				return nil, fmt.Errorf("query: %q hop name must be a bare string: %w", tag, err)
+		// The chain's own starting point : a bare JSON string in this leading
+		// position is ALWAYS a name to resolve against the current scope —
+		// same rule the old degenerate one-hop case already applied to a
+		// lone operand, now just the natural start of a longer chain too, so
+		// [".", "chain", "name"] IS [".", [".", "chain"], "name"] — no need
+		// to nest an inner "." just to get the base resolved as a lookup
+		// rather than parsed as a StringLiteral. Only when the leading
+		// operand ISN'T a bare name (["col", "home"], a nested [".", ...],
+		// ["call", ...], ...) does it fall through to a genuine
+		// sub-expression base, same as before ; that form still requires at
+		// least one hop after it; there's nothing else it could mean.
+		var result Expression
+		hopsFrom := 1
+		if name, err := rest[0].StrictString(); err == nil {
+			result = &Identifier{Name: name}
+		} else {
+			if len(rest) < 2 {
+				return nil, fmt.Errorf("query: %q needs a hop name after a non-bare-name base", tag)
 			}
-			return &Identifier{Name: name}, nil
+			base, err := parseNode(&rest[0])
+			if err != nil {
+				return nil, err
+			}
+			result = base
 		}
-		result, err := parseNode(&rest[0])
-		if err != nil {
-			return nil, err
-		}
-		for i := range rest[1:] {
-			name, err := rest[1+i].StrictString()
+		for i := hopsFrom; i < len(rest); i++ {
+			name, err := rest[i].StrictString()
 			if err != nil {
 				return nil, fmt.Errorf("query: %q hop name must be a bare string: %w", tag, err)
 			}

@@ -47,10 +47,11 @@ won't reach it:
 ```
 
 This also works through a `.` chain into a joined, to-one relation's own computed field, the
-same way a real column does — resolve the alias from scope first, then hop into it:
+same way a real column does — a bare name in `.`'s leading position is resolved against scope
+first, then each further operand hops one field deeper:
 
 ```json
-{ "manager_name": [".", [".", "manager"], "guest_full_name"] }
+{ "manager_name": [".", "manager", "guest_full_name"] }
 ```
 
 When the to-one relation is reached through a real FK column rather than a separate `join`

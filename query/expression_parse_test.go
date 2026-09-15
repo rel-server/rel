@@ -1,6 +1,9 @@
 package query
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func mustParse(t *testing.T, src string) Expression {
 	t.Helper()
@@ -180,5 +183,77 @@ func TestParseExpression_AggAndCall(t *testing.T) {
 	call, ok := mustParse(t, `["call", {"schema": "api", "name": "slugify"}, ["col", "name"]]`).(*CallExpr)
 	if !ok || call.Identifier != (FunctionRef{Schema: "api", Name: "slugify"}) || len(call.Arguments) != 1 {
 		t.Errorf("unexpected CallExpr shape: %#v", call)
+	}
+}
+
+// A bare name in "."'s own leading operand position is ALWAYS a scope
+// lookup, same as the single-hop degenerate case — so a chain of bare names
+// folds left-to-right with no need to nest an inner "." just to get the
+// first hop resolved as a lookup rather than parsed as a StringLiteral.
+func TestParseExpression_DotChain_FlatBareNameForm(t *testing.T) {
+	flat := mustParse(t, `[".", "chain", "name"]`)
+	nested := mustParse(t, `[".", [".", "chain"], "name"]`)
+
+	folded, ok := flat.(FoldedExpr)
+	if !ok || folded.Op != FoldDot {
+		t.Fatalf(`[".", "chain", "name"] did not parse as FoldedExpr(.), got %#v`, flat)
+	}
+	left, ok := folded.Left.(*Identifier)
+	if !ok || left.Name != "chain" {
+		t.Errorf(`expected Left to be Identifier{chain}, got %#v`, folded.Left)
+	}
+	right, ok := folded.Right.(*Identifier)
+	if !ok || right.Name != "name" {
+		t.Errorf(`expected Right to be Identifier{name}, got %#v`, folded.Right)
+	}
+
+	// The flat and nested forms must produce the identical AST shape — the
+	// nested form is no longer the only way to spell this, not a different
+	// meaning.
+	if !reflect.DeepEqual(flat, nested) {
+		t.Errorf("flat and nested forms produced different ASTs:\nflat:   %#v\nnested: %#v", flat, nested)
+	}
+}
+
+// Chaining isn't limited to two hops — each bare name lands off the
+// previous one's own result, arbitrarily deep.
+func TestParseExpression_DotChain_ThreeHopsDeep(t *testing.T) {
+	expr := mustParse(t, `[".", "a", "b", "c"]`)
+	outer, ok := expr.(FoldedExpr)
+	if !ok || outer.Op != FoldDot {
+		t.Fatalf(`expected outer FoldedExpr(.), got %#v`, expr)
+	}
+	if id, ok := outer.Right.(*Identifier); !ok || id.Name != "c" {
+		t.Errorf("expected outer hop to be Identifier{c}, got %#v", outer.Right)
+	}
+	middle, ok := outer.Left.(FoldedExpr)
+	if !ok || middle.Op != FoldDot {
+		t.Fatalf("expected middle FoldedExpr(.), got %#v", outer.Left)
+	}
+	if id, ok := middle.Right.(*Identifier); !ok || id.Name != "b" {
+		t.Errorf("expected middle hop to be Identifier{b}, got %#v", middle.Right)
+	}
+	if id, ok := middle.Left.(*Identifier); !ok || id.Name != "a" {
+		t.Errorf("expected innermost base to be Identifier{a}, got %#v", middle.Left)
+	}
+}
+
+// A non-bare-name base (a real sub-expression, not a scope lookup) is
+// unchanged from before : still requires at least one hop after it.
+func TestParseExpression_DotChain_NonNameBaseStillNeedsAHop(t *testing.T) {
+	expr := mustParse(t, `[".", ["col", "home"], "city"]`)
+	folded, ok := expr.(FoldedExpr)
+	if !ok || folded.Op != FoldDot {
+		t.Fatalf(`expected FoldedExpr(.), got %#v`, expr)
+	}
+	if _, ok := folded.Left.(*ColExpr); !ok {
+		t.Errorf("expected Left to be *ColExpr, got %#v", folded.Left)
+	}
+	if id, ok := folded.Right.(*Identifier); !ok || id.Name != "city" {
+		t.Errorf("expected Right to be Identifier{city}, got %#v", folded.Right)
+	}
+
+	if _, err := ParseExpression([]byte(`[".", ["col", "home"]]`)); err == nil {
+		t.Errorf(`[".", ["col", "home"]] (non-bare-name base, no hop) should be an error`)
 	}
 }

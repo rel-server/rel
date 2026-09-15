@@ -35,7 +35,7 @@ computed values in one shape:
   "select": {
     "name": ["col", "name"],
     "star_rating": ["col", "star_rating"],
-    "chain_name": [".", [".", "chain"], "name"],
+    "chain_name": [".", "chain", "name"],
     "room_types": ["col", "room_types"]
   }
 }
@@ -43,16 +43,19 @@ computed values in one shape:
 
 ## The dot-chain form
 
-`.` is the general-purpose "look this up" building block. With one operand, it's a plain scope
-lookup — `[".", "name"]` resolves `name` against the current relation exactly like a bare
-string used to, no restriction to real columns. With two or more, it's a chain: the first
-operand is a full expression producing a base value, and every operand after that is always a
-bare hop-name (never re-parsed as a literal), stepping one field into that base —
-`[".", [".", "chain"], "name"]` pulls one field from a joined relation flat into this level,
-instead of nesting it as its own object. `chain` still has to be declared in `join` for this to
-resolve — see [Joining and embedding relations](joining.md). When the base is itself a real
-column of a to-one relation type (an FK column doubling as the join target), `["col", "..."]`
-can stand in as the base instead of `[".", "..."]` — see
+`.` is the general-purpose "look this up" building block. A bare name in the leading position is
+always resolved against scope, no restriction to real columns — `[".", "name"]` resolves `name`
+exactly like a bare string used to. Every operand after that is always a further bare hop-name
+(never re-parsed as a literal), chaining as deep as needed — `[".", "chain", "name"]` looks up
+`chain`, then steps into its own `name` field, pulling one field from a joined relation flat into
+this level instead of nesting it as its own object. `chain` still has to be declared in `join`
+for this to resolve — see [Joining and embedding relations](joining.md).
+
+Only when the leading operand *isn't* a bare name — a real sub-expression instead of a lookup —
+does `.` fall back to using it as a base value to hop into as-is, every following operand still a
+bare hop-name. This is what lets you hop into a real column's own composite/row-typed value :
+when the base is itself a real column of a to-one relation type (an FK column doubling as the
+join target), `["col", "..."]` stands in as that base instead of a bare name — see
 [Computed fields](computed-fields.md#using-one) for an example.
 
 `*`/`*~` never pull in a [computed field](computed-fields.md) automatically — name it

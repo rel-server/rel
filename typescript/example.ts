@@ -607,6 +607,10 @@ const roomsWithDot = relation("hotel.rooms", (join) => ({
   select: {
     property_id: [".", "property_id"],
     room_type_name: [".", [".", "room_type"], "name"],
+    // Flat chain form (query/expression_parse.go's "." case, shapes.ts's ShapeFromDotTag) : a bare name in the
+    // leading operand position is always a scope lookup, so this must resolve identically to the nested form
+    // above — no need to wrap "room_type" in its own [".", ...] just to get it treated as a lookup.
+    room_type_name_flat: [".", "room_type", "name"],
   },
   join: {
     room_type: join("hotel.room_types>id:room_type_id"),
@@ -619,6 +623,9 @@ export type _AssertDotColumnResolvesRealType = Expect<
 >
 export type _AssertDotChainIntoJoinResolvesRealType = Expect<
   RoomsWithDotShape["room_type_name"] extends string ? true : false
+>
+export type _AssertDotChainFlatFormMatchesNestedForm = Expect<
+  RoomsWithDotShape["room_type_name_flat"] extends string ? true : false
 >
 
 const propertyWithDotJoinAndComputed = relation("hotel.properties", (join) => ({

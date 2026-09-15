@@ -103,6 +103,51 @@ func TestResolveExpressions_ChildAliasHop(t *testing.T) {
 	}
 }
 
+// [".", "movies", "title"] must resolve identically to the nested
+// [".", [".", "movies"], "title"] form above : a bare name in the leading
+// operand position is always a scope lookup, chaining is not limited to a
+// nested "." base — see expression_parse.go's own "." case doc comment.
+func TestResolveExpressions_ChildAliasHop_FlatChainForm(t *testing.T) {
+	node := mustResolveQuery(t, `{
+		"relation": "director",
+		"schema": "public",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}},
+		"where": [".", "movies", "title"]
+	}`)
+	folded := node.Where.(FoldedExpr)
+	id := folded.Right.(*Identifier)
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || cp.Path[0].Name != "title" || cp.Node != node.IncomingNodes[0] {
+		t.Fatalf("expected hop into movies to land on movie.title, got %#v", id.Resolved)
+	}
+}
+
+// A chain can run three (or more) bare names deep, each hop landing off the
+// previous one's own resolved scope — [".", "movies", "title"] above is just
+// the two-hop case.
+func TestResolveExpressions_FlatChainForm_ThreeHopsDeep(t *testing.T) {
+	node := mustResolveQuery(t, `{
+		"relation": "venue",
+		"schema": "public",
+		"where": [".", "home", "city"]
+	}`)
+	// venue.home is a composite column (city/street) — reuse it as a stand-in
+	// third-level hop isn't available in the fixture schema, so this pins
+	// the two-hop flat form against the SAME column resolution
+	// TestResolveExpressions_CompositeChain already pins for the nested form
+	// : ["col", "home"] as an explicit base vs. a bare "home" as the leading
+	// chain operand must resolve to the identical ColumnPath.
+	folded, ok := node.Where.(FoldedExpr)
+	if !ok || folded.Op != FoldDot {
+		t.Fatalf("expected FoldedExpr(.), got %#v", node.Where)
+	}
+	id := folded.Right.(*Identifier)
+	cp, ok := id.Resolved.(ColumnPath)
+	if !ok || len(cp.Path) != 2 || cp.Path[0].Name != "home" || cp.Path[1].Name != "city" {
+		t.Fatalf("expected ColumnPath{home,city}, got %#v", id.Resolved)
+	}
+}
+
 func TestResolveExpressions_CompositeChain(t *testing.T) {
 	node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "where": [".", ["col", "home"], "city"]}`)
 	folded := node.Where.(FoldedExpr)

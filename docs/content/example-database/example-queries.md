@@ -104,8 +104,8 @@ curl http://localhost:8080/rel \
     },
     "select": {
       "name": ["col", "name"],
-      "room_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]]],
-      "budget_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]], ["<", [".", [".", "room_types"], "base_price"], 150]]
+      "room_type_count": ["agg", "count", [[".", "room_types", "id"]]],
+      "budget_type_count": ["agg", "count", [[".", "room_types", "id"]], ["<", [".", "room_types", "base_price"], 150]]
     }
   }'
 ```
@@ -237,7 +237,7 @@ curl http://localhost:8080/rel \
             "name": ["col", "name"],
             "star_rating": ["col", "star_rating"],
             "room_types": [".", "room_types"],
-            "room_type_count": ["agg", "count", [[".", [".", "room_types"], "id"]]]
+            "room_type_count": ["agg", "count", [[".", "room_types", "id"]]]
           }
         }
       },
