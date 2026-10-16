@@ -170,8 +170,9 @@ are themselves unique (a 1:1 reverse relationship, rare). `constraint_name` is t
 foreign key's own name — the same name on both directions' variants, since they're the two sides
 of one constraint.
 
-`eligible` is `false` when the FK-holding side's own `on` columns aren't indexed (`database.ts`'s
-own relationships silently drop these entirely); `shortcut` is still the correct join-syntax
+`eligible` is `false` when the FK-holding side's own `on` columns aren't indexed (`database.ts` lists
+these apart from its joinable relationships, in `IneligibleRelationships`, so `join()` can say why it
+refuses them); `shortcut` is still the correct join-syntax
 string in that case, it just isn't safely usable in a live `join()` — the query engine rejects it
 at request time. A relation with no foreign key in either direction is simply absent from this
 map, never present with an empty array.

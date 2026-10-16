@@ -109,6 +109,16 @@ written this way doesn't get its methods' `this` typed against that entry's own 
 levels deep also reports the error against the enclosing join key rather than the exact line,
 since that's how TypeScript locates errors inside a plain object literal.
 
+A foreign key whose referencing columns aren't indexed can't be joined, from either side (the query
+engine rejects it). Such a shortcut is a type error that says why, instead of being absent from the
+suggestions:
+
+```text
+Argument of type '"hotel.room_types>id:room_type_id"' is not assignable to parameter of type
+'"hotel.room_types>id:room_type_id" & { error: "hotel.rooms (room_type_id) has no index, so
+hotel.rooms and hotel.room_types can't be joined: add an index on those columns" }'
+```
+
 `relation()`'s second argument can also be a callback, which is what you need for a nested join's
 `proto`, or when the alias/shortcut needs to be computed rather than written as a literal. The
 callback's `join` is scoped the same way: it only offers the foreign keys reachable from the

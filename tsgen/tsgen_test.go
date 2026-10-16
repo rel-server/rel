@@ -469,3 +469,27 @@ func TestGenerateSchema_MaterializedView(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateSchema_IneligibleRelationships : a foreign key whose own columns aren't indexed isn't joinable, in
+// either direction, but is listed with the reason (hotel.staff.property_id is deliberately unindexed).
+func TestGenerateSchema_IneligibleRelationships(t *testing.T) {
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
+
+	start := strings.Index(out, "export interface IneligibleRelationships {")
+	if start < 0 {
+		t.Fatalf("IneligibleRelationships not found in:\n%s", out)
+	}
+	block := out[start : start+strings.Index(out[start:], "\n}\n")]
+	reason := "hotel.staff (property_id) has no index, so hotel.staff and hotel.properties can't be joined: add an index on those columns"
+	for _, want := range []string{
+		`"hotel.staff": { shortcut: "hotel.properties>id:property_id"; reason: "` + reason + `" }`,
+		`"hotel.properties": { shortcut: "hotel.staff*id:property_id"; reason: "` + reason + `" }`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("IneligibleRelationships missing %q ; got:\n%s", want, block)
+		}
+	}
+	if strings.Contains(out[:start], `shortcut: "hotel.staff*id:property_id"; relation`) {
+		t.Errorf("an ineligible shortcut must not also be listed in Relationships")
+	}
+}

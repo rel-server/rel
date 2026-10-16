@@ -4,7 +4,13 @@ directly ; it comes first in the generated file precisely so it's the first thin
 the developer's own schema and the type machinery that powers both (`query.ts`/`shapes.ts`).
 */
 import type { Query, RelationQuery } from "./query"
-import type { ComputedProperties, Functions, Relationships, Wellknowns } from "./schema.example"
+import type {
+  ComputedProperties,
+  Functions,
+  IneligibleRelationships,
+  Relationships,
+  Wellknowns,
+} from "./schema.example"
 import type {
   DefaultRow,
   DeferredFunctionArgs,
@@ -53,6 +59,24 @@ type ResolveRelationModel<R extends string> = ResolveModel<{ relation: R }>
 // rather than a type error at the declaration site.
 type SafeRelationships<K extends string> = K extends keyof Relationships ? Relationships[K] : never
 
+// The foreign keys of K that exist but can't be joined (their columns aren't indexed — IneligibleRelationships,
+// generated next to Relationships). Typing a shortcut from this set is still an error, but one that says why.
+type SafeIneligible<K extends string> = K extends keyof IneligibleRelationships
+  ? IneligibleRelationships[K]
+  : never
+
+// What a `shortcut` argument may be inferred as : the joinable ones, plus the ineligible ones so that the
+// argument check below can reject those with their reason, instead of with a bare "not one of these".
+type JoinShortcut<K extends string> =
+  | SafeRelationships<K>["shortcut"]
+  | SafeIneligible<K>["shortcut"]
+
+// Intersected onto the `shortcut` parameter : nothing for a joinable shortcut ; for an ineligible one, an object
+// the string can't satisfy, whose `error` is the reason — it shows up in the compiler's message.
+type ShortcutCheck<K extends string, S> = S extends SafeIneligible<K>["shortcut"]
+  ? { error: Extract<SafeIneligible<K>, { shortcut: S }>["reason"] }
+  : unknown
+
 // Self-bound Join extraction for the const-inferred Q of relation()/func()/join()/ScopedJoin below : Q's own
 // `select`/`where` are checked against `Expression<Keys<Rel> | Keys<Join>>` (query.ts's RelationQuery), but
 // RelationQuery's own Join type parameter defaults to the fully permissive `{ [name: string]: RelationQuery }`
@@ -98,7 +122,7 @@ type TargetRelationName<S extends string> = ParsedShortcut<S>["target"]
  */
 export type ScopedJoin<K extends string> = {
   <
-    S extends SafeRelationships<K>["shortcut"],
+    S extends JoinShortcut<K>,
     const Q extends RelationQuery<
       WithComputedKeys<
         Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
@@ -107,11 +131,11 @@ export type ScopedJoin<K extends string> = {
       JoinOf<Q>
     > & { join?: ValidatedJoin<TargetRelationName<S>, JoinOf<Q>> },
   >(
-    shortcut: S,
+    shortcut: S & ShortcutCheck<K, S>,
     request?: WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
   ): Q & { shortcut: S }
   <
-    S extends SafeRelationships<K>["shortcut"],
+    S extends JoinShortcut<K>,
     const Q extends RelationQuery<
       WithComputedKeys<
         Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
@@ -120,11 +144,11 @@ export type ScopedJoin<K extends string> = {
       JoinOf<Q>
     >,
   >(
-    shortcut: S,
+    shortcut: S & ShortcutCheck<K, S>,
     request: Querier<unknown, unknown, unknown, Q>,
   ): Q & { shortcut: S }
   <
-    S extends SafeRelationships<K>["shortcut"],
+    S extends JoinShortcut<K>,
     const Q extends RelationQuery<
       WithComputedKeys<
         Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
@@ -133,7 +157,7 @@ export type ScopedJoin<K extends string> = {
       JoinOf<Q>
     >,
   >(
-    shortcut: S,
+    shortcut: S & ShortcutCheck<K, S>,
     request: (
       join: ScopedJoin<TargetRelationName<S>>,
     ) => WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
@@ -171,7 +195,9 @@ type ValidatedJoin<K extends string, J> = {
             >,
             JoinOf<J[A]>
           > & { shortcut: S }
-      : { shortcut: SafeRelationships<K>["shortcut"] }
+      : S extends SafeIneligible<K>["shortcut"]
+        ? { shortcut: S & ShortcutCheck<K, S> }
+        : { shortcut: SafeRelationships<K>["shortcut"] }
     : J[A]
 }
 
@@ -382,51 +408,67 @@ function parseShortcut(shortcut: string): {
  doesn't involve a `proto` object literal at all, so it's safe to keep on its own without needing `WithProto`.
  */
 export function join<
-  K extends keyof Relationships,
-  S extends Relationships[K]["shortcut"],
+  K extends keyof Relationships | keyof IneligibleRelationships,
+  S extends JoinShortcut<K>,
   const Q extends RelationQuery<
-    WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
+    WithComputedKeys<
+      Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+      TargetRelationName<S>
+    >,
     JoinOf<Q>
   > & { join?: ValidatedJoin<TargetRelationName<S>, JoinOf<Q>> },
 >(
   key: K,
-  shortcut: S,
-  request?: WithProto<Q, Extract<Relationships[K], { shortcut: S }>["relation"]>,
+  shortcut: S & ShortcutCheck<K, S>,
+  request?: WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
 ): Q & { shortcut: S }
 export function join<
-  K extends keyof Relationships,
-  S extends Relationships[K]["shortcut"],
+  K extends keyof Relationships | keyof IneligibleRelationships,
+  S extends JoinShortcut<K>,
   const Q extends RelationQuery<
-    WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
-    JoinOf<Q>
-  >,
->(key: K, shortcut: S, request: Querier<unknown, unknown, unknown, Q>): Q & { shortcut: S }
-export function join<
-  K extends keyof Relationships,
-  S extends Relationships[K]["shortcut"],
-  const Q extends RelationQuery<
-    WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
+    WithComputedKeys<
+      Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+      TargetRelationName<S>
+    >,
     JoinOf<Q>
   >,
 >(
   key: K,
-  shortcut: S,
-  request: (
-    join: ScopedJoin<TargetRelationName<S>>,
-  ) => WithProto<Q, Extract<Relationships[K], { shortcut: S }>["relation"]>,
+  shortcut: S & ShortcutCheck<K, S>,
+  request: Querier<unknown, unknown, unknown, Q>,
 ): Q & { shortcut: S }
 export function join<
-  K extends keyof Relationships,
-  S extends Relationships[K]["shortcut"],
+  K extends keyof Relationships | keyof IneligibleRelationships,
+  S extends JoinShortcut<K>,
   const Q extends RelationQuery<
-    WithComputedKeys<Extract<Relationships[K], { shortcut: S }>["relation"], TargetRelationName<S>>,
+    WithComputedKeys<
+      Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+      TargetRelationName<S>
+    >,
+    JoinOf<Q>
+  >,
+>(
+  key: K,
+  shortcut: S & ShortcutCheck<K, S>,
+  request: (
+    join: ScopedJoin<TargetRelationName<S>>,
+  ) => WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>,
+): Q & { shortcut: S }
+export function join<
+  K extends keyof Relationships | keyof IneligibleRelationships,
+  S extends JoinShortcut<K>,
+  const Q extends RelationQuery<
+    WithComputedKeys<
+      Extract<SafeRelationships<K>, { shortcut: S }>["relation"],
+      TargetRelationName<S>
+    >,
     JoinOf<Q>
   >,
 >(
   _key: K,
   shortcut: S,
   request?:
-    | WithProto<Q, Extract<Relationships[K], { shortcut: S }>["relation"]>
+    | WithProto<Q, Extract<SafeRelationships<K>, { shortcut: S }>["relation"]>
     | Querier<unknown, unknown, unknown, Q>
     | ((join: ScopedJoin<TargetRelationName<S>>) => Q),
 ): Q & { shortcut: S } {

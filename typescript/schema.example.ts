@@ -142,6 +142,13 @@ export interface Relationships {
   }
 }
 
+// The foreign keys that exist but can't be joined because the referencing columns aren't indexed (see
+// tsgen/schema.go's renderRelationships) : same keys and shortcut spelling as Relationships, plus the `reason`
+// join() reports. Empty here — every foreign key of this fixture is joinable ; the hotel test schema
+// (typescript/tests) has real ones.
+// biome-ignore lint/suspicious/noEmptyInterface: always emitted, see renderRelationships's doc comment
+export interface IneligibleRelationships {}
+
 // Discoverability half of computed columns : per relation, which BARE function names are callable against it as
 // a zero-extra-argument
 // property (`t.func_name()`/`func_name(t)`), and what each returns. Deliberately redundant with FunctionsByName

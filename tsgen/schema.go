@@ -316,21 +316,21 @@ type relationshipVariant struct {
 	key      string // owning key this variant is filed under
 	shortcut string
 	relation string // the OTHER side's Table__/View__ name
+	reason   string // IneligibleRelationships only : why join() can't use it
 }
 
 // renderRelationships walks every target relation's own OutgoingForeignKeys
 // exactly once (a constraint belongs to exactly one relation's own list),
-// producing up to two variants per eligible FK — see the type's own doc
-// comment and specs/typescript.md ## Schema interfaces ## Relationships.
+// producing up to two variants per FK — see the type's own doc
+// comment and specs/typescript.md ## Schema interfaces ## Relationships. A
+// foreign key whose own columns aren't indexed isn't a legal join target in
+// either direction (query.ts's `on` doc comment) : its variants go to
+// IneligibleRelationships instead, carrying the reason, so join() can say why
+// instead of just not offering them. Both interfaces are always emitted
+// (biome-ignored when empty), since querier.ts indexes them unconditionally.
 func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool, tc *typeCollector) string {
-	byKey := map[string][]relationshipVariant{}
-	var order []string
-	addVariant := func(v relationshipVariant) {
-		if _, seen := byKey[v.key]; !seen {
-			order = append(order, v.key)
-		}
-		byKey[v.key] = append(byKey[v.key], v)
-	}
+	eligible := newVariantSet()
+	ineligible := newVariantSet()
 
 	for _, owner := range relations {
 		for _, c := range owner.OutgoingForeignKeys {
@@ -339,13 +339,6 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 				continue
 			}
 			ownerCols := columnNames(c.Columns)
-			// Eligibility (query.ts's own `on` doc comment, quoted verbatim
-			// in specs/typescript.md ## Relationships) : the FK-holding
-			// side's own columns must be indexed, or neither direction is a
-			// legal join target.
-			if !owner.IsIndexed(ownerCols) {
-				continue
-			}
 
 			pairs := make([]string, len(c.Columns))
 			for i := range c.Columns {
@@ -355,6 +348,8 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 
 			ownerName := relationInterfaceName(owner.Identifier.Schema, owner.Identifier.Name, owner.IsViewLike())
 			referencedName := relationInterfaceName(referenced.Identifier.Schema, referenced.Identifier.Name, referenced.IsViewLike())
+			ownerKey := relationKey(owner.Identifier.Schema, owner.Identifier.Name)
+			referencedKey := relationKey(referenced.Identifier.Schema, referenced.Identifier.Name)
 
 			// `>` outgoing is always to-one (an FK's target columns are always PK/UNIQUE-backed) ;
 			// incoming is `<` (to-one, a unique reverse FK) or `*` (to-many), never a separate field.
@@ -363,44 +358,76 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 				incomingMarker = "<"
 			}
 
-			addVariant(relationshipVariant{
-				key:      relationKey(owner.Identifier.Schema, owner.Identifier.Name),
-				shortcut: relationKey(referenced.Identifier.Schema, referenced.Identifier.Name) + ">" + pairStr,
-				relation: referencedName,
-			})
-			addVariant(relationshipVariant{
-				key:      relationKey(referenced.Identifier.Schema, referenced.Identifier.Name),
-				shortcut: relationKey(owner.Identifier.Schema, owner.Identifier.Name) + incomingMarker + pairStr,
-				relation: ownerName,
-			})
+			outgoing := relationshipVariant{key: ownerKey, shortcut: referencedKey + ">" + pairStr, relation: referencedName}
+			incoming := relationshipVariant{key: referencedKey, shortcut: ownerKey + incomingMarker + pairStr, relation: ownerName}
+
+			// Eligibility (query.ts's own `on` doc comment, quoted verbatim
+			// in specs/typescript.md ## Relationships) : the FK-holding
+			// side's own columns must be indexed, or neither direction is a
+			// legal join target.
+			if owner.IsIndexed(ownerCols) {
+				eligible.add(outgoing)
+				eligible.add(incoming)
+				continue
+			}
+			reason := fmt.Sprintf("%s (%s) has no index, so %s and %s can't be joined: add an index on those columns",
+				ownerKey, strings.Join(ownerCols, ", "), ownerKey, referencedKey)
+			outgoing.reason, incoming.reason = reason, reason
+			ineligible.add(outgoing)
+			ineligible.add(incoming)
 		}
 	}
 
-	if len(order) == 0 {
-		return ""
-	}
-	sort.Strings(order)
+	return renderVariantInterface("Relationships", eligible, false) +
+		renderVariantInterface("IneligibleRelationships", ineligible, true)
+}
 
+// variantSet collects relationshipVariants by owning key, remembering first-seen key order.
+type variantSet struct {
+	byKey map[string][]relationshipVariant
+	order []string
+}
+
+func newVariantSet() *variantSet { return &variantSet{byKey: map[string][]relationshipVariant{}} }
+
+func (vs *variantSet) add(v relationshipVariant) {
+	if _, seen := vs.byKey[v.key]; !seen {
+		vs.order = append(vs.order, v.key)
+	}
+	vs.byKey[v.key] = append(vs.byKey[v.key], v)
+}
+
+func renderVariantInterface(name string, vs *variantSet, withReason bool) string {
 	var b strings.Builder
-	b.WriteString("export interface Relationships {\n")
-	for _, key := range order {
-		variants := byKey[key]
+	if len(vs.order) == 0 {
+		// Stays a literal empty interface : its `keyof` is load-bearing (querier.ts), same as Functions/Wellknowns.
+		b.WriteString("// biome-ignore lint/suspicious/noEmptyInterface: always emitted, see renderRelationships's doc comment\n")
+		fmt.Fprintf(&b, "export interface %s {}\n\n", name)
+		return b.String()
+	}
+	sort.Strings(vs.order)
+	fmt.Fprintf(&b, "export interface %s {\n", name)
+	for _, key := range vs.order {
+		variants := vs.byKey[key]
 		sort.Slice(variants, func(i, j int) bool { return variants[i].shortcut < variants[j].shortcut })
 		fmt.Fprintf(&b, "  %s:", strconv.Quote(key))
 		if len(variants) == 1 {
-			b.WriteString(" " + variantLiteral(variants[0]) + "\n")
+			b.WriteString(" " + variantLiteral(variants[0], withReason) + "\n")
 			continue
 		}
 		b.WriteString("\n")
 		for _, v := range variants {
-			fmt.Fprintf(&b, "    | %s\n", variantLiteral(v))
+			fmt.Fprintf(&b, "    | %s\n", variantLiteral(v, withReason))
 		}
 	}
 	b.WriteString("}\n\n")
 	return b.String()
 }
 
-func variantLiteral(v relationshipVariant) string {
+func variantLiteral(v relationshipVariant, withReason bool) string {
+	if withReason {
+		return fmt.Sprintf("{ shortcut: %s; reason: %s }", strconv.Quote(v.shortcut), strconv.Quote(v.reason))
+	}
 	return fmt.Sprintf("{ shortcut: %s; relation: %s }", strconv.Quote(v.shortcut), v.relation)
 }
 

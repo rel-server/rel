@@ -77,6 +77,25 @@ describe("unknown query keys", () => {
   })
 })
 
+describe("joins that exist but aren't allowed", () => {
+  // hotel.rooms.room_type_id has no index, so rooms and room_types can't be joined, in either direction. The
+  // compiler's message carries the reason : `{ error: "hotel.rooms (room_type_id) has no index, ..." }`.
+  test("an unindexed foreign key is a type error, from either side and in every join form", () => {
+    void (() => {
+      // @ts-expect-error hotel.rooms (room_type_id) has no index
+      join("hotel.rooms", "hotel.room_types>id:room_type_id")
+      // @ts-expect-error same, from the other side
+      join("hotel.room_types", "hotel.rooms*id:room_type_id")
+      relation("hotel.rooms", (join) => ({
+        // @ts-expect-error same, through the scoped join
+        join: { rt: join("hotel.room_types>id:room_type_id") },
+      }))
+      // an indexed one next to it is fine
+      join("hotel.rooms", "hotel.properties>id:property_id")
+    })
+  })
+})
+
 describe("select map, $param, where", () => {
   test("only the selected columns come back, the param is substituted, where filters", async () => {
     const rows = await propertiesSelected.get({ toto: "hello" })
