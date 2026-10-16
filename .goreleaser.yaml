@@ -63,3 +63,6 @@ release:
   github:
     owner: rel-server
     name: rel
+  # Re-pushing a tag reuses the existing GitHub release; without this the
+  # asset uploads fail with 422 already_exists.
+  replace_existing_artifacts: true
