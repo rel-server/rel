@@ -294,6 +294,23 @@ same way it checks the root row, it just doesn't build any of it for you. `.writ
 an array of rows at the root, same as always ; `.init()` takes and returns ONE row, so wrap it in
 `[...]` yourself, the same way you would a row you built entirely by hand.
 
+`.init()` keeps what you actually passed. A column that is optional in the write shape (nullable,
+defaulted) stays optional on the returned row if you left it out, and becomes required if you
+supplied it:
+
+```ts
+const bare = properties.init({ name: "Marina Bay Grand Hotel", rooms: [] })
+bare.star_rating // number | null | undefined — optional
+
+const rated = properties.init({ name: "Marina Bay Grand Hotel", star_rating: 5, rooms: [] })
+rated.star_rating // number | null — required, still the column's own type (not the literal `5`)
+```
+
+- Joined rows are handled the same way: a to-one object, and each element of a to-many array. In an array, a key counts as supplied only if every element supplies it.
+- A `proto` accessor key (such as `created_at_as_date`) counts as supplied when you pass it.
+- A key set to `undefined` counts as not supplied. `null` is a real value and counts as supplied.
+- A key the write shape doesn't have is a type error, at the root and inside joins: `nmae: "x"` is flagged on that key.
+
 ## Typed wire values
 
 Every column comes back typed as the JS type its wire value actually has, not the type its

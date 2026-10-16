@@ -12,14 +12,17 @@ import type {
   FunctionName,
   MatchOverload,
   Params,
+  ParsedShortcut,
   Prettify,
   RelationName,
-  RequiredKeysOf,
   ResolveModel,
   RootShapeFromFunctionMember,
   ShapeFromQuery,
   WithProto,
   WriteShapeFromQuery,
+  WriteRowOf,
+  InitResult,
+  InitStrict,
 } from "./shapes"
 
 /**
@@ -80,10 +83,10 @@ type WithComputedKeys<Rel extends object, R extends string> = R extends keyof Co
 
 // The target relation name embedded in a shortcut string itself : "hotel.rooms*id:property_id" ->
 // "hotel.rooms". This is what lets a nested join's own callback re-scope itself to ITS target without a second
-// explicit argument — the shortcut the caller already had to type carries it.
-type TargetRelationName<S extends string> = S extends `${infer Rel}${"<" | ">" | "*"}${string}`
-  ? Rel
-  : never
+// explicit argument — the shortcut the caller already had to type carries it. ParsedShortcut (shapes.ts) is the
+// one place this split actually happens ; shapes.ts's own ResolveKey/JoinCardinality/IsNullableJoin read off it
+// too, so the type-level parse can't drift the way independently re-deriving it in each place did.
+type TargetRelationName<S extends string> = ParsedShortcut<S>["target"]
 
 /**
  Three call signatures, not one signature with a union parameter type : `proto`'s `ThisType` (shapes.ts's
@@ -192,22 +195,32 @@ function resolveRequest<K extends string, Q>(
   return request ?? ({} as Q)
 }
 
+// relation()'s own runtime body splits `rel` into bare `schema`/`relation` fields and spreads them onto the
+// object it returns — Q's own INFERRED type never carries them (it's inferred from `request` alone, which never
+// spells them out), so this re-attaches them at the type level, in the same split shape the runtime object
+// actually has. Once Q carries its own identity this way, ShapeFromQuery/WriteShapeFromQuery's own ResolveModel/
+// ResolveKey resolve it structurally, the same way a well-known query's embedded literal already does — no
+// caller needs to pass R in separately to either of them (contrast func(), below, which still has to : a
+// function's ROOT cardinality needs its own `returns`/`relation` overload resolution, not obtainable from Q's
+// identity alone).
+type IdentifiedQuery<Q, R extends string> = R extends `${infer Sc}.${infer Rel}`
+  ? Q & { schema: Sc; relation: Rel }
+  : Q
+
 // A relation root is never a scalar function call, so — unlike func() below — it's unconditionally array-wrapped :
 // shapes.ts's RootShapeFromFunctionMember doc comment (## Root cardinality) covers the full reasoning ;
-// writing.md : "an array of rows at the root". RequiredKeysOf<R> is passed explicitly : R (e.g. "hotel.properties")
-// is split apart from `request`/Q, so Q alone never carries the `relation`/`schema` fields WriteShapeFromQuery's
-// own default would otherwise read a relation's required columns off of (see that type's own doc comment,
-// shapes.ts). Same root-array wrap as the read side — writing.md : "data" is "an array of rows at the root".
-// Q is unconstrained here, matching shapes.ts's own ShapeFromQuery/WriteShapeFromQuery bounds (see ShapeFromQuery's
-// doc comment) : every field below works by structural extraction on Q's own properties, never by consulting
-// RelationQuery's generic Join parameter, so re-asserting `Q extends RelationQuery<Rel, Join>` here would just be
-// a second, redundant validation prone to drifting out of sync with the real one relation()/func() already do at
-// the point Q is actually built (their own JoinOf<Q>-bound Q parameters, below).
+// writing.md : "an array of rows at the root". Same root-array wrap as the read side — writing.md : "data" is "an
+// array of rows at the root". Q is unconstrained here, matching shapes.ts's own ShapeFromQuery/WriteShapeFromQuery
+// bounds (see ShapeFromQuery's doc comment) : every field below works by structural extraction on Q's own
+// properties, never by consulting RelationQuery's generic Join parameter, so re-asserting `Q extends
+// RelationQuery<Rel, Join>` here would just be a second, redundant validation prone to drifting out of sync with
+// the real one relation()/func() already do at the point Q is actually built (their own JoinOf<Q>-bound Q
+// parameters, below).
 type RelationQuerier<R extends RelationName, Q> = Querier<
-  ShapeFromQuery<Q, ResolveRelationModel<R>>[],
-  WriteShapeFromQuery<Q, ResolveRelationModel<R>, RequiredKeysOf<R>>[],
+  ShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[],
+  WriteShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[],
   Params<Q>,
-  Q
+  IdentifiedQuery<Q, R>
 >
 
 /**
@@ -247,7 +260,7 @@ export function relation<
     ...resolveRequest(rel, request),
     schema,
     relation,
-  } as Q
+  } as IdentifiedQuery<Q, R>
   return new Querier(query)
 }
 
@@ -279,8 +292,8 @@ export function func<
   // Root cardinality (shapes.ts's RootShapeFromFunctionMember doc comment, ## Root cardinality) : a
   // set-returning overload's row shape wrapped in an array, same as relation() ; a scalar overload's bare
   // `returns` value instead — that's the ONE case (server/rel.go's streamItem) a root query response isn't an
-  // array. F, not Q, drives this : same reasoning as relation()'s explicit RequiredKeysOf<R> above — Q alone
-  // never carries the `function`/`schema` fields.
+  // array. F, not Q, drives this : unlike relation() (IdentifiedQuery, above), a function's ROOT cardinality
+  // isn't obtainable from Q's own identity alone — it needs F's `returns`/`relation` overload resolution.
   RootShapeFromFunctionMember<F extends keyof Functions ? Functions[F] : never, Q>,
   WriteShapeFromQuery<Q, ResolveCalledFunctionModel<F>>,
   Params<Q>,
@@ -501,11 +514,23 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
 export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Query> {
   public query: Q
 
+  // The actual wire payload : same tree as `query`, minus `proto` (client-side only — never sent to the server ;
+  // `query` itself keeps it, since init()/applyProto need it). Computed once at construction, alongside
+  // `hasParam`, rather than re-derived on every get()/write() call the way a combined strip-and-substitute pass
+  // would — most queries carry no `$param` at all, so `doQuery` below skips walking this tree a second time
+  // entirely when there's nothing to substitute.
+  private readonly wireQuery: unknown
+  private readonly hasParam: boolean
+
   constructor(
     query: Q,
     public has_params = false,
   ) {
-    this.query = Querier.stripShortcut(query) as Q
+    const expanded = Querier.stripShortcut(query)
+    this.query = expanded as Q
+    const normalized = Querier.normalizeForWire(expanded)
+    this.wireQuery = normalized.value
+    this.hasParam = normalized.hasParam
   }
 
   // `shortcut` is join()'s client-side sugar (schema.example.ts's Relationships lookup) — never part of the wire
@@ -531,13 +556,46 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
     for (const key of Object.keys(rest)) {
       // `proto`'s own members are live getters/methods, not query data — recursing into it (or even reading it
       // via a destructuring spread) would invoke them as a side effect, purely to discard the result. Left
-      // untouched, by reference.
+      // untouched, by reference ; normalizeForWire (below) drops it wholesale instead of recursing into it too.
       if (key === "proto") {
         continue
       }
       rest[key] = Querier.stripShortcut(rest[key])
     }
     return rest
+  }
+
+  // Builds the wire-clean tree `wireQuery` caches, dropping `proto` (same by-reference skip as stripShortcut,
+  // same reason) and reporting whether any `$param` node was found along the way, so doQuery can skip
+  // substituting over a query that never needed it. Runs once, over the ALREADY shortcut-expanded tree — this
+  // never has to reparse a shortcut the way a single combined strip-and-normalize pass would need to.
+  private static normalizeForWire(obj: unknown): { value: unknown; hasParam: boolean } {
+    if (obj == null || typeof obj !== "object") {
+      return { value: obj, hasParam: false }
+    }
+    if (Array.isArray(obj)) {
+      if (obj[0] === "$param") {
+        return { value: obj, hasParam: true }
+      }
+      let hasParam = false
+      const value = obj.map((item) => {
+        const r = Querier.normalizeForWire(item)
+        hasParam = hasParam || r.hasParam
+        return r.value
+      })
+      return { value, hasParam }
+    }
+    let hasParam = false
+    const value: { [name: string]: unknown } = {}
+    for (const key of Object.keys(obj)) {
+      if (key === "proto") {
+        continue
+      }
+      const r = Querier.normalizeForWire((obj as { [name: string]: unknown })[key])
+      value[key] = r.value
+      hasParam = hasParam || r.hasParam
+    }
+    return { value, hasParam }
   }
 
   // docs/content/typescript/index.md ### Building a new row : typechecks `data` against this query's own WriteShape —
@@ -547,19 +605,22 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
   // `[]`/nested-object join values included, since WriteShape's own required keys already reflect the join tree.
   // `WriteShape` is array-wrapped at the root (writing.md : "an array of rows at the root") ; init() takes and
   // returns ONE row, so both types unwrap that one level of array — pass the result inside a `[...]` to `.write()`.
-  init(
-    data: WriteShape extends readonly (infer Row)[] ? Row : WriteShape,
-  ): WriteShape extends readonly (infer Row)[] ? Row : WriteShape {
-    return applyProto(data, this.query as ProtoQuery) as WriteShape extends readonly (infer Row)[]
-      ? Row
-      : WriteShape
+  // The result keeps what `data` actually carried : an optional column (or join) you passed comes back required,
+  // everything else stays as WriteShape has it (shapes.ts's InitResult). InitStrict is what rejects keys
+  // WriteShape doesn't have — a generic parameter gets no excess-property check on its own.
+  init<D extends WriteRowOf<WriteShape>>(
+    data: D & InitStrict<WriteShape, D>,
+  ): InitResult<WriteShape, D> {
+    return applyProto(data, this.query as ProtoQuery) as InitResult<WriteShape, D>
   }
 
-  private doParams(obj: unknown, params: { [name: string]: unknown }): unknown {
+  // Substitutes every `$param` node with its value from `params` ; `wireQuery` is already proto-free (`proto`
+  // never reaches here at all, unlike before this merged with the old shortcut/proto-stripping pass), so this is
+  // nothing but the substitution itself.
+  private substituteParams(obj: unknown, params: { [name: string]: unknown }): unknown {
     if (obj == null) {
       return obj
     }
-    let diff = false
     if (Array.isArray(obj)) {
       if (obj[0] === "$param") {
         // FIXME maybe do some checking if a type was supplied in obj[2]
@@ -569,27 +630,21 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
         }
         return params[key]
       }
+      let diff = false
       const res = new Array(obj.length)
       for (let i = 0, l = obj.length; i < l; i++) {
-        res[i] = this.doParams(obj[i], params)
+        res[i] = this.substituteParams(obj[i], params)
         diff = diff || res[i] !== obj[i]
       }
       return diff ? res : obj
     }
     if (typeof obj === "object") {
+      let diff = false
       const res: { [name: string]: unknown } = {}
       const _obj = obj as { [name: string]: unknown }
       for (const x of Object.getOwnPropertyNames(obj)) {
-        // `proto` is client-side only — never sent to the server. Dropped here, not just left unrecursed-into
-        // (stripShortcut's own comment) : `JSON.stringify`-ing it would invoke every inline getter it carries
-        // (wrongly, against `proto` itself rather than a fetched row) and silently drop every plain method, so
-        // the wire payload would end up with bogus computed fields instead of no `proto` key at all.
-        if (x === "proto") {
-          diff = true
-          continue
-        }
         const orig = _obj[x]
-        const r = this.doParams(orig, params)
+        const r = this.substituteParams(orig, params)
         res[x] = r
         diff = diff || r !== orig
       }
@@ -598,10 +653,17 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
     return obj
   }
 
-  // Substitutes every `$param` node in `this.query` with its value from `params`, via doParams above ; a query
-  // with no `$param` usage at all (Params = void) has nothing to substitute, so `params` is optional there.
+  // Substitutes `wireQuery`'s own `$param` nodes with their values from `params`, via substituteParams above ;
+  // skipped entirely when construction found no `$param` at all (the common case), rather than walking the
+  // whole tree on every single get()/write() call only to find nothing to do.
   private doQuery(params: Params): Query {
-    return this.doParams(this.query, (params ?? {}) as { [name: string]: unknown }) as Query
+    if (!this.hasParam) {
+      return this.wireQuery as Query
+    }
+    return this.substituteParams(
+      this.wireQuery,
+      (params ?? {}) as { [name: string]: unknown },
+    ) as Query
   }
 
   // Explicit Promise<Shape> return type : _send() only returns Promise<any> (res.json() can't know what it

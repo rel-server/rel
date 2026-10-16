@@ -7,7 +7,12 @@
 import { call, func, join, relation, wellknown } from "./querier"
 import type { ShapeOf, WriteShapeOf } from "./querier"
 import type { Functions } from "./schema.example"
-import type { DefaultRow, ResolveModel, RootShapeFromFunctionMember } from "./shapes"
+import type {
+  DefaultRow,
+  ParsedShortcut,
+  ResolveModel,
+  RootShapeFromFunctionMember,
+} from "./shapes"
 import type { Int8, PgNumeric, PgPoint } from "./pg_values"
 import {
   asNumeric,
@@ -918,3 +923,210 @@ void relation("hotel.properties", {
   },
 })
 void roomsWithBogusHopButValidLeadingName
+
+// ContainerTag (shapes.ts's ContainerTagShape) : "arr"/"lst" preserve each item's
+// own position as a tuple ; "coalesce" collapses to the union of what each argument could be. None of these were
+// previously exercised here — added as a baseline before shapes.ts's own read/write dispatchers are collapsed.
+const roomWithContainers = relation("hotel.rooms", {
+  select: {
+    coords: ["arr", ["col", "floor"], ["col", "room_number"]],
+    tags: ["lst", ["col", "status"]],
+    floor_or_zero: ["coalesce", ["col", "floor"], 0],
+  },
+})
+export type RoomWithContainersShape = Awaited<ReturnType<typeof roomWithContainers.get>>[number]
+
+export type _AssertArrContainerIsTuple = Expect<
+  RoomWithContainersShape["coords"] extends readonly [number | null, string] ? true : false
+>
+export type _AssertLstContainerIsTuple = Expect<
+  RoomWithContainersShape["tags"] extends readonly [infer S]
+    ? S extends "clean" | "dirty"
+      ? true
+      : false
+    : false
+>
+export type _AssertCoalesceContainerUnionsArgs = Expect<
+  RoomWithContainersShape["floor_or_zero"] extends number | null ? true : false
+>
+
+// A container-tag entry has no single BackingColumnOf/BackingJoinOf of its own (unlike a bare `col`/`.` reference)
+// — IsRequiredEntry can't read requiredness through it, so it's always optional in the write shape, even when
+// every item inside references a required column.
+export type RoomWithContainersWriteShape = Parameters<typeof roomWithContainers.write>[0][number]
+export type _AssertContainerEntryStaysOptionalInWriteShape = Expect<
+  IsRequiredKey<RoomWithContainersWriteShape, "coords"> extends false ? true : false
+>
+export type _AssertArrContainerWritableInWriteShape = Expect<
+  HasKey<RoomWithContainersWriteShape, "coords">
+>
+
+// OwnFullTag's rest args (shapes.ts's ExceptFromRest/AndFromRest) : an except-list drops columns from "*"/"*~" ;
+// an and-map adds/overrides computed columns on top. Neither was previously exercised here.
+const propertyWithExceptList = relation("hotel.properties", {
+  select: ["*", ["star_rating", "description"]],
+})
+export type PropertyWithExceptListShape = Awaited<
+  ReturnType<typeof propertyWithExceptList.get>
+>[number]
+export type _AssertExceptListDropsColumn = Expect<
+  HasKey<PropertyWithExceptListShape, "star_rating"> extends false ? true : false
+>
+export type _AssertExceptListKeepsOtherColumns = Expect<HasKey<PropertyWithExceptListShape, "id">>
+
+const propertyWithOwnRestArgs = relation("hotel.properties", {
+  select: ["*~", ["description"], { avg_rating: ["call", "property_average_rating", [".", "id"]] }],
+})
+export type PropertyWithOwnRestArgsShape = Awaited<
+  ReturnType<typeof propertyWithOwnRestArgs.get>
+>[number]
+export type _AssertAndMapAddsComputedColumn = Expect<
+  Extract<PropertyWithOwnRestArgsShape["avg_rating"], PgNumeric> extends never ? false : true
+>
+export type _AssertExceptListAppliesBeforeAndMap = Expect<
+  HasKey<PropertyWithOwnRestArgsShape, "description"> extends false ? true : false
+>
+
+// The and-map's own "call" entry is Omitted on the write side (never a real column) ; the except-list still
+// drops "description" from the write shape's base, same as the read side.
+export type PropertyWithOwnRestArgsWriteShape = Parameters<
+  typeof propertyWithOwnRestArgs.write
+>[0][number]
+export type _AssertAndMapComputedColumnOmittedFromWriteShape = Expect<
+  HasKey<PropertyWithOwnRestArgsWriteShape, "avg_rating"> extends false ? true : false
+>
+export type _AssertExceptListDropsColumnFromWriteShape = Expect<
+  HasKey<PropertyWithOwnRestArgsWriteShape, "description"> extends false ? true : false
+>
+export type _AssertOwnRestArgsKeepsRequiredColumnMandatory = Expect<
+  IsOptionalKey<PropertyWithOwnRestArgsWriteShape, "name"> extends false ? true : false
+>
+
+// ParsedShortcut (shapes.ts)'s own type-level parse and querier.ts's RUNTIME parseShortcut can't literally share
+// an implementation — one parses a string's own literal TYPE at compile time, the other a string VALUE at
+// request-build time — so this pins the two against each other for one fixed shortcut, the only guard against
+// them silently drifting apart. `rooms`'s own "property" join (near the top of this file) is built from exactly
+// this shortcut.
+type _RoomsPropertyJoinParsed = ParsedShortcut<"hotel.properties>id:property_id">
+export type _AssertParsedShortcutTarget = Expect<
+  _RoomsPropertyJoinParsed["target"] extends "hotel.properties" ? true : false
+>
+export type _AssertParsedShortcutMarker = Expect<
+  _RoomsPropertyJoinParsed["marker"] extends ">" ? true : false
+>
+
+function assertRuntimeParseMatchesTypeLevelParse() {
+  const on = (rooms.query as unknown as { join: { property: { on: Record<string, string> } } }).join
+    .property.on
+  if (on.id !== "property_id") {
+    throw new Error(
+      `querier.ts's runtime parseShortcut produced { ${JSON.stringify(on)} } for "hotel.properties>id:property_id" — no longer matching ParsedShortcut's (shapes.ts) own type-level reading of the same shortcut.`,
+    )
+  }
+}
+// Actually invoked (unlike this file's compile-only `assertXxx` helpers) : the check only means something if it
+// runs, since it's comparing two RUNTIME values, not pinning a type.
+assertRuntimeParseMatchesTypeLevelParse()
+
+// ResolveKey's shortcut branch (shapes.ts) previously only matched "<"/">" — a "*" (incoming-and-multiple)
+// shortcut fell through to `never`, which made RequiredKeysOf<ResolveKey<Q>> collapse to `never` too, silently
+// dropping every required-column check on a to-many join's own write shape. `propertyWithNestedProto`'s "rooms"
+// join (near the top of this file) uses a "*" shortcut, and "property_id" is required on "hotel.rooms"
+// (RequiredColumns, schema.example.ts).
+export type _AssertStarShortcutJoinRequiredColumnStaysMandatory = Expect<
+  IsRequiredKey<
+    Parameters<typeof propertyWithNestedProto.write>[0][number]["rooms"][number],
+    "property_id"
+  >
+>
+
+// docs/content/typescript/index.md ### Building a new row : init() keeps what `data` carried. `star_rating` is
+// optional in the write shape ; passing it makes it required on the returned row, leaving it out doesn't.
+const initBare = propertyWithNestedProto.init({ name: "Marina Bay Grand Hotel", rooms: [] })
+const initWithRating = propertyWithNestedProto.init({
+  name: "Marina Bay Grand Hotel",
+  star_rating: 5,
+  rooms: [],
+})
+
+type OptionalKey<T, K extends keyof T> = Record<never, never> extends Pick<T, K> ? true : false
+
+export type _AssertInitOmittedStaysOptional = Expect<OptionalKey<typeof initBare, "star_rating">>
+export type _AssertInitProvidedBecomesRequired = Expect<
+  OptionalKey<typeof initWithRating, "star_rating"> extends false ? true : false
+>
+// Declared column type, not the literal : the row stays assignable afterwards.
+export type _AssertInitProvidedKeepsColumnType = Expect<
+  [typeof initWithRating.star_rating] extends [number | null]
+    ? [number | null] extends [typeof initWithRating.star_rating]
+      ? true
+      : false
+    : false
+>
+// An explicit `undefined` is not "provided".
+const initUndefined = propertyWithNestedProto.init({ name: "x", star_rating: undefined, rooms: [] })
+export type _AssertInitUndefinedStaysOptional = Expect<
+  OptionalKey<typeof initUndefined, "star_rating">
+>
+
+// Still accepted by write(), the minimum viable shape.
+void propertyWithNestedProto.write([initWithRating])
+
+// Joined rows get the same treatment, in a to-many array and in a to-one object.
+const initNestedMany = propertyWithNestedProto.init({
+  name: "x",
+  rooms: [{ property_id: 1, room_type_id: 1, room_number: "101", floor: 2 }],
+})
+export type _AssertInitNestedManyProvidedBecomesRequired = Expect<
+  OptionalKey<(typeof initNestedMany.rooms)[number], "floor"> extends false ? true : false
+>
+const initNestedOne = rooms.init({
+  property_id: 1,
+  room_type_id: 1,
+  room_number: "101",
+  property: { name: "x", star_rating: 3 },
+  room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
+})
+export type _AssertInitNestedOneProvidedBecomesRequired = Expect<
+  OptionalKey<typeof initNestedOne.property, "star_rating"> extends false ? true : false
+>
+
+// Proto accessor keys count as provided.
+function assertInitAccessorProvided() {
+  const row = propertyWithAccessor.init({ name: "x", created_at_as_date: Temporal.Now.instant() })
+  const _check: Expect<OptionalKey<typeof row, "created_at_as_date"> extends false ? true : false> =
+    true
+  void _check
+}
+void assertInitAccessorProvided
+
+// Bogus fields are rejected, at the root and inside joins. Each directive sits right above the offending key.
+function assertInitRejectsBogusFields() {
+  propertyWithNestedProto.init({
+    name: "x",
+    // @ts-expect-error `nmae` isn't a column
+    nmae: "typo",
+    rooms: [],
+  })
+  propertyWithNestedProto.init({
+    name: "x",
+    rooms: [
+      {
+        property_id: 1,
+        room_type_id: 1,
+        room_number: "1",
+        // @ts-expect-error `bogus` isn't a column of the joined row
+        bogus: 1,
+      },
+    ],
+  })
+  rooms.init({
+    property_id: 1,
+    room_type_id: 1,
+    room_number: "1",
+    // @ts-expect-error `bogus` isn't a column of the to-one joined row
+    property: { name: "x", bogus: 1 },
+    room_type: { name: "D", base_price: asNumeric("1") },
+  })
+}
+void assertInitRejectsBogusFields

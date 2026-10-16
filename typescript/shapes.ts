@@ -112,16 +112,13 @@ export type ResolveModel<Node> = Node extends { shortcut: infer S extends string
 
 /**
  The literal "schema.table" key ResolveModel resolved a real relation's row shape from — needed to look up
- RequiredColumns[key] for write-shape required-ness, below. A join's `shortcut`
- already spells this out as its own leading segment (querier.ts's own TargetRelationName does the identical
- extraction for its recursive join scoping) ; `never` for a function-rooted node (a function's row was never
- introspected as an insertable relation — functions.md : "always read-only") or an unrecognized name, the same
- cases ResolveModel itself falls back to DefaultRow for.
+ RequiredColumns[key] for write-shape required-ness, below. A join's `shortcut` already spells this out as its
+ own target (ParsedShortcut, below — shared with querier.ts's TargetRelationName) ; `never` for a function-rooted
+ node (a function's row was never introspected as an insertable relation — functions.md : "always read-only") or
+ an unrecognized name, the same cases ResolveModel itself falls back to DefaultRow for.
  */
 export type ResolveKey<Node> = Node extends { shortcut: infer S extends string }
-  ? S extends `${infer Key}${"<" | ">"}${string}`
-    ? Key
-    : never
+  ? ParsedShortcut<S>["target"]
   : Node extends { schema: infer Sc extends string; relation: infer R extends string }
     ? `${Sc}.${R}`
     : Node extends { relation: infer R extends string }
@@ -264,32 +261,43 @@ type ExtractJoinMap<Q> = Q extends { join: infer J extends { [name: string]: Rel
   : // biome-ignore lint/complexity/noBannedTypes: see above — `{}` is deliberate here, not a placeholder
     {}
 
-// Cardinality comes straight off `shortcut`'s own direction marker (`>`/`<`/`*` — docs/content/
-// typescript/index.md ## Building a query), pattern-matched on its template literal type, not a
-// separate `unique` field lookup : `*` is to-many, `<`/`>` are both to-one. A join written out by
-// hand (no `shortcut`) has no cardinality source, so it defaults to an array as before.
+/**
+ A shortcut's own direction/cardinality marker (docs/content/typescript/index.md ## Building a query) : `>` is
+ outgoing (this relation owns the FK), `<` is incoming-and-unique, `*` is incoming-and-multiple. Also the
+ pair-list's own separator — schema/relation/column names can't otherwise contain `<`/`>`/`*` unquoted — so one
+ template-literal split unambiguously recovers both the target relation name and the raw pair-list.
+
+ One shortcut string ("schema.relation<marker>referenced_col:referencing_col[,...]") parsed once, into its own
+ target relation name, marker, and raw (still comma/colon-joined) pair-list — every other type-level consumer
+ (`ResolveKey`'s own shortcut branch, `JoinCardinality`, `IsNullableJoin`, querier.ts's `TargetRelationName`)
+ reads off this instead of re-deriving the same split independently. `never` for a malformed shortcut (no marker
+ at all) — the same fallback every downstream consumer already had for that case on its own.
+
+ Mirrors querier.ts's own RUNTIME `parseShortcut` exactly, but can't share code with it : one parses a string
+ VALUE at request-build time, the other a string's own LITERAL TYPE at compile time — genuinely different planes,
+ not two implementations of one thing. example.ts's `_AssertParsedShortcutMatchesRuntimeParse` cross-checks the
+ two stay in agreement for one fixed shortcut, since nothing else would catch them silently drifting apart.
+ */
+// Checked as three separate template-literal patterns, one per concrete marker, rather than one pattern with an
+// `infer Marker extends ShortcutMarker` in the middle : TS's template-literal matcher only searches a finite set
+// of literal alternatives placed directly in the pattern (as the original per-marker checks below each did) —
+// an inferred, constrained placeholder doesn't drive that same search, and silently resolves to `never` instead
+// (confirmed empirically, not a documented restriction).
+export type ParsedShortcut<S extends string> = S extends `${infer Target}>${infer Pairs}`
+  ? { target: Target; marker: ">"; pairs: Pairs }
+  : S extends `${infer Target}<${infer Pairs}`
+    ? { target: Target; marker: "<"; pairs: Pairs }
+    : S extends `${infer Target}*${infer Pairs}`
+      ? { target: Target; marker: "*"; pairs: Pairs }
+      : never
+
+// `*` is to-many ; `<`/`>` are both to-one. A join written out by hand (no `shortcut`) has no cardinality
+// source, so it defaults to an array as before.
 type JoinCardinality<J> = J extends { shortcut: infer S extends string }
-  ? S extends `${string}*${string}`
+  ? ParsedShortcut<S>["marker"] extends "*"
     ? false
     : true
   : false
-
-// Nullability of a to-one join (querier.ts's parseShortcut doc comment covers the marker semantics this reads
-// off `shortcut`'s own literal type) :
-// - `<` (incoming-and-unique) : the OTHER relation owns the FK, so nothing on THIS relation's own row
-//   guarantees a matching row exists over there — always potentially absent, unconditionally nullable.
-// - `>` (outgoing) : THIS relation owns the FK, so the join resolves whenever every column in its own `on`
-//   pair is non-null (Postgres' default MATCH SIMPLE : a composite FK isn't enforced at all if ANY of its
-//   columns is null) — nullable iff at least one of those referencing columns is itself nullable on ParentRel.
-// Only ever consulted from JoinMemberShape's/WriteJoinMemberShape's to-one branch, so `*` never reaches here —
-// a hand-written join (no `shortcut`) never reaches here either, JoinCardinality's own to-many fallback for it.
-//
-// Column-splitting mirrors querier.ts's own runtime parseShortcut exactly (one split on the marker, one split
-// on "," between pairs, one split on ":" within a pair) — schema/relation/column names can't themselves contain
-// `<`/`>`/`*`/","/":" unquoted (parseShortcut's own doc comment), so each split is unambiguous.
-type PairsOfOutgoingShortcut<S extends string> = S extends `${string}>${infer Pairs}`
-  ? Pairs
-  : never
 
 type SplitOnComma<S extends string> = S extends `${infer Head},${infer Rest}`
   ? Head | SplitOnComma<Rest>
@@ -299,8 +307,10 @@ type ReferencingColumnOf<Pair extends string> = Pair extends `${string}:${infer 
   ? Referencing
   : never
 
+// Only ever consulted for an outgoing (">") shortcut — IsNullableJoin's own "<" branch, below, is checked first
+// and never falls through to this.
 type ReferencingColumnsOfShortcut<S extends string> = ReferencingColumnOf<
-  SplitOnComma<PairsOfOutgoingShortcut<S>>
+  SplitOnComma<ParsedShortcut<S>["pairs"]>
 >
 
 type AnyColumnNullable<Cols extends string, Rel extends object> = Cols extends keyof Rel
@@ -309,7 +319,18 @@ type AnyColumnNullable<Cols extends string, Rel extends object> = Cols extends k
     : never
   : never
 
-type IsNullableJoin<S extends string, ParentRel extends object> = S extends `${string}<${string}`
+// Nullability of a to-one join :
+// - `<` (incoming-and-unique) : the OTHER relation owns the FK, so nothing on THIS relation's own row
+//   guarantees a matching row exists over there — always potentially absent, unconditionally nullable.
+// - `>` (outgoing) : THIS relation owns the FK, so the join resolves whenever every column in its own `on`
+//   pair is non-null (Postgres' default MATCH SIMPLE : a composite FK isn't enforced at all if ANY of its
+//   columns is null) — nullable iff at least one of those referencing columns is itself nullable on ParentRel.
+// Only ever consulted from JoinMemberShape's/WriteJoinMemberShape's to-one branch, so `*` never reaches here —
+// a hand-written join (no `shortcut`) never reaches here either, JoinCardinality's own to-many fallback for it.
+type IsNullableJoin<
+  S extends string,
+  ParentRel extends object,
+> = ParsedShortcut<S>["marker"] extends "<"
   ? true
   : [AnyColumnNullable<ReferencingColumnsOfShortcut<S>, ParentRel>] extends [never]
     ? false
@@ -375,14 +396,30 @@ type ShapeFromLeaf<E> = E extends null
           ? E
           : unknown
 
+// Read vs write : the two directions share every tag's dispatch below except where a column/expression's own
+// read-vs-write meaning genuinely differs (query.ts's own get/col/set doc comments) — `"." | "dot"` (write is
+// single-hop only, computed fields dropped) and `"call"` (never writable at all) stay as two separate branches
+// in ExpressionShape's own dispatcher, below, rather than folding that asymmetry into every shared helper here.
+type Mode = "read" | "write"
+
 // "*"/"*~" (full/own) resolve to the same base shape either way ; the optional trailing [except?, and?] args are
-// dispatched by shape (array vs object), not position, so either may be given alone or both together.
-type OwnFullBase<
+// dispatched by shape (array vs object), not position, so either may be given alone or both together. `ReqCol`
+// only matters on the write side (WriteOwnShape/WriteFullShape's own required-column split) ; the read branch
+// ignores it.
+type OwnFullBaseShape<
+  M extends Mode,
   Tag extends OwnFullTag,
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
-> = Tag extends "*~" ? OwnShape<Rel> : FullShape<Rel, Join, Depth>
+  ReqCol extends string,
+> = M extends "read"
+  ? Tag extends "*~"
+    ? OwnShape<Rel>
+    : FullShape<Rel, Join, Depth>
+  : Tag extends "*~"
+    ? WriteOwnShape<Rel, ReqCol>
+    : WriteFullShape<Rel, Join, Depth, ReqCol>
 
 // Folds an arbitrary-length "*"/"*~" rest-tuple (each item either a K[] except-list or an
 // and-map, in any order, any count) into one union of excepted keys / one merged and-map —
@@ -403,28 +440,34 @@ type AndFromRest<Rest extends readonly unknown[]> = Rest extends readonly [
   ? Head extends { [name: string]: unknown }
     ? Omit<Head, keyof AndFromRest<Tail>> & AndFromRest<Tail>
     : AndFromRest<Tail>
-  : Record<string, never>
+  : // `Record<never, never>`, not `Record<string, never>` : the latter's `keyof` is `string` (an index
+    // signature), which would make every `Omit<Head, keyof AndFromRest<Tail>>` above strip ALL of Head's own
+    // keys once the recursion bottoms out here, silently dropping every and-map entry that adds a key the base
+    // type doesn't already have.
+    Record<never, never>
 
-type ShapeFromOwnFullTag<
+type OwnFullTagShape<
+  M extends Mode,
   Tag extends OwnFullTag,
   Rest extends readonly unknown[],
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
+  ReqCol extends string,
 > =
-  OwnFullBase<Tag, Rel, Join, Depth> extends infer Base extends object
-    ? Omit<Base, ExceptFromRest<Rest>> & ShapeFromExpressionMap<AndFromRest<Rest>, Rel, Join, Depth>
+  OwnFullBaseShape<M, Tag, Rel, Join, Depth, ReqCol> extends infer Base extends object
+    ? Omit<Base, ExceptFromRest<Rest>> &
+        ExpressionMapShape<M, AndFromRest<Rest>, Rel, Join, Depth, ReqCol>
     : never
 
-// get/col : the referenced column's own type, on the read side (col's default_set only matters on write). `set`
-// never appears in a read response at all (query.ts's own doc comment : "this column is not fetched in query
-// mode") — its key is dropped from the containing object entirely, not merely typed oddly ; see `Omitted`,
-// above, and ShapeFromExpressionMap's key remap, below.
-type ShapeFromFieldTag<
+// get/col/set : the referenced column's own type, on whichever side still resolves it — read drops `set` (it's
+// never fetched, query.ts's own doc comment) ; write drops `get` (read-only). `col` resolves on both sides.
+type FieldTagShape<
+  M extends Mode,
   Tag extends "get" | "col" | "set",
   Rest extends readonly unknown[],
   Rel extends object,
-> = Tag extends "set"
+> = Tag extends (M extends "read" ? "set" : "get")
   ? Omitted
   : Rest extends readonly [infer Col extends string, ...unknown[]]
     ? Col extends keyof Rel
@@ -527,62 +570,117 @@ type ShapeFromDotTag<
   : unknown
 
 // arr/array/lst/list preserve each item's position (a tuple, not a collapsed union) ; coalesce instead
-// produces one value — the union of what each argument could be.
-type ShapeFromContainerTag<
+// produces one value — the union of what each argument could be. Same on both sides ; `ReqCol` only matters
+// once an item recurses into something write-sensitive (own/full, a nested map, ...).
+type ContainerTagShape<
+  M extends Mode,
   Tag extends ContainerTag,
   Items extends readonly unknown[],
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
+  ReqCol extends string,
 > = Tag extends "coalesce"
-  ? ShapeFromExpression<Items[number], Rel, Join, Depth>
-  : { [I in keyof Items]: ShapeFromExpression<Items[I], Rel, Join, Depth> }
+  ? ExpressionShape<M, Items[number], Rel, Join, Depth, ReqCol>
+  : { [I in keyof Items]: ExpressionShape<M, Items[I], Rel, Join, Depth, ReqCol> }
 
-// Key remapping (`as`) drops any entry whose value resolved to `Omitted` (a `set` tag, on the read side) instead
-// of keeping the key with a nonsensical type — the key genuinely isn't present in the response.
-type ShapeFromExpressionMap<
+// Key remapping (`as`) drops any entry whose value resolved to `Omitted` instead of keeping the key with a
+// nonsensical type — the key genuinely isn't present on that side (a `set` tag on read, a `get`/`call` tag on
+// write). The write side additionally splits required-vs-optional via IsRequiredEntry, below — meaningless on
+// the read side, so that half only applies there.
+type ExpressionMapShape<
+  M extends Mode,
   Obj extends { [name: string]: unknown },
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
-> = {
-  [K in keyof Obj as ShapeFromExpression<Obj[K], Rel, Join, Depth> extends Omitted
-    ? never
-    : K]: ShapeFromExpression<Obj[K], Rel, Join, Depth>
-}
+  ReqCol extends string,
+> = M extends "read"
+  ? {
+      [K in keyof Obj as ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
+        ? never
+        : K]: ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol>
+    }
+  : Prettify<
+      {
+        [K in keyof Obj as ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
+          ? never
+          : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol> extends true
+            ? never
+            : K]?: ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol>
+      } & {
+        [K in keyof Obj as ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
+          ? never
+          : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol> extends true
+            ? K
+            : never]: ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol>
+      }
+    >
 
-// The JSON value one Expression node produces : routes to whichever group above matches E's own tag.
-//
-// "call" resolves through ShapeFromCallTag (above), a literal-identifier lookup against FunctionsByName/
-// Functions. Raw operators, "agg", "index"/"slice", "format", ... still fall back to `unknown` : narrowing them
-// from THIS type-level position would need a type-level schema description, which GET /rel/database.json
-// doesn't help with directly — it's a runtime JSON export a consumer resolves
-// against at request time, not something the TypeScript compiler can consult while checking this file —
-// separate, not-yet-built (v2) work.
+/**
+ The JSON value one Expression node produces, on either side of `Mode` — routes to whichever group above matches
+ E's own tag. Own/full, get/col/set, and the containers dispatch through one shared implementation per tag
+ (OwnFullTagShape/FieldTagShape/ContainerTagShape) parameterized by `M`, since those genuinely behave the same
+ way modulo which field is dropped and whether write's required/optional split applies.
+
+ `"." | "dot"` and `"call"` stay as two separate per-mode branches rather than folding into the shared helpers
+ above : write-side dot resolution is deliberately restricted to a single hop and drops computed fields
+ (docs/content/query-language/writing.md ## Writability rules), and `"call"` is never writable at all — both
+ asymmetries are load-bearing, not incidental duplication, so collapsing them into one generic would hide the
+ actual rule rather than simplify it.
+
+ "call" (read side) resolves through ShapeFromCallTag (above), a literal-identifier lookup against
+ FunctionsByName/Functions. Raw operators, "agg", "index"/"slice", "format", ... still fall back to `unknown` on
+ both sides : narrowing them from THIS type-level position would need a type-level schema description, which GET
+ /rel/database.json doesn't help with directly — it's a runtime JSON export a consumer resolves against at
+ request time, not something the TypeScript compiler can consult while checking this file — separate,
+ not-yet-built (v2) work.
+ */
+type ExpressionShape<
+  M extends Mode,
+  E,
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+  ReqCol extends string,
+> = Depth extends 0
+  ? unknown
+  : E extends readonly [infer Tag extends string, ...infer Rest extends readonly unknown[]]
+    ? Tag extends OwnFullTag
+      ? OwnFullTagShape<M, Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
+      : Tag extends "get" | "col" | "set"
+        ? FieldTagShape<M, Tag, Rest, Rel>
+        : Tag extends "." | "dot"
+          ? M extends "read"
+            ? ShapeFromDotTag<Rest, Rel, Join, Digits[Depth]>
+            : WriteShapeFromDotTag<Rest, Rel, Join, Digits[Depth]>
+          : Tag extends "$param"
+            ? ShapeFromParamTag<Rest>
+            : Tag extends ContainerTag
+              ? ContainerTagShape<M, Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
+              : Tag extends "call"
+                ? M extends "read"
+                  ? ShapeFromCallTag<Rest>
+                  : Omitted // never a real column (query-engine.md : "never a candidate for writability")
+                : unknown // any other operator/agg/index/slice/format tuple — see comment above
+    : E extends { [name: string]: unknown }
+      ? ExpressionMapShape<M, E, Rel, Join, Digits[Depth], ReqCol>
+      : ShapeFromLeaf<E>
+
 type ShapeFromExpression<
   E,
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number = 12,
-> = Depth extends 0
-  ? unknown
-  : E extends readonly [infer Tag extends string, ...infer Rest extends readonly unknown[]]
-    ? Tag extends OwnFullTag
-      ? ShapeFromOwnFullTag<Tag, Rest, Rel, Join, Digits[Depth]>
-      : Tag extends "get" | "col" | "set"
-        ? ShapeFromFieldTag<Tag, Rest, Rel>
-        : Tag extends "." | "dot"
-          ? ShapeFromDotTag<Rest, Rel, Join, Digits[Depth]>
-          : Tag extends "$param"
-            ? ShapeFromParamTag<Rest>
-            : Tag extends ContainerTag
-              ? ShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth]>
-              : Tag extends "call"
-                ? ShapeFromCallTag<Rest>
-                : unknown // any other operator/agg/index/slice/format tuple — see comment above
-    : E extends { [name: string]: unknown }
-      ? ShapeFromExpressionMap<E, Rel, Join, Digits[Depth]>
-      : ShapeFromLeaf<E>
+> = ExpressionShape<"read", E, Rel, Join, Depth, never>
+
+type WriteShapeFromExpression<
+  E,
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number = 12,
+  ReqCol extends string = never,
+> = ExpressionShape<"write", E, Rel, Join, Depth, ReqCol>
 
 // The JSON result shape of one RelationQuery node, before `proto` (docs/content/typescript/index.md ## Attaching
 // behavior to rows) merges in : its own `select` (absent defaults to `["*"]`, per query.ts's `select` doc
@@ -802,7 +900,7 @@ type IsNestedExpressionMap<E> = E extends { [name: string]: unknown }
     : true
   : false
 
-// Whether Obj[K]'s own expression, in WriteShapeFromExpressionMap below, must be marked mandatory. A join-backed
+// Whether Obj[K]'s own expression, in ExpressionMapShape's write branch below, must be marked mandatory. A join-backed
 // entry (BackingJoinOf) is unconditionally required. A column-backed entry (BackingColumnOf) is required iff
 // ReqCol names it. A nested object-literal entry has no single backing column OR join of its own — recurse into
 // its own recursively-computed write shape instead, and require the outer key iff that inner shape has at least
@@ -867,19 +965,6 @@ type WriteFullShape<
   ReqCol extends string = never,
 > = WriteOwnShape<Rel, ReqCol> & WriteJoinShapes<Rel, Join, Depth>
 
-// get is dropped (read-only) ; col/set are writable, same underlying column type as the read side.
-type WriteShapeFromFieldTag<
-  Tag extends "get" | "col" | "set",
-  Rest extends readonly unknown[],
-  Rel extends object,
-> = Tag extends "get"
-  ? Omitted
-  : Rest extends readonly [infer Col extends string, ...unknown[]]
-    ? Col extends keyof Rel
-      ? Rel[Col]
-      : unknown
-    : unknown
-
 // "."/"dot" on the write side — docs/content/query-language/writing.md ## Writability rules : "a physical
 // column is writable ... untransformed except by a coalescing operator, or set/col" and "a computed field ...
 // is never a write target" ; server/query/shape.go's own walkSelectForWritability mirrors this at the FoldDot
@@ -908,90 +993,6 @@ type WriteShapeFromDotTag<
 > = Rest extends readonly [infer Name extends string]
   ? WriteShapeFromDotSingleHop<Name, Rel, Join, Depth>
   : Omitted
-
-type WriteOwnFullBase<
-  Tag extends OwnFullTag,
-  Rel extends object,
-  Join extends { [name: string]: unknown },
-  Depth extends number,
-  ReqCol extends string,
-> = Tag extends "*~" ? WriteOwnShape<Rel, ReqCol> : WriteFullShape<Rel, Join, Depth, ReqCol>
-
-type WriteShapeFromOwnFullTag<
-  Tag extends OwnFullTag,
-  Rest extends readonly unknown[],
-  Rel extends object,
-  Join extends { [name: string]: unknown },
-  Depth extends number,
-  ReqCol extends string = never,
-> =
-  WriteOwnFullBase<Tag, Rel, Join, Depth, ReqCol> extends infer Base extends object
-    ? Omit<Base, ExceptFromRest<Rest>> &
-        WriteShapeFromExpressionMap<AndFromRest<Rest>, Rel, Join, Depth, ReqCol>
-    : never
-
-type WriteShapeFromContainerTag<
-  Tag extends ContainerTag,
-  Items extends readonly unknown[],
-  Rel extends object,
-  Join extends { [name: string]: unknown },
-  Depth extends number,
-  ReqCol extends string = never,
-> = Tag extends "coalesce"
-  ? WriteShapeFromExpression<Items[number], Rel, Join, Depth, ReqCol>
-  : { [I in keyof Items]: WriteShapeFromExpression<Items[I], Rel, Join, Depth, ReqCol> }
-
-// Same key-remap as ShapeFromExpressionMap, dropping `Omitted` entries (here that's a `get` tag instead of
-// `set`) — plus a required/optional split on top, via IsRequiredEntry : a key backed by a column ReqCol names
-// (BackingColumnOf) stays mandatory ; every other key, including one with no single backing column at all
-// (own/full never reach here — see WriteShapeFromOwnFullTag — but a computed/container value can), is optional.
-type WriteShapeFromExpressionMap<
-  Obj extends { [name: string]: unknown },
-  Rel extends object,
-  Join extends { [name: string]: unknown },
-  Depth extends number,
-  ReqCol extends string = never,
-> = Prettify<
-  {
-    [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
-      ? never
-      : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol> extends true
-        ? never
-        : K]?: WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol>
-  } & {
-    [K in keyof Obj as WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
-      ? never
-      : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol> extends true
-        ? K
-        : never]: WriteShapeFromExpression<Obj[K], Rel, Join, Depth, ReqCol>
-  }
->
-
-type WriteShapeFromExpression<
-  E,
-  Rel extends object,
-  Join extends { [name: string]: unknown },
-  Depth extends number = 12,
-  ReqCol extends string = never,
-> = Depth extends 0
-  ? unknown
-  : E extends readonly [infer Tag extends string, ...infer Rest extends readonly unknown[]]
-    ? Tag extends OwnFullTag
-      ? WriteShapeFromOwnFullTag<Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
-      : Tag extends "get" | "col" | "set"
-        ? WriteShapeFromFieldTag<Tag, Rest, Rel>
-        : Tag extends "." | "dot"
-          ? WriteShapeFromDotTag<Rest, Rel, Join, Digits[Depth]>
-          : Tag extends "$param"
-            ? ShapeFromParamTag<Rest>
-            : Tag extends ContainerTag
-              ? WriteShapeFromContainerTag<Tag, Rest, Rel, Join, Digits[Depth], ReqCol>
-              : Tag extends "call"
-                ? Omitted // never a real column (query-engine.md : "never a candidate for writability") ; dropped
-                : unknown // from the write shape entirely, same as `get` above, rather than kept with a nonsensical type.
-    : E extends { [name: string]: unknown }
-      ? WriteShapeFromExpressionMap<E, Rel, Join, Digits[Depth], ReqCol>
-      : ShapeFromLeaf<E>
 
 /**
  A bare top-level `get` has nowhere to drop its own key, same edge case ShapeFromRelationQuery guards against
@@ -1042,3 +1043,90 @@ export type WriteShapeFromQuery<
   Rel extends object = { [name: string]: unknown },
   ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
 > = WriteShapeFromRelationQuery<Q, Rel, 12, ReqCol>
+
+///////////////////////////////////////////////////////////////////////
+// init() : what `Querier.init()` returns, and how it rejects fields the write shape doesn't have.
+//
+// `Row` is the query's own write-shape row (WriteShapeFromQuery, one array level unwrapped) ; `D` is the type
+// the caller's literal was inferred as. Every key `D` actually carries becomes required in the result, with
+// `Row`'s own declared type for it ; every other key stays exactly as `Row` has it. Joins are followed (an
+// object for a to-one join, an array for a to-many one), so a nested row gets the same treatment.
+
+type Primitive = string | number | boolean | bigint | symbol | null | undefined
+
+// A nested value worth descending into : a plain row, not a column value that happens to be an object (a
+// `Temporal.Instant`-like class has methods ; a JSON column typed as a record has an index signature).
+// Neither can carry optional columns of its own, so leaving them alone loses nothing.
+type IsRowObject<R> = R extends Primitive
+  ? false
+  : R extends object
+    ? string extends keyof R
+      ? false
+      : [Extract<R[keyof R], (...args: never[]) => unknown>] extends [never]
+        ? true
+        : false
+    : false
+
+// Keys of `D` that are really there : a key whose type admits `undefined` (explicitly `undefined`, or missing
+// from some element of an array literal) doesn't count as provided. `null` is a real value and does.
+type ProvidedKeys<D, R> = {
+  [K in keyof D & keyof R]-?: undefined extends D[K] ? never : K
+}[keyof D & keyof R]
+
+type TightenValue<R, D> = R extends Primitive
+  ? R
+  : R extends readonly (infer RE)[]
+    ? [D] extends [readonly (infer DE)[]]
+      ? TightenRow<RE, DE, true>[]
+      : R
+    : IsRowObject<R> extends true
+      ? [D] extends [object]
+        ? TightenRow<R, D, true>
+        : R
+      : R
+
+// `Nested` is false for the root row only : a root row may legitimately carry `proto` methods, which
+// IsRowObject would otherwise read as "not a plain row".
+type TightenRow<R, D, Nested extends boolean = false> = Nested extends true
+  ? IsRowObject<R> extends true
+    ? TightenFields<R, D>
+    : R
+  : TightenFields<R, D>
+
+type TightenFields<R, D> = Prettify<
+  {
+    [K in keyof R as K extends ProvidedKeys<D, R> ? K : never]-?: TightenValue<
+      Exclude<R[K], undefined>,
+      D[K & keyof D]
+    >
+  } & {
+    [K in keyof R as K extends ProvidedKeys<D, R> ? never : K]: R[K]
+  }
+>
+
+/** The root row of a write shape (`WriteShape` is array-wrapped at the root). */
+export type WriteRowOf<W> = W extends readonly (infer Row)[] ? Row : W
+
+/** What `Querier.init()` returns for a `data` literal of type `D` : see the comment block above. */
+export type InitResult<W, D> = TightenRow<WriteRowOf<W>, D>
+
+type StrictValue<R, D> = [Exclude<R, null | undefined>] extends [infer RV]
+  ? RV extends readonly (infer RE)[]
+    ? [D] extends [readonly (infer DE)[]]
+      ? StrictFields<RE, DE>[]
+      : unknown
+    : IsRowObject<RV> extends true
+      ? [D] extends [object]
+        ? StrictFields<RV, D>
+        : unknown
+      : unknown
+  : unknown
+
+// Mapping a key `Row` doesn't have to `never` is what makes TS flag *that key* when `D & Strict<...>` is
+// checked : generic parameters don't get excess-property checks on their own.
+type StrictFields<R, D> = {
+  [K in keyof D]: K extends keyof R ? StrictValue<R[K], D[K]> : never
+}
+
+/** Intersected with `data`'s own type in init()'s signature to reject keys the write shape doesn't have, at every level. */
+export type InitStrict<W, D> = StrictFields<WriteRowOf<W>, D>

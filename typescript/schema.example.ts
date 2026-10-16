@@ -70,7 +70,7 @@ export interface Relations {
 // The physical columns a write MUST supply a value for — not nullable, no default,
 // not identity/generated. `id` is excluded everywhere here (`serial`/identity in the real schema) ; `star_rating`/
 // `chain_id`/`location`/`description`/`created_at`/`floor`/`status`/`features` are all either nullable or
-// defaulted, so they're excluded too — see shapes.ts's WriteOwnShape/WriteShapeFromExpressionMap for how this
+// defaulted, so they're excluded too — see shapes.ts's WriteOwnShape/ExpressionMapShape for how this
 // gets applied.
 export interface RequiredColumns {
   "hotel.properties": "name"
