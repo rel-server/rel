@@ -3086,6 +3086,12 @@ the binary itself, if you want it without leaving a terminal.</p>
 <td>Max connections in the pool serving requests. Startup introspection uses one short-lived connection regardless.</td>
 </tr>
 <tr>
+<td><code>pg.connect_timeout</code></td>
+<td><code>REL_PG__CONNECT_TIMEOUT</code></td>
+<td><code>30</code> (seconds)</td>
+<td>How long startup keeps retrying while Postgres is unreachable or still starting up (also applies to <code>--typescript-out</code>). <code>0</code> tries once. Wrong credentials or a missing database fail immediately. Reloads never retry.</td>
+</tr>
+<tr>
 <td><code>pg.query.anonymous_role</code></td>
 <td><code>REL_PG__QUERY__ANONYMOUS_ROLE</code></td>
 <td><code>~anonymous</code></td>
