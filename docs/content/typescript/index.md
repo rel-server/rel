@@ -435,6 +435,34 @@ the natural counterpart for a span rather than a point in time. It assumes the s
 via its own ISO 8601 `.toString()` (e.g. `"P1DT2H3M4S"`), which Postgres's interval parser accepts
 regardless of the session's output-side `IntervalStyle`.
 
+### Table-local id types
+
+A column Postgres fills in from a sequence (`serial`, `bigserial`, `smallserial`, or `GENERATED ... AS IDENTITY`)
+gets its own type, so an id from one table can't be passed where another table's id is expected. Every
+foreign key column that references one gets the same type as the column it references: a composite key is
+matched column by column, and a chain of foreign keys is followed to its end.
+
+```ts
+import type { Id } from "./database"
+
+type PropertyId = Id["hotel.properties.id"] // number & { readonly __id: "hotel.properties.id" }
+
+const room = (await rooms.get())[0]
+room.property_id // PropertyId: it references hotel.properties (id)
+
+const n: number = room.property_id // fine: an id is still a number
+const bad: PropertyId = 1 as number // error: a plain number is not an id
+const wrong: Id["hotel.room_types.id"] = room.property_id // error: another table's id
+const literal = 1 as PropertyId // a literal id is cast explicitly
+```
+
+- `Id` is keyed by the column's raw `schema.table.column`, so typing `Id["` suggests every id in the schema.
+- An id converts to its bare type (`number`, or `Int8` for a `bigserial`), never the other way round.
+- A foreign key whose type differs from the column it references (an `int` pointing at a `bigserial`) stays a plain type, since the wire values aren't the same kind.
+- A column that is both serial and a foreign key keeps its own type.
+- Views, function arguments and function results keep the plain `number`/`Int8`: they accept an id but don't produce one.
+- Nothing changes at runtime. The id type only exists in the type checker, so `1 as PropertyId` is free.
+
 ## Calling a function directly
 
 `func()` builds a `Querier` you can still shape with `select`/`join`/`where`, the same as `relation()`. When you

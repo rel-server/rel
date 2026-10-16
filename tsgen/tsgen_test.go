@@ -379,3 +379,38 @@ func assertTypeChecks(t *testing.T, out string) {
 		t.Fatalf("generated database.ts failed to type-check :\n%s\n\n--- source ---\n%s", outBytes, out)
 	}
 }
+
+// TestGenerateSchema_TableLocalIds is tsgen/ids.go : every serial/identity column gets its own `Id` entry, and a
+// foreign key column follows the column it references (pairwise for a composite key, through chains), unless its
+// wire representation differs from the root's.
+func TestGenerateSchema_TableLocalIds(t *testing.T) {
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
+
+	for _, want := range []string{
+		"export interface Id {",
+		`"hotel.properties.id": number & { readonly __id: "hotel.properties.id" }`,
+		`"hotel.ledgers.id": Int8 & { readonly __id: "hotel.ledgers.id" }`,
+		`"hotel.ledger_entries.id": number & { readonly __id: "hotel.ledger_entries.id" }`,
+		`"hotel.composite_parent.a": number & { readonly __id: "hotel.composite_parent.a" }`,
+		// own id columns
+		"  id: Id[\"hotel.properties.id\"]\n",
+		"  id: Id[\"hotel.ledgers.id\"]\n",
+		"  id: Id[\"hotel.ledger_entries.id\"]\n",
+		// plain FK, nullable FK, same-table (self-referencing) FK
+		"  property_id: Id[\"hotel.properties.id\"]\n",
+		"  ledger_id: Id[\"hotel.ledgers.id\"]\n",
+		"  prev_entry_id: Id[\"hotel.ledger_entries.id\"] | null\n",
+		"  entry_id: Id[\"hotel.ledger_entries.id\"]\n",
+		// composite FK: only the column whose target is serial gets a type
+		"  pa: Id[\"hotel.composite_parent.a\"]\n",
+		"  pb: number\n",
+		// int referencing a bigserial : different wire type, left plain
+		"  narrow_ledger_id: number | null\n",
+		// not an id at all
+		"  star_rating: number | null\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated schema missing %q ; got:\n%s", want, out)
+		}
+	}
+}

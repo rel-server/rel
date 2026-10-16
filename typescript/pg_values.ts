@@ -20,6 +20,18 @@ export type Money = string & { readonly __pg: "money" }
 export type Int8 = string & { readonly __pg: "int8" }
 export type PgNumeric = string & { readonly __pg: "numeric" }
 
+// ---- Table-local id types ----
+
+/**
+ Id types of the serial/bigserial/identity columns (and of the foreign keys pointing at them), keyed by the raw
+ "schema.table.column" of the serial/identity column. Declared empty here and filled in by the generated schema
+ (tsgen/ids.go) : `Id["hotel.properties.id"]` is `number & { readonly __id: "hotel.properties.id" }`, or the
+ same over `Int8` for a bigserial. An id assigns to a bare `number`/`Int8`, never the other way round, and never
+ to another table's id : write `1 as Id["hotel.properties.id"]` for a literal.
+ */
+// biome-ignore lint/suspicious/noEmptyInterface: filled in by the generated schema through declaration merging
+export interface Id {}
+
 // ---- Range types ----
 
 export type Int4Range = string & { readonly __pg: "int4range" }

@@ -6,7 +6,7 @@
 // A type-only cycle with shapes.ts (which itself imports Functions/Relationships/Wellknowns etc. from here) : legal
 // in TS, since types are erased before this matters at runtime.
 import type { ResolveModel, RootShapeFromLiteralQuery, WriteShapeFromRelationQuery } from "./shapes"
-import type { Int8, Money, PgDate, PgNumeric, PgPoint, Timestamptz } from "./pg_values"
+import type { Id, Int8, Money, PgDate, PgNumeric, PgPoint, Timestamptz } from "./pg_values"
 
 // A bare `{}` type accepts anything non-null (biome's noBannedTypes) ; tsgen generates this instead for an
 // actually-empty object shape (a zero-argument function's own `args`, a zero-column relation/composite type —
@@ -16,13 +16,24 @@ import type { Int8, Money, PgDate, PgNumeric, PgPoint, Timestamptz } from "./pg_
 // Functions`, ...), and `keyof Record<string, never>` is `string`, not `never`.
 type EmptyObject = Record<string, never>
 
+// Table-local id types (tsgen/ids.go) : one entry per serial/identity column. The generated database.ts merges
+// these into pg_values.ts's own `Id` plainly (same file) ; this fixture lives in a separate module, hence the
+// augmentation.
+declare module "./pg_values" {
+  interface Id {
+    "hotel.properties.id": number & { readonly __id: "hotel.properties.id" }
+    "hotel.room_types.id": number & { readonly __id: "hotel.room_types.id" }
+    "hotel.property_settings.id": number & { readonly __id: "hotel.property_settings.id" }
+  }
+}
+
 // A pg enum : Type__<Schema>__<Name>, same as Table__/View__.
 type Type__Hotel__RoomStatus = "clean" | "dirty"
 
 interface Table__Hotel__Rooms {
   /* same goes for columns */
-  property_id: number // not null references hotel.properties (id),
-  room_type_id: number // not null references hotel.room_types (id),
+  property_id: Id["hotel.properties.id"] // not null references hotel.properties (id),
+  room_type_id: Id["hotel.room_types.id"] // not null references hotel.room_types (id),
   room_number: string
   floor: number | null
   status: Type__Hotel__RoomStatus // default 'clean', //: should we handle default creation client-side ?
@@ -31,7 +42,7 @@ interface Table__Hotel__Rooms {
 
 interface Table__Hotel__Properties {
   /** And comments for each column are added */
-  id: number
+  id: Id["hotel.properties.id"]
   chain_id: number | null
   name: string
   location: PgPoint
@@ -43,7 +54,7 @@ interface Table__Hotel__Properties {
 // A second relation `hotel.rooms` has a FK into, alongside `hotel.properties` — exists specifically so
 // `Relationships["hotel.rooms"]` below has two variants to disambiguate, not just one.
 interface Table__Hotel__RoomTypes {
-  id: number
+  id: Id["hotel.room_types.id"]
   name: string
   base_price: PgNumeric
   deposit: Money | null
@@ -55,8 +66,8 @@ interface Table__Hotel__RoomTypes {
 // nothing guarantees a matching row exists ; that join must type as nullable unconditionally, regardless of any
 // column's own nullability, unlike the outgoing direction below (see example.ts's own assertions on this).
 interface Table__Hotel__PropertySettings {
-  id: number
-  property_id: number // not null, unique references hotel.properties (id)
+  id: Id["hotel.property_settings.id"]
+  property_id: Id["hotel.properties.id"] // not null, unique references hotel.properties (id)
   currency: string
 }
 

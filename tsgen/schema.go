@@ -76,6 +76,7 @@ func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) str
 	for _, r := range relations {
 		allowed[r] = true
 	}
+	tc.ids = newIdResolver(db, relations, tc)
 
 	relInterfaces := renderRelationInterfaces(relations, tc)
 	relationsMap := renderRelationsMap(relations)
@@ -100,6 +101,7 @@ func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) str
 	// falling back to DefaultRow/unknown.
 	b.WriteString("type EmptyObject = Record<string, never>\n\n")
 	b.WriteString(tc.declarations())
+	b.WriteString(tc.ids.declaration())
 	b.WriteString(relInterfaces)
 	b.WriteString(relationsMap)
 	b.WriteString(requiredColumns)

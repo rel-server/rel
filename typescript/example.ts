@@ -13,7 +13,7 @@ import type {
   ResolveModel,
   RootShapeFromFunctionMember,
 } from "./shapes"
-import type { Int8, PgNumeric, PgPoint } from "./pg_values"
+import type { Id, Int8, PgNumeric, PgPoint } from "./pg_values"
 import {
   asNumeric,
   bytesAccessor,
@@ -21,6 +21,10 @@ import {
   pointAccessor,
   timestampTzAccessor,
 } from "./pg_values"
+
+// Ids are table-local (pg_values.ts's `Id`) : a bare literal isn't one, so a literal id is cast explicitly.
+const PROPERTY_1 = 1 as Id["hotel.properties.id"]
+const ROOM_TYPE_1 = 1 as Id["hotel.room_types.id"]
 
 const properties = relation("hotel.properties", {
   select: {
@@ -322,7 +326,7 @@ function _neverRun_callChecks() {
   // MatchOverload (shapes.ts) must resolve each call to its OWN overload's return type, not a union of both.
   const avgByRow = call("hotel.property_average_rating", {
     property: {
-      id: 1,
+      id: PROPERTY_1,
       chain_id: null,
       name: "x",
       location: "(0,0)" as PgPoint,
@@ -556,8 +560,8 @@ void assertAccessorIsWritable
 // init()'s own `data` parameter must supply both as a single nested row, not `[]`, and that nested row's own
 // shape must already match its relation's WriteShape (own columns only, per `select: ["*~"]` on both joins).
 const createdRoom = rooms.init({
-  property_id: 1,
-  room_type_id: 1,
+  property_id: PROPERTY_1,
+  room_type_id: ROOM_TYPE_1,
   room_number: "101",
   property: { name: "Marina Bay Grand Hotel" },
   room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
@@ -573,7 +577,7 @@ export type _AssertCreateNestedToOneHasOwnColumn = Expect<HasKey<typeof createdR
 // that omits "rooms".)
 const createdProperty = propertyWithNestedProto.init({
   name: "Marina Bay Grand Hotel",
-  rooms: [{ property_id: 1, room_type_id: 1, room_number: "101" }],
+  rooms: [{ property_id: PROPERTY_1, room_type_id: ROOM_TYPE_1, room_number: "101" }],
 })
 
 export type _AssertCreateNestedToManyIsArray = Expect<
@@ -1075,14 +1079,14 @@ void propertyWithNestedProto.write([initWithRating])
 // Joined rows get the same treatment, in a to-many array and in a to-one object.
 const initNestedMany = propertyWithNestedProto.init({
   name: "x",
-  rooms: [{ property_id: 1, room_type_id: 1, room_number: "101", floor: 2 }],
+  rooms: [{ property_id: PROPERTY_1, room_type_id: ROOM_TYPE_1, room_number: "101", floor: 2 }],
 })
 export type _AssertInitNestedManyProvidedBecomesRequired = Expect<
   OptionalKey<(typeof initNestedMany.rooms)[number], "floor"> extends false ? true : false
 >
 const initNestedOne = rooms.init({
-  property_id: 1,
-  room_type_id: 1,
+  property_id: PROPERTY_1,
+  room_type_id: ROOM_TYPE_1,
   room_number: "101",
   property: { name: "x", star_rating: 3 },
   room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
@@ -1112,8 +1116,8 @@ function assertInitRejectsBogusFields() {
     name: "x",
     rooms: [
       {
-        property_id: 1,
-        room_type_id: 1,
+        property_id: PROPERTY_1,
+        room_type_id: ROOM_TYPE_1,
         room_number: "1",
         // @ts-expect-error `bogus` isn't a column of the joined row
         bogus: 1,
@@ -1121,8 +1125,8 @@ function assertInitRejectsBogusFields() {
     ],
   })
   rooms.init({
-    property_id: 1,
-    room_type_id: 1,
+    property_id: PROPERTY_1,
+    room_type_id: ROOM_TYPE_1,
     room_number: "1",
     // @ts-expect-error `bogus` isn't a column of the to-one joined row
     property: { name: "x", bogus: 1 },
@@ -1130,3 +1134,46 @@ function assertInitRejectsBogusFields() {
   })
 }
 void assertInitRejectsBogusFields
+
+// pg_values.ts's `Id` : table-local ids (docs/content/typescript/index.md ### Table-local id types).
+type PropertyId = Id["hotel.properties.id"]
+type RoomTypeId = Id["hotel.room_types.id"]
+
+// Assignable to the bare int type, never the other way round, never to another table's id.
+export type _AssertIdWidensToBareNumber = Expect<PropertyId extends number ? true : false>
+export type _AssertBareNumberIsNotAnId = Expect<number extends PropertyId ? false : true>
+export type _AssertIdsOfDifferentTablesDiffer = Expect<PropertyId extends RoomTypeId ? false : true>
+
+// Same for a bigserial : the id is an Int8 (a string on the wire) plus the table tag. Spelled the way
+// tsgen/ids.go generates it, since the fixture schema has no bigserial.
+type LedgerId = Int8 & { readonly __id: "hotel.ledgers.id" }
+export type _AssertBigIdWidensToBareInt8 = Expect<LedgerId extends Int8 ? true : false>
+export type _AssertBareInt8IsNotAnId = Expect<Int8 extends LedgerId ? false : true>
+export type _AssertBigIdIsNotAnotherTablesId = Expect<LedgerId extends PropertyId ? false : true>
+
+// A foreign key column carries the id type of the column it references, in reads and in writes.
+type RoomReadShape = Awaited<ReturnType<typeof rooms.get>>[number]
+export type _AssertForeignKeyFollowsReferencedId = Expect<
+  RoomReadShape["property_id"] extends PropertyId ? true : false
+>
+export type _AssertForeignKeyIsNotAnotherTablesId = Expect<
+  RoomReadShape["property_id"] extends RoomTypeId ? false : true
+>
+
+function assertIdMixups() {
+  const propertyId: PropertyId = PROPERTY_1
+  const asNumber: number = propertyId
+  void asNumber
+  // @ts-expect-error a bare number isn't an id
+  const fromNumber: PropertyId = 1 as number
+  void fromNumber
+  // @ts-expect-error another table's id isn't a properties id
+  const wrongTable: PropertyId = ROOM_TYPE_1
+  void wrongTable
+  // @ts-expect-error a cast can't launder one table's id into another's either
+  void (PROPERTY_1 as RoomTypeId)
+  const bigId = "5" as LedgerId
+  const asInt8: Int8 = bigId
+  void asInt8
+}
+void assertIdMixups

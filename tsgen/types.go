@@ -102,6 +102,8 @@ var baseScalarTypes = map[string]string{
 // walking column/argument types, de-duplicated by "schema.name" — a type
 // referenced from two different columns must only be declared once.
 type typeCollector struct {
+	// ids is set by GenerateSchema once the target relations are known ; nil leaves every column untouched.
+	ids   *idResolver
 	seen  map[string]bool
 	order []string
 	decls map[string]string
@@ -205,6 +207,9 @@ func docComment(s, indent string) string {
 // (specs/typescript.md ## Schema interfaces ## Column typing).
 func columnTSType(c *pg.Column, tc *typeCollector) string {
 	expr := tsTypeExpr(c.Type, tc)
+	if id := tc.ids.typeExpr(c); id != "" {
+		expr = id
+	}
 	if c.IsReallyNotNull() {
 		return expr
 	}

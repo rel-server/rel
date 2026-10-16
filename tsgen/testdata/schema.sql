@@ -132,3 +132,31 @@ create function alt.property_score(p hotel.properties) returns int
 	language sql as $$ select 0 $$;
 
 alter role all set search_path to alt, hotel, public;
+
+-- Table-local id types (tsgen/ids.go) : a bigserial root, an identity root, a bigint FK that follows the
+-- bigserial, an int FK onto the bigserial (different wire type, must stay plain), a chain (FK -> FK ->
+-- serial), and a composite FK whose first column follows a serial root while the other doesn't.
+create table hotel.ledgers (
+	id bigserial primary key,
+	label text not null
+);
+create table hotel.ledger_entries (
+	id int generated always as identity primary key,
+	ledger_id bigint not null references hotel.ledgers (id),
+	narrow_ledger_id int references hotel.ledgers (id),
+	prev_entry_id int references hotel.ledger_entries (id)
+);
+create table hotel.ledger_notes (
+	entry_id int not null references hotel.ledger_entries (id),
+	next_entry_id int references hotel.ledger_entries (id)
+);
+create table hotel.composite_parent (
+	a serial,
+	b int,
+	primary key (a, b)
+);
+create table hotel.composite_child (
+	pa int not null,
+	pb int not null,
+	foreign key (pa, pb) references hotel.composite_parent (a, b)
+);
