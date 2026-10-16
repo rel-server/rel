@@ -256,7 +256,9 @@ export type RootShapeFromLiteralQuery<
 // Record<keyof any, never>/{[name: string]: unknown} (biome's own suggested replacements) both have `keyof` =
 // string|number(|symbol) instead, which would map to a bogus index signature on FullShape for every query that
 // joins nothing at all.
-type ExtractJoinMap<Q> = Q extends { join: infer J extends { [name: string]: RelationQuery } }
+export type ExtractJoinMap<Q> = Q extends {
+  join: infer J extends { [name: string]: RelationQuery }
+}
   ? J
   : // biome-ignore lint/complexity/noBannedTypes: see above — `{}` is deliberate here, not a placeholder
     {}
@@ -401,12 +403,12 @@ type ShapeFromLeaf<E> = E extends null
 // single-hop only, computed fields dropped) and `"call"` (never writable at all) stay as two separate branches
 // in ExpressionShape's own dispatcher, below, rather than folding that asymmetry into every shared helper here.
 //
-// "init" is "write" plus the `proto` members `init()` (querier.ts) attaches to a row : every check below tests
+// "draft" is "write" plus the `proto` members `draft()` (querier.ts) attaches to a row : every check below tests
 // `M extends "read"`, so it dispatches exactly like "write" ; only the places that wrap a node's shape in its
 // `proto` (WriteShapeFromRelationQuery) tell them apart, through ProtoFlag.
-type Mode = "read" | "write" | "init"
+type Mode = "read" | "write" | "draft"
 
-type ProtoFlag<M extends Mode> = M extends "init" ? true : false
+type ProtoFlag<M extends Mode> = M extends "draft" ? true : false
 
 // "*"/"*~" (full/own) resolve to the same base shape either way ; the optional trailing [except?, and?] args are
 // dispatched by shape (array vs object), not position, so either may be given alone or both together. `ReqCol`
@@ -687,7 +689,7 @@ type WriteShapeFromExpression<
   Depth extends number = 12,
   ReqCol extends string = never,
   WithProtoMembers extends boolean = false,
-> = ExpressionShape<WithProtoMembers extends true ? "init" : "write", E, Rel, Join, Depth, ReqCol>
+> = ExpressionShape<WithProtoMembers extends true ? "draft" : "write", E, Rel, Join, Depth, ReqCol>
 
 // The JSON result shape of one RelationQuery node, before `proto` (docs/content/typescript/index.md ## Attaching
 // behavior to rows) merges in : its own `select` (absent defaults to `["*"]`, per query.ts's `select` doc
@@ -1106,20 +1108,20 @@ export type WriteShapeFromQuery<
 > = WriteShapeFromRelationQuery<Q, Rel, 12, ReqCol>
 
 /**
- The row `init()` (querier.ts) returns : WriteShapeFromQuery plus every `proto` member — the node's own, and each
- join's, recursively — since init() is what attaches the prototype. A `proto` member is NEVER part of
+ The row `draft()` (querier.ts) returns : WriteShapeFromQuery plus every `proto` member — the node's own, and each
+ join's, recursively — since draft() is what attaches the prototype. A `proto` member is NEVER part of
  WriteShapeFromQuery itself : it isn't a column, an accessor's setter only runs on assignment (a key in an object
  literal would shadow the accessor with a plain property, and be sent to the server as an unknown field), and
  nothing says which column a setter writes, so it can't count toward a required column either.
  */
-export type InitShapeFromQuery<
+export type DraftShapeFromQuery<
   Q,
   Rel extends object = { [name: string]: unknown },
   ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
 > = WriteShapeFromRelationQuery<Q, Rel, 12, ReqCol, true>
 
 ///////////////////////////////////////////////////////////////////////
-// init() : what `Querier.init()` returns, and how it rejects fields the write shape doesn't have.
+// draft() : what `Querier.draft()` returns, and how it rejects fields the write shape doesn't have.
 //
 // `Row` is the query's own write-shape row (WriteShapeFromQuery, one array level unwrapped) ; `D` is the type
 // the caller's literal was inferred as. Every key `D` actually carries becomes required in the result, with
@@ -1151,7 +1153,10 @@ type TightenValue<R, D> = R extends Primitive
   ? R
   : R extends readonly (infer RE)[]
     ? [D] extends [readonly (infer DE)[]]
-      ? TightenRow<RE, DE, true>[]
+      ? // `[]` infers its element as `never`, and `keyof never` is every key : nothing was supplied, so keep R as is
+        [DE] extends [never]
+        ? R
+        : TightenRow<RE, DE, true>[]
       : R
     : IsRowObject<R> extends true
       ? [D] extends [object]
@@ -1181,8 +1186,8 @@ type TightenFields<R, D> = Prettify<
 /** The root row of a write shape (`WriteShape` is array-wrapped at the root). */
 export type WriteRowOf<W> = W extends readonly (infer Row)[] ? Row : W
 
-/** What `Querier.init()` returns for a `data` literal of type `D` : see the comment block above. */
-export type InitResult<W, D> = TightenRow<WriteRowOf<W>, D>
+/** What `Querier.draft()` returns for a `data` literal of type `D` : see the comment block above. */
+export type DraftResult<W, D> = TightenRow<WriteRowOf<W>, D>
 
 type StrictValue<R, D> = [Exclude<R, null | undefined>] extends [infer RV]
   ? RV extends readonly (infer RE)[]
@@ -1202,5 +1207,31 @@ type StrictFields<R, D> = {
   [K in keyof D]: K extends keyof R ? StrictValue<R[K], D[K]> : never
 }
 
-/** Intersected with `data`'s own type in init()'s signature to reject keys the write shape doesn't have, at every level. */
-export type InitStrict<W, D> = StrictFields<WriteRowOf<W>, D>
+/** Intersected with `data`'s own type in draft()'s signature to reject keys the write shape doesn't have, at every level. */
+export type DraftStrict<W, D> = StrictFields<WriteRowOf<W>, D>
+
+///////////////////////////////////////////////////////////////////////
+// draftNested() : addressing a row that sits inside a query's join tree.
+
+/**
+ Every path of join aliases through Q's join tree, as a tuple (`["rooms"]`, `["rooms", "beds"]`, ...). Built from
+ the query's own `join` map, not from the row type, so only join aliases are offered, never a column. Depth-limited
+ because a self-join tree is otherwise unbounded.
+ */
+export type JoinPaths<Q, Depth extends number = 6> = Depth extends 0
+  ? never
+  : {
+      [A in keyof ExtractJoinMap<Q> & string]:
+        | [A]
+        | [A, ...JoinPaths<ExtractJoinMap<Q>[A], Digits[Depth]>]
+    }[keyof ExtractJoinMap<Q> & string]
+
+// One step down a join : the row inside a to-many array, or inside a nullable to-one.
+type JoinedRow<T> = NonNullable<T> extends readonly (infer E)[] ? E : NonNullable<T>
+
+/** The row reached by following the join aliases in `P` from row `R`. */
+export type RowAtPath<R, P extends readonly unknown[]> = P extends readonly [infer K, ...infer Rest]
+  ? K extends keyof R
+    ? RowAtPath<JoinedRow<R[K]>, Rest>
+    : never
+  : R

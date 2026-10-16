@@ -223,7 +223,7 @@ describe("functions", () => {
   })
 })
 
-// ---- writes, init(), proto accessors ----
+// ---- writes, draft(), proto accessors ----
 
 const writableProperties = relation("hotel.properties", {
   proto: { ...timestampTzAccessor("created_at") },
@@ -232,11 +232,11 @@ const writableProperties = relation("hotel.properties", {
 let uniqueCounter = 0
 const uniqueName = (prefix: string) => `${prefix} ${Date.now()} ${uniqueCounter++}`
 
-describe("init() and write()", () => {
-  test("a row built with init() round-trips through write()", async () => {
+describe("draft() and write()", () => {
+  test("a row built with draft() round-trips through write()", async () => {
     const name = uniqueName("Round trip")
-    const row = writableProperties.init({ name, star_rating: 4 })
-    // init() kept what was passed : star_rating is required on the returned row
+    const row = writableProperties.draft({ name, star_rating: 4 })
+    // draft() kept what was passed : star_rating is required on the returned row
     type _ = Expect<Equal<undefined extends (typeof row)["star_rating"] ? true : false, false>>
     expect(row.star_rating).toBe(4)
 
@@ -253,8 +253,8 @@ describe("init() and write()", () => {
     expect(found).toHaveLength(1)
   })
 
-  test("a writable accessor assigned after init() reaches the server through its setter", async () => {
-    const row = writableProperties.init({ name: uniqueName("Accessor") })
+  test("a writable accessor assigned after draft() reaches the server through its setter", async () => {
+    const row = writableProperties.draft({ name: uniqueName("Accessor") })
     // not an own property : the prototype's setter runs, and writes the underlying column
     expect(Object.keys(row)).toEqual(["name"])
     row.created_at_as_date = Temporal.Instant.from("2020-01-01T00:00:00Z")
@@ -298,5 +298,46 @@ describe("baseUrl", () => {
     const q = relation("hotel.properties")
     q.baseUrl = `${Querier.prototype.baseUrl}/`
     expect(await q.get()).not.toHaveLength(0)
+  })
+})
+
+describe("draftNested()", () => {
+  const propertyWithRooms = relation("hotel.properties", {
+    join: {
+      rooms: join("hotel.properties", "hotel.rooms*id:property_id", {
+        select: ["*~"],
+        proto: {
+          get label(): string {
+            return `room ${this.room_number}`
+          },
+        },
+      }),
+    },
+  })
+
+  test("builds a nested row with the join's proto, written through the parent", async () => {
+    const [roomType] = await relation("hotel.room_types").get()
+    if (!roomType) throw new Error("fixture room type missing")
+
+    // no property_id : the parent supplies it on write
+    const room = propertyWithRooms.draftNested(["rooms"], {
+      room_type_id: roomType.id,
+      room_number: "N-1",
+    })
+    expect(room.label).toBe("room N-1")
+
+    // a nested draft carries proto members, which draft()'s own data may not : it goes in through the parent's array
+    const parent = propertyWithRooms.draft({ name: uniqueName("Nested"), rooms: [] })
+    parent.rooms.push(room)
+    const [written] = await propertyWithRooms.write([parent])
+    expect(written?.rooms).toHaveLength(1)
+    expect(written?.rooms[0]?.room_number).toBe("N-1")
+    expect(written?.rooms[0]?.label).toBe("room N-1")
+  })
+
+  test("an unknown join alias in the path throws", () => {
+    expect(() => propertyWithRooms.draftNested(["nope"] as never, {} as never)).toThrow(
+      /no join "nope"/,
+    )
   })
 })

@@ -5,7 +5,6 @@
 // real `fetch()` — so this file is safe to simply import, not just type-check.
 
 import { call, func, join, relation, wellknown } from "./querier"
-import type { ShapeOf, WriteShapeOf } from "./querier"
 import type { Functions } from "./schema.example"
 import type {
   DefaultRow,
@@ -45,18 +44,21 @@ const properties = relation("hotel.properties", {
 // shows up as a diff here, not just a passing compile.
 export type PropertiesShape = Awaited<ReturnType<typeof properties.get>>
 
-// docs/content/typescript/index.md ## Building a query : ShapeOf/WriteShapeOf pull Shape/WriteShape straight off
-// a Querier's own type, an alternative to `Awaited<ReturnType<typeof q.get>>` above — asserted structurally
-// identical to it here, not just "compiles", since the two are meant to be interchangeable.
-export type PropertiesShapeOf = ShapeOf<typeof properties>
-export type PropertiesWriteShapeOf = WriteShapeOf<typeof properties>
+// docs/content/typescript/index.md ### Naming a row's type : `typeof q.$row` is one row of what get() returns —
+// asserted structurally identical to it here, not just "compiles", since the two are meant to be interchangeable.
+export type PropertiesRow = typeof properties.$row
 
-export type _AssertShapeOfMatchesGetReturn = Expect<
-  [PropertiesShapeOf] extends [PropertiesShape]
-    ? [PropertiesShape] extends [PropertiesShapeOf]
+export type _AssertRowMatchesGetReturn = Expect<
+  [PropertiesRow] extends [PropertiesShape[number]]
+    ? [PropertiesShape[number]] extends [PropertiesRow]
       ? true
       : false
     : false
+>
+
+// A fetched row is assignable to a draft : `$draft` is the write shape plus `proto`, and a row has every column.
+export type _AssertRowAssignableToDraft = Expect<
+  [typeof properties.$row] extends [typeof properties.$draft] ? true : false
 >
 
 const rooms = relation("hotel.rooms", {
@@ -403,7 +405,7 @@ function assertPointAccessorIsReadonly(row: PropertyWithAccessorShape[number]) {
 void assertPointAccessorIsReadonly
 
 // shapes.ts's InitShapeFromQuery doc comment : a `proto` member is never part of the write shape — it isn't a
-// column, and a key in an object literal would shadow the accessor — but init() returns the row with them.
+// column, and a key in an object literal would shadow the accessor — but draft() returns the row with them.
 export type PropertyWithAccessorWriteShape = Parameters<
   typeof propertyWithAccessor.write
 >[0][number]
@@ -415,15 +417,15 @@ export type _AssertWriteShapeHasNoGetOnlyAccessor = Expect<
   HasKey<PropertyWithAccessorWriteShape, "location_as_point"> extends false ? true : false
 >
 
-function assertInitRowAccessors() {
-  const row = propertyWithAccessor.init({ name: "x" })
+function assertDraftRowAccessors() {
+  const row = propertyWithAccessor.draft({ name: "x" })
   row.created_at_as_date = Temporal.Now.instant() // get+set : assignable
-  // @ts-expect-error location_as_point is get-only, assigning it is a compile error on init()'s row too
+  // @ts-expect-error location_as_point is get-only, assigning it is a compile error on draft()'s row too
   row.location_as_point = { x: 0, y: 0 }
-  // an init() row is still accepted by write()
+  // an draft() row is still accepted by write()
   void propertyWithAccessor.write([row])
 }
-void assertInitRowAccessors
+void assertDraftRowAccessors
 
 // moneyAccessor/bytesAccessor (## Reusable helpers, remaining work) — both get+set, same pattern as
 // timestampTzAccessor.
@@ -559,9 +561,9 @@ function assertAccessorIsWritable(row: PropertyWithAccessorShape[number]) {
 void assertAccessorIsWritable
 
 // docs/content/typescript/index.md ### Building a new row : `rooms` joins "property"/"room_type" outgoing (">", to-one) —
-// init()'s own `data` parameter must supply both as a single nested row, not `[]`, and that nested row's own
+// draft()'s own `data` parameter must supply both as a single nested row, not `[]`, and that nested row's own
 // shape must already match its relation's WriteShape (own columns only, per `select: ["*~"]` on both joins).
-const createdRoom = rooms.init({
+const createdRoom = rooms.draft({
   property_id: PROPERTY_1,
   room_type_id: ROOM_TYPE_1,
   room_number: "101",
@@ -574,10 +576,10 @@ export type _AssertCreateNestedToOneIsObject = Expect<
 >
 export type _AssertCreateNestedToOneHasOwnColumn = Expect<HasKey<typeof createdRoom.property, "id">>
 
-// `propertyWithNestedProto` joins "rooms" incoming-and-multiple ("*", to-many) — init()'s own `data` parameter
+// `propertyWithNestedProto` joins "rooms" incoming-and-multiple ("*", to-many) — draft()'s own `data` parameter
 // must supply it as an array. (Unlike `properties`, its select defaults to "*" rather than an expression map
 // that omits "rooms".)
-const createdProperty = propertyWithNestedProto.init({
+const createdProperty = propertyWithNestedProto.draft({
   name: "Marina Bay Grand Hotel",
   rooms: [{ property_id: PROPERTY_1, room_type_id: ROOM_TYPE_1, room_number: "101" }],
 })
@@ -586,9 +588,9 @@ export type _AssertCreateNestedToManyIsArray = Expect<
   typeof createdProperty.rooms extends readonly unknown[] ? true : false
 >
 
-// init()'s own returned row carries the same `proto` accessors a read row does, writable the same way.
+// draft()'s own returned row carries the same `proto` accessors a read row does, writable the same way.
 function assertCreatedRowAccessorIsWritable() {
-  const createdPropertyWithAccessor = propertyWithAccessor.init({
+  const createdPropertyWithAccessor = propertyWithAccessor.draft({
     name: "Marina Bay Grand Hotel",
   })
   createdPropertyWithAccessor.created_at_as_date = Temporal.Now.instant()
@@ -668,9 +670,9 @@ void roomsWithDot
 void propertyWithDotJoinAndComputed
 
 // Write side mirrors the read side (shapes.ts's WriteShapeFromDotTag) : same ShapeFromExpression-dispatcher gap,
-// so pre-fix a `.`-selected column/join fell through to `unknown` in init()/write() too, even though a
+// so pre-fix a `.`-selected column/join fell through to `unknown` in draft()/write() too, even though a
 // single-hop `.` reference to a real column is just as writable as `col`/`set` (server/query/shape.go's
-// walkSelectForWritability records a plain *Identifier the same way) — this is the "init() types less strongly
+// walkSelectForWritability records a plain *Identifier the same way) — this is the "draft() types less strongly
 // than get()" regression, not a display-only issue like the hover one above.
 export type RoomsWithDotWriteShape = Parameters<typeof roomsWithDot.write>[0][number]
 export type _AssertDotColumnIsRequiredInWriteShape = Expect<
@@ -1054,10 +1056,10 @@ export type _AssertStarShortcutJoinKeyIsOptional = Expect<
     : false
 >
 
-// docs/content/typescript/index.md ### Building a new row : init() keeps what `data` carried. `star_rating` is
+// docs/content/typescript/index.md ### Building a new row : draft() keeps what `data` carried. `star_rating` is
 // optional in the write shape ; passing it makes it required on the returned row, leaving it out doesn't.
-const initBare = propertyWithNestedProto.init({ name: "Marina Bay Grand Hotel", rooms: [] })
-const initWithRating = propertyWithNestedProto.init({
+const draftBare = propertyWithNestedProto.draft({ name: "Marina Bay Grand Hotel", rooms: [] })
+const draftWithRating = propertyWithNestedProto.draft({
   name: "Marina Bay Grand Hotel",
   star_rating: 5,
   rooms: [],
@@ -1065,62 +1067,72 @@ const initWithRating = propertyWithNestedProto.init({
 
 type OptionalKey<T, K extends keyof T> = Record<never, never> extends Pick<T, K> ? true : false
 
-export type _AssertInitOmittedStaysOptional = Expect<OptionalKey<typeof initBare, "star_rating">>
-export type _AssertInitProvidedBecomesRequired = Expect<
-  OptionalKey<typeof initWithRating, "star_rating"> extends false ? true : false
+export type _AssertDraftOmittedStaysOptional = Expect<OptionalKey<typeof draftBare, "star_rating">>
+export type _AssertDraftProvidedBecomesRequired = Expect<
+  OptionalKey<typeof draftWithRating, "star_rating"> extends false ? true : false
 >
 // Declared column type, not the literal : the row stays assignable afterwards.
-export type _AssertInitProvidedKeepsColumnType = Expect<
-  [typeof initWithRating.star_rating] extends [number | null]
-    ? [number | null] extends [typeof initWithRating.star_rating]
+export type _AssertDraftProvidedKeepsColumnType = Expect<
+  [typeof draftWithRating.star_rating] extends [number | null]
+    ? [number | null] extends [typeof draftWithRating.star_rating]
       ? true
       : false
     : false
 >
 // An explicit `undefined` is not "provided".
-const initUndefined = propertyWithNestedProto.init({ name: "x", star_rating: undefined, rooms: [] })
-export type _AssertInitUndefinedStaysOptional = Expect<
-  OptionalKey<typeof initUndefined, "star_rating">
+const draftUndefined = propertyWithNestedProto.draft({
+  name: "x",
+  star_rating: undefined,
+  rooms: [],
+})
+export type _AssertDraftUndefinedStaysOptional = Expect<
+  OptionalKey<typeof draftUndefined, "star_rating">
 >
 
 // Still accepted by write(), the minimum viable shape.
-void propertyWithNestedProto.write([initWithRating])
+void propertyWithNestedProto.write([draftWithRating])
 
 // Joined rows get the same treatment, in a to-many array and in a to-one object.
-const initNestedMany = propertyWithNestedProto.init({
+const draftNestedMany = propertyWithNestedProto.draft({
   name: "x",
   rooms: [{ property_id: PROPERTY_1, room_type_id: ROOM_TYPE_1, room_number: "101", floor: 2 }],
 })
-export type _AssertInitNestedManyProvidedBecomesRequired = Expect<
-  OptionalKey<(typeof initNestedMany.rooms)[number], "floor"> extends false ? true : false
+export type _AssertDraftNestedManyProvidedBecomesRequired = Expect<
+  OptionalKey<(typeof draftNestedMany.rooms)[number], "floor"> extends false ? true : false
 >
-const initNestedOne = rooms.init({
+// An empty array supplies no element, so the elements keep their write shape (optional columns stay optional) :
+// a row built elsewhere can then be pushed into it.
+const draftEmptyMany = propertyWithNestedProto.draft({ name: "x", rooms: [] })
+export type _AssertDraftEmptyArrayKeepsElementOptional = Expect<
+  OptionalKey<(typeof draftEmptyMany.rooms)[number], "floor">
+>
+const draftNestedOne = rooms.draft({
   property_id: PROPERTY_1,
   room_type_id: ROOM_TYPE_1,
   room_number: "101",
   property: { name: "x", star_rating: 3 },
   room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
 })
-export type _AssertInitNestedOneProvidedBecomesRequired = Expect<
-  OptionalKey<typeof initNestedOne.property, "star_rating"> extends false ? true : false
+export type _AssertDraftNestedOneProvidedBecomesRequired = Expect<
+  OptionalKey<typeof draftNestedOne.property, "star_rating"> extends false ? true : false
 >
 
 // An incoming join fills the joined row's referencing column itself (writing.md ## Write order), so a nested
 // `rooms` row may omit `property_id` ; the same relation written on its own still requires it. Columns the join
 // doesn't fill stay required.
-const initNestedOmitsJoinKey = propertyWithNestedProto.init({
+const draftNestedOmitsJoinKey = propertyWithNestedProto.draft({
   name: "x",
   rooms: [{ room_type_id: ROOM_TYPE_1, room_number: "101" }],
 })
-void initNestedOmitsJoinKey
+void draftNestedOmitsJoinKey
 function assertJoinKeyOnlyOptionalWhenJoinFillsIt() {
-  propertyWithNestedProto.init({
+  propertyWithNestedProto.draft({
     name: "x",
     // @ts-expect-error room_type_id isn't filled by the join
     rooms: [{ room_number: "101" }],
   })
   // @ts-expect-error property_id is required when rooms is written as the root
-  rooms.init({
+  rooms.draft({
     room_type_id: ROOM_TYPE_1,
     room_number: "101",
     property: { name: "x" },
@@ -1130,24 +1142,24 @@ function assertJoinKeyOnlyOptionalWhenJoinFillsIt() {
 void assertJoinKeyOnlyOptionalWhenJoinFillsIt
 
 // A proto accessor key is not accepted in `data` : it would shadow the accessor with a plain property.
-function assertInitRejectsAccessorKey() {
-  propertyWithAccessor.init({
+function assertDraftRejectsAccessorKey() {
+  propertyWithAccessor.draft({
     name: "x",
     // @ts-expect-error created_at_as_date is a proto member, not a column
     created_at_as_date: Temporal.Now.instant(),
   })
 }
-void assertInitRejectsAccessorKey
+void assertDraftRejectsAccessorKey
 
 // Bogus fields are rejected, at the root and inside joins. Each directive sits right above the offending key.
-function assertInitRejectsBogusFields() {
-  propertyWithNestedProto.init({
+function assertDraftRejectsBogusFields() {
+  propertyWithNestedProto.draft({
     name: "x",
     // @ts-expect-error `nmae` isn't a column
     nmae: "typo",
     rooms: [],
   })
-  propertyWithNestedProto.init({
+  propertyWithNestedProto.draft({
     name: "x",
     rooms: [
       {
@@ -1159,7 +1171,7 @@ function assertInitRejectsBogusFields() {
       },
     ],
   })
-  rooms.init({
+  rooms.draft({
     property_id: PROPERTY_1,
     room_type_id: ROOM_TYPE_1,
     room_number: "1",
@@ -1168,7 +1180,7 @@ function assertInitRejectsBogusFields() {
     room_type: { name: "D", base_price: asNumeric("1") },
   })
 }
-void assertInitRejectsBogusFields
+void assertDraftRejectsBogusFields
 
 // pg_values.ts's `Id` : table-local ids (docs/content/typescript/index.md ### Table-local id types).
 type PropertyId = Id["hotel.properties.id"]
@@ -1213,14 +1225,85 @@ function assertIdMixups() {
 }
 void assertIdMixups
 
-// A rejected value must not make init() forget the other keys : only the offending key is reported, and the
+// A rejected value must not make draft() forget the other keys : only the offending key is reported, and the
 // returned row still has `star_rating` required (it was supplied).
-const initWithBadValue = propertyWithNestedProto.init({
+const draftWithBadValue = propertyWithNestedProto.draft({
   // @ts-expect-error name is a string
   name: 42,
   star_rating: 5,
   rooms: [],
 })
-export type _AssertInitKeepsProvidedKeysDespiteBadValue = Expect<
-  OptionalKey<typeof initWithBadValue, "star_rating"> extends false ? true : false
+export type _AssertDraftKeepsProvidedKeysDespiteBadValue = Expect<
+  OptionalKey<typeof draftWithBadValue, "star_rating"> extends false ? true : false
+>
+
+///////////////////////////////////////////////////////////////////////
+// draftNested() (docs/content/typescript/index.md ### Building a nested row)
+
+const propertyTwoLevels = relation("hotel.properties", (join) => ({
+  join: {
+    rooms: join("hotel.rooms*id:property_id", (join) => ({
+      proto: {
+        get label() {
+          return `${this.room_number} !`
+        },
+      },
+      join: {
+        room_type: join("hotel.room_types>id:room_type_id", { select: ["*~"] }),
+      },
+    })),
+  },
+}))
+
+// To-many : one row, not an array ; the column the join fills is optional, the others stay required, and the
+// join's own `proto` is attached.
+const nestedRoom = propertyTwoLevels.draftNested(["rooms"], {
+  room_type_id: ROOM_TYPE_1,
+  room_number: "101",
+  room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
+})
+export type _AssertDraftNestedIsOneRow = Expect<
+  typeof nestedRoom extends readonly unknown[] ? false : true
+>
+export type _AssertDraftNestedHasJoinProto = Expect<HasKey<typeof nestedRoom, "label">>
+export type _AssertDraftNestedMatchesDraftType = Expect<
+  [typeof nestedRoom] extends [(typeof propertyTwoLevels.$draft)["rooms"][number]] ? true : false
+>
+
+// A nested draft goes into its parent's array, and the parent is accepted by write().
+function assertDraftNestedFitsParent() {
+  const parent = propertyTwoLevels.draft({ name: "x", rooms: [] })
+  parent.rooms.push(nestedRoom)
+  void propertyTwoLevels.write([parent])
+}
+void assertDraftNestedFitsParent
+
+// To-one, two levels deep : the row inside `rooms[].room_type`.
+const nestedRoomType = propertyTwoLevels.draftNested(["rooms", "room_type"], {
+  name: "Deluxe",
+  base_price: asNumeric("129.99"),
+})
+export type _AssertDraftNestedToOneIsObject = Expect<HasKey<typeof nestedRoomType, "name">>
+
+function assertDraftNestedRejects() {
+  // @ts-expect-error a column is not a join alias
+  propertyTwoLevels.draftNested(["name"], {})
+  // @ts-expect-error no such join
+  propertyTwoLevels.draftNested(["nope"], {})
+  // @ts-expect-error room_type isn't a join of the root
+  propertyTwoLevels.draftNested(["room_type"], {})
+  // @ts-expect-error room_type_id is not filled by the join
+  propertyTwoLevels.draftNested(["rooms"], { room_number: "1" })
+  propertyTwoLevels.draftNested(["rooms"], {
+    room_type_id: ROOM_TYPE_1,
+    room_number: "1",
+    // @ts-expect-error `bogus` isn't a column of the nested row
+    bogus: 1,
+  })
+}
+void assertDraftNestedRejects
+
+// `$row` / `$draft` are type-only handles ; the nested row type is indexed out of the root's.
+export type _AssertRowHandleHasNestedRow = Expect<
+  HasKey<(typeof propertyTwoLevels.$row)["rooms"][number], "room_number">
 >

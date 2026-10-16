@@ -26,10 +26,12 @@ import type {
   ShapeFromQuery,
   WithProto,
   WriteShapeFromQuery,
-  InitShapeFromQuery,
+  DraftShapeFromQuery,
   WriteRowOf,
-  InitResult,
-  InitStrict,
+  DraftResult,
+  DraftStrict,
+  JoinPaths,
+  RowAtPath,
 } from "./shapes"
 
 /**
@@ -248,7 +250,7 @@ type RelationQuerier<R extends RelationName, Q> = Querier<
   WriteShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[],
   Params<Q>,
   IdentifiedQuery<Q, R>,
-  InitShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[]
+  DraftShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[]
 >
 
 /**
@@ -326,7 +328,7 @@ export function func<
   WriteShapeFromQuery<Q, ResolveCalledFunctionModel<F>>,
   Params<Q>,
   Q,
-  InitShapeFromQuery<Q, ResolveCalledFunctionModel<F>>
+  DraftShapeFromQuery<Q, ResolveCalledFunctionModel<F>>
 > {
   const [schema, fn_name] = fn.split(".")
   const query = {
@@ -567,7 +569,7 @@ export class Querier<
   WriteShape = Shape,
   Params = void,
   Q = Query,
-  InitShape = WriteShape,
+  DraftShape = WriteShape,
 > {
   public query: Q
 
@@ -577,8 +579,14 @@ export class Querier<
   // query to point just that query at another server. Read at call time (_send), never at construction.
   declare baseUrl: string
 
+  // Type-only handles, for `typeof someQuery.$row` / `typeof someQuery.$draft` (docs/content/typescript/index.md
+  // ### Naming a row's type) : declared, never assigned, so they emit no code and read as `undefined` at runtime.
+  // `$row` is one row as get() returns it, `$draft` one row as draft() returns it (write shape plus `proto`).
+  declare readonly $row: Prettify<WriteRowOf<Shape>>
+  declare readonly $draft: Prettify<WriteRowOf<DraftShape>>
+
   // The actual wire payload : same tree as `query`, minus `proto` (client-side only — never sent to the server ;
-  // `query` itself keeps it, since init()/applyProto need it). Computed once at construction, alongside
+  // `query` itself keeps it, since draft()/applyProto need it). Computed once at construction, alongside
   // `hasParam`, rather than re-derived on every get()/write() call the way a combined strip-and-substitute pass
   // would — most queries carry no `$param` at all, so `doQuery` below skips walking this tree a second time
   // entirely when there's nothing to substitute.
@@ -664,22 +672,46 @@ export class Querier<
   // docs/content/typescript/index.md ### Building a new row : typechecks `data` against this query's own WriteShape —
   // every required column, and every join, must already be present — and attaches this query's `proto` accessors
   // (its own, and each join's, recursively) onto `data` and its nested rows, the same mechanism applyProto uses
-  // for a fetched row. init() doesn't build or seed anything itself : `data` must already carry the right shape,
+  // for a fetched row. draft() doesn't build or seed anything itself : `data` must already carry the right shape,
   // `[]`/nested-object join values included, since WriteShape's own required keys already reflect the join tree.
-  // `WriteShape` is array-wrapped at the root (writing.md : "an array of rows at the root") ; init() takes and
+  // `WriteShape` is array-wrapped at the root (writing.md : "an array of rows at the root") ; draft() takes and
   // returns ONE row, so both types unwrap that one level of array — pass the result inside a `[...]` to `.write()`.
   // The result keeps what `data` actually carried : an optional column (or join) you passed comes back required,
-  // everything else stays as InitShape has it (shapes.ts's InitResult) — InitShape being WriteShape plus every
+  // everything else stays as DraftShape has it (shapes.ts's DraftResult) — DraftShape being WriteShape plus every
   // `proto` member, since this is what attaches the prototype. `data` itself is checked against WriteShape alone,
   // which has no `proto` member : a key shadowing an accessor would never reach its setter, and would be sent to
-  // the server as an unknown field. InitStrict is what rejects keys WriteShape doesn't have — a generic
+  // the server as an unknown field. DraftStrict is what rejects keys WriteShape doesn't have — a generic
   // parameter gets no excess-property check on its own. `D` is only constrained to `object` and the row check is
   // an intersection on `data`, not a bound on `D` : a bound makes TS discard `D` when any key fails it, and the
   // result then loses every key `data` supplied (all optional) on top of the one real error.
-  init<D extends object>(
-    data: D & WriteRowOf<WriteShape> & InitStrict<WriteShape, D>,
-  ): InitResult<InitShape, D> {
-    return applyProto(data, this.query as ProtoQuery) as InitResult<InitShape, D>
+  draft<D extends object>(
+    data: D & WriteRowOf<WriteShape> & DraftStrict<WriteShape, D>,
+  ): DraftResult<DraftShape, D> {
+    return applyProto(data, this.query as ProtoQuery) as DraftResult<DraftShape, D>
+  }
+
+  // docs/content/typescript/index.md ### Building a nested row : draft() for a row that sits inside this query's
+  // join tree, addressed by the join aliases leading to it (`["rooms"]`, `["rooms", "beds"]`). `data` is checked
+  // against that row's own write shape, so a column the join fills in (`rooms[].property_id`) is optional, and the
+  // result carries that join's `proto`. Returns ONE row whatever the join's cardinality : the caller puts it in the
+  // array or object slot. Not a sub-query : there is no get()/write() on it, the row is written through this query.
+  draftNested<P extends JoinPaths<Q>, D extends object>(
+    path: P,
+    data: D &
+      RowAtPath<WriteRowOf<WriteShape>, P> &
+      DraftStrict<RowAtPath<WriteRowOf<WriteShape>, P>, D>,
+  ): DraftResult<RowAtPath<WriteRowOf<DraftShape>, P>, D> {
+    let node = this.query as ProtoQuery
+    for (const alias of path as readonly string[]) {
+      const next = node.join?.[alias]
+      if (next === undefined) {
+        throw new Error(
+          `draftNested: no join "${alias}" in path [${(path as readonly string[]).join(", ")}]`,
+        )
+      }
+      node = next
+    }
+    return applyProto(data, node) as DraftResult<RowAtPath<WriteRowOf<DraftShape>, P>, D>
   }
 
   // Substitutes every `$param` node with its value from `params` ; `wireQuery` is already proto-free (`proto`
@@ -783,26 +815,3 @@ export class RelRequestError extends Error {
     super(`rel request failed with status ${status}: ${body}`)
   }
 }
-
-/**
- Named types to hold onto a Querier's own Shape/WriteShape, e.g. as a function parameter's type, without
- re-deriving it via `Awaited<ReturnType<typeof someQuery.get>>` every time. `Prettify` (shapes.ts) is applied
- here too, on top of it already being applied at every level `Shape`/`WriteShape` were built from (shapes.ts's
- ShapeFromRelationQuery/WriteShapeFromRelationQuery doc comments) — a hand-built `Querier` (unlike one
- relation()/func() produced) never went through either, so these still prettify a raw `Shape`/`WriteShape` for
- one. Array-wrapped (the common case, root or to-many join) prettifies the element, not the array itself, same
- guard as `Prettify` (shapes.ts) has to have anyway.
- */
-export type ShapeOf<Q extends Querier<unknown, unknown, unknown, unknown>> =
-  Q extends Querier<infer S, unknown, unknown, unknown>
-    ? S extends readonly (infer E)[]
-      ? Prettify<E>[]
-      : Prettify<S>
-    : never
-
-export type WriteShapeOf<Q extends Querier<unknown, unknown, unknown, unknown>> =
-  Q extends Querier<unknown, infer W, unknown, unknown>
-    ? W extends readonly (infer E)[]
-      ? Prettify<E>[]
-      : Prettify<W>
-    : never

@@ -182,31 +182,50 @@ map's own rename too: `select: { display_name: ["col", "name"] }` still requires
 of an ad hoc relation — same `Querier`, but its params and result shape come from the query's
 own registered definition rather than from what you pass to `relation()`.
 
-### Naming a query's shape
+### Naming a row's type
 
-If you want to name a query's shape — say, as a function parameter's type elsewhere in your
-code — `ShapeOf`/`WriteShapeOf` pull it straight off a `Querier`, instead of writing
-`Awaited<ReturnType<typeof someQuery.get>>` by hand. Like `.get()`'s own return value, `ShapeOf`
-is the array (a relation/function root is always an array of rows) — index it with `[number]`
-for a single row's type:
+To name the type of a row — say, as a function parameter's type elsewhere in your code — every
+`Querier` carries two type-only properties, read with `typeof`:
+
+| Property | One row of... |
+|---|---|
+| `typeof query.$row` | what `.get()` returns |
+| `typeof query.$draft` | a [draft](#building-a-new-row): what `.write()` accepts, plus the `proto` members |
+
+Both are a single row, not an array: `.get()` returns `(typeof query.$row)[]`. A row is
+assignable to a draft, so a function that edits rows can take a draft and be handed a fetched row.
 
 ```ts
-import { relation, ShapeOf, WriteShapeOf } from "./database"
+import { relation } from "./database"
 
 const properties = relation("hotel.properties", {
   select: { id: ["col", "id"], name: ["col", "name"] },
 })
 
-type Properties = ShapeOf<typeof properties> // { id: number; name: string }[]
-type PropertiesWrite = WriteShapeOf<typeof properties>
+type Property = typeof properties.$row // { id: number; name: string }
+type PropertyDraft = typeof properties.$draft
 
-function printProperty(p: Properties[number]) {
+function printProperty(p: Property) {
   console.log(p.name)
 }
+
+const all: Property[] = await properties.get()
 ```
 
-Both are flattened the same way `.get()`/`.write()` already are, so hovering `Properties` shows
-the actual object shape, not a reference back to `typeof properties`.
+`$row` and `$draft` only exist for `typeof`: they are declared, never assigned, so reading
+`properties.$row` at runtime gives `undefined`. They are flattened the same way `.get()` and
+`.write()` are, so hovering `Property` shows the actual object shape.
+
+A row that sits in a join is reached by indexing the root's type with the join's name. A to-many
+join is an array, so index it with `[number]`; a to-one join that can be `null` needs `NonNullable`
+around the indexed type:
+
+```ts
+// for a query that joins "rooms" (to-many) and "chain" (to-one, nullable)
+type Room = (typeof properties.$row)["rooms"][number]
+type RoomDraft = (typeof properties.$draft)["rooms"][number]
+type Chain = NonNullable<(typeof properties.$row)["chain"]>
+```
 
 ## Attaching behavior to rows
 
@@ -262,8 +281,8 @@ const properties = await relation("hotel.properties", (join) => ({
 properties[0].rooms[0].label // uses the join's own `proto`
 ```
 
-`proto`'s members are not part of what `.write()` accepts or what you pass to `init()` (below): a member
-is not a column, and nothing says which column a setter writes. The row `init()` returns does carry them,
+`proto`'s members are not part of what `.write()` accepts or what you pass to `draft()` (below): a member
+is not a column, and nothing says which column a setter writes. The row `draft()` returns does carry them,
 a `get`-only one read-only and a `get`/`set` pair assignable, the same as on a row you `.get()`.
 
 A `proto` entry can also be a property descriptor (`{get, set, enumerable}`), not just a plain
@@ -293,8 +312,9 @@ range accessor, for instance, is read-only.
 
 ### Building a new row
 
-A `Querier`'s `.init()` method doesn't build or create anything itself — it typechecks a row you
-already built against this query's own write shape (every required column, and every join,
+A row you are still working on — not saved yet, or edited and not yet written back — is a
+*draft*. A `Querier`'s `.draft()` method doesn't build or create anything itself — it typechecks a
+row you already built against this query's own write shape (every required column, and every join,
 present) and attaches the same `proto` accessors a row you `.get()` would have:
 
 ```ts
@@ -307,9 +327,9 @@ const properties = relation("hotel.properties", {
   },
 })
 
-const row = properties.init({
+const row = properties.draft({
   name: "Marina Bay Grand Hotel",
-  rooms: [{ room_number: "101" }], // this join is to-many, so an array
+  rooms: [{ room_number: "101", room_type_id: roomTypeId }], // this join is to-many, so an array
 })
 
 // The returned row has the same accessors as one you fetched. Assigning goes through the setter, which
@@ -320,28 +340,54 @@ await properties.write([row])
 ```
 
 A to-many join's value must be an array ; a to-one join's must be a single nested row, itself
-matching that relation's own write shape — `init()` checks this the
+matching that relation's own write shape — `draft()` checks this the
 same way it checks the root row, it just doesn't build any of it for you. `.write()` still expects
-an array of rows at the root, same as always ; `.init()` takes and returns ONE row, so wrap it in
+an array of rows at the root, same as always ; `.draft()` takes and returns ONE row, so wrap it in
 `[...]` yourself, the same way you would a row you built entirely by hand.
 
-`.init()` keeps what you actually passed. A column that is optional in the write shape (nullable,
+`.draft()` keeps what you actually passed. A column that is optional in the write shape (nullable,
 defaulted) stays optional on the returned row if you left it out, and becomes required if you
 supplied it:
 
 ```ts
-const bare = properties.init({ name: "Marina Bay Grand Hotel", rooms: [] })
+const bare = properties.draft({ name: "Marina Bay Grand Hotel", rooms: [] })
 bare.star_rating // number | null | undefined — optional
 
-const rated = properties.init({ name: "Marina Bay Grand Hotel", star_rating: 5, rooms: [] })
+const rated = properties.draft({ name: "Marina Bay Grand Hotel", star_rating: 5, rooms: [] })
 rated.star_rating // number | null — required, still the column's own type (not the literal `5`)
 ```
 
-- Joined rows are handled the same way: a to-one object, and each element of a to-many array. In an array, a key counts as supplied only if every element supplies it.
+- Joined rows are handled the same way: a to-one object, and each element of a to-many array. In an array, a key counts as supplied only if every element supplies it. An empty array supplies nothing, so its elements keep their write shape.
 - A `proto` accessor key (such as `created_at_as_date`) is not accepted in `data`: a key in the object would shadow the accessor, so its setter would never run, and the key would be sent to the server as an unknown field. Assign through the accessor on the returned row instead.
 - On a nested row reached through an incoming join (`<` or `*` shortcut), the column that join fills (`rooms[].property_id` under `properties`) is optional: the server writes the parent's key into it. The same relation written as the root still requires it.
 - A key set to `undefined` counts as not supplied. `null` is a real value and counts as supplied.
 - A key the write shape doesn't have is a type error, at the root and inside joins: `nmae: "x"` is flagged on that key.
+- If one key has the wrong type, only that key is flagged; the other keys you supplied still count as supplied on the result.
+
+### Building a nested row
+
+`.draftNested(path, data)` builds a draft for a row that sits inside the query's join tree,
+without building its parent. `path` lists the join names leading to it:
+
+```ts
+const room = properties.draftNested(["rooms"], {
+  room_number: "101",
+  room_type_id: roomTypeId, // no property_id: the parent supplies it
+})
+
+const parent = properties.draft({ name: "Marina Bay Grand Hotel", rooms: [] })
+parent.rooms.push(room)
+await properties.write([parent])
+```
+
+A deeper join is a longer path: `draftNested(["rooms", "room_type"], {...})`. Only join names are
+accepted in `path`, not column names, and a name that is not a join of that level is a type error.
+
+- `data` is checked against the nested row's own write shape, with the same rules as `.draft()`: the column the join fills in is optional, every other required column must be present, and unknown keys are rejected.
+- The result carries the `proto` of the join it addresses, and has the same type as `(typeof properties.$draft)["rooms"][number]`.
+- It returns ONE row whatever the join's cardinality, never an array and never `null`; you put it in the array or object slot yourself.
+- It is not a query: there is no `.get()` or `.write()` for it. A nested draft is written through its parent, as above.
+- A nested draft goes into its parent's array after the parent exists (as above), not inside the parent's `.draft({...})` literal: that literal can't carry `proto` members.
 
 ## Typed wire values
 
