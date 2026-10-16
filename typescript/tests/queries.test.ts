@@ -335,6 +335,28 @@ describe("draftNested()", () => {
     expect(written?.rooms[0]?.label).toBe("room N-1")
   })
 
+  test("an outgoing join supplies the referencing column on write", async () => {
+    const [roomType] = await relation("hotel.room_types").get()
+    if (!roomType) throw new Error("fixture room type missing")
+    const roomWithProperty = relation("hotel.rooms", {
+      join: {
+        property: join("hotel.rooms", "hotel.properties>id:property_id", { select: ["*~"] }),
+      },
+    })
+
+    // no property_id : the nested property is written first and its key is used
+    const name = uniqueName("Outgoing")
+    const [written] = await roomWithProperty.write([
+      roomWithProperty.draft({
+        room_type_id: roomType.id,
+        room_number: "O-1",
+        property: { name },
+      }),
+    ])
+    expect(written?.property.name).toBe(name)
+    expect(raw(written?.property_id)).toBe(raw(written?.property.id))
+  })
+
   test("an unknown join alias in the path throws", () => {
     expect(() => propertyWithRooms.draftNested(["nope"] as never, {} as never)).toThrow(
       /no join "nope"/,

@@ -1009,13 +1009,28 @@ type WriteJoinShapes<
 type WriteOwnShape<Rel extends object, ReqCol extends string> = Pick<Rel, ReqCol & keyof Rel> &
   Partial<Omit<Rel, ReqCol>>
 
+// Columns of this relation that its own outgoing (`>`) joins fill in : the referenced row is written first and its
+// key threaded into the referencing column (docs/content/query-language/writing.md ## Write order). Only a join
+// that can't be `null` counts, since a null join fills nothing. Applies where every join is part of the shape
+// (WriteFullShape) ; a `select` map picks its joins one by one and keeps these columns required.
+type OutgoingFilledKeys<Rel extends object, Join extends { [name: string]: unknown }> = {
+  [A in keyof Join]: Join[A] extends { shortcut: infer S extends string }
+    ? ParsedShortcut<S>["marker"] extends ">"
+      ? IsNullableJoin<S, Rel> extends true
+        ? never
+        : ReferencingColumnsOfShortcut<S>
+      : never
+    : never
+}[keyof Join]
+
 type WriteFullShape<
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
   ReqCol extends string = never,
   WithProtoMembers extends boolean = false,
-> = WriteOwnShape<Rel, ReqCol> & WriteJoinShapes<Rel, Join, Depth, WithProtoMembers>
+> = WriteOwnShape<Rel, Exclude<ReqCol, OutgoingFilledKeys<Rel, Join>>> &
+  WriteJoinShapes<Rel, Join, Depth, WithProtoMembers>
 
 // "."/"dot" on the write side — docs/content/query-language/writing.md ## Writability rules : "a physical
 // column is writable ... untransformed except by a coalescing operator, or set/col" and "a computed field ...

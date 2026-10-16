@@ -1131,15 +1131,19 @@ function assertJoinKeyOnlyOptionalWhenJoinFillsIt() {
     // @ts-expect-error room_type_id isn't filled by the join
     rooms: [{ room_number: "101" }],
   })
-  // @ts-expect-error property_id is required when rooms is written as the root
-  rooms.draft({
-    room_type_id: ROOM_TYPE_1,
-    room_number: "101",
-    property: { name: "x" },
-    room_type: { name: "d", base_price: asNumeric("1") },
-  })
+  // @ts-expect-error property_id is required when rooms is written without the outgoing join that fills it
+  relation("hotel.rooms").draft({ room_type_id: ROOM_TYPE_1, room_number: "101" })
 }
 void assertJoinKeyOnlyOptionalWhenJoinFillsIt
+
+// An outgoing join writes the referenced row first and threads its key into the referencing column, so a row
+// that carries the join may omit that column : `rooms.property_id` (property) and `rooms.room_type_id` (room_type).
+const draftOmitsOutgoingKeys = rooms.draft({
+  room_number: "101",
+  property: { name: "x" },
+  room_type: { name: "d", base_price: asNumeric("1") },
+})
+void draftOmitsOutgoingKeys
 
 // A proto accessor key is not accepted in `data` : it would shadow the accessor with a plain property.
 function assertDraftRejectsAccessorKey() {
