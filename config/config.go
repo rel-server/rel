@@ -478,6 +478,9 @@ const (
 	// the pool that serves requests — a fixed, framework-agnostic starting
 	// point, not pgx's own machine-CPU-scaled default.
 	DefaultPgPoolSize = 10
+
+	// DefaultPgConnectTimeout is pg.connect_timeout's default, in seconds.
+	DefaultPgConnectTimeout = 30
 )
 
 // PgQuery is pg.query.* : the query-engine behavior settings for the
@@ -569,6 +572,11 @@ type Pg struct {
 	// queryURI pool) — never the short-lived, single-connection introspection
 	// pool used once at startup for reload.cmd/schema reading.
 	PoolSize int
+
+	// ConnectTimeout is pg.connect_timeout (seconds, default
+	// DefaultPgConnectTimeout) : how long startup waits for Postgres to
+	// accept connections before giving up. 0 means a single attempt.
+	ConnectTimeout int
 
 	// Query is pg.query.* — see PgQuery's own doc comment.
 	Query PgQuery

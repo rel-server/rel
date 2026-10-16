@@ -537,6 +537,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 		cfg.Pg.URI = PostgresURI(cfg.Pg.Host, cfg.Pg.Port, cfg.Pg.Database, cfg.Pg.User, cfg.Pg.Password)
 	}
 	cfg.Pg.PoolSize = root.GetIntOrDefault("pg.pool_size", DefaultPgPoolSize)
+	cfg.Pg.ConnectTimeout = root.GetIntOrDefault("pg.connect_timeout", DefaultPgConnectTimeout)
 
 	cfg.Pg.Query.AnonymousRole = root.GetStringOrDefault("pg.query.anonymous_role", DefaultPgQueryAnonymousRole)
 

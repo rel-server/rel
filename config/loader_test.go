@@ -278,6 +278,9 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Pg.PoolSize != DefaultPgPoolSize {
 		t.Errorf("expected default pg.pool_size=%d, got %d", DefaultPgPoolSize, cfg.Pg.PoolSize)
 	}
+	if cfg.Pg.ConnectTimeout != DefaultPgConnectTimeout {
+		t.Errorf("expected default pg.connect_timeout=%d, got %d", DefaultPgConnectTimeout, cfg.Pg.ConnectTimeout)
+	}
 	if cfg.Http.CookiesMaxAge != DefaultHttpCookiesMaxAge {
 		t.Errorf("expected default http.cookies_max_age=%d, got %d", DefaultHttpCookiesMaxAge, cfg.Http.CookiesMaxAge)
 	}

@@ -51,6 +51,7 @@ var Options = []Option{
 	{"pg.port", fmt.Sprint(DefaultPgPort), "Postgres port, used when pg.uri is unset."},
 	{"pg.database", "", "Database name, used when pg.uri is unset. Required one way or the other."},
 	{"pg.pool_size", fmt.Sprint(DefaultPgPoolSize), "Max connections in the pool that serves requests. Never affects startup introspection, which uses one short-lived connection regardless."},
+	{"pg.connect_timeout", fmt.Sprint(DefaultPgConnectTimeout) + " (seconds)", "How long startup keeps retrying while Postgres is unreachable or still starting up. 0 tries once. Wrong credentials or a missing database fail immediately. Reloads never retry."},
 	{"pg.query.anonymous_role", DefaultPgQueryAnonymousRole, "Role used for requests without a valid session."},
 	{"pg.query.max_depth", fmt.Sprint(DefaultMaxDepth), "Maximum nesting depth a query may specify."},
 	{"pg.query.wellknown_path", DefaultPgQueryWellKnownPath, "Colon-separated directories searched for well-known queries."},

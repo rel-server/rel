@@ -65,6 +65,12 @@ func main() {
 	// — see config.PgQuery's own doc comment.
 	primaryURI := resolveConnectionURI(cfg.Pg)
 
+	// Wait for Postgres first : reload.cmd (often a migration tool) needs it up too.
+	if err := pg.WaitReady(context.Background(), primaryURI, time.Duration(cfg.Pg.ConnectTimeout)*time.Second); err != nil {
+		logger.Error("connecting to postgres", "target", redactedTarget(primaryURI), "error", err.Error())
+		os.Exit(1)
+	}
+
 	// reload.cmd runs BEFORE introspection, always (specs/reload.md) ; a
 	// failed run is logged, startup continues regardless — same as a
 	// failure during a SIGUSR1 reload (boot/reload.go's Reload).
@@ -206,6 +212,10 @@ func typescriptOutFlag(args []string) (path string, ok bool) {
 // doesn't carry the same objection.
 func runTypeScriptExport(cfg *config.Config, out string) error {
 	primaryURI := resolveConnectionURI(cfg.Pg)
+
+	if err := pg.WaitReady(context.Background(), primaryURI, time.Duration(cfg.Pg.ConnectTimeout)*time.Second); err != nil {
+		return fmt.Errorf("connecting to postgres: %w", err)
+	}
 
 	db, err := pg.NewInfos(primaryURI)
 	if err != nil {
