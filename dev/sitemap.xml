@@ -4,16 +4,25 @@
         <loc>https://rel-server.github.io/rel/dev/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/getting-started/</loc>
+        <loc>https://rel-server.github.io/rel/dev/configuration/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/getting-started/run-it-manually/</loc>
+        <loc>https://rel-server.github.io/rel/dev/configuration/best-practices/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/getting-started/docker-deployment/</loc>
+        <loc>https://rel-server.github.io/rel/dev/configuration/operations/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/configuration/reference/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/configuration/reload/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/example-database/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/example-queries/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/example-database/launch-it-yourself/</loc>
@@ -22,13 +31,40 @@
         <loc>https://rel-server.github.io/rel/dev/example-database/reference/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/example-queries/</loc>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/amenities/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/booking_guests/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/bookings/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/example-database/tables/chains/</loc>
       </url>
       <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/guests/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/loyalty_tiers/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/payment_methods/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/payments/</loc>
+      </url>
+      <url>
         <loc>https://rel-server.github.io/rel/dev/example-database/tables/properties/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/property_amenities/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/rate_plans/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/example-database/tables/reviews/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/example-database/tables/room_types/</loc>
@@ -40,88 +76,22 @@
         <loc>https://rel-server.github.io/rel/dev/example-database/tables/staff/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/amenities/</loc>
+        <loc>https://rel-server.github.io/rel/dev/getting-started/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/property_amenities/</loc>
+        <loc>https://rel-server.github.io/rel/dev/getting-started/docker-deployment/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/loyalty_tiers/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/guests/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/bookings/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/booking_guests/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/payment_methods/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/payments/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/reviews/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/example-database/tables/rate_plans/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/reference/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/operators/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/well-known-queries/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/shaping/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/filtering/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/selecting/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/computed-fields/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/aggregates/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/joining/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/functions/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/ordering-pagination/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/distinctness/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/writing/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/complex-query/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/batching/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/query-language/get-requests/</loc>
+        <loc>https://rel-server.github.io/rel/dev/getting-started/run-it-manually/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/http/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/http/authentication/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/http/cors-csp/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/http/reference/</loc>
@@ -130,39 +100,69 @@
         <loc>https://rel-server.github.io/rel/dev/http/requests-responses/</loc>
       </url>
       <url>
+        <loc>https://rel-server.github.io/rel/dev/http/static-files/</loc>
+      </url>
+      <url>
         <loc>https://rel-server.github.io/rel/dev/http/templates/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/http/uploads/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/http/static-files/</loc>
+        <loc>https://rel-server.github.io/rel/dev/query-language/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/http/cors-csp/</loc>
+        <loc>https://rel-server.github.io/rel/dev/query-language/aggregates/</loc>
       </url>
       <url>
-        <loc>https://rel-server.github.io/rel/dev/http/authentication/</loc>
+        <loc>https://rel-server.github.io/rel/dev/query-language/batching/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/complex-query/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/computed-fields/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/distinctness/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/filtering/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/functions/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/get-requests/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/joining/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/operators/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/ordering-pagination/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/reference/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/selecting/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/shaping/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/well-known-queries/</loc>
+      </url>
+      <url>
+        <loc>https://rel-server.github.io/rel/dev/query-language/writing/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/typescript/</loc>
       </url>
       <url>
         <loc>https://rel-server.github.io/rel/dev/typescript/database-json/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/configuration/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/configuration/reference/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/configuration/best-practices/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/configuration/operations/</loc>
-      </url>
-      <url>
-        <loc>https://rel-server.github.io/rel/dev/configuration/reload/</loc>
       </url>
 </urlset>
