@@ -216,12 +216,7 @@ const uniqueName = (prefix: string) => `${prefix} ${Date.now()} ${uniqueCounter+
 describe("init() and write()", () => {
   test("a row built with init() round-trips through write()", async () => {
     const name = uniqueName("Round trip")
-    // (the accessor's own key is required by the write shape, whatever the underlying column's defaults)
-    const row = writableProperties.init({
-      name,
-      star_rating: 4,
-      created_at_as_date: Temporal.Now.instant(),
-    })
+    const row = writableProperties.init({ name, star_rating: 4 })
     // init() kept what was passed : star_rating is required on the returned row
     type _ = Expect<Equal<undefined extends (typeof row)["star_rating"] ? true : false, false>>
     expect(row.star_rating).toBe(4)
@@ -237,6 +232,19 @@ describe("init() and write()", () => {
       where: ["=", ["col", "name"], ["$param", "name", "string"]],
     }).get({ name })
     expect(found).toHaveLength(1)
+  })
+
+  test("a writable accessor assigned after init() reaches the server through its setter", async () => {
+    const row = writableProperties.init({ name: uniqueName("Accessor") })
+    // not an own property : the prototype's setter runs, and writes the underlying column
+    expect(Object.keys(row)).toEqual(["name"])
+    row.created_at_as_date = Temporal.Instant.from("2020-01-01T00:00:00Z")
+    expect(Object.keys(row).sort()).toEqual(["created_at", "name"])
+    expect(JSON.stringify(row)).not.toContain("created_at_as_date")
+
+    const [written] = await writableProperties.write([row])
+    expect(raw(written?.created_at)).toBe("2020-01-01T00:00:00+00:00")
+    expect(written?.created_at_as_date?.toString()).toBe("2020-01-01T00:00:00Z")
   })
 
   test("the proto accessor derives a Temporal.Instant from the wire string, on a fetched row too", async () => {

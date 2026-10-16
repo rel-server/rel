@@ -20,6 +20,7 @@ import type {
   ShapeFromQuery,
   WithProto,
   WriteShapeFromQuery,
+  InitShapeFromQuery,
   WriteRowOf,
   InitResult,
   InitStrict,
@@ -220,7 +221,8 @@ type RelationQuerier<R extends RelationName, Q> = Querier<
   ShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[],
   WriteShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[],
   Params<Q>,
-  IdentifiedQuery<Q, R>
+  IdentifiedQuery<Q, R>,
+  InitShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[]
 >
 
 /**
@@ -297,7 +299,8 @@ export function func<
   RootShapeFromFunctionMember<F extends keyof Functions ? Functions[F] : never, Q>,
   WriteShapeFromQuery<Q, ResolveCalledFunctionModel<F>>,
   Params<Q>,
-  Q
+  Q,
+  InitShapeFromQuery<Q, ResolveCalledFunctionModel<F>>
 > {
   const [schema, fn_name] = fn.split(".")
   const query = {
@@ -517,7 +520,13 @@ type OptionalWhenNoParams<P> = unknown extends P ? [params?: P] : [params: P]
  the widened `Query` for the same reason ; relation()/func() supply their own literal Q instead, so join() can
  recover it from a reused Querier — docs/content/typescript/index.md ## Building a query.
  */
-export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Query> {
+export class Querier<
+  Shape = unknown,
+  WriteShape = Shape,
+  Params = void,
+  Q = Query,
+  InitShape = WriteShape,
+> {
   public query: Q
 
   // Where the rel server lives : get()/write() POST to `${baseUrl}/rel`. Declared here but assigned on the
@@ -618,12 +627,15 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
   // `WriteShape` is array-wrapped at the root (writing.md : "an array of rows at the root") ; init() takes and
   // returns ONE row, so both types unwrap that one level of array — pass the result inside a `[...]` to `.write()`.
   // The result keeps what `data` actually carried : an optional column (or join) you passed comes back required,
-  // everything else stays as WriteShape has it (shapes.ts's InitResult). InitStrict is what rejects keys
-  // WriteShape doesn't have — a generic parameter gets no excess-property check on its own.
+  // everything else stays as InitShape has it (shapes.ts's InitResult) — InitShape being WriteShape plus every
+  // `proto` member, since this is what attaches the prototype. `data` itself is checked against WriteShape alone,
+  // which has no `proto` member : a key shadowing an accessor would never reach its setter, and would be sent to
+  // the server as an unknown field. InitStrict is what rejects keys WriteShape doesn't have — a generic
+  // parameter gets no excess-property check on its own.
   init<D extends WriteRowOf<WriteShape>>(
     data: D & InitStrict<WriteShape, D>,
-  ): InitResult<WriteShape, D> {
-    return applyProto(data, this.query as ProtoQuery) as InitResult<WriteShape, D>
+  ): InitResult<InitShape, D> {
+    return applyProto(data, this.query as ProtoQuery) as InitResult<InitShape, D>
   }
 
   // Substitutes every `$param` node with its value from `params` ; `wireQuery` is already proto-free (`proto`

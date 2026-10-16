@@ -252,9 +252,9 @@ const properties = await relation("hotel.properties", (join) => ({
 properties[0].rooms[0].label // uses the join's own `proto`
 ```
 
-`proto`'s members also appear in the write shape `.write()`/`init()` (below) expect — a `get`-only
-member stays read-only there too, but a `get`/`set` pair is required and assignable on a row you're
-about to write back, the same as it is on one you just read.
+`proto`'s members are not part of what `.write()` accepts or what you pass to `init()` (below): a member
+is not a column, and nothing says which column a setter writes. The row `init()` returns does carry them,
+a `get`-only one read-only and a `get`/`set` pair assignable, the same as on a row you `.get()`.
 
 A `proto` entry can also be a property descriptor (`{get, set, enumerable}`), not just a plain
 getter/method written inline — this is what lets a reusable helper compose accessors into
@@ -299,15 +299,18 @@ const properties = relation("hotel.properties", {
 
 const row = properties.init({
   name: "Marina Bay Grand Hotel",
-  created_at_as_date: Temporal.Now.instant(), // same accessor, same setter, as a read row
   rooms: [{ room_number: "101" }], // this join is to-many, so an array
 })
+
+// The returned row has the same accessors as one you fetched. Assigning goes through the setter, which
+// writes the underlying column (`created_at`), so this is how a value gets set through an accessor.
+row.created_at_as_date = Temporal.Now.instant()
 
 await properties.write([row])
 ```
 
 A to-many join's value must be an array ; a to-one join's must be a single nested row, itself
-matching that relation's own write shape (proto included, if it has one) — `init()` checks this the
+matching that relation's own write shape — `init()` checks this the
 same way it checks the root row, it just doesn't build any of it for you. `.write()` still expects
 an array of rows at the root, same as always ; `.init()` takes and returns ONE row, so wrap it in
 `[...]` yourself, the same way you would a row you built entirely by hand.
@@ -325,7 +328,7 @@ rated.star_rating // number | null — required, still the column's own type (no
 ```
 
 - Joined rows are handled the same way: a to-one object, and each element of a to-many array. In an array, a key counts as supplied only if every element supplies it.
-- A `proto` accessor key (such as `created_at_as_date`) counts as supplied when you pass it.
+- A `proto` accessor key (such as `created_at_as_date`) is not accepted in `data`: a key in the object would shadow the accessor, so its setter would never run, and the key would be sent to the server as an unknown field. Assign through the accessor on the returned row instead.
 - A key set to `undefined` counts as not supplied. `null` is a real value and counts as supplied.
 - A key the write shape doesn't have is a type error, at the root and inside joins: `nmae: "x"` is flagged on that key.
 

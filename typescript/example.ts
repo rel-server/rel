@@ -402,26 +402,28 @@ function assertPointAccessorIsReadonly(row: PropertyWithAccessorShape[number]) {
 }
 void assertPointAccessorIsReadonly
 
-// shapes.ts's WriteShapeFromRelationQuery doc comment : `proto` merges into WriteShape too, not just the read
-// shape — a get+set accessor member must be assignable when building a write payload ; a get-only one must not.
+// shapes.ts's InitShapeFromQuery doc comment : a `proto` member is never part of the write shape — it isn't a
+// column, and a key in an object literal would shadow the accessor — but init() returns the row with them.
 export type PropertyWithAccessorWriteShape = Parameters<
   typeof propertyWithAccessor.write
 >[0][number]
 
-export type _AssertWriteShapeHasWritableAccessor = Expect<
-  HasKey<PropertyWithAccessorWriteShape, "created_at_as_date">
+export type _AssertWriteShapeHasNoAccessor = Expect<
+  HasKey<PropertyWithAccessorWriteShape, "created_at_as_date"> extends false ? true : false
+>
+export type _AssertWriteShapeHasNoGetOnlyAccessor = Expect<
+  HasKey<PropertyWithAccessorWriteShape, "location_as_point"> extends false ? true : false
 >
 
-function assertWriteShapeAccessorIsWritable(row: PropertyWithAccessorWriteShape) {
-  row.created_at_as_date = Temporal.Now.instant()
-}
-void assertWriteShapeAccessorIsWritable
-
-function assertWriteShapePointAccessorIsReadonly(row: PropertyWithAccessorWriteShape) {
-  // @ts-expect-error location_as_point is get-only, assigning it is a compile error even in the write shape
+function assertInitRowAccessors() {
+  const row = propertyWithAccessor.init({ name: "x" })
+  row.created_at_as_date = Temporal.Now.instant() // get+set : assignable
+  // @ts-expect-error location_as_point is get-only, assigning it is a compile error on init()'s row too
   row.location_as_point = { x: 0, y: 0 }
+  // an init() row is still accepted by write()
+  void propertyWithAccessor.write([row])
 }
-void assertWriteShapePointAccessorIsReadonly
+void assertInitRowAccessors
 
 // moneyAccessor/bytesAccessor (## Reusable helpers, remaining work) — both get+set, same pattern as
 // timestampTzAccessor.
@@ -588,7 +590,6 @@ export type _AssertCreateNestedToManyIsArray = Expect<
 function assertCreatedRowAccessorIsWritable() {
   const createdPropertyWithAccessor = propertyWithAccessor.init({
     name: "Marina Bay Grand Hotel",
-    created_at_as_date: Temporal.Now.instant(),
   })
   createdPropertyWithAccessor.created_at_as_date = Temporal.Now.instant()
 }
@@ -1095,14 +1096,15 @@ export type _AssertInitNestedOneProvidedBecomesRequired = Expect<
   OptionalKey<typeof initNestedOne.property, "star_rating"> extends false ? true : false
 >
 
-// Proto accessor keys count as provided.
-function assertInitAccessorProvided() {
-  const row = propertyWithAccessor.init({ name: "x", created_at_as_date: Temporal.Now.instant() })
-  const _check: Expect<OptionalKey<typeof row, "created_at_as_date"> extends false ? true : false> =
-    true
-  void _check
+// A proto accessor key is not accepted in `data` : it would shadow the accessor with a plain property.
+function assertInitRejectsAccessorKey() {
+  propertyWithAccessor.init({
+    name: "x",
+    // @ts-expect-error created_at_as_date is a proto member, not a column
+    created_at_as_date: Temporal.Now.instant(),
+  })
 }
-void assertInitAccessorProvided
+void assertInitRejectsAccessorKey
 
 // Bogus fields are rejected, at the root and inside joins. Each directive sits right above the offending key.
 function assertInitRejectsBogusFields() {

@@ -400,7 +400,13 @@ type ShapeFromLeaf<E> = E extends null
 // read-vs-write meaning genuinely differs (query.ts's own get/col/set doc comments) — `"." | "dot"` (write is
 // single-hop only, computed fields dropped) and `"call"` (never writable at all) stay as two separate branches
 // in ExpressionShape's own dispatcher, below, rather than folding that asymmetry into every shared helper here.
-type Mode = "read" | "write"
+//
+// "init" is "write" plus the `proto` members `init()` (querier.ts) attaches to a row : every check below tests
+// `M extends "read"`, so it dispatches exactly like "write" ; only the places that wrap a node's shape in its
+// `proto` (WriteShapeFromRelationQuery) tell them apart, through ProtoFlag.
+type Mode = "read" | "write" | "init"
+
+type ProtoFlag<M extends Mode> = M extends "init" ? true : false
 
 // "*"/"*~" (full/own) resolve to the same base shape either way ; the optional trailing [except?, and?] args are
 // dispatched by shape (array vs object), not position, so either may be given alone or both together. `ReqCol`
@@ -419,7 +425,7 @@ type OwnFullBaseShape<
     : FullShape<Rel, Join, Depth>
   : Tag extends "*~"
     ? WriteOwnShape<Rel, ReqCol>
-    : WriteFullShape<Rel, Join, Depth, ReqCol>
+    : WriteFullShape<Rel, Join, Depth, ReqCol, ProtoFlag<M>>
 
 // Folds an arbitrary-length "*"/"*~" rest-tuple (each item either a K[] except-list or an
 // and-map, in any order, any count) into one union of excepted keys / one merged and-map —
@@ -653,7 +659,7 @@ type ExpressionShape<
         : Tag extends "." | "dot"
           ? M extends "read"
             ? ShapeFromDotTag<Rest, Rel, Join, Digits[Depth]>
-            : WriteShapeFromDotTag<Rest, Rel, Join, Digits[Depth]>
+            : WriteShapeFromDotTag<Rest, Rel, Join, Digits[Depth], ProtoFlag<M>>
           : Tag extends "$param"
             ? ShapeFromParamTag<Rest>
             : Tag extends ContainerTag
@@ -680,7 +686,8 @@ type WriteShapeFromExpression<
   Join extends { [name: string]: unknown },
   Depth extends number = 12,
   ReqCol extends string = never,
-> = ExpressionShape<"write", E, Rel, Join, Depth, ReqCol>
+  WithProtoMembers extends boolean = false,
+> = ExpressionShape<WithProtoMembers extends true ? "init" : "write", E, Rel, Join, Depth, ReqCol>
 
 // The JSON result shape of one RelationQuery node, before `proto` (docs/content/typescript/index.md ## Attaching
 // behavior to rows) merges in : its own `select` (absent defaults to `["*"]`, per query.ts's `select` doc
@@ -741,29 +748,17 @@ type IsWritable<D> = D extends (...args: any[]) => any
 // Turns a `proto` descriptor map into the plain member shape it produces once applied as a prototype. The
 // writable half MUST use `-readonly`, not bare mapped-type syntax : a homomorphic mapped type over a
 // `const`-inferred (deeply readonly) P inherits `readonly` per key regardless of IsWritable's own result.
-//
-// ForWrite makes the get-only half OPTIONAL rather than required — only WriteShapeFromRelationQuery sets it. A
-// get-only member is never populated by the caller (assigning it is a compile error, same as the read shape) ;
-// it's only ever present because `init()` (querier.ts) attaches it onto the row's prototype. Requiring it in the
-// write shape would force a hand-built write literal (one NOT passed through `init()`) to fake a value for a
-// column that doesn't exist server-side, for no benefit — the read shape keeps it required, since `applyProto`
-// guarantees every fetched row genuinely has it.
-type FromDescriptorMap<P, ForWrite extends boolean = false> = (ForWrite extends true
-  ? {
-      readonly [K in keyof P as IsWritable<P[K]> extends true ? never : K]?: ExtractDescriptor<P[K]>
-    }
-  : {
-      readonly [K in keyof P as IsWritable<P[K]> extends true ? never : K]: ExtractDescriptor<P[K]>
-    }) & {
+type FromDescriptorMap<P> = {
+  readonly [K in keyof P as IsWritable<P[K]> extends true ? never : K]: ExtractDescriptor<P[K]>
+} & {
   -readonly [K in keyof P as IsWritable<P[K]> extends true ? K : never]: ExtractDescriptor<P[K]>
 }
 
-// Merges `proto`'s own members into the row shape it decorates. ForWrite threads through to
-// FromDescriptorMap — see that type's own doc comment.
-type MergeProto<Q, Base, ForWrite extends boolean = false> = Q extends {
+// Merges `proto`'s own members into the row shape it decorates.
+type MergeProto<Q, Base> = Q extends {
   proto: infer P extends object
 }
-  ? Base & FromDescriptorMap<P, ForWrite>
+  ? Base & FromDescriptorMap<P>
   : Base
 
 /**
@@ -947,21 +942,51 @@ type IsRequiredEntry<
 // Write-side counterpart to JoinMemberShape (above) — same to-one/to-many cardinality split, resolved through
 // WriteShapeFromRelationQuery instead of ShapeFromRelationQuery. Shared by WriteJoinShapes and
 // WriteShapeFromDotTag, same reasoning as JoinMemberShape's own doc comment.
-type WriteJoinMemberShape<J, ParentRel extends object, Depth extends number> =
+type WriteJoinMemberShape<
+  J,
+  ParentRel extends object,
+  Depth extends number,
+  WithProtoMembers extends boolean = false,
+> =
   JoinCardinality<J> extends true
     ? J extends { shortcut: infer S extends string }
       ? IsNullableJoin<S, ParentRel> extends true
-        ? WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth> | null
-        : WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>
-      : WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>
-    : WriteShapeFromRelationQuery<J, ResolveModel<J>, Depth>[]
+        ? WriteShapeFromRelationQuery<
+            J,
+            ResolveModel<J>,
+            Depth,
+            RequiredKeysOf<ResolveKey<J>>,
+            WithProtoMembers
+          > | null
+        : WriteShapeFromRelationQuery<
+            J,
+            ResolveModel<J>,
+            Depth,
+            RequiredKeysOf<ResolveKey<J>>,
+            WithProtoMembers
+          >
+      : WriteShapeFromRelationQuery<
+          J,
+          ResolveModel<J>,
+          Depth,
+          RequiredKeysOf<ResolveKey<J>>,
+          WithProtoMembers
+        >
+    : WriteShapeFromRelationQuery<
+        J,
+        ResolveModel<J>,
+        Depth,
+        RequiredKeysOf<ResolveKey<J>>,
+        WithProtoMembers
+      >[]
 
 type WriteJoinShapes<
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
+  WithProtoMembers extends boolean = false,
 > = {
-  [A in keyof Join]: WriteJoinMemberShape<Join[A], Rel, Digits[Depth]>
+  [A in keyof Join]: WriteJoinMemberShape<Join[A], Rel, Digits[Depth], WithProtoMembers>
 }
 
 // Same physical columns as OwnShape, but a column named in ReqCol (RequiredKeysOf<ResolveKey<Q>>, threaded down
@@ -974,7 +999,8 @@ type WriteFullShape<
   Join extends { [name: string]: unknown },
   Depth extends number,
   ReqCol extends string = never,
-> = WriteOwnShape<Rel, ReqCol> & WriteJoinShapes<Rel, Join, Depth>
+  WithProtoMembers extends boolean = false,
+> = WriteOwnShape<Rel, ReqCol> & WriteJoinShapes<Rel, Join, Depth, WithProtoMembers>
 
 // "."/"dot" on the write side — docs/content/query-language/writing.md ## Writability rules : "a physical
 // column is writable ... untransformed except by a coalescing operator, or set/col" and "a computed field ...
@@ -990,10 +1016,11 @@ type WriteShapeFromDotSingleHop<
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
+  WithProtoMembers extends boolean = false,
 > = Name extends keyof Rel
   ? Rel[Name]
   : Name extends keyof Join
-    ? WriteJoinMemberShape<Join[Name], Rel, Depth>
+    ? WriteJoinMemberShape<Join[Name], Rel, Depth, WithProtoMembers>
     : Omitted
 
 type WriteShapeFromDotTag<
@@ -1001,8 +1028,9 @@ type WriteShapeFromDotTag<
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
+  WithProtoMembers extends boolean = false,
 > = Rest extends readonly [infer Name extends string]
-  ? WriteShapeFromDotSingleHop<Name, Rel, Join, Depth>
+  ? WriteShapeFromDotSingleHop<Name, Rel, Join, Depth, WithProtoMembers>
   : Omitted
 
 /**
@@ -1021,29 +1049,38 @@ export type WriteShapeFromRelationQuery<
   Rel extends object,
   Depth extends number = 12,
   ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
+  WithProtoMembers extends boolean = false,
 > = Depth extends 0
   ? unknown
   : Prettify<
-      MergeProto<
-        Q,
-        Q extends { select: infer Sel }
-          ? [Sel] extends [undefined]
-            ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>
-            : WriteShapeFromExpression<
-                  Sel,
-                  Rel,
-                  ExtractJoinMap<Q>,
-                  Digits[Depth],
-                  ReqCol
-                > extends infer S
-              ? S extends Omitted
-                ? unknown
-                : S
-              : never
-          : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol>,
-        true
-      >
+      WithProtoMembers extends true
+        ? MergeProto<Q, WriteBaseShape<Q, Rel, Depth, ReqCol, true>>
+        : WriteBaseShape<Q, Rel, Depth, ReqCol, false>
     >
+
+// WriteShapeFromRelationQuery's node shape before any `proto` is merged in.
+type WriteBaseShape<
+  Q,
+  Rel extends object,
+  Depth extends number,
+  ReqCol extends string,
+  WithProtoMembers extends boolean,
+> = Q extends { select: infer Sel }
+  ? [Sel] extends [undefined]
+    ? WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol, WithProtoMembers>
+    : WriteShapeFromExpression<
+          Sel,
+          Rel,
+          ExtractJoinMap<Q>,
+          Digits[Depth],
+          ReqCol,
+          WithProtoMembers
+        > extends infer S
+      ? S extends Omitted
+        ? unknown
+        : S
+      : never
+  : WriteFullShape<Rel, ExtractJoinMap<Q>, Digits[Depth], ReqCol, WithProtoMembers>
 
 /**
  Public entry point, mirroring ShapeFromQuery. ReqCol's default mirrors WriteShapeFromRelationQuery's own —
@@ -1054,6 +1091,19 @@ export type WriteShapeFromQuery<
   Rel extends object = { [name: string]: unknown },
   ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
 > = WriteShapeFromRelationQuery<Q, Rel, 12, ReqCol>
+
+/**
+ The row `init()` (querier.ts) returns : WriteShapeFromQuery plus every `proto` member — the node's own, and each
+ join's, recursively — since init() is what attaches the prototype. A `proto` member is NEVER part of
+ WriteShapeFromQuery itself : it isn't a column, an accessor's setter only runs on assignment (a key in an object
+ literal would shadow the accessor with a plain property, and be sent to the server as an unknown field), and
+ nothing says which column a setter writes, so it can't count toward a required column either.
+ */
+export type InitShapeFromQuery<
+  Q,
+  Rel extends object = { [name: string]: unknown },
+  ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
+> = WriteShapeFromRelationQuery<Q, Rel, 12, ReqCol, true>
 
 ///////////////////////////////////////////////////////////////////////
 // init() : what `Querier.init()` returns, and how it rejects fields the write shape doesn't have.
