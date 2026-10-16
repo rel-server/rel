@@ -1036,13 +1036,22 @@ assertRuntimeParseMatchesTypeLevelParse()
 // ResolveKey's shortcut branch (shapes.ts) previously only matched "<"/">" — a "*" (incoming-and-multiple)
 // shortcut fell through to `never`, which made RequiredKeysOf<ResolveKey<Q>> collapse to `never` too, silently
 // dropping every required-column check on a to-many join's own write shape. `propertyWithNestedProto`'s "rooms"
-// join (near the top of this file) uses a "*" shortcut, and "property_id" is required on "hotel.rooms"
-// (RequiredColumns, schema.example.ts).
+// join (near the top of this file) uses a "*" shortcut : "room_type_id" is required on "hotel.rooms"
+// (RequiredColumns, schema.example.ts) and the join doesn't fill it, so it stays mandatory. "property_id" is the
+// column the join itself fills, so it is optional there (JoinRequiredKeys, shapes.ts).
 export type _AssertStarShortcutJoinRequiredColumnStaysMandatory = Expect<
   IsRequiredKey<
     Parameters<typeof propertyWithNestedProto.write>[0][number]["rooms"][number],
-    "property_id"
+    "room_type_id"
   >
+>
+export type _AssertStarShortcutJoinKeyIsOptional = Expect<
+  IsRequiredKey<
+    Parameters<typeof propertyWithNestedProto.write>[0][number]["rooms"][number],
+    "property_id"
+  > extends false
+    ? true
+    : false
 >
 
 // docs/content/typescript/index.md ### Building a new row : init() keeps what `data` carried. `star_rating` is
@@ -1095,6 +1104,30 @@ const initNestedOne = rooms.init({
 export type _AssertInitNestedOneProvidedBecomesRequired = Expect<
   OptionalKey<typeof initNestedOne.property, "star_rating"> extends false ? true : false
 >
+
+// An incoming join fills the joined row's referencing column itself (writing.md ## Write order), so a nested
+// `rooms` row may omit `property_id` ; the same relation written on its own still requires it. Columns the join
+// doesn't fill stay required.
+const initNestedOmitsJoinKey = propertyWithNestedProto.init({
+  name: "x",
+  rooms: [{ room_type_id: ROOM_TYPE_1, room_number: "101" }],
+})
+void initNestedOmitsJoinKey
+function assertJoinKeyOnlyOptionalWhenJoinFillsIt() {
+  propertyWithNestedProto.init({
+    name: "x",
+    // @ts-expect-error room_type_id isn't filled by the join
+    rooms: [{ room_number: "101" }],
+  })
+  // @ts-expect-error property_id is required when rooms is written as the root
+  rooms.init({
+    room_type_id: ROOM_TYPE_1,
+    room_number: "101",
+    property: { name: "x" },
+    room_type: { name: "d", base_price: asNumeric("1") },
+  })
+}
+void assertJoinKeyOnlyOptionalWhenJoinFillsIt
 
 // A proto accessor key is not accepted in `data` : it would shadow the accessor with a plain property.
 function assertInitRejectsAccessorKey() {
@@ -1179,3 +1212,15 @@ function assertIdMixups() {
   void asInt8
 }
 void assertIdMixups
+
+// A rejected value must not make init() forget the other keys : only the offending key is reported, and the
+// returned row still has `star_rating` required (it was supplied).
+const initWithBadValue = propertyWithNestedProto.init({
+  // @ts-expect-error name is a string
+  name: 42,
+  star_rating: 5,
+  rooms: [],
+})
+export type _AssertInitKeepsProvidedKeysDespiteBadValue = Expect<
+  OptionalKey<typeof initWithBadValue, "star_rating"> extends false ? true : false
+>

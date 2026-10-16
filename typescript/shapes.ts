@@ -942,6 +942,19 @@ type IsRequiredEntry<
 // Write-side counterpart to JoinMemberShape (above) — same to-one/to-many cardinality split, resolved through
 // WriteShapeFromRelationQuery instead of ShapeFromRelationQuery. Shared by WriteJoinShapes and
 // WriteShapeFromDotTag, same reasoning as JoinMemberShape's own doc comment.
+// Required columns of a joined relation, minus the ones the join itself fills in. On an incoming join (`<`/`*`)
+// the joined relation owns the FK, and the server threads the parent's key into it (docs/content/query-language/
+// writing.md ## Write order) — so the referencing columns are optional on the nested row. Outgoing (`>`) and
+// hand-written joins have no such columns on the joined side.
+type JoinRequiredKeys<J> = Exclude<
+  RequiredKeysOf<ResolveKey<J>>,
+  J extends { shortcut: infer S extends string }
+    ? ParsedShortcut<S>["marker"] extends "<" | "*"
+      ? ReferencingColumnsOfShortcut<S>
+      : never
+    : never
+>
+
 type WriteJoinMemberShape<
   J,
   ParentRel extends object,
@@ -955,28 +968,28 @@ type WriteJoinMemberShape<
             J,
             ResolveModel<J>,
             Depth,
-            RequiredKeysOf<ResolveKey<J>>,
+            JoinRequiredKeys<J>,
             WithProtoMembers
           > | null
         : WriteShapeFromRelationQuery<
             J,
             ResolveModel<J>,
             Depth,
-            RequiredKeysOf<ResolveKey<J>>,
+            JoinRequiredKeys<J>,
             WithProtoMembers
           >
       : WriteShapeFromRelationQuery<
           J,
           ResolveModel<J>,
           Depth,
-          RequiredKeysOf<ResolveKey<J>>,
+          JoinRequiredKeys<J>,
           WithProtoMembers
         >
     : WriteShapeFromRelationQuery<
         J,
         ResolveModel<J>,
         Depth,
-        RequiredKeysOf<ResolveKey<J>>,
+        JoinRequiredKeys<J>,
         WithProtoMembers
       >[]
 

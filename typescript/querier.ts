@@ -673,9 +673,11 @@ export class Querier<
   // `proto` member, since this is what attaches the prototype. `data` itself is checked against WriteShape alone,
   // which has no `proto` member : a key shadowing an accessor would never reach its setter, and would be sent to
   // the server as an unknown field. InitStrict is what rejects keys WriteShape doesn't have — a generic
-  // parameter gets no excess-property check on its own.
-  init<D extends WriteRowOf<WriteShape>>(
-    data: D & InitStrict<WriteShape, D>,
+  // parameter gets no excess-property check on its own. `D` is only constrained to `object` and the row check is
+  // an intersection on `data`, not a bound on `D` : a bound makes TS discard `D` when any key fails it, and the
+  // result then loses every key `data` supplied (all optional) on top of the one real error.
+  init<D extends object>(
+    data: D & WriteRowOf<WriteShape> & InitStrict<WriteShape, D>,
   ): InitResult<InitShape, D> {
     return applyProto(data, this.query as ProtoQuery) as InitResult<InitShape, D>
   }

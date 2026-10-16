@@ -339,6 +339,7 @@ rated.star_rating // number | null — required, still the column's own type (no
 
 - Joined rows are handled the same way: a to-one object, and each element of a to-many array. In an array, a key counts as supplied only if every element supplies it.
 - A `proto` accessor key (such as `created_at_as_date`) is not accepted in `data`: a key in the object would shadow the accessor, so its setter would never run, and the key would be sent to the server as an unknown field. Assign through the accessor on the returned row instead.
+- On a nested row reached through an incoming join (`<` or `*` shortcut), the column that join fills (`rooms[].property_id` under `properties`) is optional: the server writes the parent's key into it. The same relation written as the root still requires it.
 - A key set to `undefined` counts as not supplied. `null` is a real value and counts as supplied.
 - A key the write shape doesn't have is a type error, at the root and inside joins: `nmae: "x"` is flagged on that key.
 
