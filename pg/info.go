@@ -211,6 +211,9 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 		return err
 	}
 
+	// Needs only relations (and their columns' Index).
+	FillViewProvenance(db, conn)
+
 	// Types-filling reads back into both Functions and Relations, so it must
 	// run after both are populated.
 	if err := FillTypeInformations(db, conn); err != nil {

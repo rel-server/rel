@@ -160,3 +160,10 @@ create table hotel.composite_child (
 	pb int not null,
 	foreign key (pa, pb) references hotel.composite_parent (a, b)
 );
+
+-- View provenance : a plain pass-through of an id keeps its type, an expression doesn't, a view over a view
+-- follows the chain.
+create view hotel.ledger_entry_summaries as
+	select e.id, e.ledger_id as owner_ledger, l.label, e.id + 0 as computed_id
+	from hotel.ledger_entries e join hotel.ledgers l on l.id = e.ledger_id;
+create view hotel.ledger_entry_ids as select id, owner_ledger from hotel.ledger_entry_summaries;

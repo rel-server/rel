@@ -460,7 +460,8 @@ const literal = 1 as PropertyId // a literal id is cast explicitly
 - An id converts to its bare type (`number`, or `Int8` for a `bigserial`), never the other way round.
 - A foreign key whose type differs from the column it references (an `int` pointing at a `bigserial`) stays a plain type, since the wire values aren't the same kind.
 - A column that is both serial and a foreign key keeps its own type.
-- Views, function arguments and function results keep the plain `number`/`Int8`: they accept an id but don't produce one.
+- A view column that is an unmodified pass-through of an id column (`select id`, `select e.id as entry_id ... join ...`, or a view over such a view) has the same id type. An expression (`id + 0`, `id::bigint`) is a plain number again. Postgres itself says which table column each view column comes from, so no SQL is parsed. Materialized views aren't introspected yet.
+- Function arguments and function results keep the plain `number`/`Int8`: they accept an id but don't produce one.
 - Nothing changes at runtime. The id type only exists in the type checker, so `1 as PropertyId` is free.
 
 ## Calling a function directly

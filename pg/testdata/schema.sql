@@ -250,3 +250,21 @@ create table flagged_columns (
 	tax numeric generated always as (price * 0.2) stored,
 	unique (code)
 );
+
+-- View provenance fixture (info_provenance.go) : Column.Source on pass-through view columns.
+create table prov_parent (
+	id serial primary key,
+	label text not null
+);
+create table prov_child (
+	id serial primary key,
+	parent_id int not null references prov_parent (id),
+	note text
+);
+-- plain select, renamed column, expression, join (columns from either side), view over a view, subquery in FROM
+create view prov_plain as select id, label as renamed from prov_parent;
+create view prov_expr as select id + 0 as id_plus, label || 'x' as label_x, id::bigint as id_cast from prov_parent;
+create view prov_join as
+	select c.id as child_id, p.id as parent_id, c.note from prov_child c join prov_parent p on p.id = c.parent_id;
+create view prov_nested as select id, renamed from prov_plain;
+create view prov_subquery as select s.id, s.label from (select id, label from prov_parent where id > 0) s;

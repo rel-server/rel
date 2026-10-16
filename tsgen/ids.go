@@ -60,6 +60,11 @@ func newIdResolver(db *pg.DbInfos, relations []*pg.Relation, tc *typeCollector) 
 	for _, r := range db.Relations {
 		for _, c := range r.Columns {
 			owner[c] = r
+			// A view column that is a plain pass-through of another column (pg.FillViewProvenance) behaves like
+			// a foreign key to it : it holds exactly that column's values.
+			if c.Source != nil {
+				references[c] = c.Source
+			}
 		}
 		for _, fk := range r.OutgoingForeignKeys {
 			if fk.Target == nil {

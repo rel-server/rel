@@ -524,3 +524,51 @@ func TestNewInfosAdminQuery_ZeroPoolSizeLeavesPgxDefault(t *testing.T) {
 		t.Errorf("expected pgx's own positive default MaxConns when poolSize=0, got %d", got)
 	}
 }
+
+// ---- view provenance (info_provenance.go) ----------------------------------
+
+func columnNamed(t *testing.T, r *Relation, name string) *Column {
+	t.Helper()
+	c := r.ColumnsMap[name]
+	if c == nil {
+		t.Fatalf("column %q not found on %s", name, r.Identifier.Name)
+	}
+	return c
+}
+
+func TestViewProvenance(t *testing.T) {
+	parent := relationByName(t, "prov_parent")
+	child := relationByName(t, "prov_child")
+	plain := relationByName(t, "prov_plain")
+
+	cases := []struct {
+		view, col string
+		want      *Column // nil : no Source
+	}{
+		{"prov_plain", "id", columnNamed(t, parent, "id")},
+		{"prov_plain", "renamed", columnNamed(t, parent, "label")},
+		{"prov_expr", "id_plus", nil},
+		{"prov_expr", "label_x", nil},
+		{"prov_expr", "id_cast", nil},
+		{"prov_join", "child_id", columnNamed(t, child, "id")},
+		{"prov_join", "parent_id", columnNamed(t, parent, "id")},
+		{"prov_join", "note", columnNamed(t, child, "note")},
+		// a view over a view points at the inner VIEW's column, one hop
+		{"prov_nested", "id", columnNamed(t, plain, "id")},
+		{"prov_nested", "renamed", columnNamed(t, plain, "renamed")},
+		{"prov_subquery", "id", columnNamed(t, parent, "id")},
+	}
+	for _, tc := range cases {
+		got := columnNamed(t, relationByName(t, tc.view), tc.col).Source
+		if got != tc.want {
+			t.Errorf("%s.%s: Source = %v, want %v", tc.view, tc.col, describeColumn(got), describeColumn(tc.want))
+		}
+	}
+}
+
+func describeColumn(c *Column) string {
+	if c == nil {
+		return "<none>"
+	}
+	return c.Name
+}

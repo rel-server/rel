@@ -414,3 +414,33 @@ func TestGenerateSchema_TableLocalIds(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateSchema_TableLocalIds_Views is pg.FillViewProvenance feeding tsgen/ids.go : only a view column that
+// is an unmodified pass-through of an id column gets the id type.
+func TestGenerateSchema_TableLocalIds_Views(t *testing.T) {
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
+
+	for _, name := range []string{"View__Hotel__LedgerEntrySummaries", "View__Hotel__LedgerEntryIds"} {
+		start := strings.Index(out, "interface "+name+" {")
+		if start < 0 {
+			t.Fatalf("%s not found in:\n%s", name, out)
+		}
+		block := out[start : start+strings.Index(out[start:], "\n}\n")]
+		for _, want := range []string{
+			"id: Id[\"hotel.ledger_entries.id\"] | null",
+			"owner_ledger: Id[\"hotel.ledgers.id\"] | null",
+		} {
+			if !strings.Contains(block, want) {
+				t.Errorf("%s missing %q ; got:\n%s", name, want, block)
+			}
+		}
+	}
+	start := strings.Index(out, "interface View__Hotel__LedgerEntrySummaries {")
+	block := out[start : start+strings.Index(out[start:], "\n}\n")]
+	if strings.Contains(block, "computed_id: Id[") {
+		t.Errorf("an expression over an id must stay a plain number ; got:\n%s", block)
+	}
+	if !strings.Contains(block, "computed_id: number | null") {
+		t.Errorf("computed_id should be a plain nullable number ; got:\n%s", block)
+	}
+}

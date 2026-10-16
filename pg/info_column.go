@@ -15,7 +15,16 @@
 package pg
 
 type Column struct {
-	Name      string
+	Name string
+
+	// Index is the column's attnum (information_schema's ordinal_position).
+	Index int
+
+	// Source is the base column a view/materialized view column is a plain, unmodified pass-through of, one hop
+	// (a view over a view points at the inner view's column ; follow Source again to reach the table). nil for a
+	// table column and for any view column that is an expression. Filled by FillViewProvenance.
+	Source *Column `json:"-"`
+
 	PgTypeOid int
 
 	// PgDomainIdentifier is set only when the column's declared type is a
