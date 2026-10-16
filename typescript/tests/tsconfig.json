@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    // the generated database.ts declares helper types not every schema uses
+    "noUnusedLocals": false
+  },
+  "include": ["./**/*.ts"],
+  "exclude": []
+}

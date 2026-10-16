@@ -26,6 +26,24 @@ startup and on every schema reload.
 The file has no `import`s and depends on nothing else in your project — copy it in, commit it
 if you like, and it just works.
 
+### Where the server is
+
+A query sends its request to `/rel` on the page's own origin. Outside a browser, or when the server
+lives elsewhere, set `baseUrl` (default `"/"`; a trailing slash is ignored). It is a property on
+`Querier`'s prototype, read each time a request is sent, so it can be set for every query or for one:
+
+```ts
+import { Querier, relation } from "./database"
+
+Querier.prototype.baseUrl = "https://rel.example.com" // every query that doesn't set its own
+
+const other = relation("hotel.properties")
+other.baseUrl = "https://other.example.com" // just this one: two servers side by side
+```
+
+A browser calling a server on another origin needs that server to allow it
+([CORS](../http/cors-csp.md)); requests are sent with `credentials: "include"`.
+
 ## Building a query
 
 `database.ts` exports `relation()`, `func()`, and `wellknown()` — thin builders that return a

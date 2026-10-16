@@ -21,6 +21,13 @@ test:
 check:
     cd typescript && bunx tsc --noEmit && biome check
 
+# The TypeScript client's own tests (typescript/tests) against a real rel server and database : go starts both,
+# generates database.ts from them, typechecks the tests against it and runs `bun test`. Needs docker and bun
+# (`bun install` once in typescript/) ; part of `just test` too, where it's skipped if bun is missing.
+test-ts:
+    cd typescript && bun install --frozen-lockfile
+    go test ./test/tsclient -count=1 -v
+
 # Launch the rel server against the dev database (just test-db-up first). Uses
 # pg.uri alone — REL_PG__QUERY__USER/PASSWORD are unset (there's only one
 # role in this dev fixture) ; a real deployment would set those separately,

@@ -1,6 +1,6 @@
 {
   "files": {
-    "includes": ["**"]
+    "includes": ["**", "!**/node_modules", "!**/tests/generated"]
   },
   "assist": {
     "actions": {

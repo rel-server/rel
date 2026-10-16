@@ -8,3 +8,7 @@ jwt-secret
 
 # GoReleaser local build output
 /dist
+
+# TypeScript client dev dependencies (typescript/package.json)
+node_modules/
+typescript/tests/generated/

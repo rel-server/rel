@@ -505,6 +505,12 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
 }
 
 /**
+ The argument list of get(): the params object is required when the query has `$param`s, and may be left out when
+ it has none (`Params` is then `unknown`, or `void` for a hand-built Querier).
+ */
+type OptionalWhenNoParams<P> = unknown extends P ? [params?: P] : [params: P]
+
+/**
  Both wellknown() and relation() produce a Querier with its Shape/WriteShape/Params known through their own
  return types. WriteShape defaults to Shape so a hand-built Querier (or wellknown(), which doesn't compute one)
  still works ; relation()/func() always supply the real, narrower WriteShapeFromQuery explicitly. Q defaults to
@@ -513,6 +519,12 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
  */
 export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Query> {
   public query: Q
+
+  // Where the rel server lives : get()/write() POST to `${baseUrl}/rel`. Declared here but assigned on the
+  // prototype (below the class), not as a class field, so it's NOT an own property of every query : set
+  // `Querier.prototype.baseUrl` to change it for every query that doesn't override it, or assign `baseUrl` on one
+  // query to point just that query at another server. Read at call time (_send), never at construction.
+  declare baseUrl: string
 
   // The actual wire payload : same tree as `query`, minus `proto` (client-side only — never sent to the server ;
   // `query` itself keeps it, since init()/applyProto need it). Computed once at construction, alongside
@@ -668,8 +680,10 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
 
   // Explicit Promise<Shape> return type : _send() only returns Promise<any> (res.json() can't know what it
   // parsed), so without this annotation Shape would be silently erased. write()'s overloads do the same.
-  get(_params: Params): Promise<Shape> {
-    return this._send(this.doQuery(_params))
+  // `Params` is `unknown` for a query with no `$param` at all (shapes.ts's Params : an intersection of nothing),
+  // which a plain `get(params: Params)` would make a required argument — see OptionalWhenNoParams.
+  get(...args: OptionalWhenNoParams<Params>): Promise<Shape> {
+    return this._send(this.doQuery(args[0] as Params))
   }
 
   // send a write request to rel. `data` is WriteShape, not Shape — get/set/col's read-vs-write asymmetry
@@ -683,7 +697,7 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
   }
 
   private async _send(query: unknown) {
-    const res = await fetch("/rel", {
+    const res = await fetch(`${this.baseUrl.replace(/\/+$/, "")}/rel`, {
       credentials: "include",
       method: "POST",
       body: JSON.stringify(query),
@@ -695,6 +709,9 @@ export class Querier<Shape = unknown, WriteShape = Shape, Params = void, Q = Que
     return applyProto(data, this.query as ProtoQuery) as Shape
   }
 }
+
+// "/" (this origin) unless changed : see the `baseUrl` declaration above.
+Querier.prototype.baseUrl = "/"
 
 /**
  Thrown by get()/write() (both funnel through _send) whenever the server responds with a >= 400 status —

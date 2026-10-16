@@ -22,7 +22,15 @@ of those forced in.
 test/
   hotel/
     schema.sql            the `hotel` schema, the btree_gist extension, every table/function
+    fixture.sql           a few deterministic rows, for assertions that need exact values
+  tsclient/               runs the TypeScript client's tests (typescript/tests) against a real server
 ```
+
+`fixture.sql` is loaded after `schema.sql` on a fresh database, so every identity id is predictable (they
+count up from 1 in insertion order). `test/seed` is the opposite: random data, for volume.
+
+`test/tsclient` starts Postgres with both files, serves the real handler tree, saves the `database.ts`
+that server generates, typechecks `typescript/tests` against it and runs `bun test` (`just test-ts`).
 
 A single plain SQL script, applied via testcontainers' `postgres.WithInitScripts` — rel
 doesn't embed a migration tool itself (`specs/reload.md`), so this fixture only ever needed

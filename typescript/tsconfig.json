@@ -20,5 +20,7 @@
     "lib": ["ESNext", "dom"],
     "types": []
   },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.ts"],
+  // tests/ has its own tsconfig : it needs bun's types, and the database.ts a running server generates
+  "exclude": ["node_modules", "tests"]
 }
