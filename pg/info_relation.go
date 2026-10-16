@@ -109,6 +109,10 @@ func FillRelationInformations(infos *DbInfos, conn *pgx.Conn) error {
 	return nil
 }
 
+// IsViewLike is true for a view or a materialized view : both are read-only, query-defined relations (tsgen
+// generates a View__ interface for either).
+func (r *Relation) IsViewLike() bool { return r.IsView || r.IsMaterializedView }
+
 var INFO_QUERY_RELATIONS = /* sql */ `
 SELECT json_agg(R) FROM (SELECT
 
@@ -191,5 +195,44 @@ SELECT
 FROM pg_class
 JOIN pg_attribute a ON a.attrelid = pg_class.oid AND a.attnum > 0 AND NOT a.attisdropped
 WHERE pg_class.relkind = 'c'
+GROUP BY pg_class.oid, pg_class.relnamespace, pg_class.relname
+
+UNION ALL
+
+-- information_schema.columns never lists a materialized view's columns either (it only knows relkind
+-- 'r','v','f','p'), so they are read straight from pg_attribute, shaped like the first branch. A materialized view
+-- has no defaults, identity or generated columns, can't be written to, and its columns carry no NOT NULL. Same
+-- visibility rule information_schema applies : only a relation the connecting role has some privilege on.
+SELECT
+	pg_class.oid::integer AS "PgRelId",
+	json_build_object(
+		'Schema', pg_class.relnamespace::regnamespace,
+		'Name', pg_class.relname
+	) AS "Identifier",
+	obj_description(pg_class.oid, 'pg_class') AS "Comment",
+	false AS "IsView",
+	true AS "IsMaterializedView",
+	false AS "IsStandaloneCompositeType",
+	json_agg(json_build_object(
+		'Name', a.attname,
+		'Index', a.attnum,
+		'Comment', col_description(pg_class.oid, a.attnum),
+		'DefaultExpression', NULL,
+		'IsNullable', NOT a.attnotnull,
+		'IsSelfReferencing', false,
+		'IsIdentity', false,
+		'IsGenerated', false,
+		'IsUpdatable', false,
+		-- a domain-typed column reports its BASE type plus the domain separately, like information_schema does
+		'PgTypeOid', CASE WHEN t.typtype = 'd' THEN t.typbasetype::integer ELSE a.atttypid::integer END,
+		'DomainIdentifier', CASE WHEN t.typtype = 'd' THEN json_build_object(
+				'Schema', t.typnamespace::regnamespace,
+				'Name', t.typname
+			) ELSE NULL END
+	) ORDER BY a.attnum) AS "Columns"
+FROM pg_class
+JOIN pg_attribute a ON a.attrelid = pg_class.oid AND a.attnum > 0 AND NOT a.attisdropped
+JOIN pg_type t ON t.oid = a.atttypid
+WHERE pg_class.relkind = 'm' AND has_any_column_privilege(pg_class.oid, 'SELECT')
 GROUP BY pg_class.oid, pg_class.relnamespace, pg_class.relname
 ) R;`

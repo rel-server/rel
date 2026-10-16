@@ -167,3 +167,9 @@ create view hotel.ledger_entry_summaries as
 	select e.id, e.ledger_id as owner_ledger, l.label, e.id + 0 as computed_id
 	from hotel.ledger_entries e join hotel.ledgers l on l.id = e.ledger_id;
 create view hotel.ledger_entry_ids as select id, owner_ledger from hotel.ledger_entry_summaries;
+
+-- A materialized view : introspected like a view (View__ interface), id provenance included, and its domain-typed
+-- NOT NULL column resolves through the domain like a table column does.
+create materialized view hotel.ledger_entry_totals as
+	select e.id as entry_id, e.ledger_id, p.slug
+	from hotel.ledger_entries e, hotel.properties p;

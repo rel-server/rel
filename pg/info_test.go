@@ -557,6 +557,8 @@ func TestViewProvenance(t *testing.T) {
 		{"prov_nested", "id", columnNamed(t, plain, "id")},
 		{"prov_nested", "renamed", columnNamed(t, plain, "renamed")},
 		{"prov_subquery", "id", columnNamed(t, parent, "id")},
+		{"prov_matview", "id", columnNamed(t, parent, "id")},
+		{"prov_matview", "renamed", columnNamed(t, parent, "label")},
 	}
 	for _, tc := range cases {
 		got := columnNamed(t, relationByName(t, tc.view), tc.col).Source
@@ -571,4 +573,26 @@ func describeColumn(c *Column) string {
 		return "<none>"
 	}
 	return c.Name
+}
+
+// ---- materialized views (info_relation.go's third branch) -------------------
+
+func TestMaterializedViewIsIntrospected(t *testing.T) {
+	mv := relationByName(t, "prov_matview")
+	if !mv.IsMaterializedView || mv.IsView || !mv.IsViewLike() {
+		t.Errorf("flags wrong: IsView=%v IsMaterializedView=%v", mv.IsView, mv.IsMaterializedView)
+	}
+	if mv.Comment != "a materialized view" {
+		t.Errorf("relation comment = %q", mv.Comment)
+	}
+	id := columnNamed(t, mv, "id")
+	if id.Comment != "its id" || id.IsUpdatable || id.IsPrimaryKey || !id.IsNullable || id.Type == nil || id.Type.PgIdentifier.Name != "int4" {
+		t.Errorf("id column wrong: %+v", id)
+	}
+	if !mv.IsIndexed([]string{"id"}) {
+		t.Errorf("the index on a materialized view should be introspected")
+	}
+	if relationByName(t, "prov_plain").IsMaterializedView {
+		t.Errorf("a plain view must not read as materialized")
+	}
 }

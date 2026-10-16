@@ -268,3 +268,7 @@ create view prov_join as
 	select c.id as child_id, p.id as parent_id, c.note from prov_child c join prov_parent p on p.id = c.parent_id;
 create view prov_nested as select id, renamed from prov_plain;
 create view prov_subquery as select s.id, s.label from (select id, label from prov_parent where id > 0) s;
+create materialized view prov_matview as select id, label as renamed from prov_parent;
+create index prov_matview_id_idx on prov_matview (id);
+comment on materialized view prov_matview is 'a materialized view';
+comment on column prov_matview.id is 'its id';

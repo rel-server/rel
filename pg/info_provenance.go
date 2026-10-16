@@ -21,7 +21,7 @@ import (
 func FillViewProvenance(db *DbInfos, conn *pgx.Conn) {
 	ctx := context.Background()
 	for _, view := range db.Relations {
-		if !view.IsView && !view.IsMaterializedView {
+		if !view.IsViewLike() {
 			continue
 		}
 		// Nothing outside the user's own schemas can usefully be a source of table-local ids, and the system

@@ -233,7 +233,7 @@ func targetFunctions(db *pg.DbInfos, opts Options) []*pg.Function {
 func renderRelationInterfaces(relations []*pg.Relation, tc *typeCollector) string {
 	var b strings.Builder
 	for _, r := range relations {
-		name := relationInterfaceName(r.Identifier.Schema, r.Identifier.Name, r.IsView)
+		name := relationInterfaceName(r.Identifier.Schema, r.Identifier.Name, r.IsViewLike())
 		b.WriteString(docComment(r.Comment, ""))
 		body := relationColumnsBlock(r, tc)
 		if body == "" {
@@ -254,7 +254,7 @@ func renderRelationsMap(relations []*pg.Relation) string {
 	b.WriteString("export interface Relations {\n")
 	for _, r := range relations {
 		key := relationKey(r.Identifier.Schema, r.Identifier.Name)
-		name := relationInterfaceName(r.Identifier.Schema, r.Identifier.Name, r.IsView)
+		name := relationInterfaceName(r.Identifier.Schema, r.Identifier.Name, r.IsViewLike())
 		fmt.Fprintf(&b, "  %s: %s\n", strconv.Quote(key), name)
 	}
 	b.WriteString("}\n\n")
@@ -353,8 +353,8 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 			}
 			pairStr := strings.Join(pairs, ",")
 
-			ownerName := relationInterfaceName(owner.Identifier.Schema, owner.Identifier.Name, owner.IsView)
-			referencedName := relationInterfaceName(referenced.Identifier.Schema, referenced.Identifier.Name, referenced.IsView)
+			ownerName := relationInterfaceName(owner.Identifier.Schema, owner.Identifier.Name, owner.IsViewLike())
+			referencedName := relationInterfaceName(referenced.Identifier.Schema, referenced.Identifier.Name, referenced.IsViewLike())
 
 			// `>` outgoing is always to-one (an FK's target columns are always PK/UNIQUE-backed) ;
 			// incoming is `<` (to-one, a unique reverse FK) or `*` (to-many), never a separate field.
@@ -676,7 +676,7 @@ func renderFunctionArgs(b *strings.Builder, f *pg.Function, tc *typeCollector) {
 func renderFunctionReturns(b *strings.Builder, f *pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) {
 	if f.ReturnsSet {
 		if rel := f.ReturnType.CompositeRelation(); rel != nil && allowed[rel] {
-			name := relationInterfaceName(rel.Identifier.Schema, rel.Identifier.Name, rel.IsView)
+			name := relationInterfaceName(rel.Identifier.Schema, rel.Identifier.Name, rel.IsViewLike())
 			fmt.Fprintf(b, "    relation: %s\n", name)
 			fmt.Fprintf(b, "    returns: %s[]\n", name)
 			return

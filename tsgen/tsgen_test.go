@@ -444,3 +444,28 @@ func TestGenerateSchema_TableLocalIds_Views(t *testing.T) {
 		t.Errorf("computed_id should be a plain nullable number ; got:\n%s", block)
 	}
 }
+
+// TestGenerateSchema_MaterializedView : a materialized view is a relation like a view (View__ interface, listed in
+// Relations), and keeps id provenance.
+func TestGenerateSchema_MaterializedView(t *testing.T) {
+	out := GenerateSchema(testDb, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()}, nil)
+
+	if !strings.Contains(out, `"hotel.ledger_entry_totals": View__Hotel__LedgerEntryTotals`) {
+		t.Errorf("materialized view missing from Relations ; got:\n%s", out)
+	}
+	start := strings.Index(out, "interface View__Hotel__LedgerEntryTotals {")
+	if start < 0 {
+		t.Fatalf("View__Hotel__LedgerEntryTotals not found in:\n%s", out)
+	}
+	block := out[start : start+strings.Index(out[start:], "\n}\n")]
+	for _, want := range []string{
+		"entry_id: Id[\"hotel.ledger_entries.id\"] | null",
+		"ledger_id: Id[\"hotel.ledgers.id\"] | null",
+		// the domain is resolved (not the raw domain oid), nullable since a materialized view column has no NOT NULL
+		"slug: Type__Hotel__NonEmptyText",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("materialized view interface missing %q ; got:\n%s", want, block)
+		}
+	}
+}
