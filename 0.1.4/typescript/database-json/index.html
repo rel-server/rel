@@ -3039,8 +3039,9 @@ always PRIMARY KEY/UNIQUE-backed), and for <code>"incoming"</code> only when thi
 are themselves unique (a 1:1 reverse relationship, rare). <code>constraint_name</code> is the backing
 foreign key's own name — the same name on both directions' variants, since they're the two sides
 of one constraint.</p>
-<p><code>eligible</code> is <code>false</code> when the FK-holding side's own <code>on</code> columns aren't indexed (<code>database.ts</code>'s
-own relationships silently drop these entirely); <code>shortcut</code> is still the correct join-syntax
+<p><code>eligible</code> is <code>false</code> when the FK-holding side's own <code>on</code> columns aren't indexed (<code>database.ts</code> lists
+these apart from its joinable relationships, in <code>IneligibleRelationships</code>, so <code>join()</code> can say why it
+refuses them); <code>shortcut</code> is still the correct join-syntax
 string in that case, it just isn't safely usable in a live <code>join()</code> — the query engine rejects it
 at request time. A relation with no foreign key in either direction is simply absent from this
 map, never present with an empty array.</p>
