@@ -53,8 +53,28 @@ const propertiesSelected = relation("hotel.properties", {
   },
   where: [">=", ["col", "star_rating"], 3],
   order_by: [["col", "name"]],
-  //> Question: a misspelled key here (`order:` for `order_by:`) is NOT a type error once `select` is a map : excess
-  // properties are only rejected when `select` is left out. Same family as init()'s excess-key check.
+})
+
+describe("unknown query keys", () => {
+  test("a misspelled key is a type error, next to valid keys too", () => {
+    void (() => {
+      // @ts-expect-error `order` is not a query key (`order_by` is)
+      relation("hotel.properties", { select: ["*"], order: [["col", "name"]] })
+      // @ts-expect-error same, in the callback form
+      relation("hotel.properties", () => ({ select: ["*"], limitt: 1 }))
+      relation("hotel.properties", {
+        join: {
+          rooms: join("hotel.properties", "hotel.rooms*id:property_id", {
+            // @ts-expect-error a join's own query is checked too (reported on the literal's first key)
+            select: ["*"],
+            bogus: 1,
+          }),
+        },
+      })
+      // @ts-expect-error and so is func()
+      func("hotel.search_properties", { arguments: { query: "x" }, select: ["*"], bogus: 1 })
+    })
+  })
 })
 
 describe("select map, $param, where", () => {

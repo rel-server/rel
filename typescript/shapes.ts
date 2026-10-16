@@ -801,7 +801,18 @@ export type ShapeFromRelationQuery<
  */
 export type WithProto<Q, Rel extends object> = Q & {
   proto?: object & ThisType<ProtoRowShape<NoInfer<Q>, Rel>>
-}
+} & NoUnknownKeys<NoInfer<Q>>
+
+/**
+ Maps every key of Q that RelationQuery doesn't have to `never`, so a misspelled one (`order` for `order_by`) is
+ flagged on that key. Needed because Q is inferred from the argument itself (so an extra key becomes part of Q,
+ and the "known properties" check passes against it) and only has to satisfy `extends RelationQuery` structurally,
+ which allows extra keys. TypeScript's own fallback, the weak-type check, only fires when NOTHING in the literal
+ matches RelationQuery, so one valid key (`select`) next to a typo let the typo through.
+ */
+export type NoUnknownKeys<Q> = [Exclude<keyof Q, keyof RelationQuery>] extends [never]
+  ? unknown
+  : { [K in Exclude<keyof Q, keyof RelationQuery>]: never }
 
 /**
  Public entry point. Rel defaults to RelationQuery's own permissive default so `ShapeFromQuery<Q>` alone still

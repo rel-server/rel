@@ -104,9 +104,11 @@ func TestTypeScriptClient(t *testing.T) {
 		cmd := exec.Command(name, args...)
 		cmd.Dir = tsDir
 		cmd.Env = append(os.Environ(), "REL_URL="+srv.URL)
-		if output, err := cmd.CombinedOutput(); err != nil {
+		output, err := cmd.CombinedOutput()
+		if err != nil {
 			t.Fatalf("%s %v failed: %v\n%s", name, args, err, output)
 		}
+		t.Logf("%s %v:\n%s", name, args, output) // shown with -v
 	}
 	// The tests are typechecked against the generated types too : that is half of what they exist to prove.
 	run(bun, "x", "tsc", "--noEmit", "-p", "tests/tsconfig.json")
