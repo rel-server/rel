@@ -388,7 +388,7 @@ accepted in `path`, not column names, and a name that is not a join of that leve
 - The result carries the `proto` of the join it addresses, and has the same type as `(typeof properties.$draft)["rooms"][number]`.
 - It returns ONE row whatever the join's cardinality, never an array and never `null`; you put it in the array or object slot yourself.
 - It is not a query: there is no `.get()` or `.write()` for it. A nested draft is written through its parent, as above.
-- A nested draft goes into its parent's array after the parent exists (as above), not inside the parent's `.draft({...})` literal: that literal can't carry `proto` members.
+- A nested draft, or a row you fetched with `.get()`, goes into its parent's array after the parent exists (`parent.rooms.push(room)` or `parent.rooms = fetchedRooms`), not inside the parent's `.draft({...})` literal: that literal can't carry `proto` members.
 
 ## Typed wire values
 
