@@ -47,7 +47,9 @@ type Profile struct {
 var Profiles = map[string]Profile{
 	// quick : indicative numbers in under two minutes for the four servers
 	"quick": {"quick", 200 * time.Millisecond, 700 * time.Millisecond, 1, []int{8}, []int{8}, 60, false, false},
-	"full":  {"full", 5 * time.Second, 15 * time.Second, 3, []int{1, 8, 32, 64}, []int{1, 8, 32}, 2000, true, true},
+	// medium : about 10 minutes for the four servers on the small data size
+	"medium": {"medium", 300 * time.Millisecond, 1200 * time.Millisecond, 2, []int{1, 8, 32}, []int{8}, 200, true, false},
+	"full":   {"full", 5 * time.Second, 15 * time.Second, 3, []int{1, 8, 32, 64}, []int{1, 8, 32}, 2000, true, true},
 }
 
 // Config is everything one benchmark run needs.
@@ -414,5 +416,8 @@ func measureWriteInPlace(ctx context.Context, cfg Config, srv Server, sc Scenari
 		}
 		*env = *fresh
 	}
-	return measure(ctx, c, env, impl, srv, cfg.Profile, cfg.Profile.WriteClients[0], func(ok int) error { return sc.Check(ctx, db, ok) }), nil
+	// One run only : a second one would start from the first one's data, and the state check counts from clean.
+	once := cfg.Profile
+	once.Repeats = 1
+	return measure(ctx, c, env, impl, srv, once, cfg.Profile.WriteClients[0], func(ok int) error { return sc.Check(ctx, db, ok) }), nil
 }

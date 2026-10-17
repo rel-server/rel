@@ -15,6 +15,7 @@
 package harness
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -36,6 +37,8 @@ type ResourceUse struct {
 // container until Stop is called.
 type Sampler struct {
 	server, db string
+	cancel     context.CancelFunc
+	ctx        context.Context
 	stop       chan struct{}
 	done       sync.WaitGroup
 	mu         sync.Mutex
@@ -48,7 +51,8 @@ func containerName(service string) string { return "relbench-" + service + "-1" 
 
 // StartSampler begins sampling in the background.
 func StartSampler(srv Server) *Sampler {
-	s := &Sampler{server: containerName(string(srv)), db: containerName("db"), stop: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Sampler{server: containerName(string(srv)), db: containerName("db"), ctx: ctx, cancel: cancel, stop: make(chan struct{})}
 	s.done.Add(1)
 	go func() {
 		defer s.done.Done()
@@ -64,9 +68,11 @@ func StartSampler(srv Server) *Sampler {
 	return s
 }
 
-// Stop ends sampling and returns the averages.
+// Stop ends sampling and returns the averages of the samples completed so far ;
+// a sample still in flight is abandoned, not waited for (each takes about a second).
 func (s *Sampler) Stop() ResourceUse {
 	close(s.stop)
+	s.cancel()
 	s.done.Wait()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -79,7 +85,7 @@ func (s *Sampler) Stop() ResourceUse {
 }
 
 func (s *Sampler) sample() {
-	out, err := exec.Command("docker", "stats", "--no-stream", "--format", "{{.Name}} {{.CPUPerc}} {{.MemUsage}}", s.server, s.db).Output()
+	out, err := exec.CommandContext(s.ctx, "docker", "stats", "--no-stream", "--format", "{{.Name}} {{.CPUPerc}} {{.MemUsage}}", s.server, s.db).Output()
 	if err != nil {
 		time.Sleep(500 * time.Millisecond)
 		return

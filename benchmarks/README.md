@@ -6,6 +6,7 @@ Compares rel with PostgREST and PostGraphile (v4 and v5) on the same Postgres da
 
 ```sh
 just bench-quick          # about 2 minutes: small data, 8 clients, ~1 s per scenario, no CPU sampling
+just bench-medium         # about 10 minutes: small data, 3 client counts, 2 repeats, CPU sampling
 just bench-full           # small, medium and large data, 3 repeats ; takes hours
 go run ./benchmarks/cmd/bench -list                        # list the scenarios
 go run ./benchmarks/cmd/bench -check                       # run every scenario once per server, no timing
