@@ -614,8 +614,16 @@ const ledger = relation("hotel.ledgers")
 ledger.json = JSONbig({ useNativeBigInt: true })
 ```
 
-[`lossless-json`](https://github.com/josdejong/lossless-json) works the same way, and also keeps
-decimals exact. Nothing is added to `database.ts`: it stays a single file with no imports, and
+[`lossless-json`](https://github.com/josdejong/lossless-json) fits too, with its
+`parseNumberAndBigInt` number parser (safe integers stay numbers, larger ones become bigints):
+
+```ts
+import { parse, parseNumberAndBigInt, stringify } from "lossless-json"
+
+Querier.prototype.json = { parse: (text) => parse(text, undefined, parseNumberAndBigInt), stringify }
+```
+
+Nothing is added to `database.ts`: it stays a single file with no imports, and
 the default stays the fast native `JSON`. Without a bigint-aware implementation, passing a `bigint`
 in a query or a payload throws a `TypeError`, since the browser's `JSON.stringify` cannot write one.
 
@@ -629,23 +637,27 @@ something else, merge into `PgWire` in a file of your own:
 // wire.d.ts — any file of your project that is a module
 declare module "./database" {
   interface PgWire {
-    int8: bigint // json-bigint with useNativeBigInt
-    numeric: LosslessNumber // lossless-json
+    int8: number | bigint // a safe integer is a number, a larger one a bigint
   }
 }
 ```
 
-Every column of that type, in reads and writes, is typed that way from then on: `Int8` becomes
-`bigint & brand`, and an id column over a `bigserial` follows. Two things to know:
+Every column of that type, in reads and writes, is typed that way from then on, and an id column
+over a `bigserial` follows. Use `bigint` alone if your implementation parses every integer as one.
+Two things to know:
 
 - The augmentation applies to the whole program: there is one choice per project, not one per query.
 - The defaults live in the types, not in `PgWire`, which is empty on purpose. TypeScript cannot
   redeclare an existing member of an interface with another type (error `TS2717`), but it can add
   a missing one — so a member that is absent means "the default".
 
-A union works too (`int8: number | bigint`, for an implementation that returns a `number` when the
-value is safe and a `bigint` when it is not). `int8Accessor` always gives a `bigint`
-(`row.id_as_bigint`), and stores a safe integer as a number and anything larger as a bigint.
+`int8Accessor` always gives a `bigint` (`row.id_as_bigint`), and stores a safe integer as a number
+and anything larger as a bigint.
+
+A JSON implementation reads *every* number the same way, whatever column it came from, so it cannot
+make `numeric` exact without changing the type of every `int4` and `float8` too. When a decimal
+must stay exact, ask for it as text in the query — `["::", ["col", "base_price"], "text"]` — and
+read it as a string.
 
 `money`, intervals, timestamps, ranges and the rest are strings in JSON and stay strings: only types
 Postgres writes as JSON numbers are affected.
