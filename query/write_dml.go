@@ -742,36 +742,57 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	}
 	w.Write(",\ndml as (\n")
 	w.Indent()
-	w.Write("update ")
-	w.Write(node.Relation.Identifier.EscapedString())
-	w.Write(" t\n")
-	w.Write("set ")
-	for i, cp := range cols {
-		if i > 0 {
-			w.Write(", ")
-		}
-		writeTargetPath(w, cp)
-		w.Write(" = resolved.")
-		w.Id(columnPathFlatName(cp))
+	// Identity and primary-key columns locate the row ; they are never SET
+	// ("generated always" identity rejects even an unchanged value).
+	pk := identCols
+	if node.Relation.PrimaryKey != nil {
+		pk = append(append([]*pg.Column(nil), identCols...), node.Relation.PrimaryKey.Columns...)
 	}
-	w.Write("\n")
-	w.Write("from resolved\n")
-	w.Write("where ")
-	for i, col := range identCols {
-		if i > 0 {
-			w.Write(" and ")
+	setCols := excludeColumnPaths(cols, pk)
+	writeIdentMatch := func() {
+		for i, col := range identCols {
+			if i > 0 {
+				w.Write(" and ")
+			}
+			w.Write("t.")
+			w.Id(col.Name)
+			w.Write(" = resolved.")
+			w.Id(col.Name)
 		}
-		w.Write("t.")
-		w.Id(col.Name)
-		w.Write(" = resolved.")
-		w.Id(col.Name)
 	}
-	w.Write("\n")
-	// Keys read off "t" (post-update row via RETURNING), unlike runInsert :
-	// no need to force keysColumns' extras into the SET list here.
-	w.Write("returning resolved.__row_id, ")
-	writeKeysObject(w, node, "t")
-	w.Write(" as keys")
+	if len(setCols) == 0 {
+		// Nothing to change (select holds only identity columns, e.g. a parent
+		// kept in place for its nested children) : read the row's keys instead.
+		w.Write("select resolved.__row_id, ")
+		writeKeysObject(w, node, "t")
+		w.Write(" as keys from resolved join ")
+		w.Write(node.Relation.Identifier.EscapedString())
+		w.Write(" t on ")
+		writeIdentMatch()
+	} else {
+		w.Write("update ")
+		w.Write(node.Relation.Identifier.EscapedString())
+		w.Write(" t\n")
+		w.Write("set ")
+		for i, cp := range setCols {
+			if i > 0 {
+				w.Write(", ")
+			}
+			writeTargetPath(w, cp)
+			w.Write(" = resolved.")
+			w.Id(columnPathFlatName(cp))
+		}
+		w.Write("\n")
+		w.Write("from resolved\n")
+		w.Write("where ")
+		writeIdentMatch()
+		w.Write("\n")
+		// Keys read off "t" (post-update row via RETURNING), unlike runInsert :
+		// no need to force keysColumns' extras into the SET list here.
+		w.Write("returning resolved.__row_id, ")
+		writeKeysObject(w, node, "t")
+		w.Write(" as keys")
+	}
 	w.Unindent()
 	w.Write("\n)\n")
 	// Folded into "dml" itself (like runUpsert), not a separate per-row Go

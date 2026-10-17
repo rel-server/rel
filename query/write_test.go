@@ -1633,3 +1633,64 @@ func mustJSON(t *testing.T, v any) []byte {
 	}
 	return b
 }
+
+// TestExecuteWrite_UpdateAndUpsert_IdentityColumnKinds proves update and upsert
+// leave the identity column out of their SET clause, for every kind of
+// identity primary key : "generated always" rejects even an unchanged value.
+func TestExecuteWrite_UpdateAndUpsert_IdentityColumnKinds(t *testing.T) {
+	for _, table := range []string{"identity_always", "identity_default"} {
+		for _, mode := range []string{"update", "upsert"} {
+			t.Run(table+"/"+mode, func(t *testing.T) {
+				conn := acquireWriteConn(t)
+				ctx := context.Background()
+
+				var id int
+				if err := conn.QueryRow(ctx, `insert into `+table+` (name) values ('before') returning id`).Scan(&id); err != nil {
+					t.Fatalf("insert: %v", err)
+				}
+
+				node := mustResolveQuery(t, `{"relation": "`+table+`", "schema": "public", "select": ["*~"], "write_mode": "`+mode+`"}`)
+				payload := []byte(`[{"id": ` + itoa(id) + `, "name": "after"}]`)
+				if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
+					t.Fatalf("ExecuteWrite: %v", err)
+				}
+
+				var name string
+				if err := conn.QueryRow(ctx, `select name from `+table+` where id = $1`, id).Scan(&name); err != nil {
+					t.Fatalf("select back: %v", err)
+				}
+				if name != "after" {
+					t.Errorf("expected name=after, got %q", name)
+				}
+			})
+		}
+	}
+}
+
+// TestExecuteWrite_Update_OnlyIdentitySelected proves an update whose select
+// holds nothing but the identity column (nothing to SET) still runs and
+// leaves the row alone, rather than emitting an empty SET list.
+func TestExecuteWrite_Update_OnlyIdentitySelected(t *testing.T) {
+	for _, table := range []string{"identity_always", "identity_default"} {
+		t.Run(table, func(t *testing.T) {
+			conn := acquireWriteConn(t)
+			ctx := context.Background()
+
+			var id int
+			if err := conn.QueryRow(ctx, `insert into `+table+` (name) values ('kept') returning id`).Scan(&id); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+			node := mustResolveQuery(t, `{"relation": "`+table+`", "schema": "public", "select": {"id": ["col", "id"]}, "write_mode": "update"}`)
+			if _, err := ExecuteWrite(ctx, conn, node, []byte(`[{"id": `+itoa(id)+`}]`)); err != nil {
+				t.Fatalf("ExecuteWrite: %v", err)
+			}
+			var name string
+			if err := conn.QueryRow(ctx, `select name from `+table+` where id = $1`, id).Scan(&name); err != nil {
+				t.Fatalf("select back: %v", err)
+			}
+			if name != "kept" {
+				t.Errorf("expected row untouched, got name=%q", name)
+			}
+		})
+	}
+}
