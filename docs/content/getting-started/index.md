@@ -94,8 +94,8 @@ declare "to-one" or "to-many" yourself.
     "star_rating": 4,
     "chain": { "id": 3, "name": "Blue Horizon" },
     "room_types": [
-      { "id": 1, "property_id": 1, "name": "Deluxe", "base_price": "189.00", "capacity": 2 },
-      { "id": 2, "property_id": 1, "name": "Suite", "base_price": "349.00", "capacity": 4 }
+      { "id": 1, "property_id": 1, "name": "Deluxe", "base_price": 189.00, "capacity": 2 },
+      { "id": 2, "property_id": 1, "name": "Suite", "base_price": 349.00, "capacity": 4 }
     ]
   }
 ]
@@ -158,8 +158,8 @@ curl http://localhost:8080/rel \
     "id": 14,
     "name": "Marina Bay Grand Hotel",
     "room_types": [
-      { "id": 43, "property_id": 14, "name": "Deluxe", "base_price": "199.00", "capacity": 2 },
-      { "id": 44, "property_id": 14, "name": "Penthouse", "base_price": "899.00", "capacity": 2 }
+      { "id": 43, "property_id": 14, "name": "Deluxe", "base_price": 199.00, "capacity": 2 },
+      { "id": 44, "property_id": 14, "name": "Penthouse", "base_price": 899.00, "capacity": 2 }
     ]
   }
 ]

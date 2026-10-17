@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/rel-server/rel/config"
@@ -98,10 +99,10 @@ func TestRelHandler_ReadArray(t *testing.T) {
 	}
 }
 
-// docs/content/typescript/index.md ## Typed wire values : int8/numeric must arrive as JSON strings, not bare
-// numerals, since JSON.parse would silently round a value like this to the nearest float64 (9007199254740992,
-// a different value, if the cast weren't applied — confirmed by hand against a live Postgres instance).
-func TestRelHandler_Int8AndNumericCastToTextForPrecision(t *testing.T) {
+// docs/content/typescript/index.md ## Typed wire values : int8 and numeric arrive as bare JSON numbers, with
+// every digit Postgres has. Rounding to the nearest float64 (9007199254740992, a different value) happens in
+// a client's JSON.parse, which is why the client can be given a JSON implementation that keeps big numbers.
+func TestRelHandler_Int8AndNumericAreBareJSONNumbersWithEveryDigit(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into precision_check (id, big, amount) values (1, 9007199254740993, 12345678901234567890.123456789)`); err != nil {
 		t.Fatalf("insert: %v", err)
@@ -110,38 +111,29 @@ func TestRelHandler_Int8AndNumericCastToTextForPrecision(t *testing.T) {
 		_, _ = testDb.Pool.Exec(ctx, `delete from precision_check where id = 1`)
 	})
 
-	rec := postRel(t, `{
-		"relation": "precision_check", "schema": "public",
-		"select": ["*~"],
-		"where": ["=", ["col", "id"], 1]
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
-	}
-	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %v", rows)
-	}
-	big, ok := rows[0]["big"].(string)
-	if !ok {
-		t.Fatalf("expected \"big\" to be a JSON string (cast to text) ; got %T : %v", rows[0]["big"], rows[0]["big"])
-	}
-	if big != "9007199254740993" {
-		t.Errorf("expected exact precision \"9007199254740993\", got %q", big)
-	}
-	amount, ok := rows[0]["amount"].(string)
-	if !ok {
-		t.Fatalf("expected \"amount\" to be a JSON string (cast to text) ; got %T : %v", rows[0]["amount"], rows[0]["amount"])
-	}
-	if amount != "12345678901234567890.123456789" {
-		t.Errorf("expected exact precision \"12345678901234567890.123456789\", got %q", amount)
+	for name, sel := range map[string]string{
+		"the default select": `["*~"]`,
+		"an explicit col":    `{"id": ["col", "id"], "big": ["col", "big"], "amount": ["col", "amount"]}`,
+		"a get":              `{"id": ["get", "id"], "big": ["get", "big"], "amount": ["get", "amount"]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := postRel(t, `{"relation": "precision_check", "schema": "public", "select": `+sel+`, "where": ["=", ["col", "id"], 1]}`)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+			}
+			// the raw text, since a Go float64 would round it exactly as a JS client does
+			body := rec.Body.String()
+			for _, want := range []string{`"big":9007199254740993`, `"amount":12345678901234567890.123456789`, `"id":1`} {
+				if !strings.Contains(body, want) {
+					t.Errorf("expected %s in the response, got %s", want, body)
+				}
+			}
+		})
 	}
 }
 
-// textCastSuffix (query/sql.go) is deliberately scoped to SELECT-position compilation only — a WHERE clause
-// filtering on the same int8 column must still compare numerically (not accidentally against a cast text
-// value), or an index/comparison on an int8/numeric column would silently break.
-func TestRelHandler_Int8WhereClauseStillComparesNumerically(t *testing.T) {
+// A WHERE clause filtering on an int8 column compares numerically.
+func TestRelHandler_Int8WhereClauseComparesNumerically(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into precision_check (id, big, amount) values (2, 100, 5)`); err != nil {
 		t.Fatalf("insert: %v", err)
@@ -362,14 +354,15 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 		return n
 	}
 
-	for name, body := range map[string]string{
-		"committed write":   `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check A"}]}`,
-		"rolled-back write": `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check B"}], "rollback": true, "stats": true}`,
-		"rejected write":    `{"query": {"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update-existing"}, "data": [{"name": "Leak Check C"}]}`,
+	// in order : the first request creates "_data" on the pool's only connection
+	for _, tc := range []struct{ name, body string }{
+		{"committed write", `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check A"}]}`},
+		{"rolled-back write", `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check B"}], "rollback": true, "stats": true}`},
+		{"rejected write", `{"query": {"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update-existing"}, "data": [{"name": "Leak Check C"}]}`},
 	} {
-		postRelTo(t, handler, body)
+		postRelTo(t, handler, tc.body)
 		if n := staleRows(); n != 0 {
-			t.Fatalf("%s left %d rows in _data", name, n)
+			t.Fatalf("%s left %d rows in _data", tc.name, n)
 		}
 	}
 

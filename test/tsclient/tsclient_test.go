@@ -112,5 +112,7 @@ func TestTypeScriptClient(t *testing.T) {
 	}
 	// The tests are typechecked against the generated types too : that is half of what they exist to prove.
 	run(bun, "x", "tsc", "--noEmit", "-p", "tests/tsconfig.json")
+	// PgWire module augmentation is program-wide, so its check is a program of its own.
+	run(bun, "x", "tsc", "--noEmit", "-p", "tests/augment/tsconfig.json")
 	run(bun, "test")
 }

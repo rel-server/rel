@@ -412,7 +412,8 @@ accepted in `path`, not column names, and a name that is not a join of that leve
 ## Typed wire values
 
 Every column comes back typed as the JS type its wire value actually has, not the type its
-Postgres type name might suggest. A `timestamptz` column doesn't come back as `number` or `Date`;
+Postgres type name might suggest. (`int8` and `numeric` are the exception that proves the rule: they
+are bare JSON numbers, and [Big numbers](#big-numbers) says how to type and read them.) A `timestamptz` column doesn't come back as `number` or `Date`;
 it comes back as a distinct branded string type (`Timestamptz`), because the value on the wire is
 a string, and giving it a `Date`-shaped type would let you call `.getFullYear()` on something that
 has no such method at runtime. This applies to every Postgres type this section covers.
@@ -424,7 +425,6 @@ The branded types (defined once in `database.ts` and referenced by every column 
 | `date`, `time`, `timetz`, `timestamp`, `timestamptz` | `PgDate`, `PgTime`, `PgTimetz`, `Timestamp`, `Timestamptz` | see below for accessors |
 | `interval` | `Interval` | see below |
 | `money` | `Money` | wire value is a locale-formatted, quoted string (`"$10.50"`) |
-| `int8`, `numeric` | `Int8`, `PgNumeric` | see below — precision loss otherwise |
 | `int4range`, `int8range`, `numrange`, `daterange`, `tsrange`, `tstzrange` | `Int4Range`, `Int8Range`, `NumRange`, `DateRange`, `TsRange`, `TstzRange` | see below |
 | the same six, as multiranges | `Int4MultiRange`, `Int8MultiRange`, `NumMultiRange`, `DateMultiRange`, `TsMultiRange`, `TstzMultiRange` | |
 | `inet`, `cidr`, `macaddr`, `macaddr8`, `bit`, `varbit`, `point`, `line`, `lseg`, `box`, `path`, `polygon`, `circle`, `tsvector`, `tsquery`, `xml`, `pg_lsn` | `Inet`, `Cidr`, `MacAddr`, `MacAddr8`, `PgBit`, `PgVarbit`, `PgPoint`, `PgLine`, `PgLseg`, `PgBox`, `PgPath`, `PgPolygon`, `PgCircle`, `TsVector`, `TsQuery`, `Xml`, `PgLsn` | branded strings, no richer conversion (except `point`, below) |
@@ -459,7 +459,7 @@ const properties = await relation("hotel.properties", {
 | `Timestamp` | `timestampAccessor` | `Temporal.PlainDateTime` (naive — no time zone assumed) |
 | `PgDate` | `dateAccessor` | `Temporal.PlainDate` |
 | `Interval` | `intervalAccessor` | `Temporal.Duration` |
-| `Int8` | `int8Accessor` | `bigint`, via `BigInt()` — exact |
+| `Int8` | `int8Accessor` | `bigint`, via `BigInt()` — exact if the value you hold is exact (see [Big numbers](#big-numbers)) |
 | `Int4Range`/`Int8Range`/`NumRange`/`DateRange`/`TsRange`/`TstzRange` | `int4RangeAccessor`/... | `Range<T>` (below), `T` matching the table above |
 | `PgPoint` | `pointAccessor` | `{x: number, y: number}` |
 | `Money` | `moneyAccessor` | `bigint` (whole cents), via `..._as_cents` |
@@ -472,10 +472,9 @@ non-default `IntervalStyle`. Writing a `..._as_cents` value back produces a plai
 decimal string, which Postgres's own `money` input parser accepts regardless of locale.
 
 `PgTimetz` and `numeric` have no accessor: `Temporal` has no "time of day with a UTC offset, no
-date" class for the former, and no native JS type represents an arbitrary-scale decimal exactly
-for the latter — a `Number()`-based conversion would just reintroduce the precision loss
-`PgNumeric` exists to avoid. Comparing two `PgNumeric` values needs `compareNumeric` (also exported
-from `database.ts`), not `<`/`>`, for the same reason.
+date" class for the former, and no native JS type represents an arbitrary-scale decimal for the
+latter. `compareNumeric` (also exported from `database.ts`) compares two `PgNumeric` values
+digit by digit, whatever type your [JSON implementation](#big-numbers) gives them.
 
 Every temporal accessor returns a [`Temporal`](https://tc39.es/proposal-temporal/docs/) value, not
 a `Date` — `Temporal`'s classes are immutable and genuinely distinct from one another (a
@@ -502,13 +501,13 @@ await relation("hotel.properties", { select: { id: ["col", "id"], created_at: ["
 `asTimestamptz` throws if given a string with no time zone offset — Postgres would otherwise
 silently reinterpret it using the session's own time zone. `asMoney` and every range cast only
 brand the value, since nothing about their string shape is unsafe to skip validating. `asInt8`
-accepts `bigint | number | string`, converting via `String()` — Postgres's own `int8` input parser
-rejects a malformed string on write, so there's no client-side re-check.
+and `asNumeric` only brand a value that already has the type [`PgWire`](#big-numbers) says.
 
 ### Ranges
 
 `Range<T>`, one immutable class shared by every range type (`Range<number>` for `Int4Range`,
-`Range<bigint>` for `Int8Range`, `Range<Temporal.Instant>` for `TstzRange`, and so on):
+`Range<bigint>` for `Int8Range`, `Range<string>` (the decimal text) for `NumRange`,
+`Range<Temporal.Instant>` for `TstzRange`, and so on):
 
 ```ts
 range.lower           // T | null — null means unbounded
@@ -586,6 +585,70 @@ you pass pick which overload's return type you get back.
 `func()`'s own `arguments` field is checked the same way, with one difference: each argument may also be a
 `["$param", name]` placeholder, since a `func()` query is built once and can be reused with different
 `.get(params)`/`.write(params, data)` values, unlike `call()`, which runs immediately.
+
+## Big numbers
+
+`int8` and `numeric` columns come back as bare JSON numbers, with every digit Postgres has —
+`9007199254740993`, `12345678901234567890.123456789`. That is what Postgres itself writes, and what
+PostgREST sends. The loss happens on your side: the browser's `JSON.parse` turns every number into
+a double, so anything beyond 2^53 (or about 15 significant digits for a decimal) is silently rounded.
+
+Most values are far smaller than that and need nothing. When yours are not, there are two knobs,
+and both work like `baseUrl`: set them once, or per query.
+
+### Reading with a JSON implementation that keeps the digits
+
+Every query reads responses and writes requests through `Querier.prototype.json`, the browser's
+`JSON` unless you replace it. Anything with `parse(text)` and `stringify(value)` fits, which
+includes the libraries built for this:
+
+```ts
+import { Querier } from "./database"
+import JSONbig from "json-bigint"
+
+// every integer that does not fit a double becomes a bigint ; a bigint is written back as a bare number
+Querier.prototype.json = JSONbig({ useNativeBigInt: true })
+
+// or only for one query
+const ledger = relation("hotel.ledgers")
+ledger.json = JSONbig({ useNativeBigInt: true })
+```
+
+[`lossless-json`](https://github.com/josdejong/lossless-json) works the same way, and also keeps
+decimals exact. Nothing is added to `database.ts`: it stays a single file with no imports, and
+the default stays the fast native `JSON`. Without a bigint-aware implementation, passing a `bigint`
+in a query or a payload throws a `TypeError`, since the browser's `JSON.stringify` cannot write one.
+
+### Telling the types what the JSON implementation gives
+
+Whatever you plug in, the types default to `number` for `Int8` and `PgNumeric` (each still carries
+a brand, so one table's ids and another's cannot be mixed). To say that your implementation yields
+something else, merge into `PgWire` in a file of your own:
+
+```ts
+// wire.d.ts — any file of your project that is a module
+declare module "./database" {
+  interface PgWire {
+    int8: bigint // json-bigint with useNativeBigInt
+    numeric: LosslessNumber // lossless-json
+  }
+}
+```
+
+Every column of that type, in reads and writes, is typed that way from then on: `Int8` becomes
+`bigint & brand`, and an id column over a `bigserial` follows. Two things to know:
+
+- The augmentation applies to the whole program: there is one choice per project, not one per query.
+- The defaults live in the types, not in `PgWire`, which is empty on purpose. TypeScript cannot
+  redeclare an existing member of an interface with another type (error `TS2717`), but it can add
+  a missing one — so a member that is absent means "the default".
+
+A union works too (`int8: number | bigint`, for an implementation that returns a `number` when the
+value is safe and a `bigint` when it is not). `int8Accessor` always gives a `bigint`
+(`row.id_as_bigint`), and stores a safe integer as a number and anything larger as a bigint.
+
+`money`, intervals, timestamps, ranges and the rest are strings in JSON and stay strings: only types
+Postgres writes as JSON numbers are affected.
 
 ## database.json
 

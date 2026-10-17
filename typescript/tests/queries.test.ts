@@ -2,8 +2,11 @@
 // the hotel schema and test/hotel/fixture.sql : what comes back, and what its type says it is.
 import { describe, expect, test } from "bun:test"
 import {
+  type JsonCodec,
   Querier,
+  type Int8,
   RelRequestError,
+  int8Accessor,
   func,
   join,
   relation,
@@ -20,20 +23,20 @@ const raw = (v: unknown): unknown => v
 const propertiesBare = relation("hotel.properties")
 
 describe("a bare relation", () => {
-  test("returns every fixture row, identity ids as strings (bigint)", async () => {
+  test("returns every fixture row, identity ids as numbers (bigint, bare in the JSON)", async () => {
     const rows = await propertiesBare.get()
     expect(rows.map((r) => r.name)).toEqual([
       "Marina Bay Grand Hotel",
       "Harbour Lights Inn",
       "Lonely Cabin",
     ])
-    expect(rows.map((r) => raw(r.id))).toEqual(["1", "2", "3"])
+    expect(rows.map((r) => raw(r.id))).toEqual([1, 2, 3])
   })
 
   test("the wire type of every column matches its declared type", async () => {
     const [marina, , cabin] = await propertiesBare.get()
     if (!marina || !cabin) throw new Error("fixture rows missing")
-    expect(typeof raw(marina.id)).toBe("string") // Int8
+    expect(typeof raw(marina.id)).toBe("number") // Int8, a number unless a JSON implementation says otherwise
     expect(typeof marina.star_rating).toBe("number") // smallint
     expect(raw(marina.created_at)).toBe("2024-01-15T10:00:00+00:00") // Timestamptz
     expect(raw(marina.location)).toBe("(103.86,1.28)") // PgPoint
@@ -169,7 +172,7 @@ describe("joins", () => {
     const suite = rows.find((r) => r.name === "Suite")
     expect(suite?.property.name).toBe("Marina Bay Grand Hotel")
     expect(Array.isArray(suite?.property)).toBe(false)
-    expect(raw(suite?.base_price)).toBe("349.50") // numeric : a string on the wire, never a float
+    expect(raw(suite?.base_price)).toBe(349.5) // numeric : a bare number on the wire
   })
 
   test("a to-one join over a nullable foreign key is null when there is no row", async () => {
@@ -244,7 +247,7 @@ describe("draft() and write()", () => {
     expect(written?.name).toBe(name)
     expect(written?.star_rating).toBe(4)
     // the server filled in what we left out
-    expect(typeof raw(written?.id)).toBe("string")
+    expect(typeof raw(written?.id)).toBe("number")
     expect(typeof raw(written?.created_at)).toBe("string")
 
     const found = await relation("hotel.properties", {
@@ -405,5 +408,72 @@ describe("write_mode update and delete", () => {
     expect(error).toBeInstanceOf(RelRequestError)
     expect((error as RelRequestError).status).toBe(400)
     expect(await relation("hotel.properties").get()).not.toHaveLength(0)
+  })
+})
+
+// ---- big numbers : the JSON implementation is replaceable ----
+
+// int8 and numeric are bare numbers on the wire, with every digit Postgres has. The browser's JSON.parse rounds
+// what a double cannot hold ; a JSON implementation that keeps it can be plugged in. This one is a minimal
+// stand-in (it does not look inside strings) for lossless-json or json-bigint : integers of 16 digits or more
+// become bigint, and a bigint is written back as a bare number.
+const bigintJson: JsonCodec = {
+  parse: (text) =>
+    JSON.parse(text.replace(/(?<![\w."])(-?\d{16,})(?![\w."])/g, '"$1n"'), (_k, v) =>
+      typeof v === "string" && /^-?\d{16,}n$/.test(v) ? BigInt(v.slice(0, -1)) : v,
+    ),
+  stringify: (value) =>
+    JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? `__bigint${v}__` : v)).replace(
+      /"__bigint(-?\d+)__"/g,
+      "$1",
+    ),
+}
+
+// 2^53 + 1, the first integer a double cannot hold : written as a string literal and cast on the server
+const beyondDouble = { big: ["::", "9007199254740993", "bigint"] } as const
+
+describe("big numbers", () => {
+  test("the default is the browser's JSON, which rounds what a double cannot hold", async () => {
+    expect(Querier.prototype.json).toBe(JSON)
+    const [row] = await relation("hotel.properties", { select: beyondDouble, limit: 1 }).get()
+    expect(raw(row?.big)).toBe(9007199254740992) // not ...993 : the digits were on the wire, JSON.parse dropped them
+  })
+
+  test("a plugged-in JSON implementation keeps every digit, for one query only", async () => {
+    const exact = relation("hotel.properties", { select: beyondDouble, limit: 1 })
+    exact.json = bigintJson
+    const [row] = await exact.get()
+    expect(raw(row?.big)).toBe(9007199254740993n)
+
+    expect(Object.hasOwn(relation("hotel.properties"), "json")).toBe(false)
+    expect(Querier.prototype.json).toBe(JSON)
+  })
+
+  test("a bigint is sent as a bare number once the JSON implementation can write it", async () => {
+    const byId = (id: unknown) =>
+      relation("hotel.properties", {
+        where: ["=", ["col", "id"], id as number],
+        select: { name: ["col", "name"] },
+      })
+    // the browser's JSON cannot write a bigint at all
+    await expect(byId(1n).get()).rejects.toThrow(TypeError)
+
+    const query = byId(1n)
+    query.json = bigintJson
+    expect((await query.get()).map((r) => r.name)).toEqual(["Marina Bay Grand Hotel"])
+  })
+
+  test("int8Accessor reads a number as a bigint and stores a safe integer as a number", async () => {
+    const accessors = int8Accessor("id")
+    const holder = Object.defineProperties({ id: 7 as Int8 }, accessors) as {
+      id: Int8
+      id_as_bigint: bigint
+    }
+    expect(holder.id_as_bigint).toBe(7n)
+    holder.id_as_bigint = 9n
+    expect(raw(holder.id)).toBe(9)
+    expect(typeof raw(holder.id)).toBe("number")
+    holder.id_as_bigint = 9007199254740993n
+    expect(raw(holder.id)).toBe(9007199254740993n)
   })
 })

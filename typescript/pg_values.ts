@@ -14,11 +14,35 @@ export type PgTime = string & { readonly __pg: "time" }
 export type PgTimetz = string & { readonly __pg: "timetz" }
 export type Interval = string & { readonly __pg: "interval" }
 
-// ---- Precision-preserving branded types ----
+// ---- int8 and numeric : bare JSON numbers, typed by what the JSON implementation in use yields ----
+
+/**
+ What the JS values of the Postgres types that are bare numbers in JSON actually are. It is empty on purpose,
+ so client code can say what its JSON implementation (`Querier.prototype.json`) produces, by declaration
+ merging in a file of its own, once per project :
+
+     declare module "./database" {
+       interface PgWire {
+         int8: bigint           // a JSON implementation that parses every big integer as a bigint
+         numeric: LosslessNumber
+       }
+     }
+
+ Without it `Int8` and `PgNumeric` are `number`, which is what the browser's JSON.parse gives (and silently
+ rounds anything beyond 2^53 or about 15 significant digits). The members cannot be redeclared with another type
+ afterwards, which is why the defaults live in the types below and not here.
+ */
+// biome-ignore lint/suspicious/noEmptyInterface: filled in by client code through declaration merging
+export interface PgWire {}
+
+/** The JS type a wire member of `PgWire` stands for : its augmented type, or `Default`. */
+export type PgWireType<K extends string, Default> = PgWire extends { [P in K]: infer T }
+  ? T
+  : Default
 
 export type Money = string & { readonly __pg: "money" }
-export type Int8 = string & { readonly __pg: "int8" }
-export type PgNumeric = string & { readonly __pg: "numeric" }
+export type Int8 = PgWireType<"int8", number> & { readonly __pg: "int8" }
+export type PgNumeric = PgWireType<"numeric", number> & { readonly __pg: "numeric" }
 
 // ---- Table-local id types ----
 
@@ -102,16 +126,14 @@ export function asMoney(value: string): Money {
   return value as Money
 }
 
-/**
- bigint/number are always valid ; a string is passed through as-is, with no client-side re-validation, since
- Postgres's own int8 input parser already rejects a malformed one on write.
- */
-export function asInt8(value: bigint | number | string): Int8 {
-  return String(value) as Int8
+/** Brands a plain value as an `Int8` : the value is what `PgWire["int8"]` says it is (a `number` by default). */
+export function asInt8(value: PgWireType<"int8", number>): Int8 {
+  return value as Int8
 }
 
-export function asNumeric(value: number | string): PgNumeric {
-  return String(value) as PgNumeric
+/** Brands a plain value as a `PgNumeric` : the value is what `PgWire["numeric"]` says it is (a `number` by default). */
+export function asNumeric(value: PgWireType<"numeric", number>): PgNumeric {
+  return value as PgNumeric
 }
 
 export function asInterval(value: Temporal.Duration | string): Interval {
@@ -125,11 +147,19 @@ export function compareBigInt(a: bigint, b: bigint): number {
 }
 
 /**
- Exact decimal-string comparison, no Number() conversion — comparing (not computing on) two arbitrary-scale
- decimals doesn't need a full decimal library, just digit-string comparison. NaN sorts last, Postgres's own
- convention for its numeric NaN value.
+ Compares two decimals given as text or as numbers (anything whose String() is a plain decimal, which includes
+ a lossless-json LosslessNumber) : exact digit-string comparison, no Number() conversion, so it holds for any
+ scale. NaN sorts last, Postgres's own convention for its numeric NaN value.
  */
-export function compareNumeric(a: PgNumeric, b: PgNumeric): number {
+export function compareNumeric(
+  left: PgNumeric | string | number,
+  right: PgNumeric | string | number,
+): number {
+  if (typeof left === "number" && typeof right === "number") {
+    return left < right ? -1 : left > right ? 1 : 0
+  }
+  const a = String(left)
+  const b = String(right)
   if (a === "NaN" || b === "NaN") return a === b ? 0 : a === "NaN" ? 1 : -1
   const negA = a.startsWith("-")
   const negB = b.startsWith("-")
@@ -159,8 +189,8 @@ function unquoteBound(raw: string): string {
 }
 
 // ---- Range<T> : one shared, immutable class ; each range kind is Range<T> for whichever T
-// its own accessor parses bounds into (Range<number> for Int4Range, Range<bigint> for Int8Range, Range<PgNumeric>
-// for NumRange — left as branded strings, not parsed further — Range<Temporal.PlainDate|PlainDateTime|Instant>
+// its own accessor parses bounds into (Range<number> for Int4Range, Range<bigint> for Int8Range, Range<string>
+// for NumRange — the decimal text, not parsed further, so it stays exact — Range<Temporal.PlainDate|PlainDateTime|Instant>
 // for the temporal ranges). ----
 
 export class Range<T> {
@@ -357,10 +387,13 @@ export function int8Accessor<Col extends string>(column: Col) {
   return {
     [`${column}_as_bigint`]: {
       get(this: Record<Col, Int8>): bigint {
-        return BigInt(this[column])
+        return BigInt(this[column] as number | bigint)
       },
       set(this: Record<Col, Int8>, value: bigint | number | string) {
-        this[column] = asInt8(value)
+        // a safe integer is a number, anything larger a bigint : what a bigint-aware JSON implementation parses to
+        const n = BigInt(value)
+        const safe = n >= BigInt(Number.MIN_SAFE_INTEGER) && n <= BigInt(Number.MAX_SAFE_INTEGER)
+        this[column] = (safe ? Number(n) : n) as unknown as Int8
       },
       enumerable: true,
     },
@@ -463,12 +496,12 @@ export function int8RangeAccessor<Col extends string>(column: Col) {
 export function numRangeAccessor<Col extends string>(column: Col) {
   return {
     [`${column}_as_range`]: {
-      get(this: Record<Col, NumRange>): Range<PgNumeric> {
-        return Range.parse(this[column], (s) => s as PgNumeric, compareNumeric)
+      get(this: Record<Col, NumRange>): Range<string> {
+        return Range.parse(this[column], (s) => s, compareNumeric)
       },
       enumerable: true,
     },
-  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<PgNumeric>> }
+  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<string>> }
 }
 
 export function dateRangeAccessor<Col extends string>(column: Col) {

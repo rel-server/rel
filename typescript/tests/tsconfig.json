@@ -6,5 +6,5 @@
     "noUnusedLocals": false
   },
   "include": ["./**/*.ts"],
-  "exclude": []
+  "exclude": ["./augment"]
 }

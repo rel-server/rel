@@ -568,7 +568,7 @@ const createdRoom = rooms.draft({
   room_type_id: ROOM_TYPE_1,
   room_number: "101",
   property: { name: "Marina Bay Grand Hotel" },
-  room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
+  room_type: { name: "Deluxe", base_price: asNumeric(129.99) },
 })
 
 export type _AssertCreateNestedToOneIsObject = Expect<
@@ -1111,7 +1111,7 @@ const draftNestedOne = rooms.draft({
   room_type_id: ROOM_TYPE_1,
   room_number: "101",
   property: { name: "x", star_rating: 3 },
-  room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
+  room_type: { name: "Deluxe", base_price: asNumeric(129.99) },
 })
 export type _AssertDraftNestedOneProvidedBecomesRequired = Expect<
   OptionalKey<typeof draftNestedOne.property, "star_rating"> extends false ? true : false
@@ -1141,7 +1141,7 @@ void assertJoinKeyOnlyOptionalWhenJoinFillsIt
 const draftOmitsOutgoingKeys = rooms.draft({
   room_number: "101",
   property: { name: "x" },
-  room_type: { name: "d", base_price: asNumeric("1") },
+  room_type: { name: "d", base_price: asNumeric(1) },
 })
 void draftOmitsOutgoingKeys
 
@@ -1181,7 +1181,7 @@ function assertDraftRejectsBogusFields() {
     room_number: "1",
     // @ts-expect-error `bogus` isn't a column of the to-one joined row
     property: { name: "x", bogus: 1 },
-    room_type: { name: "D", base_price: asNumeric("1") },
+    room_type: { name: "D", base_price: asNumeric(1) },
   })
 }
 void assertDraftRejectsBogusFields
@@ -1195,7 +1195,7 @@ export type _AssertIdWidensToBareNumber = Expect<PropertyId extends number ? tru
 export type _AssertBareNumberIsNotAnId = Expect<number extends PropertyId ? false : true>
 export type _AssertIdsOfDifferentTablesDiffer = Expect<PropertyId extends RoomTypeId ? false : true>
 
-// Same for a bigserial : the id is an Int8 (a string on the wire) plus the table tag. Spelled the way
+// Same for a bigserial : the id is an Int8 (a number on the wire by default) plus the table tag. Spelled the way
 // tsgen/ids.go generates it, since the fixture schema has no bigserial.
 type LedgerId = Int8 & { readonly __id: "hotel.ledgers.id" }
 export type _AssertBigIdWidensToBareInt8 = Expect<LedgerId extends Int8 ? true : false>
@@ -1223,7 +1223,7 @@ function assertIdMixups() {
   void wrongTable
   // @ts-expect-error a cast can't launder one table's id into another's either
   void (PROPERTY_1 as RoomTypeId)
-  const bigId = "5" as LedgerId
+  const bigId = 5 as LedgerId
   const asInt8: Int8 = bigId
   void asInt8
 }
@@ -1264,7 +1264,7 @@ const propertyTwoLevels = relation("hotel.properties", (join) => ({
 const nestedRoom = propertyTwoLevels.draftNested(["rooms"], {
   room_type_id: ROOM_TYPE_1,
   room_number: "101",
-  room_type: { name: "Deluxe", base_price: asNumeric("129.99") },
+  room_type: { name: "Deluxe", base_price: asNumeric(129.99) },
 })
 export type _AssertDraftNestedIsOneRow = Expect<
   typeof nestedRoom extends readonly unknown[] ? false : true
@@ -1285,7 +1285,7 @@ void assertDraftNestedFitsParent
 // To-one, two levels deep : the row inside `rooms[].room_type`.
 const nestedRoomType = propertyTwoLevels.draftNested(["rooms", "room_type"], {
   name: "Deluxe",
-  base_price: asNumeric("129.99"),
+  base_price: asNumeric(129.99),
 })
 export type _AssertDraftNestedToOneIsObject = Expect<HasKey<typeof nestedRoomType, "name">>
 
