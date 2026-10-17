@@ -280,16 +280,22 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 // relation/function-position root is never an aggregate/window/procedure call.
 func (ctx *ResolveContext) resolveFunction(raw *rawRelation, oc oops.OopsErrorBuilder) (*pg.Function, error) {
 	return resolveFunctionCandidate(ctx.Db, ctx.Config.Blacklist, raw.Schema, raw.Function,
-		raw.ArgumentsPositional, raw.ArgumentsNamed, (*pg.Function).IsPlainFunction, oc)
+		raw.ArgumentsPositional, raw.ArgumentsNamed, (*pg.Function).IsPlainFunction, false, oc)
 }
 
-// resolveFunctionCandidate picks the single *pg.Function candidate matching
-// schema/name/call shape, filtered by kindOK ; >1 survivor is an ambiguity error.
+// resolveFunctionCandidate picks the *pg.Function candidate matching
+// schema/name/call shape, filtered by kindOK. More than one survivor is an
+// ambiguity error, unless allowOverloads : an "agg" or "call" only needs the
+// function's schema-qualified name in its SQL, and Postgres picks the overload
+// from the real argument types when it parses the statement. A relation root
+// needs exactly one, for the shape of its result. With allowOverloads the first
+// survivor is returned ; they all share one schema and name.
 func resolveFunctionCandidate(
 	db *pg.DbInfos, bl config.Blacklist,
 	schema, name string,
 	positional []Expression, named map[string]Expression,
 	kindOK func(*pg.Function) bool,
+	allowOverloads bool,
 	oc oops.OopsErrorBuilder,
 ) (*pg.Function, error) {
 	candidates := db.ResolveFunctionCandidates(schema, name)
@@ -323,7 +329,7 @@ func resolveFunctionCandidate(
 	if len(matches) == 0 {
 		return nil, oc.Code(errcode.QueryInvalidExpression).Errorf("no overload of %q matches the given arguments", name)
 	}
-	if len(matches) > 1 {
+	if len(matches) > 1 && !allowOverloads {
 		return nil, oc.Code(errcode.QueryInvalidExpression).Errorf("ambiguous function %q : %d overloads match the given arguments", name, len(matches))
 	}
 

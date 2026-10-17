@@ -674,10 +674,14 @@ func (c *sqlCompiler) compileAggFunctionCall(v *AggExpr, target *QueryNode, targ
 	c.castBackAggs = castBack
 	defer func() { c.castBackAggs = prev }()
 	c.w.Write(v.ResolvedFunction.Identifier.EscapedString())
+	c.w.Write("(")
+	if v.Distinct {
+		c.w.Write("distinct ")
+	}
 	var err error
-	writer.SurroundList(c.w.Writer, "(", ", ", ")", v.Arguments, func(a Expression) {
-		if err != nil {
-			return
+	for i, a := range v.Arguments {
+		if i > 0 {
+			c.w.Write(", ")
 		}
 		// A bare reference to the target relation (not a "." chain into a
 		// column) has no ColumnPath ; emit "t.*", Postgres's own row value.
@@ -685,14 +689,20 @@ func (c *sqlCompiler) compileAggFunctionCall(v *AggExpr, target *QueryNode, targ
 			if qn, _ := resolved.(*QueryNode); qn == target {
 				c.w.Write(targetAlias)
 				c.w.Write(".*")
-				return
+				continue
 			}
 		}
-		err = c.compileExpr(a, target)
-	})
-	if err != nil {
-		return err
+		if err = c.compileExpr(a, target); err != nil {
+			return err
+		}
 	}
+	if len(v.OrderBy) > 0 {
+		c.w.Write(" order by ")
+		if err = c.compileOrderTerms(v.OrderBy, target); err != nil {
+			return err
+		}
+	}
+	c.w.Write(")")
 	if v.Filter != nil {
 		c.w.Write(" filter ")
 		c.w.Paren(func() {

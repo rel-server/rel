@@ -297,7 +297,7 @@ type FunctionRef struct {
 	Name   string
 }
 
-// AggExpr is ["agg"|"aggregate", identifier, arguments, filter?]. Identifier
+// AggExpr is ["agg"|"aggregate", identifier, arguments, options?]. Identifier
 // is a FunctionRef, not an Expression, deliberately : query.ts's own note is
 // that function/operator allowlisting has to be checkable at query-compile
 // time against a static, schema-qualified name, which isn't possible if the
@@ -309,9 +309,14 @@ type FunctionRef struct {
 // Constructed as *AggExpr so pass 2 can set it in place.
 type AggExpr struct {
 	notYetValidated
-	Identifier       FunctionRef
-	Arguments        []Expression
+	Identifier FunctionRef
+	Arguments  []Expression
+	// Filter, Distinct and OrderBy come from the optional options object,
+	// ["agg", fn, args, {filter?, distinct?, order_by?}] ; Distinct is
+	// count(distinct x) and OrderBy is array_agg(x order by y).
 	Filter           Expression
+	Distinct         bool
+	OrderBy          []OrderByTerm
 	ResolvedFunction *pg.Function
 }
 

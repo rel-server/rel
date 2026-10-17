@@ -257,14 +257,13 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		if err != nil {
 			return nil, err
 		}
-		var filter Expression
+		agg := &AggExpr{Identifier: ident, Arguments: args}
 		if len(rest) == 3 {
-			filter, err = parseNode(&rest[2])
-			if err != nil {
-				return nil, err
+			if err := parseAggOptions(&rest[2], agg); err != nil {
+				return nil, fmt.Errorf("query: %q options: %w", tag, err)
 			}
 		}
-		return &AggExpr{Identifier: ident, Arguments: args, Filter: filter}, nil
+		return agg, nil
 
 	case "call":
 		if len(rest) < 1 {
@@ -642,4 +641,39 @@ func parseValidatedStringArgLiteral(tag string, rest []ast.Node, valid *regexp.R
 		return nil, fmt.Errorf("query: %q: %q is not a valid %s literal", tag, v, tag)
 	}
 	return build(v), nil
+}
+
+// parseAggOptions reads an "agg"'s last operand, {filter?, distinct?, order_by?}.
+func parseAggOptions(n *ast.Node, agg *AggExpr) error {
+	opts, err := n.MapUseNode()
+	if err != nil {
+		return fmt.Errorf(`must be an object {"filter", "distinct", "order_by"} : %w`, err)
+	}
+	for key, v := range opts {
+		switch key {
+		case "filter":
+			if agg.Filter, err = parseNode(&v); err != nil {
+				return err
+			}
+		case "distinct":
+			if agg.Distinct, err = v.StrictBool(); err != nil {
+				return fmt.Errorf(`"distinct" must be a boolean : %w`, err)
+			}
+		case "order_by":
+			items, err := v.ArrayUseNode()
+			if err != nil {
+				return fmt.Errorf(`"order_by" must be an array : %w`, err)
+			}
+			for i := range items {
+				term, err := parseOrderByTerm(&items[i])
+				if err != nil {
+					return fmt.Errorf(`"order_by" item %d : %w`, i, err)
+				}
+				agg.OrderBy = append(agg.OrderBy, term)
+			}
+		default:
+			return fmt.Errorf("unknown option %q (expected filter, distinct or order_by)", key)
+		}
+	}
+	return nil
 }

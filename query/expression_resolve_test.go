@@ -244,10 +244,11 @@ func TestResolveExpressions_CallBlacklisted(t *testing.T) {
 	}
 }
 
-func TestResolveExpressions_CallAmbiguous(t *testing.T) {
-	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": {"x": ["call", {"schema": "public", "name": "fn_ambig"}, 1]}}`)
-	if err == nil {
-		t.Fatalf("expected an ambiguous call (fn_ambig(int)/fn_ambig(text)) to be rejected")
+// TestResolveExpressions_CallOverloadedIsLeftToPostgres proves a call whose name has several overloads of the
+// same arity resolves : Postgres picks the overload from the real argument types.
+func TestResolveExpressions_CallOverloadedIsLeftToPostgres(t *testing.T) {
+	if err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": {"x": ["call", {"schema": "public", "name": "fn_ambig"}, 1]}}`); err != nil {
+		t.Fatalf("expected an overloaded call (fn_ambig(int)/fn_ambig(text)) to resolve, got %v", err)
 	}
 }
 

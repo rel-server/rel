@@ -3,7 +3,11 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
+	"math"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -1228,19 +1232,19 @@ func TestCompileSelect_AggFilterOnNumericColumns(t *testing.T) {
 		want  float64
 	}{
 		"numeric, single consumer": {
-			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids", "id"]], ["<", [".", "kids", "amount"], 150]]}}`,
+			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids", "id"]], {"filter": ["<", [".", "kids", "amount"], 150]}]}}`,
 			2,
 		},
 		"int8, single consumer": {
-			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids", "id"]], [">", [".", "kids", "big"], 5]]}}`,
+			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids", "id"]], {"filter": [">", [".", "kids", "big"], 5]}]}}`,
 			2,
 		},
 		"numeric, shared with the embedded array": {
-			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"kids": [".", "kids"], "n": ["agg", ` + count + `, [[".", "kids", "id"]], ["<", [".", "kids", "amount"], 150]]}}`,
+			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"kids": [".", "kids"], "n": ["agg", ` + count + `, [[".", "kids", "id"]], {"filter": ["<", [".", "kids", "amount"], 150]}]}}`,
 			2,
 		},
 		"numeric, whole-row argument": {
-			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids"]], ["<", [".", "kids", "amount"], 150]]}}`,
+			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids"]], {"filter": ["<", [".", "kids", "amount"], 150]}]}}`,
 			2,
 		},
 	}
@@ -1256,5 +1260,75 @@ func TestCompileSelect_AggFilterOnNumericColumns(t *testing.T) {
 				t.Errorf("expected n=%v, got %#v (sql: %s)", tc.want, rows[0]["n"], sql)
 			}
 		})
+	}
+}
+
+// aggOver runs ["agg", fn, args, options?] over agg_child's rows of one parent and returns the single result.
+func aggOver(t *testing.T, parentID int, fn string, args string, options string) any {
+	t.Helper()
+	call := `["agg", "` + fn + `", ` + args
+	if options != "" {
+		call += ", " + options
+	}
+	call += "]"
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}, "select": ["*~"]}}, "select": {"v": %s}}`, parentID, call))
+	sql, qargs := mustCompileSelect(t, node)
+	rows := runSelect(t, sql, qargs)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	}
+	return rows[0]["v"]
+}
+
+// TestCompileSelect_AggOverloadedFunctions proves the aggregates whose name has several overloads of the same
+// arity (sum, avg, min, max, ...) work : Postgres picks the overload from the argument's real type.
+func TestCompileSelect_AggOverloadedFunctions(t *testing.T) {
+	parentID := aggChildParent(t) // amounts 99.00, 120.50, 1000.00 ; bigs 3, 10, 100000000000
+	kid := func(name string) string { return fmt.Sprintf(`[[".", "kids", "%s"]]`, name) }
+	for name, tc := range map[string]struct {
+		fn, args, options string
+		want              any
+	}{
+		"sum of numeric":               {"sum", kid("amount"), "", 1219.5},
+		"sum of int4 is a bigint":      {"sum", kid("parent_id"), "", float64(3 * parentID)},
+		"avg of numeric":               {"avg", kid("amount"), "", 406.5},
+		"min of numeric":               {"min", kid("amount"), "", 99.0},
+		"max of bigint":                {"max", kid("big"), "", 1e11},
+		"sum with a filter":            {"sum", kid("amount"), `{"filter": ["<", [".", "kids", "amount"], 150]}`, 219.5},
+		"count distinct":               {"count", kid("parent_id"), `{"distinct": true}`, 1.0},
+		"count without distinct":       {"count", kid("parent_id"), "", 3.0},
+		"array_agg ordered descending": {"array_agg", kid("amount"), `{"order_by": [["desc", [".", "kids", "amount"]]]}`, []any{1000.0, 120.5, 99.0}},
+		"string_agg, separator, order": {"string_agg", `[["::", [".", "kids", "amount"], "text"], ", "]`, `{"order_by": [[".", "kids", "amount"]]}`, "99.00, 120.50, 1000.00"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := aggOver(t, parentID, tc.fn, tc.args, tc.options)
+			if f, ok := got.(float64); ok {
+				if w, ok := tc.want.(float64); ok && math.Abs(f-w) < 1e-9 {
+					return
+				}
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("got %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCompileSelect_AggUnresolvableOverload proves Postgres' own refusal to pick an overload (sum of text)
+// surfaces as its "function does not exist" error (42883), which the server maps to a 400.
+func TestCompileSelect_AggUnresolvableOverload(t *testing.T) {
+	parentID := aggChildParent(t)
+	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"v": ["agg", "sum", [["::", [".", "kids", "amount"], "text"]]]}}`, parentID))
+	sql, args := mustCompileSelect(t, node)
+	rows, err := testDb.Pool.Query(context.Background(), sql, args...)
+	if err == nil {
+		for rows.Next() {
+		}
+		err = rows.Err()
+		rows.Close()
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "42883" {
+		t.Fatalf("expected Postgres error 42883 (undefined function), got %v", err)
 	}
 }

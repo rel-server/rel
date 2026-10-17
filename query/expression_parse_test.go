@@ -170,7 +170,7 @@ func TestParseExpression_ColDefaultKeyword(t *testing.T) {
 func TestParseExpression_AggAndCall(t *testing.T) {
 	// Bare string : unqualified Name, never split on "." — a literal dot
 	// stays part of Name, never mistaken for a schema separator.
-	agg, ok := mustParse(t, `["agg", "array_agg", [["col", "name"]], [">=", ["col", "year"], 1999]]`).(*AggExpr)
+	agg, ok := mustParse(t, `["agg", "array_agg", [["col", "name"]], {"filter": [">=", ["col", "year"], 1999]}]`).(*AggExpr)
 	if !ok {
 		t.Fatalf("expected AggExpr, got %#v", agg)
 	}
@@ -255,5 +255,22 @@ func TestParseExpression_DotChain_NonNameBaseStillNeedsAHop(t *testing.T) {
 
 	if _, err := ParseExpression([]byte(`[".", ["col", "home"]]`)); err == nil {
 		t.Errorf(`[".", ["col", "home"]] (non-bare-name base, no hop) should be an error`)
+	}
+}
+
+func TestParseExpression_AggOptions(t *testing.T) {
+	agg := mustParse(t, `["agg", "string_agg", [["col", "name"], ", "], {"distinct": true, "order_by": [["col", "name"], ["desc", ["col", "id"]]], "filter": ["<", ["col", "id"], 5]}]`).(*AggExpr)
+	if !agg.Distinct || len(agg.OrderBy) != 2 || agg.OrderBy[1].Direction != OrderDesc || agg.Filter == nil {
+		t.Errorf("unexpected options : %#v", agg)
+	}
+	for _, bad := range []string{
+		`["agg", "count", [["col", "id"]], ["<", ["col", "id"], 5]]`, // the old positional filter
+		`["agg", "count", [["col", "id"]], {"nope": true}]`,          // unknown option
+		`["agg", "count", [["col", "id"]], {"distinct": "yes"}]`,     // not a boolean
+		`["agg", "count", [["col", "id"]], {"order_by": "id"}]`,      // not a list
+	} {
+		if _, err := ParseExpression([]byte(bad)); err == nil {
+			t.Errorf("expected %s to be rejected", bad)
+		}
 	}
 }

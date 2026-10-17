@@ -229,7 +229,7 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 
 	case *AggExpr:
 		fn, err := resolveFunctionCandidate(ctx.Db, ctx.Config.Blacklist, v.Identifier.Schema, v.Identifier.Name,
-			v.Arguments, nil, (*pg.Function).IsAggregate, oc.With("call", v.Identifier.Name))
+			v.Arguments, nil, (*pg.Function).IsAggregate, true, oc.With("call", v.Identifier.Name))
 		if err != nil {
 			return nil, err
 		}
@@ -244,11 +244,21 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 			}
 			v.Filter = filter
 		}
+		for i := range v.OrderBy {
+			term, err := ctx.resolveExpr(v.OrderBy[i].Expr, n, oc)
+			if err != nil {
+				return nil, err
+			}
+			if isLiteral(term) {
+				return nil, literalTermError("order_by", oc)
+			}
+			v.OrderBy[i].Expr = term
+		}
 		return v, nil
 
 	case *CallExpr:
 		fn, err := resolveFunctionCandidate(ctx.Db, ctx.Config.Blacklist, v.Identifier.Schema, v.Identifier.Name,
-			v.Arguments, nil, (*pg.Function).IsPlainFunction, oc.With("call", v.Identifier.Name))
+			v.Arguments, nil, (*pg.Function).IsPlainFunction, true, oc.With("call", v.Identifier.Name))
 		if err != nil {
 			return nil, err
 		}

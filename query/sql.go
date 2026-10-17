@@ -357,7 +357,12 @@ func (c *sqlCompiler) compileOrderBy(node *QueryNode) error {
 		return nil
 	}
 	c.w.Write(" order by ")
-	for i, term := range node.OrderBy {
+	return c.compileOrderTerms(node.OrderBy, node)
+}
+
+// compileOrderTerms writes the comma-separated terms of an ORDER BY (a query's, or an aggregate's own).
+func (c *sqlCompiler) compileOrderTerms(terms []OrderByTerm, node *QueryNode) error {
+	for i, term := range terms {
 		if i > 0 {
 			c.w.Write(", ")
 		}
@@ -840,9 +845,43 @@ func walkAggs(e Expression, fn func(*AggExpr)) {
 // root, or a bare Identifier) ; scans every argument, arity varies by function.
 func aggTargetChild(agg *AggExpr) *QueryNode {
 	for _, arg := range agg.Arguments {
-		if qn := rootQueryNodeOf(arg); qn != nil {
+		if qn := childReferencedBy(arg); qn != nil {
 			return qn
 		}
+	}
+	return nil
+}
+
+// childReferencedBy finds the first relation a "." chain inside e starts from,
+// looking through operators and casts : sum(amount::numeric) and
+// string_agg(amount::text, ', ') still aggregate over amount's relation.
+func childReferencedBy(e Expression) *QueryNode {
+	if qn := rootQueryNodeOf(e); qn != nil {
+		return qn
+	}
+	first := func(es ...Expression) *QueryNode {
+		for _, x := range es {
+			if qn := childReferencedBy(x); qn != nil {
+				return qn
+			}
+		}
+		return nil
+	}
+	switch v := e.(type) {
+	case UnaryExpr:
+		return first(v.Expr)
+	case BinaryExpr:
+		return first(v.Left, v.Right)
+	case FoldedExpr:
+		return first(v.Left, v.Right)
+	case BetweenExpr:
+		return first(v.Min, v.Exp, v.Max)
+	case InExpr:
+		return first(append([]Expression{v.Subject}, v.Candidates...)...)
+	case CoalesceExpr:
+		return first(v.Args...)
+	case *CallExpr:
+		return first(v.Arguments...)
 	}
 	return nil
 }
