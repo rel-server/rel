@@ -1734,3 +1734,33 @@ func TestExecuteWrite_Update_ChangesPrimaryKeyWhenMatchingOnAnotherKey(t *testin
 		})
 	}
 }
+
+// TestExecuteWrite_IncomingChildFK_NotInSelect proves an incoming child's FK to
+// its parent is filled from the join alone : the child's select leaves
+// director_id out, and the movie must still end up linked to its director.
+func TestExecuteWrite_IncomingChildFK_NotInSelect(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{
+		"relation": "director", "schema": "public",
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
+		"write_mode": "insert",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"id": ["col", "id"], "title": ["col", "title"]}}}
+	}`)
+	payload := []byte(`[{"name": "Join-Filled Director", "movies": [{"title": "Linked Movie"}]}]`)
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	var count int
+	if err := conn.QueryRow(ctx, `
+		select count(*) from movie m join director d on d.id = m.director_id
+		where d.name = 'Join-Filled Director' and m.title = 'Linked Movie'
+	`).Scan(&count); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected the movie linked to its director, got %d", count)
+	}
+}

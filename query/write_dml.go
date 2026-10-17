@@ -358,6 +358,18 @@ func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
 			}
 		}
 	}
+	// Likewise an incoming child's own FK column to its parent : the join's
+	// "on" already names it, so it is written whether or not select lists it.
+	if node.Parent != nil && isIncoming(node.Parent, node) {
+		for _, jc := range node.JoinColumns {
+			cp := ColumnPath{Node: node, Path: []*pg.Column{jc.Local}}
+			key := cp.Key()
+			if !seen[key] {
+				seen[key] = true
+				cols = append(cols, cp)
+			}
+		}
+	}
 	return cols, nil
 }
 
