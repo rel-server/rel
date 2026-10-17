@@ -65,10 +65,16 @@ func (ctx *ResolveContext) ResolveExpressions(node *QueryNode) error {
 		if node.DistinctOn[i], err = ctx.resolveExpr(node.DistinctOn[i], node, oc); err != nil {
 			return err
 		}
+		if isLiteral(node.DistinctOn[i]) {
+			return literalTermError("distinct_on", oc)
+		}
 	}
 	for i := range node.OrderBy {
 		if node.OrderBy[i].Expr, err = ctx.resolveExpr(node.OrderBy[i].Expr, node, oc); err != nil {
 			return err
+		}
+		if isLiteral(node.OrderBy[i].Expr) {
+			return literalTermError("order_by", oc)
 		}
 	}
 
@@ -652,4 +658,18 @@ func (ctx *ResolveContext) selectShape(target *QueryNode, oc oops.OopsErrorBuild
 	}
 	target.Shape = &NodeShape{Fields: shape}
 	return shape, nil
+}
+
+// isLiteral reports a constant value : a bare string is a literal, not a column, so a term that is one
+// would sort or deduplicate on a constant, silently doing nothing.
+func isLiteral(e Expression) bool {
+	switch e.(type) {
+	case NullLiteral, BoolLiteral, NumberLiteral, StringLiteral, BigIntLiteral, NumericLiteral:
+		return true
+	}
+	return false
+}
+
+func literalTermError(clause string, oc oops.OopsErrorBuilder) error {
+	return oc.Code(errcode.QueryInvalidExpression).Errorf(`%s: a literal is not a column ; write ["col", "name"] to refer to a column`, clause)
 }

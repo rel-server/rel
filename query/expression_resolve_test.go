@@ -1093,3 +1093,23 @@ func TestDeriveShapes_CompositeChainAndContainingColumnAreIndependent(t *testing
 		t.Errorf("expected \"home.city\" to be independently writable, unaffected by \"home\" also being selected")
 	}
 }
+
+// TestResolve_LiteralOrderByAndDistinctOn_Rejected proves a bare string (a literal, not a column) in order_by or
+// distinct_on is an error instead of a silent no-op.
+func TestResolve_LiteralOrderByAndDistinctOn_Rejected(t *testing.T) {
+	for name, src := range map[string]string{
+		"order_by string":    `{"relation": "director", "schema": "public", "order_by": ["name"]}`,
+		"order_by number":    `{"relation": "director", "schema": "public", "order_by": [1]}`,
+		"order_by tagged":    `{"relation": "director", "schema": "public", "order_by": [["desc", "name"]]}`,
+		"distinct_on string": `{"relation": "director", "schema": "public", "distinct_on": ["name"], "order_by": [["col", "name"]]}`,
+		"order_by in a join": `{"relation": "director", "schema": "public", "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "order_by": ["title"]}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := resolveQueryExpectError(t, src); err == nil {
+				t.Fatalf("expected a literal term to be rejected")
+			}
+		})
+	}
+	// a column reference still works
+	mustResolveQuery(t, `{"relation": "director", "schema": "public", "order_by": [["col", "name"], ["desc", ["col", "id"]]], "distinct_on": [["col", "name"]]}`)
+}
