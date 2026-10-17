@@ -6,15 +6,15 @@ icon: material/arrow-up-down
 
 ```json
 {
-  "order_by": [["desc", "star_rating"], "name"],
+  "order_by": [["desc", ["col", "star_rating"]], ["col", "name"]],
   "limit": 10,
   "offset": 20
 }
 ```
 
 `order_by` is a list of terms, applied in order — ties on the first term are broken by the
-second, and so on. A bare term (`"name"` above) is a plain column or expression reference,
-ascending; the tagged form (`[direction, Expression]`) picks one of:
+second, and so on. A bare term is an `Expression` ordered ascending (`["col", "name"]` above — a bare string
+would be a literal, not a column); the tagged form (`[direction, Expression]`) picks one of:
 
 | Tag | Meaning |
 |---|---|

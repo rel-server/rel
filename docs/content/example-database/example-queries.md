@@ -146,7 +146,7 @@ curl http://localhost:8080/rel \
   -d '{
     "function": "search_properties",
     "schema": "hotel",
-    "arguments": { "query": ["beach"] },
+    "arguments": { "query": "beach" },
     "select": { "id": ["col", "id"], "name": ["col", "name"] }
   }'
 ```
@@ -162,7 +162,7 @@ curl http://localhost:8080/rel \
   -d '{
     "function": "rooms_available",
     "schema": "hotel",
-    "arguments": { "property_id": 1, "on_date": ["2026-06-01"] },
+    "arguments": { "property_id": 1, "on_date": "2026-06-01" },
     "select": ["*~"]
   }'
 ```
@@ -192,7 +192,7 @@ curl http://localhost:8080/rel \
   -d '{
     "relation": "rooms",
     "schema": "hotel",
-    "where": ["@>", ["col", "features"], ["arr", ["Sea View"]]],
+    "where": ["@>", ["col", "features"], ["arr", "Sea View"]],
     "limit": 3,
     "select": { "id": ["col", "id"], "room_number": ["col", "room_number"], "features": ["col", "features"] }
   }'

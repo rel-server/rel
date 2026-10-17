@@ -21,8 +21,8 @@ field. If both `distinct` and `distinct_on` are given on the same node, `distinc
 
 ```json
 {
-  "distinct_on": ["chain_id"],
-  "order_by": ["chain_id", ["desc", "star_rating"]]
+  "distinct_on": [["col", "chain_id"]],
+  "order_by": [["col", "chain_id"], ["desc", ["col", "star_rating"]]]
 }
 ```
 
@@ -40,6 +40,6 @@ usually whichever one it happens to read first, not a meaningful "top" row. Alwa
 term to break ties within a group.
 
 Inside a joined subquery, `distinct`/`distinct_on` apply **per parent row**, the same as
-[`limit`/`offset`/`order_by`](ordering-pagination.md) — `distinct_on: ["room_id"]` on a
+[`limit`/`offset`/`order_by`](ordering-pagination.md) — `distinct_on: [["col", "room_id"]]` on a
 `bookings` join (rooted at `guests`) keeps one booking per room *within each guest's own
 bookings*, not one per room across every guest.
