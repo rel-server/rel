@@ -40,7 +40,8 @@ interface Relation {
   where?: Expression
   write_mode?:
     | "insert" | "upsert" | "merge" | "merge-new" | "merge-update"
-    | "update" | "deleteonly" | "readonly"
+    | "update-existing" | "deleteonly" | "readonly"
+    | "update" | "delete"
   on_conflict?: string | string[]
   insert_columns?: string[]
   update_columns?: string[]

@@ -22,10 +22,13 @@ a plain read too (just omit `data`). See [Complex queries](complex-query.md).
 | `merge` | insert new, update matching, delete rows missing from the payload | an incoming join |
 | `merge-new` | insert new, ignore rows that already exist, delete rows missing from the payload | — |
 | `merge-update` | update matching rows, ignore new rows, delete rows missing from the payload | — |
-| `update` | update matching rows only, never insert or delete | — |
+| `update-existing` | update the rows whose identity is in the payload, ignore new ones, never delete | — |
+| `update` | apply one patch object to every row the root's `where` selects | — |
+| `delete` | delete every row the root's `where` selects | — |
 | `deleteonly` | delete rows missing from the payload, nothing else | — |
 | `readonly` | never write this relation (or anything nested under it) | — |
 
+`update` and `delete` are the two [where-driven modes](#where-driven-writes-update-and-delete).
 `merge`/`merge-new`/`merge-update`/`deleteonly` all delete rows the payload didn't mention, so
 they're only legal on an incoming relation (see [Joining and embedding
 relations](joining.md)) — there's no coherent "rows missing from the payload" for an outgoing
@@ -36,6 +39,46 @@ names the constraint (by name, or by its column list) used to detect an existing
 insert/upsert/merge; it defaults to the relation's primary key. `insert_columns`/
 `update_columns` narrow which columns a write actually touches, beyond whatever `select`
 already made writable.
+
+## Where-driven writes: `update` and `delete`
+
+Every other mode finds the rows to touch from the payload. `update` and `delete` find them with
+the root's `where`, the way SQL's `UPDATE ... WHERE` and `DELETE ... WHERE` do:
+
+- They are valid on the **root relation only**, and `where` is **required** — a request without one
+  is rejected rather than touching the whole table.
+- `update` takes `data` as **one patch object** (not an array), and sets only the columns it
+  names, on every row the `where` selects. A column must be writable through `select` to be
+  patched, but the identity columns don't have to be selected. A patch can change a primary key
+  unless it is `GENERATED ALWAYS`, which Postgres refuses.
+- `delete` takes **no `data`** and **no join**, and returns an empty selection (`[]`). Ask for
+  [`stats`](complex-query.md#stats) to learn how many rows it removed.
+- Joins under an `update` root can only be `readonly`: they shape the response and are never
+  written (they default to `readonly`). Use `update-existing` or `merge` on a normal root to write
+  children.
+- `update`'s response is the usual read-back, which evaluates the `where` again **after** the
+  write. A patch that makes a row stop matching its own `where` therefore writes the row but
+  doesn't return it.
+
+```json
+{
+  "query": {
+    "relation": "room_types", "schema": "hotel", "write_mode": "update",
+    "where": ["=", ["col", "property_id"], 1],
+    "select": { "id": ["col", "id"], "base_price": ["col", "base_price"] }
+  },
+  "data": { "base_price": "99.00" }
+}
+```
+
+```json
+{
+  "query": {
+    "relation": "room_types", "schema": "hotel", "write_mode": "delete",
+    "where": ["=", ["col", "id"], 42]
+  }
+}
+```
 
 ## Write order
 

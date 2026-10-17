@@ -310,6 +310,25 @@ A helper's own suffix (`_as_date`, `_as_bigint`, `_as_range`, ...) says what it 
 whether the resulting member is writable depends on whether the helper defines a setter — a
 range accessor, for instance, is read-only.
 
+### Where-driven writes
+
+A query with `write_mode: "update"` takes a single patch object instead of an array of rows, typed as a
+partial of the row; one with `write_mode: "delete"` takes no argument at all:
+
+```ts
+await relation("hotel.room_types", {
+  write_mode: "update",
+  where: ["=", ["col", "property_id"], 1],
+}).write({ base_price: "99.00" })
+
+await relation("hotel.room_types", {
+  write_mode: "delete",
+  where: ["=", ["col", "id"], 42],
+}).write()
+```
+
+See [Writing data back](../query-language/writing.md#where-driven-writes-update-and-delete).
+
 ### Building a new row
 
 A row you are still working on — not saved yet, or edited and not yet written back — is a
