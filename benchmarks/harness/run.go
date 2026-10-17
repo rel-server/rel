@@ -49,6 +49,9 @@ type Config struct {
 	Scenarios []Scenario
 	Stack     *Stack
 	Rebuild   bool // rebuild the golden databases
+	// CheckOnly runs each scenario once per server (equivalence for reads, one
+	// operation for writes) without timing, to debug scenario definitions.
+	CheckOnly bool
 }
 
 // Level is the outcome for one client count : the median of the repeats by
@@ -156,9 +159,24 @@ func benchServer(ctx context.Context, cfg Config, size string, srv Server, sr *S
 			} else {
 				cell.Mismatch = note
 			}
+			if cfg.CheckOnly {
+				continue
+			}
 			for _, clients := range cfg.Profile.Clients {
 				lvl := measure(ctx, c, env, impl, srv, cfg.Profile, clients, nil)
 				cell.Levels = append(cell.Levels, lvl)
+			}
+			continue
+		}
+		if cfg.CheckOnly {
+			if sc.Prepare != nil {
+				if err := prepareFor(ctx, st, sc, 10, env); err != nil {
+					return err
+				}
+			}
+			if _, err := impl.Run(c, env, 1); err != nil {
+				cell.Skipped = "write failed: " + err.Error()
+				log.Warn("skipped", "scenario", sc.Name, "why", cell.Skipped)
 			}
 			continue
 		}
@@ -215,6 +233,12 @@ func measureWrite(ctx context.Context, cfg Config, size string, srv Server, sc S
 		if err != nil {
 			return Level{}, err
 		}
+		if sc.Prepare != nil {
+			if err := sc.Prepare(ctx, db, cfg.Profile.WriteOps); err != nil {
+				db.Close()
+				return Level{}, err
+			}
+		}
 		env, err := LoadEnv(ctx, db, size)
 		if err != nil {
 			db.Close()
@@ -257,6 +281,9 @@ func checkEquivalent(c *Client, env *Env, sc Scenario, srv Server, impl Impl, re
 	got, err := impl.Normalize(body)
 	if err != nil {
 		return "normalizing output failed: " + err.Error(), ""
+	}
+	if rows, ok := got.([]any); ok && len(rows) == 0 {
+		return "empty result : the scenario would measure nothing", ""
 	}
 	ref, have := reference[sc.Name]
 	if !have {
@@ -325,4 +352,23 @@ func diff(path string, a, b any) string {
 		return fmt.Sprintf("%s: %v vs %v", path, a, b)
 	}
 	return ""
+}
+
+// prepareFor runs sc.Prepare on the benchmark database and refreshes env in
+// place. The server is already running, which is fine : Prepare only inserts.
+func prepareFor(ctx context.Context, st *Stack, sc Scenario, ops int, env *Env) error {
+	db, err := st.Pool(ctx, BenchDB)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := sc.Prepare(ctx, db, ops); err != nil {
+		return err
+	}
+	fresh, err := LoadEnv(ctx, db, env.Size)
+	if err != nil {
+		return err
+	}
+	*env = *fresh
+	return nil
 }

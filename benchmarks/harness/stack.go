@@ -15,6 +15,7 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -125,7 +126,7 @@ func goldenName(size string) string { return "bench_golden_" + size }
 // EnsureGolden builds the golden database of the given size if it does not
 // exist (or if rebuild is set) : schema, roles, seeded rows, then VACUUM
 // ANALYZE so every server plans against real statistics.
-func (s *Stack) EnsureGolden(ctx context.Context, size string, rebuild bool) error {
+func (s *Stack) EnsureGolden(ctx context.Context, size string, rebuild bool) (err error) {
 	scale, ok := Sizes[size]
 	if !ok {
 		return oops.With("size", size).Errorf("unknown data size")
@@ -151,6 +152,12 @@ func (s *Stack) EnsureGolden(ctx context.Context, size string, rebuild bool) err
 	if _, err := admin.Exec(ctx, `create database `+name); err != nil {
 		return oops.Wrapf(err, "creating %s", name)
 	}
+	// a half-built golden database would be reused as if complete next run
+	defer func() {
+		if err != nil {
+			_, _ = admin.Exec(context.WithoutCancel(ctx), `drop database if exists `+name+` with (force)`)
+		}
+	}()
 	pool, err := s.Pool(ctx, name)
 	if err != nil {
 		return err
@@ -161,12 +168,23 @@ func (s *Stack) EnsureGolden(ctx context.Context, size string, rebuild bool) err
 		if err != nil {
 			return oops.Wrapf(err, "reading %s", f)
 		}
+		// Roles are cluster-wide but each golden database applies the schema on its own :
+		// make the schema's role creation idempotent without editing the shared fixture.
+		sql = bytes.ReplaceAll(sql, []byte(`create role "~anonymous";`),
+			[]byte(`do $$ begin if not exists (select from pg_roles where rolname = '~anonymous') then create role "~anonymous"; end if; end $$;`))
 		if _, err := pool.Exec(ctx, string(sql), pgx.QueryExecModeSimpleProtocol); err != nil {
 			return oops.With("file", f).Wrapf(err, "applying %s", f)
 		}
 	}
 	if err := seed.RunScaled(ctx, pool, 42, scale); err != nil {
 		return oops.With("size", size).Wrapf(err, "seeding")
+	}
+	idx, err := os.ReadFile(filepath.Join(s.Dir, "db/indexes.sql"))
+	if err != nil {
+		return oops.Wrapf(err, "reading db/indexes.sql")
+	}
+	if _, err := pool.Exec(ctx, string(idx), pgx.QueryExecModeSimpleProtocol); err != nil {
+		return oops.Wrapf(err, "applying db/indexes.sql")
 	}
 	if _, err := pool.Exec(ctx, `vacuum analyze`); err != nil {
 		return oops.Wrapf(err, "vacuum analyze")
@@ -234,7 +252,8 @@ func LoadEnv(ctx context.Context, db *pgxpool.Pool, size string) (*Env, error) {
 		e.BookingIDs = append(e.BookingIDs, id)
 	}
 	rows.Close()
-	for q, dst := range map[string]*[]int64{`select id from hotel.rooms order by id`: &e.RoomIDs, `select id from hotel.guests order by id`: &e.GuestIDs} {
+	for q, dst := range map[string]*[]int64{`select id from hotel.rooms order by id`: &e.RoomIDs, `select id from hotel.guests order by id`: &e.GuestIDs,
+		`select id from hotel.amenities where name like 'scratch-%' order by id`: &e.ScratchIDs} {
 		rows, err := db.Query(ctx, q)
 		if err != nil {
 			return nil, oops.Wrapf(err, "loading ids")

@@ -1,7 +1,11 @@
 -- Role every server under test connects as. One shared role keeps auth out of
 -- the comparison (benchmarks/README.md ## Fairness) ; it is applied after
 -- test/hotel/schema.sql, on the golden database only.
-create role bench login password 'bench';
+do $$ begin
+  if not exists (select from pg_roles where rolname = 'bench') then
+    create role bench login password 'bench';
+  end if;
+end $$;
 grant usage on schema hotel to bench;
 grant all on all tables in schema hotel to bench;
 grant all on all sequences in schema hotel to bench;

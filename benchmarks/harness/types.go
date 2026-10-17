@@ -86,6 +86,9 @@ type Env struct {
 	// RoomIDs and GuestIDs are all room / guest ids, for write scenarios.
 	RoomIDs  []int64
 	GuestIDs []int64
+	// ScratchIDs are the "scratch-*" amenities a write scenario's Prepare
+	// inserted, for delete scenarios to remove.
+	ScratchIDs []int64
 }
 
 // Impl is how one server runs one scenario.
@@ -109,6 +112,9 @@ type Scenario struct {
 	Write bool
 	// Impls is keyed by server ; a missing key means Unsupported.
 	Impls map[Server]Impl
+	// Prepare, if set, runs on the freshly reset database before the server
+	// starts ; ops is how many operations the run will perform.
+	Prepare func(ctx context.Context, db *pgxpool.Pool, ops int) error
 	// Check runs after a write scenario's fixed number of operations and
 	// returns an error if the database is not in the state those ops must
 	// have produced. ops is the number of operations that succeeded.
@@ -166,7 +172,7 @@ func (c *Client) Do(r Request) ([]byte, error) {
 	c.trips.Add(1)
 	c.bytes.Add(int64(len(out)))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return out, oops.With("status", resp.StatusCode, "body", truncate(out, 300)).Errorf("%s %s returned %d", r.Method, r.Path, resp.StatusCode)
+		return out, oops.With("status", resp.StatusCode).Errorf("%s %s returned %d: %s", r.Method, r.Path, resp.StatusCode, truncate(out, 300))
 	}
 	return out, nil
 }

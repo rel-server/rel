@@ -18,6 +18,9 @@ const preset = {
       poolConfig: { max: Number(process.env.POOL_SIZE || 20) },
     }),
   ],
+  // v5 hides filters and orderings on columns without an index by default ; the
+  // other servers allow them, so turn that off to compare like with like.
+  disablePlugins: ["PgIndexBehaviorsPlugin"],
   grafserv: { graphqlPath: "/graphql", graphiql: false },
 };
 
