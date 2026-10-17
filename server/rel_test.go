@@ -11,7 +11,6 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/pg"
-	"github.com/rel-server/rel/query"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
@@ -325,8 +324,8 @@ func TestRelHandler_TwoWriteItemsInOneSequence(t *testing.T) {
 }
 
 func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T) {
-	// Pool forced to one connection, then a stale "_data" row planted
-	// directly, simulating an earlier request whose truncate never ran.
+	// Pool forced to one connection, so every request reuses the same "_data" ;
+	// its rows must be gone after a write, whether the request committed or not.
 	container, err := postgres.Run(context.Background(), "postgres:16-alpine",
 		postgres.WithOrderedInitScripts("../pg/testdata/schema.sql", "testdata/roles.sql"),
 		postgres.BasicWaitStrategies(),
@@ -348,39 +347,40 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 		t.Fatalf("NewInfosAdminQuery: %v", err)
 	}
 	handler := NewRelHandler(db, cfg, nil)
-
 	ctx := context.Background()
-	conn, err := db.Pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	if _, err := conn.Exec(ctx, query.DataTableDDL); err != nil {
-		t.Fatalf("create _data: %v", err)
-	}
-	if _, err := conn.Exec(ctx, `insert into _data (__row_id, __node_id, __parent_id, data, keys)
-		values (999, 0, null, '{"name":"Stale Leaked Row"}'::jsonb, '{"id":999999}'::jsonb)`); err != nil {
-		t.Fatalf("plant stale row: %v", err)
-	}
-	conn.Release() // back to the pool ; MaxConns=1 guarantees the handler reacquires this exact connection
 
-	rec := postRelTo(t, handler, `{
-		"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"},
-		"data": [{"name": "Leak Check B"}]
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	staleRows := func() int {
+		conn, err := db.Pool.Acquire(ctx)
+		if err != nil {
+			t.Fatalf("acquire: %v", err)
+		}
+		defer conn.Release()
+		var n int
+		if err := conn.QueryRow(ctx, `select count(*) from _data`).Scan(&n); err != nil {
+			t.Fatalf("count _data: %v", err)
+		}
+		return n
 	}
+
+	for name, body := range map[string]string{
+		"committed write":   `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check A"}]}`,
+		"rolled-back write": `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check B"}], "rollback": true, "stats": true}`,
+		"rejected write":    `{"query": {"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update-existing"}, "data": [{"name": "Leak Check C"}]}`,
+	} {
+		postRelTo(t, handler, body)
+		if n := staleRows(); n != 0 {
+			t.Fatalf("%s left %d rows in _data", name, n)
+		}
+	}
+
+	// and the next request's own read-back sees only its own row
+	rec := postRelTo(t, handler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check D"}]}`)
 	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
-	if len(rows) != 1 {
-		t.Fatalf("reread leaked the planted stale row : expected 1 row, got %d : %v", len(rows), rows)
-	}
-	if rows[0]["name"] != "Leak Check B" {
+	if len(rows) != 1 || rows[0]["name"] != "Leak Check D" {
 		t.Errorf("expected only this request's own row, got %v", rows)
 	}
 }
 
-// TestRelHandler_WriteOutgoingChildFK_HTTP reruns
-// TestExecuteWrite_OutgoingChildFK (query/write_test.go) over real HTTP.
 func TestRelHandler_WriteOutgoingChildFK_HTTP(t *testing.T) {
 	rec := postRel(t, `{
 		"query": {

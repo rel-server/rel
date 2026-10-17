@@ -23,20 +23,24 @@ import (
 // DataTableDDL creates "_data" if it doesn't already exist on the
 // connection — the one shared source of truth for its schema, referenced by
 // both this package's own tests (query/write_test.go) and the HTTP server
-// (server/rel.go), so the two can't silently drift apart. "on commit
-// preserve rows" is required for the real server's own request flow
-// (specs/query-engine.md ## Response Shape : the write transaction commits
-// before the read-back statement that builds the response runs, and that
-// statement still needs to see this same request's rows) — write_test.go's
-// own per-test DROP+CREATE doesn't strictly need it (nothing there commits
-// mid-test), but it's harmless there either way.
-const DataTableDDL = `create temp table if not exists _data (
+// (server/rel.go), so the two can't silently drift apart. Its rows survive
+// commits ("on commit preserve rows"), which the tests need since each of their
+// statements commits on its own. The server uses DataTableDDLPerTransaction.
+const DataTableDDL = dataTableColumns + ` on commit preserve rows`
+
+// DataTableDDLPerTransaction is "_data" for the HTTP server, which does a
+// request's whole write and read-back in one transaction : its rows go away at
+// commit or rollback, inside that commit's own WAL flush. An explicit TRUNCATE
+// afterwards would be a second transaction, hence a second flush, per write.
+const DataTableDDLPerTransaction = dataTableColumns + ` on commit delete rows`
+
+const dataTableColumns = `create temp table if not exists _data (
 	__row_id int primary key,
 	__node_id int not null,
 	__parent_id int,
 	data jsonb not null,
 	keys jsonb
-) on commit preserve rows`
+)`
 
 // Querier is the connection surface this package needs : enough to load
 // "_data" via COPY and run the phased DML. Satisfied directly by

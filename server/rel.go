@@ -15,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -65,9 +64,6 @@ type resolvedItem struct {
 // item, otherwise the schema-qualified relation name.
 // dataTables records the physical connections whose "_data" table exists and is granted.
 var dataTables sync.Map
-
-// dataTableState tracks whether a connection's "_data" may still hold rows.
-type dataTableState struct{ dirty atomic.Bool }
 
 func queryTargetIdentifier(root *query.QueryNode) string {
 	if root.Function != nil {
@@ -354,11 +350,10 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	// "_data" is per physical connection, and a switched role (applyRole below)
 	// has no default privileges on it : create and grant it once per connection,
-	// not every request (each is a catalog write that waits for a WAL flush), and
-	// truncate it only around requests that wrote to it, which a read never does.
-	known, loaded := dataTables.Load(conn.Conn())
-	if !loaded {
-		if _, err := conn.Exec(ctx, query.DataTableDDL); err != nil {
+	// not every request (each is a catalog write that waits for a WAL flush). Its
+	// rows disappear at commit or rollback, so nothing ever needs clearing.
+	if _, known := dataTables.Load(conn.Conn()); !known {
+		if _, err := conn.Exec(ctx, query.DataTableDDLPerTransaction); err != nil {
 			writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("preparing _data: %w", err)), cfg.Dev)
 			return
 		}
@@ -366,30 +361,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("granting _data: %w", err)), cfg.Dev)
 			return
 		}
-		// A connection seen for the first time may carry rows from before : start dirty.
-		fresh := &dataTableState{}
-		fresh.dirty.Store(true)
-		known, _ = dataTables.LoadOrStore(conn.Conn(), fresh)
-	}
-	dt := known.(*dataTableState)
-	// Truncated before use when a previous request left rows behind (its
-	// release-time truncate below never ran).
-	if dt.dirty.Load() {
-		if _, err := conn.Exec(ctx, "truncate _data"); err != nil {
-			writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("clearing _data: %w", err)), cfg.Dev)
-			return
-		}
-		dt.dirty.Store(false)
-	}
-	if anyWrite {
-		dt.dirty.Store(true)
-		// Truncated after the response is fully sent — context.Background(),
-		// not ctx, so a client disconnect can't skip this cleanup.
-		defer func() {
-			if _, err := conn.Exec(context.Background(), "truncate _data"); err == nil {
-				dt.dirty.Store(false)
-			}
-		}()
+		dataTables.Store(conn.Conn(), struct{}{})
 	}
 
 	if _, err := conn.Exec(ctx, "begin"); err != nil {
