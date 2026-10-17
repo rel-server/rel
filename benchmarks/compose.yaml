@@ -1,0 +1,68 @@
+# Servers under test. The harness (benchmarks/harness) starts them ONE AT A
+# TIME ; running `docker compose up` for everything defeats the benchmark.
+# CPU pinning and memory come from the environment, see .env.example.
+name: relbench
+
+x-server: &server
+  restart: "no"
+  cpuset: ${BENCH_SERVER_CPUSET:-}
+  mem_limit: ${BENCH_SERVER_MEM:-2g}
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command: ["postgres", "-c", "shared_buffers=${BENCH_PG_SHARED_BUFFERS:-1GB}", "-c", "max_connections=200"]
+    ports: ["${BENCH_DB_PORT:-15432}:5432"]
+    cpuset: ${BENCH_DB_CPUSET:-}
+    mem_limit: ${BENCH_DB_MEM:-4g}
+    shm_size: 1g
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      retries: 60
+
+  rel:
+    <<: *server
+    build: { context: .., dockerfile: Dockerfile }
+    environment:
+      REL_PG__URI: postgres://bench:bench@db:5432/${BENCH_DB_NAME:-bench}?sslmode=disable
+      REL_PG__POOL_SIZE: 20
+    ports: ["18080:8080"]
+
+  postgrest:
+    <<: *server
+    image: postgrest/postgrest:v16.4
+    environment:
+      PGRST_DB_URI: postgres://bench:bench@db:5432/${BENCH_DB_NAME:-bench}
+      PGRST_DB_SCHEMAS: hotel
+      PGRST_DB_ANON_ROLE: bench
+      PGRST_DB_POOL: 20
+      PGRST_DB_MAX_ROWS: 100000
+      PGRST_SERVER_PORT: 3000
+    ports: ["13000:3000"]
+
+  postgraphile4:
+    <<: *server
+    build: ./postgraphile/v4
+    environment:
+      DATABASE_URL: postgres://bench:bench@db:5432/${BENCH_DB_NAME:-bench}
+      POOL_SIZE: 20
+    ports: ["15004:5000"]
+
+  postgraphile5:
+    <<: *server
+    build: ./postgraphile/v5
+    environment:
+      DATABASE_URL: postgres://bench:bench@db:5432/${BENCH_DB_NAME:-bench}
+      POOL_SIZE: 20
+    ports: ["15005:5000"]
+
+volumes:
+  dbdata:

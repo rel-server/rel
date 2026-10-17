@@ -1,0 +1,12 @@
+{
+  "name": "bench-postgraphile-v4",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "postgraphile": "4.14.1",
+    "postgraphile-plugin-connection-filter": "2.3.0",
+    "@graphile-contrib/pg-simplify-inflector": "6.1.0",
+    "postgraphile-plugin-nested-mutations": "1.1.0",
+    "pg": "8.13.1"
+  }
+}

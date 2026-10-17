@@ -1,0 +1,4 @@
+results/*
+!results/README.md
+node_modules
+.env

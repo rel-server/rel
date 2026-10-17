@@ -1,0 +1,10 @@
+{
+  "name": "bench-postgraphile-v5",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "postgraphile": "5.1.5",
+    "postgraphile-plugin-connection-filter": "4.0.1",
+    "@graphile/simplify-inflection": "9.0.0"
+  }
+}
