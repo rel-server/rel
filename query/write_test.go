@@ -760,10 +760,10 @@ func TestExecuteWrite_NullOutgoingSkipsChildStatements(t *testing.T) {
 		t.Fatalf("expected studio_id null, got %v", *studioID)
 	}
 
-	// Baseline is director's own insert (1 exec) — if studio's phase1
-	// statement also ran, this would be at least 2.
-	if counting.execs != 1 {
-		t.Fatalf("expected exactly 1 Exec (director's own insert, studio's skipped), got %d", counting.execs)
+	// Baseline is the _data load plus director's own insert (2 execs) — if
+	// studio's phase1 statement also ran, this would be at least 3.
+	if counting.execs != 2 {
+		t.Fatalf("expected exactly 2 Execs (the _data load and director's own insert, studio's skipped), got %d", counting.execs)
 	}
 }
 
@@ -1767,5 +1767,58 @@ func TestExecuteWrite_IncomingChildFK_NotInSelect(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected the movie linked to its director, got %d", count)
+	}
+}
+
+// batchCountingConn counts the round trips a write makes through a pipelining connection.
+type batchCountingConn struct {
+	*pgxpool.Conn
+	batches, execs, queries int
+	queued                  int
+}
+
+func (c *batchCountingConn) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
+	c.batches++
+	c.queued += b.Len()
+	return c.Conn.SendBatch(ctx, b)
+}
+
+func (c *batchCountingConn) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	c.execs++
+	return c.Conn.Exec(ctx, sql, args...)
+}
+
+func (c *batchCountingConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	c.queries++
+	return c.Conn.Query(ctx, sql, args...)
+}
+
+// TestExecuteWrite_SendsAllStatementsInOneBatch proves a write over a pipelining connection
+// loads _data and runs every phase in a single round trip, however deep the tree.
+func TestExecuteWrite_SendsAllStatementsInOneBatch(t *testing.T) {
+	conn := &batchCountingConn{Conn: acquireWriteConn(t)}
+	ctx := context.Background()
+
+	node := mustResolveQuery(t, `{
+		"relation": "studio", "schema": "public",
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "directors": [".", "directors"]},
+		"write_mode": "insert",
+		"join": {"directors": {"relation": "director", "schema": "public", "on": {"studio_id": "id"},
+			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
+			"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}}}
+	}`)
+	payload := []byte(`[{"name": "Batched Studio", "directors": [{"name": "Batched Director", "movies": [{"title": "Batched Movie"}]}]}]`)
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+	if conn.batches != 1 || conn.execs != 0 || conn.queries != 0 {
+		t.Fatalf("expected 1 batch and no other round trip, got batches=%d execs=%d queries=%d", conn.batches, conn.execs, conn.queries)
+	}
+	if conn.queued < 4 { // the load plus three relations
+		t.Errorf("expected the load and three inserts in the batch, got %d statements", conn.queued)
+	}
+	var n int
+	if err := conn.QueryRow(ctx, `select count(*) from movie m join director d on d.id = m.director_id join studio s on s.id = d.studio_id where s.name = 'Batched Studio'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("expected the whole tree written, got n=%d err=%v", n, err)
 	}
 }

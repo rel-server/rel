@@ -54,6 +54,11 @@ type dmlCompiler struct {
 	planByNode     map[*QueryNode]*PlanResult
 	planOrder      []*QueryNode
 
+	// batcher, when the connection can pipeline, makes run* queue their statements
+	// in queue instead of sending each one ; flush sends them all in one round trip.
+	batcher Batcher
+	queue   []queuedStmt
+
 	// nextRowID is the first free "_data" __row_id ; runUpdateWhere allocates
 	// one row per row it updates, past the ids denormalize used.
 	nextRowID int
@@ -134,6 +139,90 @@ func (dc *dmlCompiler) exec(ctx context.Context, node *QueryNode, kind string, w
 		return pgconn.CommandTag{}, nil
 	}
 	return dc.conn.Exec(ctx, w.String(), args...)
+}
+
+// Batcher is the optional connection capability that lets a write send all its
+// statements in one round trip ; *pgxpool.Conn and *pgx.Conn have it.
+type Batcher interface {
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+}
+
+// queuedStmt is a statement waiting for flush ; after, if set, receives its command tag.
+type queuedStmt struct {
+	node  *QueryNode
+	kind  string
+	sql   string
+	args  []any
+	after func(pgconn.CommandTag)
+}
+
+// submit is exec for a statement whose outcome nothing later in Go depends on
+// beyond its command tag : with a Batcher it is queued, otherwise (or under
+// EXPLAIN ANALYZE, which reads rows back) it runs now. after runs once the
+// statement has run, before submit's caller's later statements are sent.
+func (dc *dmlCompiler) submit(ctx context.Context, node *QueryNode, kind string, w *writer.SQLWriter, args []any, after func(pgconn.CommandTag)) error {
+	if dc.batcher == nil || dc.explainAnalyze {
+		if err := dc.flush(ctx); err != nil {
+			return err
+		}
+		tag, err := dc.exec(ctx, node, kind, w, args)
+		if err != nil {
+			return oops.With("sql", w.String()).Wrapf(err, "%s", kind)
+		}
+		if after != nil {
+			after(tag)
+		}
+		return nil
+	}
+	if dc.collectSQL {
+		dc.recordSQL(node, kind, w.String())
+	}
+	dc.queue = append(dc.queue, queuedStmt{node: node, kind: kind, sql: w.String(), args: args, after: after})
+	return nil
+}
+
+// enqueue is submit for _data housekeeping : never recorded under sql/query_plan, never
+// wrapped in EXPLAIN ANALYZE.
+func (dc *dmlCompiler) enqueue(ctx context.Context, node *QueryNode, label, sql string, args []any) error {
+	if dc.batcher == nil {
+		if _, err := dc.conn.Exec(ctx, sql, args...); err != nil {
+			return oops.With("sql", sql).Wrapf(err, "%s", label)
+		}
+		return nil
+	}
+	dc.queue = append(dc.queue, queuedStmt{node: node, kind: label, sql: sql, args: args})
+	return nil
+}
+
+// flush sends every queued statement in one round trip, in order, and runs
+// their after callbacks. The first failure stops everything after it, as in a
+// transaction, and is reported with the statement that caused it.
+func (dc *dmlCompiler) flush(ctx context.Context) error {
+	if len(dc.queue) == 0 {
+		return nil
+	}
+	queue := dc.queue
+	dc.queue = nil
+	var b pgx.Batch
+	for _, q := range queue {
+		b.Queue(q.sql, q.args...)
+	}
+	res := dc.batcher.SendBatch(ctx, &b)
+	for _, q := range queue {
+		tag, err := res.Exec()
+		if err != nil {
+			_ = res.Close()
+			name := ""
+			if q.node != nil {
+				name = q.node.InnerName
+			}
+			return oops.With("node", name, "sql", q.sql).Wrapf(err, "write: %s", q.kind)
+		}
+		if q.after != nil {
+			q.after(tag)
+		}
+	}
+	return res.Close()
 }
 
 // recordSQL assigns raw to kind's field on node's SqlResult.
@@ -680,15 +769,15 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	if err != nil {
 		return err
 	}
-	tag, err := dc.exec(ctx, node, "insert", w, args)
-	if err != nil {
-		return oops.With("sql", w.String()).Wrapf(err, "insert")
-	}
-	if dc.collectStats {
-		// The trailing "update _data" only ever joins actually-inserted
-		// rows (via "ins" in the doNothing branch, or unconditionally
-		// otherwise) — its RowsAffected() is exactly the insert count.
-		dc.stat(node).Inserted += int(tag.RowsAffected())
+	if err := dc.submit(ctx, node, "insert", w, args, func(tag pgconn.CommandTag) {
+		if dc.collectStats {
+			// The trailing "update _data" only ever joins actually-inserted
+			// rows (via "ins" in the doNothing branch, or unconditionally
+			// otherwise) — its RowsAffected() is exactly the insert count.
+			dc.stat(node).Inserted += int(tag.RowsAffected())
+		}
+	}); err != nil {
+		return err
 	}
 
 	if doNothing {
@@ -734,10 +823,7 @@ func (dc *dmlCompiler) recoverKeys(ctx context.Context, node *QueryNode) error {
 	if err != nil {
 		return err
 	}
-	if _, err := dc.conn.Exec(ctx, w.String(), args...); err != nil {
-		return oops.With("sql", w.String()).Wrapf(err, "recovering merge-new keys")
-	}
-	return nil
+	return dc.enqueue(ctx, node, "recovering merge-new keys", w.String(), args)
 }
 
 // runUpdate : a single update ... from ... returning suffices, since the
@@ -826,12 +912,12 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	if err != nil {
 		return err
 	}
-	tag, err := dc.exec(ctx, node, "update", w, args)
-	if err != nil {
-		return oops.With("sql", w.String()).Wrapf(err, "update")
-	}
-	if dc.collectStats {
-		dc.stat(node).Updated += int(tag.RowsAffected())
+	if err := dc.submit(ctx, node, "update", w, args, func(tag pgconn.CommandTag) {
+		if dc.collectStats {
+			dc.stat(node).Updated += int(tag.RowsAffected())
+		}
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -965,10 +1051,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		if err != nil {
 			return err
 		}
-		if _, err := dc.exec(ctx, node, "upsert", w, args); err != nil {
-			return oops.With("sql", w.String()).Wrapf(err, "upsert")
-		}
-		return nil
+		return dc.submit(ctx, node, "upsert", w, args, nil)
 	}
 
 	// collectStats : the "_data" write-back becomes its own CTE ("upd"), so
@@ -991,6 +1074,9 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	}
 	args, err := dc.args(w)
 	if err != nil {
+		return err
+	}
+	if err := dc.flush(ctx); err != nil { // its counts are read back right now
 		return err
 	}
 	rows, err := dc.conn.Query(ctx, w.String(), args...)
@@ -1207,12 +1293,12 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 	if err != nil {
 		return err
 	}
-	tag, err := dc.exec(ctx, node, "delete", w, args)
-	if err != nil {
-		return oops.With("sql", w.String()).Wrapf(err, "delete")
-	}
-	if dc.collectStats {
-		dc.stat(node).Deleted += int(tag.RowsAffected())
+	if err := dc.submit(ctx, node, "delete", w, args, func(tag pgconn.CommandTag) {
+		if dc.collectStats {
+			dc.stat(node).Deleted += int(tag.RowsAffected())
+		}
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1243,12 +1329,12 @@ func (dc *dmlCompiler) runDeleteWhere(ctx context.Context, node *QueryNode) erro
 	if err != nil {
 		return err
 	}
-	tag, err := dc.exec(ctx, node, "delete", w, args)
-	if err != nil {
-		return oops.With("sql", w.String()).Wrapf(err, "delete")
-	}
-	if dc.collectStats {
-		dc.stat(node).Deleted += int(tag.RowsAffected())
+	if err := dc.submit(ctx, node, "delete", w, args, func(tag pgconn.CommandTag) {
+		if dc.collectStats {
+			dc.stat(node).Deleted += int(tag.RowsAffected())
+		}
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1259,6 +1345,9 @@ func (dc *dmlCompiler) runDeleteWhere(ctx context.Context, node *QueryNode) erro
 // which is what the read-back scopes by (like any other write).
 func (dc *dmlCompiler) runUpdateWhere(ctx context.Context, node *QueryNode) error {
 	var present map[string]json.RawMessage
+	if err := dc.flush(ctx); err != nil { // the patch row is loaded by a queued statement
+		return err
+	}
 	var raw []byte
 	if err := queryOne(ctx, dc.conn, &raw, `select data from _data where __row_id = $1`, dc.patchRowID); err != nil {
 		return oops.Wrapf(err, "reading the patch row")
@@ -1320,14 +1409,17 @@ func (dc *dmlCompiler) runUpdateWhere(ctx context.Context, node *QueryNode) erro
 	if err != nil {
 		return err
 	}
-	tag, err := dc.exec(ctx, node, "update", w, args)
-	if err != nil {
-		return oops.With("sql", w.String()).Wrapf(err, "update")
-	}
-	if dc.collectStats {
-		dc.stat(node).Updated += int(tag.RowsAffected())
+	if err := dc.submit(ctx, node, "update", w, args, func(tag pgconn.CommandTag) {
+		if dc.collectStats {
+			dc.stat(node).Updated += int(tag.RowsAffected())
+		}
+	}); err != nil {
+		return err
 	}
 	// RowsAffected is zero under EXPLAIN ANALYZE, so ask the table itself.
+	if err := dc.flush(ctx); err != nil {
+		return err
+	}
 	var maxID int
 	if err := queryOne(ctx, dc.conn, &maxID, `select coalesce(max(__row_id), $1) from _data`, dc.nextRowID); err != nil {
 		return oops.Wrapf(err, "advancing __row_id")

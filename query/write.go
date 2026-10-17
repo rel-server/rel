@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/bytedance/sonic"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -285,19 +286,6 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 		return nil, err
 	}
 
-	if len(rows) > 0 {
-		if _, err := conn.CopyFrom(ctx,
-			pgx.Identifier{"_data"},
-			[]string{"__row_id", "__node_id", "__parent_id", "data"},
-			pgx.CopyFromSlice(len(rows), func(i int) ([]any, error) {
-				r := rows[i]
-				return []any{r.RowID, r.NodeID, r.ParentID, r.Data}, nil
-			}),
-		); err != nil {
-			return nil, oops.With("row_count", len(rows)).Wrapf(err, "write: loading _data")
-		}
-	}
-
 	populated := make(map[int]bool, len(ids))
 	submitted := make(map[int]int, len(ids))
 	for _, r := range rows {
@@ -310,6 +298,12 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 		collectStats: opts.Stats, collectSQL: opts.Sql, explainAnalyze: opts.QueryPlan,
 		nextRowID: nextRowID,
 	}
+	if b, ok := conn.(Batcher); ok {
+		dc.batcher = b
+	}
+	if err := dc.loadData(ctx, rows); err != nil {
+		return nil, err
+	}
 	if root.WriteMode == UPDATE && len(rows) > 0 {
 		dc.patchRowID = rows[0].RowID
 	}
@@ -317,6 +311,9 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 		return nil, err
 	}
 	if err := dc.phase2(ctx, root, nil); err != nil {
+		return nil, err
+	}
+	if err := dc.flush(ctx); err != nil {
 		return nil, err
 	}
 
@@ -353,4 +350,31 @@ func executeDeleteWhere(ctx context.Context, conn Querier, root *QueryNode, ids 
 		return nil, err
 	}
 	return &WriteResult{NodeIDs: ids, Stats: dc.finalStats(), Sql: dc.finalSQL(), QueryPlan: dc.finalPlans()}, nil
+}
+
+// loadData puts denormalize's rows into "_data" with one INSERT whose rows come
+// from a single JSON parameter, so it can travel in the same batch as the
+// statements that read them (COPY cannot).
+func (dc *dmlCompiler) loadData(ctx context.Context, rows []dataRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	type jsonRow struct {
+		RowID    int             `json:"__row_id"`
+		NodeID   int             `json:"__node_id"`
+		ParentID *int            `json:"__parent_id"`
+		Data     json.RawMessage `json:"data"`
+	}
+	payload := make([]jsonRow, len(rows))
+	for i, r := range rows {
+		payload[i] = jsonRow{r.RowID, r.NodeID, r.ParentID, r.Data}
+	}
+	encoded, err := sonic.Marshal(payload)
+	if err != nil {
+		return oops.Wrapf(err, "write: encoding _data rows")
+	}
+	const sql = `insert into _data (__row_id, __node_id, __parent_id, data)
+select r.__row_id, r.__node_id, r.__parent_id, r.data
+from jsonb_to_recordset($1::jsonb) as r(__row_id int, __node_id int, __parent_id int, data jsonb)`
+	return dc.enqueue(ctx, nil, "loading _data", sql, []any{string(encoded)})
 }

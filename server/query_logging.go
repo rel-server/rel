@@ -33,3 +33,12 @@ func (q loggingQuerier) CopyFrom(ctx context.Context, tableName pgx.Identifier, 
 	logging.FromContext(ctx).Debug("executing write copy", "table", tableName.Sanitize(), "columns", columnNames)
 	return q.inner.CopyFrom(ctx, tableName, columnNames, rowSrc)
 }
+
+// SendBatch makes loggingQuerier a query.Batcher when the wrapped connection is one ;
+// a write's statements then travel in one round trip, each still logged.
+func (q loggingQuerier) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
+	for _, item := range b.QueuedQueries {
+		logging.FromContext(ctx).Debug("executing write", "sql", item.SQL, "args", item.Arguments)
+	}
+	return q.inner.(query.Batcher).SendBatch(ctx, b)
+}
