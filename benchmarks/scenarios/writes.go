@@ -97,8 +97,8 @@ func gqlID(body []byte, root, obj, key string) (int64, error) {
 }
 
 // gqlNoErrors turns a 200 response carrying GraphQL errors into an error.
-func gqlDo(c *harness.Client, q string) ([]byte, error) {
-	body, err := c.Do(gqlReq(q))
+func gqlDo(c *harness.Client, mutation string, vars ...gvar) ([]byte, error) {
+	body, err := c.Do(gqlOp("mutation", mutation, vars))
 	if err != nil {
 		return body, err
 	}
@@ -131,7 +131,8 @@ func writes() []harness.Scenario {
 	for _, d := range []dialect{{false}, {true}} {
 		d := d
 		insert.Impls[d.server()] = harness.Impl{Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-			return gqlDo(c, fmt.Sprintf(`mutation { createGuest(input: {guest: {email: "bench-ins-%d@example.com", firstName: "Ada", lastName: "Bench"}}) { guest { %s email firstName lastName } } }`, n, d.pk()))
+			return gqlDo(c, fmt.Sprintf(`{ createGuest(input: {guest: {email: $email, firstName: "Ada", lastName: "Bench"}}) { guest { %s email firstName lastName } } }`, d.pk()),
+				gvar{"email", "String!", fmt.Sprintf("bench-ins-%d@example.com", n)})
 		}}
 	}
 
@@ -158,7 +159,8 @@ func writes() []harness.Scenario {
 	for _, d := range []dialect{{false}, {true}} {
 		d := d
 		update.Impls[d.server()] = harness.Impl{Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-			return gqlDo(c, fmt.Sprintf(`mutation { updateGuest(input: {%s: "%d", patch: {phone: "bench-upd-%d"}}) { guest { %s phone } } }`, d.pk(), pick(e.GuestIDs, n), n, d.pk()))
+			return gqlDo(c, fmt.Sprintf(`{ updateGuest(input: {%s: $id, patch: {phone: $phone}}) { guest { %s phone } } }`, d.pk(), d.pk()),
+				gvar{"id", "BigInt!", fmt.Sprint(pick(e.GuestIDs, n))}, gvar{"phone", "String", fmt.Sprintf("bench-upd-%d", n)})
 		}}
 	}
 
@@ -185,7 +187,8 @@ func writes() []harness.Scenario {
 	for _, d := range []dialect{{false}, {true}} {
 		d := d
 		del.Impls[d.server()] = harness.Impl{Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-			return gqlDo(c, fmt.Sprintf(`mutation { deleteAmenity(input: {%s: "%d"}) { amenity { %s } } }`, d.pk(), pick(e.ScratchIDs, n), d.pk()))
+			return gqlDo(c, fmt.Sprintf(`{ deleteAmenity(input: {%s: $id}) { amenity { %s } } }`, d.pk(), d.pk()),
+				gvar{"id", "BigInt!", fmt.Sprint(pick(e.ScratchIDs, n))})
 		}}
 	}
 
@@ -207,12 +210,14 @@ func writes() []harness.Scenario {
 		d := d
 		bulk.Impls[d.server()] = harness.Impl{Support: harness.Emulated, Note: "1 request, 100 mutations", Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
 			var b strings.Builder
-			b.WriteString("mutation {")
+			vars := make([]gvar, bulkRows)
+			b.WriteString("{")
 			for i := range bulkRows {
-				fmt.Fprintf(&b, ` m%d: createAmenity(input: {amenity: {name: "bench-bulk-%d-%d"}}) { amenity { %s name } }`, i, n, i, d.pk())
+				fmt.Fprintf(&b, ` m%d: createAmenity(input: {amenity: {name: $n%d}}) { amenity { %s name } }`, i, i, d.pk())
+				vars[i] = gvar{fmt.Sprintf("n%d", i), "String!", fmt.Sprintf("bench-bulk-%d-%d", n, i)}
 			}
 			b.WriteString(" }")
-			return gqlDo(c, b.String())
+			return gqlDo(c, b.String(), vars...)
 		}}
 	}
 
@@ -233,11 +238,13 @@ func writes() []harness.Scenario {
 		},
 	}
 	nested.Impls[harness.PostGraphile4] = harness.Impl{Support: harness.Native, Note: "nested-mutations plugin", Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-		return gqlDo(c, fmt.Sprintf(`mutation { createChain(input: {chain: {name: "bench-nest-%[1]d", propertiesUsingId: {create: [{name: "bench-nest-%[1]d", starRating: 4, roomTypesUsingId: {create: [
-			{name: "Standard", basePrice: "129.00", capacity: 2}, {name: "Suite", basePrice: "249.00", capacity: 4}]}}]}}}) { chain { id } } }`, n))
+		return gqlDo(c, `{ createChain(input: {chain: {name: $name, propertiesUsingId: {create: [{name: $name, starRating: 4, roomTypesUsingId: {create: [
+			{name: "Standard", basePrice: "129.00", capacity: 2}, {name: "Suite", basePrice: "249.00", capacity: 4}]}}]}}}) { chain { id } } }`,
+			gvar{"name", "String!", fmt.Sprintf("bench-nest-%d", n)})
 	}}
 	nested.Impls[harness.PostGraphile5] = harness.Impl{Support: harness.Emulated, Note: "3 round trips", Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-		body, err := gqlDo(c, fmt.Sprintf(`mutation { createChain(input: {chain: {name: "bench-nest-%d"}}) { chain { rowId } } }`, n))
+		body, err := gqlDo(c, `{ createChain(input: {chain: {name: $name}}) { chain { rowId } } }`,
+			gvar{"name", "String!", fmt.Sprintf("bench-nest-%d", n)})
 		if err != nil {
 			return nil, err
 		}
@@ -245,7 +252,8 @@ func writes() []harness.Scenario {
 		if err != nil {
 			return nil, err
 		}
-		body, err = gqlDo(c, fmt.Sprintf(`mutation { createProperty(input: {property: {chainId: "%d", name: "bench-nest-%d", starRating: 4}}) { property { rowId } } }`, chain, n))
+		body, err = gqlDo(c, `{ createProperty(input: {property: {chainId: $chain, name: $name, starRating: 4}}) { property { rowId } } }`,
+			gvar{"chain", "BigInt!", fmt.Sprint(chain)}, gvar{"name", "String!", fmt.Sprintf("bench-nest-%d", n)})
 		if err != nil {
 			return nil, err
 		}
@@ -253,9 +261,10 @@ func writes() []harness.Scenario {
 		if err != nil {
 			return nil, err
 		}
-		return gqlDo(c, fmt.Sprintf(`mutation {
-			a: createRoomType(input: {roomType: {propertyId: "%[1]d", name: "Standard", basePrice: "129.00", capacity: 2}}) { roomType { rowId } }
-			b: createRoomType(input: {roomType: {propertyId: "%[1]d", name: "Suite", basePrice: "249.00", capacity: 4}}) { roomType { rowId } } }`, prop))
+		return gqlDo(c, `{
+			a: createRoomType(input: {roomType: {propertyId: $prop, name: "Standard", basePrice: "129.00", capacity: 2}}) { roomType { rowId } }
+			b: createRoomType(input: {roomType: {propertyId: $prop, name: "Suite", basePrice: "249.00", capacity: 4}}) { roomType { rowId } } }`,
+			gvar{"prop", "BigInt!", fmt.Sprint(prop)})
 	}}
 
 	upsert := harness.Scenario{

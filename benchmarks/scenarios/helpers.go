@@ -42,8 +42,37 @@ func relReq(body map[string]any) req {
 
 func restGet(path string) req { return req{Method: "GET", Path: path} }
 
-func gqlReq(query string) req {
-	b, err := sonic.Marshal(map[string]any{"query": query})
+// gvar is one GraphQL variable : its declared type and the value for this request. Every
+// value that changes from one request to the next travels as a variable, so a scenario
+// always sends the same document text, as a real client does ; inlining values would make
+// each request a new document for the server to parse, validate and plan.
+type gvar struct {
+	Name, Type string
+	Value      any
+}
+
+// gqlOp assembles a GraphQL request : kind is "query" or "mutation", body the selection
+// set (with its braces), referring to the variables by name.
+func gqlOp(kind, body string, vars []gvar) req {
+	var decl strings.Builder
+	values := map[string]any{}
+	for i, v := range vars {
+		if i == 0 {
+			decl.WriteString("(")
+		} else {
+			decl.WriteString(", ")
+		}
+		fmt.Fprintf(&decl, "$%s: %s", v.Name, v.Type)
+		values[v.Name] = v.Value
+	}
+	if len(vars) > 0 {
+		decl.WriteString(")")
+	}
+	payload := map[string]any{"query": kind + decl.String() + " " + body}
+	if len(values) > 0 {
+		payload["variables"] = values
+	}
+	b, err := sonic.Marshal(payload)
 	if err != nil {
 		panic(err)
 	}
@@ -82,14 +111,14 @@ func restQuery(table string, fields []Field, query string) req {
 }
 
 // gqlQuery assembles a GraphQL read. args is the argument list without parentheses.
-func gqlQuery(root string, fields []Field, args string, single bool, d dialect) req {
+func gqlQuery(root string, fields []Field, args string, single bool, d dialect, vars ...gvar) req {
 	if args != "" {
 		root += "(" + args + ")"
 	}
 	if single {
-		return gqlReq(fmt.Sprintf("{ %s { %s } }", root, gqlSelect(fields, d)))
+		return gqlOp("query", fmt.Sprintf("{ %s { %s } }", root, gqlSelect(fields, d)), vars)
 	}
-	return gqlReq(fmt.Sprintf("{ %s { nodes { %s } } }", root, gqlSelect(fields, d)))
+	return gqlOp("query", fmt.Sprintf("{ %s { nodes { %s } } }", root, gqlSelect(fields, d)), vars)
 }
 
 // idEnum is how each PostGraphile spells the order-by enum of the id column.

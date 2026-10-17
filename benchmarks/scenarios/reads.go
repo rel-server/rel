@@ -43,7 +43,7 @@ func reads() []harness.Scenario {
 				return restQuery("bookings", bookingFields, "id=eq."+pick(e.BookingIDs, n))
 			},
 			gql: func(n uint64, e *env, d dialect) req {
-				return gqlQuery("booking", bookingFields, fmt.Sprintf("%s: %q", d.pk(), pick(e.BookingIDs, n)), true, d)
+				return gqlQuery("booking", bookingFields, d.pk()+": $id", true, d, gvar{"id", "UUID!", pick(e.BookingIDs, n)})
 			},
 		},
 		{
@@ -55,7 +55,7 @@ func reads() []harness.Scenario {
 				return restQuery("guests", guestFields, fmt.Sprintf("loyalty_tier_id=eq.2&order=last_name,id&limit=20&offset=%d", page(n, pageOf(e, 60), 20)))
 			},
 			gql: func(n uint64, e *env, d dialect) req {
-				return gqlQuery("guests", guestFields, fmt.Sprintf("filter: {loyaltyTierId: {equalTo: \"2\"}}, orderBy: [LAST_NAME_ASC, %s_ASC], first: 20, offset: %d", d.idEnum(), page(n, pageOf(e, 60), 20)), false, d)
+				return gqlQuery("guests", guestFields, fmt.Sprintf("filter: {loyaltyTierId: {equalTo: \"2\"}}, orderBy: [LAST_NAME_ASC, %s_ASC], first: 20, offset: $offset", d.idEnum()), false, d, gvar{"offset", "Int", page(n, pageOf(e, 60), 20)})
 			},
 		},
 		{
@@ -69,7 +69,7 @@ func reads() []harness.Scenario {
 				return restQuery("guests", guestFields, fmt.Sprintf("last_name=like.S*&loyalty_tier_id=in.(1,2)&order=id&limit=50&offset=%d", page(n, 2, 50)))
 			},
 			gql: func(n uint64, e *env, d dialect) req {
-				return gqlQuery("guests", guestFields, fmt.Sprintf(`filter: {lastName: {startsWith: "S"}, loyaltyTierId: {in: ["1", "2"]}}, orderBy: %s_ASC, first: 50, offset: %d`, d.idEnum(), page(n, 2, 50)), false, d)
+				return gqlQuery("guests", guestFields, fmt.Sprintf(`filter: {lastName: {startsWith: "S"}, loyaltyTierId: {in: ["1", "2"]}}, orderBy: %s_ASC, first: 50, offset: $offset`, d.idEnum()), false, d, gvar{"offset", "Int", page(n, 2, 50)})
 			},
 		},
 		embedBookings(),
@@ -82,7 +82,7 @@ func reads() []harness.Scenario {
 				return restQuery("properties", propertyRoomTypes, fmt.Sprintf("order=id&limit=10&offset=%d", page(n, max(1, int(e.Properties)/10), 10)))
 			},
 			gql: func(n uint64, e *env, d dialect) req {
-				return gqlQuery("properties", propertyRoomTypes, fmt.Sprintf("orderBy: %s_ASC, first: 10, offset: %d", d.idEnum(), page(n, max(1, int(e.Properties)/10), 10)), false, d)
+				return gqlQuery("properties", propertyRoomTypes, fmt.Sprintf("orderBy: %s_ASC, first: 10, offset: $offset", d.idEnum()), false, d, gvar{"offset", "Int", page(n, max(1, int(e.Properties)/10), 10)})
 			},
 		},
 		{
@@ -94,7 +94,7 @@ func reads() []harness.Scenario {
 				return restQuery("properties", propertyDeep, fmt.Sprintf("order=id&limit=5&offset=%d", page(n, max(1, int(e.Properties)/5), 5)))
 			},
 			gql: func(n uint64, e *env, d dialect) req {
-				return gqlQuery("properties", propertyDeep, fmt.Sprintf("orderBy: %s_ASC, first: 5, offset: %d", d.idEnum(), page(n, max(1, int(e.Properties)/5), 5)), false, d)
+				return gqlQuery("properties", propertyDeep, fmt.Sprintf("orderBy: %s_ASC, first: 5, offset: $offset", d.idEnum()), false, d, gvar{"offset", "Int", page(n, max(1, int(e.Properties)/5), 5)})
 			},
 		},
 		{
@@ -106,7 +106,7 @@ func reads() []harness.Scenario {
 				return restQuery("properties", propertyCounts, fmt.Sprintf("order=id&limit=10&offset=%d", page(n, max(1, int(e.Properties)/10), 10)))
 			},
 			gql: func(n uint64, e *env, d dialect) req {
-				return gqlQuery("properties", propertyCounts, fmt.Sprintf("orderBy: %s_ASC, first: 10, offset: %d", d.idEnum(), page(n, max(1, int(e.Properties)/10), 10)), false, d)
+				return gqlQuery("properties", propertyCounts, fmt.Sprintf("orderBy: %s_ASC, first: 10, offset: $offset", d.idEnum()), false, d, gvar{"offset", "Int", page(n, max(1, int(e.Properties)/10), 10)})
 			},
 		},
 		{
@@ -131,7 +131,7 @@ func reads() []harness.Scenario {
 				return restQuery("rooms", roomFields, fmt.Sprintf(`features=cs.%s&order=id&limit=20&offset=%d`, url.QueryEscape(`{"Sea View"}`), page(n, 5, 20)))
 			},
 			gql: func(n uint64, e *env, d dialect) req {
-				return gqlQuery("rooms", roomFields, fmt.Sprintf(`filter: {features: {contains: ["Sea View"]}}, orderBy: %s_ASC, first: 20, offset: %d`, d.idEnum(), page(n, 5, 20)), false, d)
+				return gqlQuery("rooms", roomFields, fmt.Sprintf(`filter: {features: {contains: ["Sea View"]}}, orderBy: %s_ASC, first: 20, offset: $offset`, d.idEnum()), false, d, gvar{"offset", "Int", page(n, 5, 20)})
 			},
 		},
 		{
@@ -143,7 +143,7 @@ func reads() []harness.Scenario {
 				return restQuery("guests", guestCity, fmt.Sprintf("order=id&limit=50&offset=%d", page(n, pageOf(e, 50), 50)))
 			},
 			gql: func(n uint64, e *env, d dialect) req {
-				return gqlQuery("guests", guestCity, fmt.Sprintf("orderBy: %s_ASC, first: 50, offset: %d", d.idEnum(), page(n, pageOf(e, 50), 50)), false, d)
+				return gqlQuery("guests", guestCity, fmt.Sprintf("orderBy: %s_ASC, first: 50, offset: $offset", d.idEnum()), false, d, gvar{"offset", "Int", page(n, pageOf(e, 50), 50)})
 			},
 		},
 		{
@@ -215,7 +215,7 @@ func embedBookings() read {
 			return restQuery("bookings", fields, fmt.Sprintf("status=eq.confirmed&order=id&limit=20&offset=%d", pg(n)))
 		},
 		gql: func(n uint64, e *env, d dialect) req {
-			return gqlQuery("bookings", fields, fmt.Sprintf("condition: {status: %s}, orderBy: %s_ASC, first: 20, offset: %d", d.enum("confirmed"), d.idEnum(), pg(n)), false, d)
+			return gqlQuery("bookings", fields, fmt.Sprintf("condition: {status: %s}, orderBy: %s_ASC, first: 20, offset: $offset", d.enum("confirmed"), d.idEnum()), false, d, gvar{"offset", "Int", pg(n)})
 		},
 	}
 }
