@@ -1887,6 +1887,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#where-driven-writes-update-and-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Where-driven writes: <code>update</code> and <code>delete</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#write-order" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2675,6 +2686,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#where-driven-writes-update-and-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Where-driven writes: <code>update</code> and <code>delete</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#write-order" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2859,8 +2881,18 @@ a plain read too (just omit <code>data</code>). See <a href="../complex-query/">
 <td>—</td>
 </tr>
 <tr>
+<td><code>update-existing</code></td>
+<td>update the rows whose identity is in the payload, ignore new ones, never delete</td>
+<td>—</td>
+</tr>
+<tr>
 <td><code>update</code></td>
-<td>update matching rows only, never insert or delete</td>
+<td>apply one patch object to every row the root's <code>where</code> selects</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>delete</code></td>
+<td>delete every row the root's <code>where</code> selects</td>
 <td>—</td>
 </tr>
 <tr>
@@ -2875,7 +2907,8 @@ a plain read too (just omit <code>data</code>). See <a href="../complex-query/">
 </tr>
 </tbody>
 </table>
-<p><code>merge</code>/<code>merge-new</code>/<code>merge-update</code>/<code>deleteonly</code> all delete rows the payload didn't mention, so
+<p><code>update</code> and <code>delete</code> are the two <a href="#where-driven-writes-update-and-delete">where-driven modes</a>.
+<code>merge</code>/<code>merge-new</code>/<code>merge-update</code>/<code>deleteonly</code> all delete rows the payload didn't mention, so
 they're only legal on an incoming relation (see <a href="../joining/">Joining and embedding
 relations</a>) — there's no coherent "rows missing from the payload" for an outgoing
 one, since the referenced row isn't exclusively owned by the one pointing at it. <code>insert</code> is the
@@ -2885,6 +2918,41 @@ names the constraint (by name, or by its column list) used to detect an existing
 insert/upsert/merge; it defaults to the relation's primary key. <code>insert_columns</code>/
 <code>update_columns</code> narrow which columns a write actually touches, beyond whatever <code>select</code>
 already made writable.</p>
+<h2 id="where-driven-writes-update-and-delete">Where-driven writes: <code>update</code> and <code>delete</code><a class="headerlink" href="#where-driven-writes-update-and-delete" title="Permanent link">&para;</a></h2>
+<p>Every other mode finds the rows to touch from the payload. <code>update</code> and <code>delete</code> find them with
+the root's <code>where</code>, the way SQL's <code>UPDATE ... WHERE</code> and <code>DELETE ... WHERE</code> do:</p>
+<ul>
+<li>They are valid on the <strong>root relation only</strong>, and <code>where</code> is <strong>required</strong> — a request without one
+  is rejected rather than touching the whole table.</li>
+<li><code>update</code> takes <code>data</code> as <strong>one patch object</strong> (not an array), and sets only the columns it
+  names, on every row the <code>where</code> selects. A column must be writable through <code>select</code> to be
+  patched, but the identity columns don't have to be selected. A patch can change a primary key
+  unless it is <code>GENERATED ALWAYS</code>, which Postgres refuses.</li>
+<li><code>delete</code> takes <strong>no <code>data</code></strong> and <strong>no join</strong>, and returns an empty selection (<code>[]</code>). Ask for
+  <a href="../complex-query/#stats"><code>stats</code></a> to learn how many rows it removed.</li>
+<li>Joins under an <code>update</code> root can only be <code>readonly</code>: they shape the response and are never
+  written (they default to <code>readonly</code>). Use <code>update-existing</code> or <code>merge</code> on a normal root to write
+  children.</li>
+<li><code>update</code>'s response is the usual read-back, which evaluates the <code>where</code> again <strong>after</strong> the
+  write. A patch that makes a row stop matching its own <code>where</code> therefore writes the row but
+  doesn't return it.</li>
+</ul>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">"query"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">"relation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="nt">"schema"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hotel"</span><span class="p">,</span><span class="w"> </span><span class="nt">"write_mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"update"</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">"where"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"property_id"</span><span class="p">],</span><span class="w"> </span><span class="mi">1</span><span class="p">],</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">"select"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nt">"base_price"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"base_price"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"base_price"</span><span class="p">:</span><span class="w"> </span><span class="s2">"99.00"</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"query"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">"relation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="nt">"schema"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hotel"</span><span class="p">,</span><span class="w"> </span><span class="nt">"write_mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"delete"</span><span class="p">,</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">"where"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="mi">42</span><span class="p">]</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">}</span>
+</span></code></pre></div>
 <h2 id="write-order">Write order<a class="headerlink" href="#write-order" title="Permanent link">&para;</a></h2>
 <p>A request isn't one big statement — it's every relation's own insert/update/upsert/delete, run
 in a specific order, all inside one transaction. Knowing that order explains things that would
@@ -2937,6 +3005,9 @@ silent data loss.</p>
 <li>A <strong>relation</strong> is writable only if its identity columns (the primary key, or whatever
   <code>on_conflict</code> names) are present and writable, by the rule above, exactly once in its own
   <code>select</code>.</li>
+<li>A joined relation's <strong>own foreign-key column</strong> to its parent (the <code>on</code> column, e.g.
+  <code>room_types.property_id</code>) is written from the join with the parent's key, whether or not <code>select</code>
+  lists it ; a payload value for it is ignored.</li>
 <li>A <strong>query</strong> is writable only if every relation in it is writable — root and every joined
   relation, at every depth. One unwritable relation anywhere in the tree makes the <em>whole</em>
   write request fail, not just that relation's own piece of it - unless it is explicitely
@@ -2945,35 +3016,35 @@ silent data loss.</p>
 <p>That last rule is the one worth pausing on, because it's easy to write a query that reads back
 fine and then silently isn't writable the way you'd expect. Take this nested write — the intent
 is to rename a property and reprice one of its room types:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">"query"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">"relation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"properties"</span><span class="p">,</span><span class="w"> </span><span class="nt">"schema"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hotel"</span><span class="p">,</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">"join"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">      </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">        </span><span class="nt">"relation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="nt">"schema"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hotel"</span><span class="p">,</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">        </span><span class="nt">"on"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"property_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"id"</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">        </span><span class="nt">"select"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span><span class="w"> </span><span class="nt">"base_price"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"base_price"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">      </span><span class="p">}</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="p">},</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">"select"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span><span class="w"> </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nt">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Deluxe"</span><span class="p">,</span><span class="w"> </span><span class="nt">"base_price"</span><span class="p">:</span><span class="w"> </span><span class="s2">"219.00"</span><span class="w"> </span><span class="p">}]</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="p">}]</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">"query"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">"relation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"properties"</span><span class="p">,</span><span class="w"> </span><span class="nt">"schema"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hotel"</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">"join"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">      </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">        </span><span class="nt">"relation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="nt">"schema"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hotel"</span><span class="p">,</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">        </span><span class="nt">"on"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"property_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"id"</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">        </span><span class="nt">"select"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span><span class="w"> </span><span class="nt">"base_price"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"base_price"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">      </span><span class="p">}</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nt">"select"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span><span class="w"> </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="nt">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nt">"room_types"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Deluxe"</span><span class="p">,</span><span class="w"> </span><span class="nt">"base_price"</span><span class="p">:</span><span class="w"> </span><span class="s2">"219.00"</span><span class="w"> </span><span class="p">}]</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">  </span><span class="p">}]</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="p">}</span>
 </span></code></pre></div>
 <p><code>room_types.select</code> never includes <code>id</code> — its identity column — so <code>room_types</code> isn't writable
 under the rule above, even though <code>properties</code> itself is and <code>base_price</code> is an ordinary,
 otherwise-writable column. Because <code>room_types</code> is joined (not marked <code>readonly</code>), that
 unwritability propagates up: the whole request is rejected before anything is written,
 <code>properties.name</code> included, with a <code>400</code> naming the actual offending relation:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"error"</span><span class="p">,</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"WRITE_FORBIDDEN"</span><span class="p">,</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="s2">"write: relation \"room_types\" is not writable — its identity columns must appear exactly once in the select output, untransformed and writable"</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"error"</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"WRITE_FORBIDDEN"</span><span class="p">,</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="s2">"write: relation \"room_types\" is not writable — its identity columns must appear exactly once in the select output, untransformed and writable"</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>The alternative — writing <code>properties</code> while silently skipping <code>room_types</code> because it
 "couldn't" — is exactly what this rule avoids: a request that reads back like it worked, having

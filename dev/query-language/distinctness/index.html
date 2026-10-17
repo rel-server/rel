@@ -2825,8 +2825,8 @@ field. If both <code>distinct</code> and <code>distinct_on</code> are given on t
 <code>distinct_on</code> is silently ignored.</p>
 <h2 id="distinct_on"><code>distinct_on</code><a class="headerlink" href="#distinct_on" title="Permanent link">&para;</a></h2>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"distinct_on"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"chain_id"</span><span class="p">],</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"order_by"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"chain_id"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"desc"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">]]</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"distinct_on"</span><span class="p">:</span><span class="w"> </span><span class="p">[[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"chain_id"</span><span class="p">]],</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"order_by"</span><span class="p">:</span><span class="w"> </span><span class="p">[[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"chain_id"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"desc"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">]]]</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>A list of expressions. Keeps one row per distinct combination of those expressions — which
@@ -2841,7 +2841,7 @@ usually whichever one it happens to read first, not a meaningful "top" row. Alwa
 <code>distinct_on</code> with an <code>order_by</code> that starts with the same expressions, plus at least one more
 term to break ties within a group.</p>
 <p>Inside a joined subquery, <code>distinct</code>/<code>distinct_on</code> apply <strong>per parent row</strong>, the same as
-<a href="../ordering-pagination/"><code>limit</code>/<code>offset</code>/<code>order_by</code></a> — <code>distinct_on: ["room_id"]</code> on a
+<a href="../ordering-pagination/"><code>limit</code>/<code>offset</code>/<code>order_by</code></a> — <code>distinct_on: [["col", "room_id"]]</code> on a
 <code>bookings</code> join (rooted at <code>guests</code>) keeps one booking per room <em>within each guest's own
 bookings</em>, not one per room across every guest.</p>
 
