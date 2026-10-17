@@ -25,6 +25,7 @@ import type {
   RootShapeFromFunctionMember,
   ShapeFromQuery,
   WithProto,
+  WriteDataFromQuery,
   WriteShapeFromQuery,
   DraftShapeFromQuery,
   WriteRowOf,
@@ -247,7 +248,7 @@ type IdentifiedQuery<Q, R extends string> = R extends `${infer Sc}.${infer Rel}`
 // parameters, below).
 type RelationQuerier<R extends RelationName, Q> = Querier<
   ShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[],
-  WriteShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[],
+  WriteDataFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>,
   Params<Q>,
   IdentifiedQuery<Q, R>,
   DraftShapeFromQuery<IdentifiedQuery<Q, R>, ResolveRelationModel<R>>[]

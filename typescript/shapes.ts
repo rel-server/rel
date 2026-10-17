@@ -1123,6 +1123,22 @@ export type WriteShapeFromQuery<
 > = WriteShapeFromRelationQuery<Q, Rel, 12, ReqCol>
 
 /**
+ What `write()` takes on a relation root, which depends on the query's `write_mode` : `delete` takes no data at all
+ (`void`, not `undefined`, so `.write()` can be called with no argument) ; `update` takes ONE patch object holding
+ just the columns to change ; every other mode takes an array of rows, writing.md's "an array of rows at the root".
+ */
+export type WriteDataFromQuery<
+  Q,
+  Rel extends object = { [name: string]: unknown },
+  ReqCol extends string = RequiredKeysOf<ResolveKey<Q>>,
+> = Q extends { write_mode: "delete" }
+  ? // biome-ignore lint/suspicious/noConfusingVoidType: only void lets a parameter be omitted
+    void
+  : Q extends { write_mode: "update" }
+    ? Partial<WriteShapeFromQuery<Q, Rel, ReqCol>>
+    : WriteShapeFromQuery<Q, Rel, ReqCol>[]
+
+/**
  The row `draft()` (querier.ts) returns : WriteShapeFromQuery plus every `proto` member — the node's own, and each
  join's, recursively — since draft() is what attaches the prototype. A `proto` member is NEVER part of
  WriteShapeFromQuery itself : it isn't a column, an accessor's setter only runs on assignment (a key in an object

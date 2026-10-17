@@ -363,3 +363,47 @@ describe("draftNested()", () => {
     )
   })
 })
+
+// ---- where-driven writes : update and delete ----
+
+describe("write_mode update and delete", () => {
+  test("update applies one patch object to every row the where selects", async () => {
+    const name = uniqueName("Patch me")
+    await writableProperties.write([writableProperties.draft({ name, star_rating: 1 })])
+    await writableProperties.write([writableProperties.draft({ name, star_rating: 1 })])
+
+    const patchRating = relation("hotel.properties", {
+      write_mode: "update",
+      where: ["=", ["col", "name"], name],
+      select: ["*~"],
+    })
+    // data is a patch : one object, any subset of the columns
+    const patched = await patchRating.write({ star_rating: 5 })
+    expect(patched.map((r) => r.star_rating)).toEqual([5, 5])
+    // @ts-expect-error a patch is one object, not an array of rows
+    void (() => patchRating.write([{ star_rating: 5 }]))
+  })
+
+  test("delete removes the rows the where selects and returns nothing", async () => {
+    const name = uniqueName("Delete me")
+    await writableProperties.write([writableProperties.draft({ name })])
+    const byName = relation("hotel.properties", { where: ["=", ["col", "name"], name] })
+    expect(await byName.get()).toHaveLength(1)
+
+    const remove = relation("hotel.properties", {
+      write_mode: "delete",
+      where: ["=", ["col", "name"], name],
+    })
+    // no data to send : write() takes no argument
+    expect(await remove.write()).toEqual([])
+    expect(await byName.get()).toHaveLength(0)
+  })
+
+  test("a delete without a where is rejected", async () => {
+    const remove = relation("hotel.properties", { write_mode: "delete" })
+    const error = await remove.write().catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(RelRequestError)
+    expect((error as RelRequestError).status).toBe(400)
+    expect(await relation("hotel.properties").get()).not.toHaveLength(0)
+  })
+})

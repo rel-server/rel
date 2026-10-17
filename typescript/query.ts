@@ -148,8 +148,11 @@ export interface RelationQuery<
     How this relation's data is handled when POSTing.
 
     Delete-bearing modes (`merge`, `merge-new`, `merge-update`, `deleteonly`) are only valid on an incoming
-    relation (rows exclusively owned by the parent through the join) — using one on an outgoing relation is a
-    validation error at prepare time ; see `query-engine.md` `### Definitions` / `### Join eligibility`.
+    relation (rows exclusively owned by the parent through the join) — using one on an outgoing relation, or at
+    the root, is a validation error at prepare time ; see `query-engine.md` `### Definitions` / `### Join eligibility`.
+
+    `update` and `delete` are the two where-driven modes : root only, `where` required, rows chosen by the `where`
+    rather than by the payload. Joins under them can only be `readonly`, and `delete` takes no join at all.
 
     Defaults : `insert` for the root relation, `merge` for an incoming subquery, `upsert` for an outgoing one.
   */
@@ -168,8 +171,12 @@ export interface RelationQuery<
     | "merge-new"
     /** Delete and update, but do not insert rows of the payload with no equivalent on the unique conditions. Not valid on an outgoing relation (see above). */
     | "merge-update"
-    /** Only update existing rows but ignore new ones and don't delete non-matching rows. */
+    /** Only update the rows whose identity is in the payload ; ignore new ones and don't delete non-matching rows. */
+    | "update-existing"
+    /** Apply `data`, a single patch object, to every row the root's `where` selects. Root only ; `where` is required. */
     | "update"
+    /** Delete every row the root's `where` selects ; takes no `data`, no join, and returns an empty selection. Root only ; `where` is required. */
+    | "delete"
     /** Delete only rows matching the where condition and not in data. Not valid on an outgoing relation (see above). */
     | "deleteonly"
 
