@@ -28,6 +28,11 @@ const (
 	// GENERATED ALWAYS column (428C9) : the client's own request triggered
 	// this, so Detail is always safe to send.
 	TierConstraintViolation
+	// TierRequestInvalid is a request Postgres could not make sense of (an
+	// overload it cannot pick, a parameter it cannot type) : the client's own
+	// doing like a constraint violation, so Detail is always safe to send, and its
+	// message names the signature and suggests casts, which makes it the headline.
+	TierRequestInvalid
 	// TierPermissionDenied is insufficient_privilege : the object name
 	// Postgres embeds is a fingerprinting risk, generic unless dev mode is on.
 	TierPermissionDenied
@@ -66,6 +71,12 @@ var pgClassTable = map[string]classified{
 	"23514": {400, "PG_CHECK_VIOLATION", TierConstraintViolation},
 	"22P02": {400, "PG_INVALID_TEXT_REPRESENTATION", TierConstraintViolation},
 	"428C9": {400, "PG_GENERATED_ALWAYS_VIOLATION", TierConstraintViolation},
+	// Postgres could not pick a function or operator overload for the argument
+	// types the request produced, or could not type a parameter : the request's own doing.
+	"42883": {400, "PG_UNDEFINED_FUNCTION", TierRequestInvalid},
+	"42725": {400, "PG_AMBIGUOUS_FUNCTION", TierRequestInvalid},
+	"42P18": {400, "PG_INDETERMINATE_DATATYPE", TierRequestInvalid},
+	"42P10": {400, "PG_INVALID_COLUMN_REFERENCE", TierRequestInvalid},
 	"42501": {403, "PG_PERMISSION_DENIED", TierPermissionDenied},
 }
 
@@ -123,7 +134,7 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 // must never independently drift on which tier allows what.
 func AllowsDetail(tier Tier, dev bool) bool {
 	switch tier {
-	case TierConstraintViolation:
+	case TierConstraintViolation, TierRequestInvalid:
 		return true
 	case TierPermissionDenied:
 		return dev

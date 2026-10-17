@@ -746,3 +746,16 @@ func TestRelHandler_UnknownRole_FailsCleanly(t *testing.T) {
 		t.Fatalf("expected the pool to stay usable, got %d : %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestRelHandler_UnresolvableOverload_Is400 proves Postgres' refusal to pick a function overload for the
+// argument types a request produced (sum of text) is the request's own error : a 400 with its own code.
+func TestRelHandler_UnresolvableOverload_Is400(t *testing.T) {
+	rec := postRel(t, `{"relation": "agg_parent", "schema": "public", "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}},
+		"select": {"v": ["agg", "sum", [["::", [".", "kids", "amount"], "text"]]]}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
+	}
+	if code := errCode(t, rec.Body.Bytes()); code != "PG_UNDEFINED_FUNCTION" {
+		t.Errorf("expected PG_UNDEFINED_FUNCTION, got %s : %s", code, rec.Body.String())
+	}
+}

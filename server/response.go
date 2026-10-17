@@ -142,6 +142,9 @@ func pgResponseText(code errcode.Code, tier pgerr.Tier, detail *pgerr.Detail, de
 		// A short headline ; pgError (the full Detail) carries the specifics.
 		return "a database constraint was violated", detail
 	}
+	if tier == pgerr.TierRequestInvalid {
+		return detail.Message, detail
+	}
 	// TierPermissionDenied/TierUnclassified with AllowsDetail true — only
 	// reachable under dev.
 	return detail.Message, detail

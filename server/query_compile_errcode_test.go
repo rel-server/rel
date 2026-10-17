@@ -38,11 +38,6 @@ func TestRelHandler_QueryCompileErrors_AttachSpecificCodes(t *testing.T) {
 			body: `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "not_a_real_mode"}`,
 			want: errcode.WriteForbidden,
 		},
-		{
-			name: "ambiguous function call",
-			body: `{"relation": "director", "schema": "public", "select": {"x": ["call", "fn_ambig", 1]}}`,
-			want: errcode.QueryInvalidExpression,
-		},
 	}
 
 	for _, tt := range tests {

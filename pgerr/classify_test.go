@@ -48,6 +48,10 @@ func TestClassify_ConstraintViolations(t *testing.T) {
 		{"23514", "PG_CHECK_VIOLATION", TierConstraintViolation},
 		{"22P02", "PG_INVALID_TEXT_REPRESENTATION", TierConstraintViolation},
 		{"428C9", "PG_GENERATED_ALWAYS_VIOLATION", TierConstraintViolation},
+		{"42883", "PG_UNDEFINED_FUNCTION", TierRequestInvalid},
+		{"42725", "PG_AMBIGUOUS_FUNCTION", TierRequestInvalid},
+		{"42P18", "PG_INDETERMINATE_DATATYPE", TierRequestInvalid},
+		{"42P10", "PG_INVALID_COLUMN_REFERENCE", TierRequestInvalid},
 	}
 	for _, tt := range tests {
 		t.Run(tt.sqlstate, func(t *testing.T) {
