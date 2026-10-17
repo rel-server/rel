@@ -3091,12 +3091,12 @@ self-joins</a>.</p>
 </span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="s1">    "select": {</span>
 </span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="s1">      "name": ["col", "name"],</span>
 </span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="s1">      "room_type_count": ["agg", "count", [[".", "room_types", "id"]]],</span>
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="s1">      "budget_type_count": ["agg", "count", [[".", "room_types", "id"]], ["&lt;", [".", "room_types", "base_price"], 150]]</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="s1">      "budget_type_count": ["agg", "count", [[".", "room_types", "id"]], { "filter": ["&lt;", [".", "room_types", "base_price"], 150] }]</span>
 </span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="s1">    }</span>
 </span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <p><code>agg</code> only works over a joined <strong>incoming</strong> relation — <code>room_types.property_id</code> points at
-<code>properties.id</code>, so <code>room_types</code> qualifies. <code>budget_type_count</code>'s fourth argument filters which
+<code>properties.id</code>, so <code>room_types</code> qualifies. <code>budget_type_count</code>'s <code>filter</code> option decides which
 rows get counted, independent of the query's own (absent) <code>where</code>. See
 <a href="../../query-language/aggregates/">Aggregates</a>.</p>
 <h2 id="computed-fields">Computed fields<a class="headerlink" href="#computed-fields" title="Permanent link">&para;</a></h2>

@@ -1752,10 +1752,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#filtering-which-rows-get-aggregated" class="md-nav__link">
+  <a href="#options" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Filtering which rows get aggregated
+        Options
       </span>
     </span>
   </a>
@@ -2675,10 +2675,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#filtering-which-rows-get-aggregated" class="md-nav__link">
+  <a href="#options" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Filtering which rows get aggregated
+        Options
       </span>
     </span>
   </a>
@@ -2834,7 +2834,7 @@ conditions:</p>
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">"room_type_count"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"agg"</span><span class="p">,</span><span class="w"> </span><span class="s2">"count"</span><span class="p">,</span><span class="w"> </span><span class="p">[[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">]]],</span>
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">"budget_type_count"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="s2">"agg"</span><span class="p">,</span><span class="w"> </span><span class="s2">"count"</span><span class="p">,</span><span class="w"> </span><span class="p">[[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">]],</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="p">[</span><span class="s2">"&lt;"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="s2">"base_price"</span><span class="p">],</span><span class="w"> </span><span class="mi">150</span><span class="p">]</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">"filter"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"&lt;"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="s2">"base_price"</span><span class="p">],</span><span class="w"> </span><span class="mi">150</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="p">]</span>
 </span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="p">}</span>
 </span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="p">}</span>
@@ -2845,14 +2845,45 @@ conditions:</p>
 isn't a real column, so <code>col</code> won't reach it), then hopped into by chaining another operand onto
 the same <code>.</code>; there's no bare-string "alias.column" form in the JSON query grammar.</p>
 </blockquote>
-<h2 id="filtering-which-rows-get-aggregated">Filtering which rows get aggregated<a class="headerlink" href="#filtering-which-rows-get-aggregated" title="Permanent link">&para;</a></h2>
-<p>The fourth, optional element of <code>agg</code> filters which rows get aggregated, independent of the
-query's own <code>where</code> — <code>budget_type_count</code> above counts only room types priced under 150, while
-<code>room_type_count</code> still counts every room type, regardless of what the query's own <code>where</code> (if
-any) does at the <code>properties</code> level.</p>
+<h2 id="options">Options<a class="headerlink" href="#options" title="Permanent link">&para;</a></h2>
+<p>The fourth, optional element of <code>agg</code> is an object of options, each optional:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>filter</code></td>
+<td>Only the rows this condition holds for are aggregated, independent of the query's own <code>where</code>. <code>budget_type_count</code> above counts only room types priced under 150, while <code>room_type_count</code> still counts every room type.</td>
+</tr>
+<tr>
+<td><code>distinct</code></td>
+<td><code>true</code> aggregates each distinct combination of the arguments once: <code>count(distinct x)</code>.</td>
+</tr>
+<tr>
+<td><code>order_by</code></td>
+<td>The order the rows are fed to the aggregate, in the same form as a query's <a href="../ordering-pagination/"><code>order_by</code></a>: <code>array_agg(x order by y)</code>. With <code>distinct</code>, every term must also be one of the arguments (Postgres' rule).</td>
+</tr>
+</tbody>
+</table>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">"names"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"agg"</span><span class="p">,</span><span class="w"> </span><span class="s2">"string_agg"</span><span class="p">,</span><span class="w"> </span><span class="p">[[</span><span class="s2">"::"</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span><span class="w"> </span><span class="s2">"text"</span><span class="p">],</span><span class="w"> </span><span class="s2">", "</span><span class="p">],</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">"order_by"</span><span class="p">:</span><span class="w"> </span><span class="p">[[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_types"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">]]</span><span class="w"> </span><span class="p">}]</span>
+</span></code></pre></div>
 <h2 id="the-function-name">The function name<a class="headerlink" href="#the-function-name" title="Permanent link">&para;</a></h2>
 <p>Both <code>call</code> and <code>agg</code> take a function name in the same form: either a bare, unqualified
 string (resolved via the search path) or an explicit <code>{"schema": ..., "name": ...}</code> object.</p>
+<p>Many functions exist in several versions that differ by argument type: <code>sum</code>, <code>avg</code>, <code>min</code>,
+<code>max</code> and <code>abs</code> are all overloaded. rel does not choose between them: it checks that the name
+exists, is an aggregate (for <code>agg</code>) or a plain function (for <code>call</code>), is allowed, and that some
+version takes that many arguments, then Postgres picks the version from the actual argument
+types. A literal has no type of its own, so give it one when the choice would otherwise be open:
+<code>["::", 5, "numeric"]</code>. When Postgres cannot choose, or no version fits, the request fails with
+<code>400</code> and a <code>PG_UNDEFINED_FUNCTION</code>, <code>PG_AMBIGUOUS_FUNCTION</code> or <code>PG_INDETERMINATE_DATATYPE</code> code
+carrying Postgres' own message.</p>
+<p>The result of <code>int8</code> and <code>numeric</code> aggregates (<code>sum</code>, <code>avg</code>, ...) is a JSON number, like <code>count</code>.</p>
 <p>A computed field (see <a href="../computed-fields/">Computed fields</a>) is never a write target — see
 <a href="../writing/">Writing data back</a> for what makes a column writable.</p>
 
