@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,12 +49,24 @@ func main() {
 		dir       = flag.String("dir", "benchmarks", "the benchmarks directory (where compose.yaml is)")
 		noPin     = flag.Bool("no-pin", false, "do not pin the load generator to its CPUs")
 		listScens = flag.Bool("list", false, "list scenarios and exit")
+		clients   = flag.String("clients", "", "comma-separated client counts replacing the profile's (writes use the first one in quick)")
 	)
 	flag.Parse()
 
 	p, ok := harness.Profiles[*profile]
 	if !ok {
 		fatal("unknown profile %q", *profile)
+	}
+	if *clients != "" {
+		var cs []int
+		for _, c := range strings.Split(*clients, ",") {
+			n, err := strconv.Atoi(c)
+			if err != nil || n < 1 {
+				fatal("bad -clients %q", *clients)
+			}
+			cs = append(cs, n)
+		}
+		p.Clients, p.WriteClients = cs, cs
 	}
 	all := scenarios.All()
 	if *listScens {
