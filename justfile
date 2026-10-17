@@ -137,3 +137,10 @@ docs-serve-version VERSION ALIAS="": docs-install
 # Deploy VERSION (aliased ALIAS, e.g. "latest") to the gh-pages branch and push it
 docs-deploy VERSION ALIAS="latest": docs-install
     PATH="{{justfile_directory()}}/{{docs_venv}}/bin:$PATH" {{docs_venv}}/bin/mike deploy -F {{docs_config}} --push --update-aliases {{VERSION}} {{ALIAS}}
+
+# Cross-server benchmark (rel, PostgREST, PostGraphile 4 and 5) : see benchmarks/README.md
+bench-quick:
+    go run ./benchmarks/cmd/bench -profile quick
+
+bench-full:
+    go run ./benchmarks/cmd/bench -profile full
