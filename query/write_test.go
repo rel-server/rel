@@ -1694,3 +1694,43 @@ func TestExecuteWrite_Update_OnlyIdentitySelected(t *testing.T) {
 		})
 	}
 }
+
+// TestExecuteWrite_Update_ChangesPrimaryKeyWhenMatchingOnAnotherKey proves update
+// mode only withholds the columns it matches on : matching on a unique "code"
+// leaves the primary key free to change, unless it is "generated always".
+func TestExecuteWrite_Update_ChangesPrimaryKeyWhenMatchingOnAnotherKey(t *testing.T) {
+	for _, tc := range []struct {
+		table   string
+		wantErr bool
+	}{{"identity_keyed_default", false}, {"identity_keyed_always", true}} {
+		t.Run(tc.table, func(t *testing.T) {
+			conn := acquireWriteConn(t)
+			ctx := context.Background()
+
+			var id int
+			if err := conn.QueryRow(ctx, `insert into `+tc.table+` (code, name) values ('pk-change', 'n') returning id`).Scan(&id); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+			newID := id + 100000
+
+			node := mustResolveQuery(t, `{"relation": "`+tc.table+`", "schema": "public", "select": ["*~"], "write_mode": "update", "on_conflict": ["code"]}`)
+			_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"code": "pk-change", "id": `+itoa(newID)+`, "name": "n2"}]`))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected Postgres to refuse changing a generated-always identity column")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ExecuteWrite: %v", err)
+			}
+			var got int
+			if err := conn.QueryRow(ctx, `select id from `+tc.table+` where code = 'pk-change'`).Scan(&got); err != nil {
+				t.Fatalf("select back: %v", err)
+			}
+			if got != newID {
+				t.Errorf("expected the primary key to change to %d, got %d", newID, got)
+			}
+		})
+	}
+}

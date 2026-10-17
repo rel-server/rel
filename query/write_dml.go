@@ -742,13 +742,10 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	}
 	w.Write(",\ndml as (\n")
 	w.Indent()
-	// Identity and primary-key columns locate the row ; they are never SET
-	// ("generated always" identity rejects even an unchanged value).
-	pk := identCols
-	if node.Relation.PrimaryKey != nil {
-		pk = append(append([]*pg.Column(nil), identCols...), node.Relation.PrimaryKey.Columns...)
-	}
-	setCols := excludeColumnPaths(cols, pk)
+	// The identity columns (on_conflict, else the primary key) locate the row, so
+	// they are never SET : "generated always" identity rejects even an unchanged
+	// value. A primary key that is not the matching key can be changed.
+	setCols := excludeColumnPaths(cols, identCols)
 	writeIdentMatch := func() {
 		for i, col := range identCols {
 			if i > 0 {
