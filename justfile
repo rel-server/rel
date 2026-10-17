@@ -142,5 +142,8 @@ docs-deploy VERSION ALIAS="latest": docs-install
 bench-quick:
     go run ./benchmarks/cmd/bench -profile quick
 
+bench-medium:
+    go run ./benchmarks/cmd/bench -profile medium
+
 bench-full:
     go run ./benchmarks/cmd/bench -profile full
