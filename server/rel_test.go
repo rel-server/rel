@@ -729,3 +729,20 @@ func TestRelHandler_UpdateMode_CanChangeAPrimaryKey(t *testing.T) {
 		})
 	}
 }
+
+// TestRelHandler_UnknownRole_FailsCleanly proves a role the database doesn't know is a server
+// error that leaves the pooled connection usable (the batched begin + SET LOCAL ROLE is rolled back).
+func TestRelHandler_UnknownRole_FailsCleanly(t *testing.T) {
+	cfg := *testCfg
+	cfg.Pg.Query.AnonymousRole = "no_such_role_at_all"
+	broken := NewRelHandler(testDb, &cfg, nil)
+	for range 3 { // more than one request, so a connection left in an aborted transaction would show
+		rec := postRelTo(t, broken, `{"relation": "director", "schema": "public", "limit": 1, "select": ["*~"]}`)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d : %s", rec.Code, rec.Body.String())
+		}
+	}
+	if rec := postRel(t, `{"relation": "director", "schema": "public", "limit": 1, "select": ["*~"]}`); rec.Code != http.StatusOK {
+		t.Fatalf("expected the pool to stay usable, got %d : %s", rec.Code, rec.Body.String())
+	}
+}

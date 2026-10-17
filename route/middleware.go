@@ -205,7 +205,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 			return
 		}
 
-		// No renewal here : /rel's own applyRole renews after this gate
+		// No renewal here : /rel's own resolveClaimsAndRole renews after this gate
 		// passes (a second renewal here would double the Set-Cookie), and
 		// the static fallback never renewed even before middleware existed.
 		ctx := r.Context()

@@ -59,6 +59,42 @@ func SetLocalRole(ctx context.Context, exec Execer, role string) error {
 // leaves unset.
 const ClaimsSettingName = "rel.jwt.claims"
 
+// BatchSender is the connection surface BeginAs needs ; *pgxpool.Conn satisfies it.
+type BatchSender interface {
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+}
+
+// StepError says which of BeginAs's three statements failed.
+type StepError struct {
+	Step string // "begin", "claims" or "role"
+	Err  error
+}
+
+func (e *StepError) Error() string { return e.Step + ": " + e.Err.Error() }
+func (e *StepError) Unwrap() error { return e.Err }
+
+// BeginAs opens a transaction, exposes claims (SetLocalClaims) and switches to
+// role (SetLocalRole), in one round trip instead of three. On error the
+// transaction may be open : the caller rolls back, as it would after a failed step.
+func BeginAs(ctx context.Context, conn BatchSender, claims jwtpkg.Claims, role string) error {
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		return &StepError{Step: "claims", Err: err}
+	}
+	var b pgx.Batch
+	b.Queue("begin")
+	b.Queue("select set_config($1, $2, true)", ClaimsSettingName, string(claimsJSON))
+	b.Queue("SET LOCAL ROLE " + EscapeIdentifier(role))
+	res := conn.SendBatch(ctx, &b)
+	for _, step := range []string{"begin", "claims", "role"} {
+		if _, err := res.Exec(); err != nil {
+			_ = res.Close()
+			return &StepError{Step: step, Err: err}
+		}
+	}
+	return res.Close()
+}
+
 // SetLocalClaims exposes claims under ClaimsSettingName, transaction-
 // scoped exactly like SetLocalRole (set_config's own third argument,
 // is_local=true) — reverted by Postgres at COMMIT/ROLLBACK, before the

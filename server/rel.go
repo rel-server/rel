@@ -3,7 +3,7 @@
 // ParsedQuery.Sequence and a well-known query in either position query.ts's
 // Query union allows (bare read, or wrapped in WriteQuery.query for a
 // write), composable alongside a plain Relation in the same Sequence. See
-// applyRole below, and jwt/middleware.go's own doc comment, for how the
+// the role switch below, and jwt/middleware.go's own doc comment, for how the
 // JWT Lifecycle splits across the two packages.
 package server
 
@@ -80,7 +80,7 @@ func queryTargetIdentifier(root *query.QueryNode) string {
 // db.Pool is acquired from once per request ; wkReg resolves a well-known
 // item by name, rebuilt alongside db/cfg on every SIGUSR1 reload
 // (boot/reload.go). Wrapped in jwt.Middleware (Lifecycle step 2/Verify
-// only) — applyRole (called once handleRel has a connection) does steps
+// only) — resolveClaimsAndRole (called once handleRel has a connection) does steps
 // 3 (Check), 4 (Renew), and 5 (Apply role), reading the claims
 // jwt.FromContext left behind.
 func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
@@ -348,7 +348,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	defer conn.Release()
 
-	// "_data" is per physical connection, and a switched role (applyRole below)
+	// "_data" is per physical connection, and a switched role (the role switch below)
 	// has no default privileges on it : create and grant it once per connection,
 	// not every request (each is a catalog write that waits for a WAL flush). Its
 	// rows disappear at commit or rollback, so nothing ever needs clearing.
@@ -364,17 +364,23 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		dataTables.Store(conn.Conn(), struct{}{})
 	}
 
-	if _, err := conn.Exec(ctx, "begin"); err != nil {
-		writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("begin: %w", err)), cfg.Dev)
+	// Lifecycle steps 3-5 : the role is decided first (no database involved), then
+	// begin, claims and SET LOCAL ROLE go out in one round trip ; both revert at the
+	// single commit/rollback below (## Transactions).
+	claims, role, err := resolveClaimsAndRole(w, r, cfg)
+	if err != nil {
+		writeError(ctx, w, err, cfg.Dev)
 		return
 	}
-
-	// Lifecycle steps 3-5 run here, needing this connection ; SET LOCAL
-	// ROLE reverts at the single commit/rollback below (## Transactions).
-	role, err = applyRole(ctx, w, r, conn, cfg)
-	if err != nil {
+	if err := dbauth.BeginAs(ctx, conn, claims, role); err != nil {
 		_, _ = conn.Exec(ctx, "rollback")
-		writeError(ctx, w, err, cfg.Dev)
+		if step, ok := errors.AsType[*dbauth.StepError](err); ok && step.Step == "begin" {
+			writeError(ctx, w, serverError(errcode.TransactionError, err), cfg.Dev)
+		} else if ok && step.Step == "claims" {
+			writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("setting jwt claims: %w", err)), cfg.Dev)
+		} else {
+			writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("applying role: %w", err)), cfg.Dev)
+		}
 		return
 	}
 
@@ -683,32 +689,22 @@ func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, root *quer
 	return streamRows(w, rows, cleanErrorPossible)
 }
 
-// applyRole runs Lifecycle steps 3-5 (Check/Renew/Apply role) on conn,
-// inside an open transaction — SET LOCAL ROLE/set_config(..., true) both
-// revert at commit/rollback.
-func applyRole(ctx context.Context, w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, cfg *config.Config) (string, error) {
+// resolveClaimsAndRole runs Lifecycle steps 3-4 (Check/Renew) and decides the
+// role of step 5, without touching the database : the caller applies both inside
+// its transaction (dbauth.BeginAs).
+func resolveClaimsAndRole(w http.ResponseWriter, r *http.Request, cfg *config.Config) (jwtpkg.Claims, string, error) {
 	claims, verified := jwtpkg.FromContext(r.Context())
-
-	// Exposed before every item's own function calls, readable via
-	// current_setting('rel.jwt.claims', true). A session check itself is
-	// now middleware (specs/new-routes.md ## Middleware), run ahead of this
-	// by NewRelHandler's own wrapper, in its own transaction.
-	if serr := dbauth.SetLocalClaims(ctx, conn, claims); serr != nil {
-		return "", serverError(errcode.Internal, fmt.Errorf("setting jwt claims: %w", serr))
-	}
-
+	// The claims exposed to SQL are the request's own, as received ; a renewal
+	// only changes the token sent back, and the role resolved from it.
+	received := claims
 	if verified {
 		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
 	}
-
 	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
 	if role == "" {
-		return "", serverError(errcode.NoRoleConfigured, fmt.Errorf("%s", dbauth.NoRoleConfiguredMessage))
+		return received, "", serverError(errcode.NoRoleConfigured, fmt.Errorf("%s", dbauth.NoRoleConfiguredMessage))
 	}
-	if serr := dbauth.SetLocalRole(ctx, conn, role); serr != nil {
-		return "", serverError(errcode.Internal, fmt.Errorf("applying role: %w", serr))
-	}
-	return role, nil
+	return received, role, nil
 }
 
 // codeOrUnclassified reads back the query package's own oc.Code(...) tag
