@@ -312,6 +312,8 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			writeError(ctx, w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
+		// write_mode "delete" carries no data, so the root decides, not "data".
+		isWrite = isWrite || (item.Write != nil && root.WriteMode == query.DELETE)
 		ri := resolvedItem{root: root, isWrite: isWrite, data: data}
 		if item.Write != nil {
 			ri.returns, ri.count, ri.stats, ri.queryPlan, ri.sql, ri.rollback =
@@ -413,6 +415,9 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 		nodeIDs[i] = result.NodeIDs[item.root]
 		writeResults[i] = result
+		if item.root.WriteMode == query.DELETE {
+			bufferedResult[i] = [][]byte{} // the rows are gone : the response is the empty selection
+		}
 		if item.rollback {
 			if item.returns != "none" {
 				rows, berr := bufferReadback(ctx, conn, item.root, nodeIDs[i], item.paramValues)
@@ -446,7 +451,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	for i, item := range resolved {
 		// returns=="none" on a write skips compiling/running the read-back
 		// SELECT entirely (specs/complex-query.md ## Response shape).
-		skipReadback := item.isWrite && item.returns == "none"
+		skipReadback := item.isWrite && (item.returns == "none" || item.root.WriteMode == query.DELETE)
 
 		if !skipReadback {
 			var sw *writer.SQLWriter

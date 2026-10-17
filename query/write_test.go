@@ -244,7 +244,7 @@ func TestExecuteWrite_Update(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update-existing"}`)
 	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "After Update"}]`)
 	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
@@ -270,7 +270,7 @@ func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update-existing"}`)
 	payload := []byte(`[{"name": "Renamed"}]`)
 	if _, err := ExecuteWrite(ctx, conn, node, payload); err == nil {
 		t.Fatalf("expected ExecuteWrite to reject a write whose select omits the identity column")
@@ -470,7 +470,7 @@ func TestExecuteWriteStateParamsStats_Update(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update-existing"}`)
 	// One row matches an existing id (updates), one doesn't (affects 0 rows).
 	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "Stats Update After"}, {"id": 999999999, "name": "No Match"}]`)
 
@@ -554,7 +554,7 @@ func TestExecuteWriteStateParamsStats_Delete(t *testing.T) {
 		"relation": "director", "schema": "public",
 		"select": ["*~"],
 		"where": ["=", ["col", "id"], %d],
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "deleteonly"}}
 	}`, directorID))
 	// Payload carries no movies at all — deleteonly removes every existing one.
@@ -641,7 +641,7 @@ func TestExecuteWrite_MergeDeletesAbsentRows(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
 	}`)
 	payload := fmt.Appendf(nil, `[{"id": %d, "movies": [{"id": %d, "title": "Keep Me Renamed"}, {"title": "New One"}]}]`, directorID, keepID)
@@ -685,7 +685,7 @@ func TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
 	}`)
 	// "movies" key entirely absent — not even "[]".
@@ -783,7 +783,7 @@ func TestExecuteWrite_MergeNewLeavesExistingUntouched(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"], "write_mode": "merge-new"}}
 	}`)
 	movieNode := node.IncomingNodes[0]
@@ -938,7 +938,7 @@ func TestExecuteWrite_CompositeSubFieldUpdate(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "venue", "schema": "public",
 		"select": {"id": ["col", "id"], "city": [".", ["col", "home"], "city"]},
-		"write_mode": "update"
+		"write_mode": "update-existing"
 	}`)
 	payload := []byte(`[{"id": ` + itoa(venueID) + `, "city": "New City"}]`)
 	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
@@ -1055,7 +1055,7 @@ func TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected(t *testing.T) {
 	}
 }
 
-func TestExecuteWrite_DeleteOnlyScopedByWhere(t *testing.T) {
+func TestExecuteWrite_DeleteScopedByWhere(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
@@ -1071,7 +1071,7 @@ func TestExecuteWrite_DeleteOnlyScopedByWhere(t *testing.T) {
 	// compiling node.Where into the delete, an empty _data deletes the whole table instead of just the matched row.
 	node := mustResolveQuery(t, `{
 		"relation": "movie", "schema": "public",
-		"select": ["*~"], "write_mode": "deleteonly",
+		"select": ["*~"], "write_mode": "delete",
 		"where": ["=", ["col", "title"], "Only This"]
 	}`)
 	if _, err := ExecuteWrite(ctx, conn, node, []byte(`[]`)); err != nil {
@@ -1094,9 +1094,9 @@ func TestExecuteWrite_DeleteOnlyScopedByWhere(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_ParamScopesDeleteOnlyWhere pins $param support on the
+// TestExecuteWrite_ParamScopesDeleteWhere pins $param support on the
 // write side (dmlCompiler.paramValues, threaded through ExecuteWriteStateParams).
-func TestExecuteWrite_ParamScopesDeleteOnlyWhere(t *testing.T) {
+func TestExecuteWrite_ParamScopesDeleteWhere(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
 
@@ -1110,7 +1110,7 @@ func TestExecuteWrite_ParamScopesDeleteOnlyWhere(t *testing.T) {
 
 	node := mustResolveQuery(t, `{
 		"relation": "movie", "schema": "public",
-		"select": ["*~"], "write_mode": "deleteonly",
+		"select": ["*~"], "write_mode": "delete",
 		"where": ["=", ["col", "title"], ["$param", "title", "text"]]
 	}`)
 	params := map[string]any{"title": "Only This"}
@@ -1180,19 +1180,24 @@ func TestExecuteWrite_MergeNewNonPKOnConflictRecoversRealKey(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
+	// merge-new is an incoming-join mode, so profile is written as the child of a group.
 	node := mustResolveQuery(t, `{
-		"relation": "profile", "schema": "public",
-		"select": {"id": ["col", "id"], "user_email": ["col", "user_email"], "notes": [".", "notes"]},
-		"write_mode": "merge-new",
-		"on_conflict": ["user_email"],
-		"join": {"notes": {"relation": "profile_note", "schema": "public", "on": {"profile_id": "id"}, "select": ["*~"]}}
+		"relation": "profile_group", "schema": "public",
+		"select": {"id": ["col", "id"], "profiles": [".", "profiles"]},
+		"join": {"profiles": {
+			"relation": "profile", "schema": "public", "on": {"group_id": "id"},
+			"write_mode": "merge-new", "on_conflict": ["user_email"],
+			"select": {"id": ["col", "id"], "user_email": ["col", "user_email"], "notes": [".", "notes"]},
+			"join": {"notes": {"relation": "profile_note", "schema": "public", "on": {"profile_id": "id"}, "select": ["*~"]}}
+		}}
 	}`)
-	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"user_email": "phantom@example.com", "notes": []}]`))
+	profileNode := node.IncomingNodes[0]
+	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"profiles": [{"user_email": "phantom@example.com", "notes": []}]}]`))
 	if err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	keys := dataKeysFor(t, conn, result.NodeIDs[profileNode])
 	if len(keys) != 1 {
 		t.Fatalf("expected 1 keys row, got %d", len(keys))
 	}
@@ -1412,7 +1417,7 @@ func TestExecuteWrite_MergeNewInsertsGenuinelyNewRow(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public",
 		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"], "write_mode": "merge-new"}}
 	}`)
 	movieNode := node.IncomingNodes[0]
@@ -1639,7 +1644,7 @@ func mustJSON(t *testing.T, v any) []byte {
 // identity primary key : "generated always" rejects even an unchanged value.
 func TestExecuteWrite_UpdateAndUpsert_IdentityColumnKinds(t *testing.T) {
 	for _, table := range []string{"identity_always", "identity_default"} {
-		for _, mode := range []string{"update", "upsert"} {
+		for _, mode := range []string{"update-existing", "upsert"} {
 			t.Run(table+"/"+mode, func(t *testing.T) {
 				conn := acquireWriteConn(t)
 				ctx := context.Background()
@@ -1680,7 +1685,7 @@ func TestExecuteWrite_Update_OnlyIdentitySelected(t *testing.T) {
 			if err := conn.QueryRow(ctx, `insert into `+table+` (name) values ('kept') returning id`).Scan(&id); err != nil {
 				t.Fatalf("insert: %v", err)
 			}
-			node := mustResolveQuery(t, `{"relation": "`+table+`", "schema": "public", "select": {"id": ["col", "id"]}, "write_mode": "update"}`)
+			node := mustResolveQuery(t, `{"relation": "`+table+`", "schema": "public", "select": {"id": ["col", "id"]}, "write_mode": "update-existing"}`)
 			if _, err := ExecuteWrite(ctx, conn, node, []byte(`[{"id": `+itoa(id)+`}]`)); err != nil {
 				t.Fatalf("ExecuteWrite: %v", err)
 			}
@@ -1713,7 +1718,7 @@ func TestExecuteWrite_Update_ChangesPrimaryKeyWhenMatchingOnAnotherKey(t *testin
 			}
 			newID := id + 100000
 
-			node := mustResolveQuery(t, `{"relation": "`+tc.table+`", "schema": "public", "select": ["*~"], "write_mode": "update", "on_conflict": ["code"]}`)
+			node := mustResolveQuery(t, `{"relation": "`+tc.table+`", "schema": "public", "select": ["*~"], "write_mode": "update-existing", "on_conflict": ["code"]}`)
 			_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"code": "pk-change", "id": `+itoa(newID)+`, "name": "n2"}]`))
 			if tc.wantErr {
 				if err == nil {

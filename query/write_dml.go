@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rel-server/rel/pg"
@@ -52,6 +53,12 @@ type dmlCompiler struct {
 	explainAnalyze bool
 	planByNode     map[*QueryNode]*PlanResult
 	planOrder      []*QueryNode
+
+	// nextRowID is the first free "_data" __row_id ; runUpdateWhere allocates
+	// one row per row it updates, past the ids denormalize used.
+	nextRowID int
+	// patchRowID is the "_data" row holding an "update" root's patch object.
+	patchRowID int
 }
 
 // sqlEntry get-or-creates node's SqlResult entry.
@@ -183,7 +190,7 @@ func (dc *dmlCompiler) runExplainAnalyze(ctx context.Context, sql string, args [
 // nodeStatPath is the chain of join-alias keys from root down to node — []
 // for the root itself (specs/complex-query.md ## stats's Stat.path).
 func nodeStatPath(node *QueryNode) []string {
-	var path []string
+	path := []string{}
 	for n := node; n.Parent != nil; n = n.Parent {
 		path = append([]string{n.OuterAlias}, path...)
 	}
@@ -594,12 +601,14 @@ func writeKeysObject(w *writer.SQLWriter, node *QueryNode, source string) {
 
 func (dc *dmlCompiler) runPhase1Node(ctx context.Context, node *QueryNode) error {
 	switch node.WriteMode {
-	case READONLY, DELETE_ONLY:
+	case READONLY, DELETE_ONLY, DELETE:
 		return nil
 	case INSERT, MERGE_NEW:
 		return dc.runInsert(ctx, node, node.WriteMode == MERGE_NEW)
-	case UPDATE, MERGE_UPDATE:
+	case UPDATE_EXISTING, MERGE_UPDATE:
 		return dc.runUpdate(ctx, node)
+	case UPDATE:
+		return dc.runUpdateWhere(ctx, node)
 	case UPSERT, MERGE:
 		return dc.runUpsert(ctx, node)
 	default:
@@ -1206,4 +1215,139 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 		dc.stat(node).Deleted += int(tag.RowsAffected())
 	}
 	return nil
+}
+
+// ---- where-driven root modes ---------------------------------------------------------
+
+// compileRootWhere writes node's where, aliasing the relation as "t".
+func (dc *dmlCompiler) compileRootWhere(w *writer.SQLWriter, node *QueryNode) error {
+	sc := &sqlCompiler{w: w, alias: map[*QueryNode]string{node: "t"}}
+	w.Write("(")
+	if err := sc.compileExpr(node.Where, node); err != nil {
+		return oops.Wrapf(err, "compiling where")
+	}
+	w.Write(")")
+	return nil
+}
+
+// runDeleteWhere : write_mode "delete" — removes every row node's where selects.
+func (dc *dmlCompiler) runDeleteWhere(ctx context.Context, node *QueryNode) error {
+	w := writer.NewSQL()
+	w.Write("delete from ")
+	w.Write(node.Relation.Identifier.EscapedString())
+	w.Write(" t\nwhere ")
+	if err := dc.compileRootWhere(w, node); err != nil {
+		return err
+	}
+	args, err := dc.args(w)
+	if err != nil {
+		return err
+	}
+	tag, err := dc.exec(ctx, node, "delete", w, args)
+	if err != nil {
+		return oops.With("sql", w.String()).Wrapf(err, "delete")
+	}
+	if dc.collectStats {
+		dc.stat(node).Deleted += int(tag.RowsAffected())
+	}
+	return nil
+}
+
+// runUpdateWhere : write_mode "update" — applies the patch object held in
+// "_data" row dc.patchRowID to every row node's where selects, setting only the
+// columns the patch names. Each updated row's keys land in a fresh "_data" row,
+// which is what the read-back scopes by (like any other write).
+func (dc *dmlCompiler) runUpdateWhere(ctx context.Context, node *QueryNode) error {
+	var present map[string]json.RawMessage
+	var raw []byte
+	if err := queryOne(ctx, dc.conn, &raw, `select data from _data where __row_id = $1`, dc.patchRowID); err != nil {
+		return oops.Wrapf(err, "reading the patch row")
+	}
+	if err := json.Unmarshal(raw, &present); err != nil {
+		return oops.Wrapf(err, "decoding the patch row")
+	}
+
+	allowlist := node.UpdateColumns
+	if len(allowlist) == 0 {
+		allowlist = node.InsertColumns
+	}
+	cols, err := columnsFor(node, allowlist)
+	if err != nil {
+		return err
+	}
+	var setCols []ColumnPath
+	for _, cp := range cols {
+		if _, ok := present[columnPathFlatName(cp)]; ok {
+			setCols = append(setCols, cp)
+		}
+	}
+	if len(setCols) == 0 {
+		return oops.Errorf("update: the patch names no column the select makes writable")
+	}
+
+	relID := node.Relation.Identifier.EscapedString()
+	w := writer.NewSQL()
+	w.Write("with p as (\n\tselect obj.* from _data tmp\n\tjoin lateral jsonb_populate_record(null::")
+	w.Write(relID)
+	w.Write(", tmp.data) as obj on true\n\twhere tmp.__row_id = ")
+	w.Write(fmt.Sprintf("%d", dc.patchRowID))
+	w.Write("\n),\nupd as (\n\tupdate ")
+	w.Write(relID)
+	w.Write(" t\n\tset ")
+	for i, cp := range setCols {
+		if i > 0 {
+			w.Write(", ")
+		}
+		writeTargetPath(w, cp)
+		w.Write(" = ")
+		writeQualifiedPathN(w, "p", cp.Path, len(cp.Path)-1)
+	}
+	w.Write("\n\tfrom p\n\twhere ")
+	if err := dc.compileRootWhere(w, node); err != nil {
+		return err
+	}
+	w.Write("\n\treturning ")
+	writeKeysObject(w, node, "t")
+	w.Write(" as keys\n),\ngone as (delete from _data where __row_id = ")
+	w.Write(fmt.Sprintf("%d", dc.patchRowID))
+	w.Write(")\ninsert into _data (__row_id, __node_id, data, keys)\nselect ")
+	w.Write(fmt.Sprintf("%d", dc.nextRowID))
+	w.Write(" + row_number() over (), ")
+	w.Write(fmt.Sprintf("%d", dc.ids[node]))
+	w.Write(", '{}'::jsonb, keys from upd")
+
+	args, err := dc.args(w)
+	if err != nil {
+		return err
+	}
+	tag, err := dc.exec(ctx, node, "update", w, args)
+	if err != nil {
+		return oops.With("sql", w.String()).Wrapf(err, "update")
+	}
+	if dc.collectStats {
+		dc.stat(node).Updated += int(tag.RowsAffected())
+	}
+	// RowsAffected is zero under EXPLAIN ANALYZE, so ask the table itself.
+	var maxID int
+	if err := queryOne(ctx, dc.conn, &maxID, `select coalesce(max(__row_id), $1) from _data`, dc.nextRowID); err != nil {
+		return oops.Wrapf(err, "advancing __row_id")
+	}
+	dc.nextRowID = maxID + 1
+	return nil
+}
+
+// queryOne runs a statement expected to return one row and scans its first column into dest.
+func queryOne(ctx context.Context, conn Querier, dest any, sql string, args ...any) error {
+	rows, err := conn.Query(ctx, sql, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return pgx.ErrNoRows
+	}
+	return rows.Scan(dest)
 }

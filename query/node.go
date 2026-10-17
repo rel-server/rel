@@ -11,8 +11,13 @@ const (
 	MERGE_UPDATE
 	INSERT
 	UPSERT
-	UPDATE
+	// UPDATE_EXISTING updates the rows whose identity is in the payload, anywhere in the tree.
+	UPDATE_EXISTING
 	DELETE_ONLY
+	// UPDATE applies one patch object to every row matching the root's where.
+	UPDATE
+	// DELETE removes every row matching the root's where.
+	DELETE
 )
 
 type QueryJoinColumn struct {

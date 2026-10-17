@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -465,7 +466,7 @@ func TestRelHandler_UnwritableSelect_Rejected(t *testing.T) {
 	}
 
 	rec := postRel(t, `{
-		"query": {"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update"},
+		"query": {"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update-existing"},
 		"data": [{"name": "Renamed"}]
 	}`)
 	if rec.Code != http.StatusBadRequest {
@@ -520,5 +521,211 @@ func TestRelHandler_WellKnown_UnregisteredName_WrappedWritePosition(t *testing.T
 	}
 	if got := rec.Header().Get("X-Rel-Errorcode"); got != "WELL_KNOWN_UNKNOWN_QUERY" {
 		t.Fatalf("expected WELL_KNOWN_UNKNOWN_QUERY, got %q", got)
+	}
+}
+
+// insertDirectors adds one director per name and returns their ids.
+func insertDirectors(t *testing.T, names ...string) []int {
+	t.Helper()
+	ids := make([]int, len(names))
+	for i, n := range names {
+		if err := testDb.Pool.QueryRow(context.Background(), `insert into director (name) values ($1) returning id`, n).Scan(&ids[i]); err != nil {
+			t.Fatalf("insert director: %v", err)
+		}
+	}
+	return ids
+}
+
+func directorNames(t *testing.T, ids ...int) map[int]string {
+	t.Helper()
+	out := map[int]string{}
+	rows, err := testDb.Pool.Query(context.Background(), `select id, name from director where id = any($1)`, ids)
+	if err != nil {
+		t.Fatalf("select directors: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		out[id] = name
+	}
+	return out
+}
+
+func TestRelHandler_DeleteMode_RemovesOnlyWhatWhereSelects(t *testing.T) {
+	ids := insertDirectors(t, "Delete Me A", "Delete Me B", "Keep Me")
+	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
+	rec := postRelTo(t, handler, fmt.Sprintf(`{
+		"query": {"relation": "director", "schema": "public", "write_mode": "delete",
+			"where": ["in", ["col", "id"], %d, %d]},
+		"stats": true
+	}`, ids[0], ids[1]))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeJSON[map[string]any](t, rec.Body.Bytes())
+	stats, _ := resp["stats"].([]any)
+	if len(stats) != 1 || stats[0].(map[string]any)["deleted"] != float64(2) || stats[0].(map[string]any)["table"] != "public.director" {
+		t.Errorf("expected stats to report 2 deleted rows, got %v", resp["stats"])
+	}
+	if got := directorNames(t, ids...); len(got) != 1 || got[ids[2]] != "Keep Me" {
+		t.Errorf("expected only the unselected director to remain, got %v", got)
+	}
+
+	// without stats the response is the empty selection : a delete returns nothing
+	rec = postRel(t, fmt.Sprintf(`{"query": {"relation": "director", "schema": "public", "write_mode": "delete", "where": ["=", ["col", "id"], %d]}}`, ids[2]))
+	if rec.Code != http.StatusOK || rec.Body.String() != "[]" {
+		t.Fatalf("expected 200 and [], got %d : %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRelHandler_DeleteMode_Rules(t *testing.T) {
+	ids := insertDirectors(t, "Delete Rules Director")
+	cases := map[string]string{
+		"no where": `{"query": {"relation": "director", "schema": "public", "write_mode": "delete"}}`,
+		"data":     fmt.Sprintf(`{"query": {"relation": "director", "schema": "public", "write_mode": "delete", "where": ["=", ["col", "id"], %d]}, "data": [{"id": %d}]}`, ids[0], ids[0]),
+		"join":     fmt.Sprintf(`{"query": {"relation": "director", "schema": "public", "write_mode": "delete", "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}}}`, ids[0]),
+		"nested":   fmt.Sprintf(`{"query": {"relation": "director", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "delete", "where": ["=", ["col", "id"], 1]}}}, "data": []}`, ids[0]),
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if rec := postRel(t, body); rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
+			}
+			if got := directorNames(t, ids...); len(got) != 1 {
+				t.Fatalf("a rejected delete must remove nothing, got %v", got)
+			}
+		})
+	}
+}
+
+func TestRelHandler_RootMergeModes_Rejected(t *testing.T) {
+	for _, mode := range []string{"deleteonly", "merge", "merge-new", "merge-update"} {
+		t.Run(mode, func(t *testing.T) {
+			rec := postRel(t, fmt.Sprintf(`{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": %q}, "data": []}`, mode))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestRelHandler_UpdateMode_PatchesEveryMatchedRow(t *testing.T) {
+	ids := insertDirectors(t, "Patch A", "Patch B", "Patch Untouched")
+	rec := postRel(t, fmt.Sprintf(`{
+		"query": {"relation": "director", "schema": "public", "write_mode": "update",
+			"select": {"id": ["col", "id"], "name": ["col", "name"]},
+			"where": ["in", ["col", "id"], %d, %d]},
+		"data": {"name": "Patched"}
+	}`, ids[0], ids[1]))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+	if len(rows) != 2 || rows[0]["name"] != "Patched" || rows[1]["name"] != "Patched" {
+		t.Fatalf("expected both matched rows read back as Patched, got %s", rec.Body.String())
+	}
+	got := directorNames(t, ids...)
+	if got[ids[0]] != "Patched" || got[ids[1]] != "Patched" || got[ids[2]] != "Patch Untouched" {
+		t.Errorf("expected only the selected rows patched, got %v", got)
+	}
+}
+
+func TestRelHandler_UpdateMode_LeavesUnnamedColumnsAlone(t *testing.T) {
+	var studioID, directorID int
+	ctx := context.Background()
+	if err := testDb.Pool.QueryRow(ctx, `insert into studio (name) values ('Patch Studio') returning id`).Scan(&studioID); err != nil {
+		t.Fatalf("insert studio: %v", err)
+	}
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name, studio_id) values ('Patch Partial', $1) returning id`, studioID).Scan(&directorID); err != nil {
+		t.Fatalf("insert director: %v", err)
+	}
+	rec := postRel(t, fmt.Sprintf(`{
+		"query": {"relation": "director", "schema": "public", "write_mode": "update", "select": ["*~"], "where": ["=", ["col", "id"], %d]},
+		"data": {"name": "Patch Partial Renamed"}
+	}`, directorID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}
+	var name string
+	var gotStudio *int
+	if err := testDb.Pool.QueryRow(ctx, `select name, studio_id from director where id = $1`, directorID).Scan(&name, &gotStudio); err != nil {
+		t.Fatalf("select back: %v", err)
+	}
+	if name != "Patch Partial Renamed" || gotStudio == nil || *gotStudio != studioID {
+		t.Errorf("expected name patched and studio_id kept, got %q / %v", name, gotStudio)
+	}
+}
+
+func TestRelHandler_UpdateMode_ResponseFollowsTheWhereAfterTheWrite(t *testing.T) {
+	ids := insertDirectors(t, "Gone From Where")
+	rec := postRel(t, fmt.Sprintf(`{
+		"query": {"relation": "director", "schema": "public", "write_mode": "update", "select": ["*~"],
+			"where": ["=", ["col", "name"], "Gone From Where"]},
+		"data": {"name": "No Longer Matches"}
+	}`))
+	if rec.Code != http.StatusOK || rec.Body.String() != "[]" {
+		t.Fatalf("expected 200 and [] (the where is read again after the write), got %d : %s", rec.Code, rec.Body.String())
+	}
+	if got := directorNames(t, ids...); got[ids[0]] != "No Longer Matches" {
+		t.Errorf("expected the row updated anyway, got %v", got)
+	}
+}
+
+func TestRelHandler_UpdateMode_Rules(t *testing.T) {
+	ids := insertDirectors(t, "Update Rules Director")
+	where := fmt.Sprintf(`["=", ["col", "id"], %d]`, ids[0])
+	cases := map[string]string{
+		"no where":     `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update"}, "data": {"name": "x"}}`,
+		"array data":   `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update", "where": ` + where + `}, "data": [{"name": "x"}]}`,
+		"unknown col":  `{"query": {"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update", "where": ` + where + `}, "data": {"studio_id": 1}}`,
+		"nested":       `{"query": {"relation": "studio", "schema": "public", "select": ["*~"], "where": ["=", ["col", "id"], 1], "join": {"directors": {"relation": "director", "schema": "public", "on": {"studio_id": "id"}, "write_mode": "update", "where": ` + where + `}}}, "data": []}`,
+		"writing join": `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update", "where": ` + where + `, "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "merge"}}}, "data": {"name": "x"}}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if rec := postRel(t, body); rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
+			}
+			if got := directorNames(t, ids...); got[ids[0]] != "Update Rules Director" {
+				t.Fatalf("a rejected update must change nothing, got %v", got)
+			}
+		})
+	}
+}
+
+func TestRelHandler_UpdateMode_CanChangeAPrimaryKey(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		table   string
+		wantErr bool
+	}{{"identity_keyed_default", false}, {"identity_keyed_always", true}} {
+		t.Run(tc.table, func(t *testing.T) {
+			var id int
+			if err := testDb.Pool.QueryRow(ctx, `insert into `+tc.table+` (code, name) values ('patch-pk', 'n') returning id`).Scan(&id); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+			newID := id + 100000
+			rec := postRel(t, fmt.Sprintf(`{
+				"query": {"relation": %q, "schema": "public", "write_mode": "update", "select": ["*~"], "where": ["=", ["col", "code"], "patch-pk"]},
+				"data": {"id": %d}
+			}`, tc.table, newID))
+			if tc.wantErr {
+				if rec.Code == http.StatusOK {
+					t.Fatalf("expected Postgres to refuse changing a generated-always identity column, got 200 : %s", rec.Body.String())
+				}
+				return
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+			}
+			rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+			if len(rows) != 1 || rows[0]["id"] != fmt.Sprint(newID) && rows[0]["id"] != float64(newID) {
+				t.Errorf("expected the row read back under its new id %d, got %s", newID, rec.Body.String())
+			}
+		})
 	}
 }

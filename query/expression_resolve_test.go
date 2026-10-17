@@ -292,7 +292,7 @@ func TestDeriveShapes_Writability(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"id": ["col", "id"], "n1": ["col", "name"], "n2": ["coalesce", ["col", "name"], "x"]}
 	}`)
 	idKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["id"]}}).Key()
@@ -319,7 +319,7 @@ func TestDeriveShapes_CoalesceWrappedIsWritable(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"name": ["coalesce", ["col", "name"], "unknown"]}
 	}`)
 	nameKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["name"]}}).Key()
@@ -341,7 +341,7 @@ func TestDeriveShapes_OtherwiseWrappedIsNotWritable(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"n": ["format", "%s!", ["col", "name"]]}
 	}`)
 	nameKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["name"]}}).Key()
@@ -358,7 +358,7 @@ func TestDeriveShapes_SetSharesOccurrenceBucketWithBare(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"n1": ["col", "name"], "n2": ["set", "name"]}
 	}`)
 	nameKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["name"]}}).Key()
@@ -374,7 +374,7 @@ func TestDeriveShapes_GetExcludedFromWritability(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"n": ["get", "name"]}
 	}`)
 	nameKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["name"]}}).Key()
@@ -388,7 +388,7 @@ func TestDeriveShapes_GetExcludedFromWritability(t *testing.T) {
 func TestDeriveShapes_DefaultFullSelectWritable(t *testing.T) {
 	// No "select" at all -> defaults to StarExpr{} (pass 1) -> every own
 	// column should come out as a clean, single occurrence.
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "write_mode": "update"}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "write_mode": "update-existing"}`)
 	idKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["id"]}}).Key()
 	found := false
 	for _, ex := range node.Shape.Extractors {
@@ -410,7 +410,7 @@ func TestDeriveShapes_RelationRequiresIdentityWritable(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": ["*~", ["id"]]
 	}`)
 	if node.Shape.Writable {
@@ -434,11 +434,11 @@ func TestDeriveShapes_TreeLevelReadOnlyPropagation(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"join": {
 			"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
-				"write_mode": "update",
+				"write_mode": "update-existing",
 				"select": ["*~", ["id"]]
 			}
 		}
@@ -455,7 +455,7 @@ func TestDeriveShapes_ExplicitReadonlyChildDoesNotPropagate(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"join": {
 			"movies": {
 				"relation": "movie", "schema": "public", "on": {"director_id": "id"},
@@ -989,7 +989,7 @@ func TestDeriveShapes_BareCompositeChainIsWritable(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "venue",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"id": ["col", "id"], "c": [".", ["col", "home"], "city"]}
 	}`)
 	homeCityKey := (ColumnPath{Node: node, Path: []*pg.Column{
@@ -1016,7 +1016,7 @@ func TestDeriveShapes_ChildHopChainIsNotParentWritable(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"id": ["col", "id"], "t": [".", [".", "movies"], "title"]},
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
 	}`)
@@ -1033,7 +1033,7 @@ func TestDeriveShapes_IndexedCompositeChainIsNotWritable(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "warehouse",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"id": ["col", "id"], "c": [".", ["index", ["col", "addresses"], 1], "city"]}
 	}`)
 	for _, ex := range node.Shape.Extractors {
@@ -1049,7 +1049,7 @@ func TestDeriveShapes_DuplicateCompositeChainIsNotWritable(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "venue",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"c1": [".", ["col", "home"], "city"], "c2": [".", ["col", "home"], "city"]}
 	}`)
 	homeCityKey := (ColumnPath{Node: node, Path: []*pg.Column{
@@ -1069,7 +1069,7 @@ func TestDeriveShapes_CompositeChainAndContainingColumnAreIndependent(t *testing
 	node := mustResolveQuery(t, `{
 		"relation": "venue",
 		"schema": "public",
-		"write_mode": "update",
+		"write_mode": "update-existing",
 		"select": {"whole": ["col", "home"], "sub": [".", ["col", "home"], "city"]}
 	}`)
 	homeKey := (ColumnPath{Node: node, Path: []*pg.Column{node.Relation.ColumnsMap["home"]}}).Key()

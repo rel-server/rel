@@ -108,7 +108,8 @@ func (ctx *ResolveContext) deriveNodeShape(node *QueryNode, oc oops.OopsErrorBui
 		}
 	}
 
-	shape.Writable = identityIsWritable(node, accum)
+	// A where-driven root locates its rows by where, not by identity columns in select.
+	shape.Writable = isWhereDriven(node.WriteMode) || identityIsWritable(node, accum)
 
 	for _, c := range node.OutgoingNodes {
 		if c.WriteMode != READONLY && (c.Shape == nil || !c.Shape.Writable) {

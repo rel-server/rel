@@ -49,14 +49,47 @@ func (ctx *ResolveContext) ResolveQuery(raw *rawRelation) (*QueryNode, error) {
 }
 
 var writeModeByString = map[string]WriteMode{
-	"merge":        MERGE,
-	"readonly":     READONLY,
-	"insert":       INSERT,
-	"upsert":       UPSERT,
-	"merge-new":    MERGE_NEW,
-	"merge-update": MERGE_UPDATE,
-	"update":       UPDATE,
-	"deleteonly":   DELETE_ONLY,
+	"merge":           MERGE,
+	"readonly":        READONLY,
+	"insert":          INSERT,
+	"upsert":          UPSERT,
+	"merge-new":       MERGE_NEW,
+	"merge-update":    MERGE_UPDATE,
+	"update-existing": UPDATE_EXISTING,
+	"deleteonly":      DELETE_ONLY,
+	"update":          UPDATE,
+	"delete":          DELETE,
+}
+
+// isWhereDriven reports the write modes that select their rows with the root's
+// where instead of the payload : "update" and "delete".
+func isWhereDriven(m WriteMode) bool { return m == UPDATE || m == DELETE }
+
+// checkWriteModePlacement enforces where each write mode may appear : the
+// where-driven ones only at the root, with a where, and the delete-bearing merge
+// family only under a parent.
+func checkWriteModePlacement(raw *rawRelation, m WriteMode, parent *QueryNode, oc oops.OopsErrorBuilder) error {
+	switch {
+	case isWhereDriven(m):
+		name := raw.WriteMode
+		if parent != nil {
+			return oc.Code(errcode.WriteForbidden).Errorf("write_mode %q is only valid on the root relation", name)
+		}
+		if raw.Where == nil {
+			return oc.Code(errcode.WriteForbidden).Errorf("write_mode %q requires a where : it acts on the rows the where selects", name)
+		}
+		if m == DELETE && len(raw.Join) > 0 {
+			return oc.Code(errcode.WriteForbidden).Errorf("write_mode \"delete\" takes no join")
+		}
+	case m == MERGE || m == MERGE_NEW || m == MERGE_UPDATE || m == DELETE_ONLY:
+		if parent == nil {
+			return oc.Code(errcode.WriteForbidden).Errorf("write_mode %q is only valid on an incoming join ; use \"delete\" or \"update-existing\" at the root", raw.WriteMode)
+		}
+	}
+	if parent != nil && isWhereDriven(parent.WriteMode) && m != READONLY {
+		return oc.Code(errcode.WriteForbidden).Errorf("under a %q root a join can only be readonly, got %q", map[WriteMode]string{UPDATE: "update", DELETE: "delete"}[parent.WriteMode], raw.WriteMode)
+	}
+	return nil
 }
 
 // resolveNode resolves one node ; parent is nil for the root, depth counts
@@ -151,6 +184,8 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 	var writeMode WriteMode
 	if raw.WriteMode == "" {
 		switch {
+		case parent != nil && isWhereDriven(parent.WriteMode):
+			writeMode = READONLY // a where-driven root only shapes its response through joins
 		case parent == nil:
 			writeMode = INSERT
 		case isToOne:
@@ -170,6 +205,9 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 		case MERGE, MERGE_NEW, MERGE_UPDATE, DELETE_ONLY:
 			return nil, oc.Code(errcode.WriteForbidden).Errorf("write_mode %q is not valid on an outgoing (to-one) relation", raw.WriteMode)
 		}
+	}
+	if err := checkWriteModePlacement(raw, writeMode, parent, oc); err != nil {
+		return nil, err
 	}
 	node.WriteMode = writeMode
 

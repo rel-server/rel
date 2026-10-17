@@ -372,13 +372,13 @@ func TestResolveQuery_MultipleChildrenUnderOneParent(t *testing.T) {
 
 func TestResolveQuery_ExplicitWriteModeOverridesRootDefault(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	raw := mustParseRelation(t, `{"relation": "director", "schema": "public", "write_mode": "update"}`)
+	raw := mustParseRelation(t, `{"relation": "director", "schema": "public", "write_mode": "update-existing"}`)
 	node, err := ctx.ResolveQuery(raw)
 	if err != nil {
 		t.Fatalf("ResolveQuery: %v", err)
 	}
-	if node.WriteMode != UPDATE {
-		t.Errorf("expected explicit write_mode \"update\" to override the root's INSERT default, got %v", node.WriteMode)
+	if node.WriteMode != UPDATE_EXISTING {
+		t.Errorf("expected explicit write_mode \"update-existing\" to override the root's INSERT default, got %v", node.WriteMode)
 	}
 }
 

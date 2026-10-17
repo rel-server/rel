@@ -10,6 +10,7 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -81,12 +82,12 @@ type WriteResult struct {
 type Stat struct {
 	// Path is the chain of join-alias keys from the root down to this node
 	// ; [] for the root relation itself.
-	Path      []string
-	Table     string // fully-qualified relation name, "schema.table"
-	Submitted int    // rows denormalized for this node, written or not
-	Inserted  int
-	Updated   int
-	Deleted   int
+	Path      []string `json:"path"`
+	Table     string   `json:"table"`     // fully-qualified relation name, "schema.table"
+	Submitted int      `json:"submitted"` // rows denormalized for this node, written or not
+	Inserted  int      `json:"inserted"`
+	Updated   int      `json:"updated"`
+	Deleted   int      `json:"deleted"`
 }
 
 // SqlResult is one node's compiled statement text(s) from a `sql` request
@@ -95,9 +96,12 @@ type Stat struct {
 // left for server/rel.go to fill in separately (the read-back, outside this
 // package's scope).
 type SqlResult struct {
-	Path                           []string
-	Select                         string
-	Insert, Update, Upsert, Delete string
+	Path   []string `json:"path"`
+	Select string   `json:"select,omitempty"`
+	Insert string   `json:"insert,omitempty"`
+	Update string   `json:"update,omitempty"`
+	Upsert string   `json:"upsert,omitempty"`
+	Delete string   `json:"delete,omitempty"`
 }
 
 // PlanResult is one node's EXPLAIN (ANALYZE, FORMAT JSON) output(s) from a
@@ -105,9 +109,12 @@ type SqlResult struct {
 // Select is left for server/rel.go (the read-back, outside this package's
 // scope).
 type PlanResult struct {
-	Path                           []string
-	Select                         json.RawMessage
-	Insert, Update, Upsert, Delete json.RawMessage
+	Path   []string        `json:"path"`
+	Select json.RawMessage `json:"select,omitempty"`
+	Insert json.RawMessage `json:"insert,omitempty"`
+	Update json.RawMessage `json:"update,omitempty"`
+	Upsert json.RawMessage `json:"upsert,omitempty"`
+	Delete json.RawMessage `json:"delete,omitempty"`
 }
 
 // WriteOptions augments ExecuteWriteStateParamsOpts with ComplexQuery's
@@ -258,6 +265,17 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 		return nil, oops.With("relation", unwritableNodeName(bad)).Code(code).Errorf("write: relation %q is not writable — its identity columns must appear exactly once in the select output, untransformed and writable (docs/content/query-language/writing.md)", unwritableNodeName(bad))
 	}
 
+	if root.WriteMode == DELETE {
+		return executeDeleteWhere(ctx, conn, root, ids, payload, paramValues, opts)
+	}
+	if root.WriteMode == UPDATE {
+		wrapped, err := patchAsPayload(payload)
+		if err != nil {
+			return nil, err
+		}
+		payload = wrapped
+	}
+
 	rows, nextRowID, err := denormalize(root, ids, payload, state.nextRowID)
 	if err != nil {
 		return nil, err
@@ -286,6 +304,10 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 	dc := &dmlCompiler{
 		conn: conn, ids: ids, populated: populated, paramValues: paramValues, submitted: submitted,
 		collectStats: opts.Stats, collectSQL: opts.Sql, explainAnalyze: opts.QueryPlan,
+		nextRowID: nextRowID,
+	}
+	if root.WriteMode == UPDATE && len(rows) > 0 {
+		dc.patchRowID = rows[0].RowID
 	}
 	if err := dc.phase1(ctx, root); err != nil {
 		return nil, err
@@ -295,9 +317,36 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 	}
 
 	state.nextNodeID = nextNodeID
-	state.nextRowID = nextRowID
+	state.nextRowID = max(nextRowID, dc.nextRowID)
 	return &WriteResult{
 		NodeIDs: ids, RowCount: len(rows),
 		Stats: dc.finalStats(), Sql: dc.finalSQL(), QueryPlan: dc.finalPlans(),
 	}, nil
+}
+
+// patchAsPayload checks that an "update" root's data is one patch object and
+// wraps it as the one-row array denormalize expects.
+func patchAsPayload(payload []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, oops.Code(errcode.WriteForbidden).Errorf(`write: write_mode "update" takes "data" as a single patch object`)
+	}
+	return append(append([]byte{'['}, trimmed...), ']'), nil
+}
+
+// executeDeleteWhere runs write_mode "delete" : no payload, no read-back, one statement.
+func executeDeleteWhere(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload []byte, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
+	switch string(bytes.TrimSpace(payload)) {
+	case "", "null", "[]":
+	default:
+		return nil, oops.Code(errcode.WriteForbidden).Errorf(`write: write_mode "delete" takes no data`)
+	}
+	dc := &dmlCompiler{
+		conn: conn, ids: ids, paramValues: paramValues,
+		collectStats: opts.Stats, collectSQL: opts.Sql, explainAnalyze: opts.QueryPlan,
+	}
+	if err := dc.runDeleteWhere(ctx, root); err != nil {
+		return nil, err
+	}
+	return &WriteResult{NodeIDs: ids, Stats: dc.finalStats(), Sql: dc.finalSQL(), QueryPlan: dc.finalPlans()}, nil
 }

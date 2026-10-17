@@ -61,7 +61,9 @@ create index idx_order_billing on order_t (billing_customer_id);
 -- non-FK join eligibility : unique on the parent side, indexed on the child
 -- side, but the child side is NOT unique (so cardinality should still be
 -- to-many despite the join being "eligible" via the parent's uniqueness)
-create table profile (id serial primary key, user_email text not null unique);
+create table profile_group (id serial primary key);
+create table profile (id serial primary key, user_email text not null unique, group_id int references profile_group (id));
+create index idx_profile_group on profile (group_id);
 create table account (id serial primary key, email text not null);
 create index idx_account_email on account (email);
 
