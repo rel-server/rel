@@ -124,14 +124,14 @@ func writes() []harness.Scenario {
 					[]any{map[string]any{"email": fmt.Sprintf("bench-ins-%d@example.com", n), "first_name": "Ada", "last_name": "Bench"}}))
 			}},
 			harness.PostgREST: {Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-				return c.Do(restWrite("POST", "/guests?select=id", map[string]any{"email": fmt.Sprintf("bench-ins-%d@example.com", n), "first_name": "Ada", "last_name": "Bench"}, "return=representation"))
+				return c.Do(restWrite("POST", "/guests?select=id,email,first_name,last_name", map[string]any{"email": fmt.Sprintf("bench-ins-%d@example.com", n), "first_name": "Ada", "last_name": "Bench"}, "return=representation"))
 			}},
 		},
 	}
 	for _, d := range []dialect{{false}, {true}} {
 		d := d
 		insert.Impls[d.server()] = harness.Impl{Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-			return gqlDo(c, fmt.Sprintf(`mutation { createGuest(input: {guest: {email: "bench-ins-%d@example.com", firstName: "Ada", lastName: "Bench"}}) { guest { %s } } }`, n, d.pk()))
+			return gqlDo(c, fmt.Sprintf(`mutation { createGuest(input: {guest: {email: "bench-ins-%d@example.com", firstName: "Ada", lastName: "Bench"}}) { guest { %s email firstName lastName } } }`, n, d.pk()))
 		}}
 	}
 
@@ -151,14 +151,14 @@ func writes() []harness.Scenario {
 					map[string]any{"phone": fmt.Sprintf("bench-upd-%d", n)}))
 			}},
 			harness.PostgREST: {Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-				return c.Do(restWrite("PATCH", fmt.Sprintf("/guests?id=eq.%d&select=id", pick(e.GuestIDs, n)), map[string]any{"phone": fmt.Sprintf("bench-upd-%d", n)}, "return=representation"))
+				return c.Do(restWrite("PATCH", fmt.Sprintf("/guests?id=eq.%d&select=id,phone", pick(e.GuestIDs, n)), map[string]any{"phone": fmt.Sprintf("bench-upd-%d", n)}, "return=representation"))
 			}},
 		},
 	}
 	for _, d := range []dialect{{false}, {true}} {
 		d := d
 		update.Impls[d.server()] = harness.Impl{Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-			return gqlDo(c, fmt.Sprintf(`mutation { updateGuest(input: {%s: "%d", patch: {phone: "bench-upd-%d"}}) { guest { %s } } }`, d.pk(), pick(e.GuestIDs, n), n, d.pk()))
+			return gqlDo(c, fmt.Sprintf(`mutation { updateGuest(input: {%s: "%d", patch: {phone: "bench-upd-%d"}}) { guest { %s phone } } }`, d.pk(), pick(e.GuestIDs, n), n, d.pk()))
 		}}
 	}
 
@@ -199,7 +199,7 @@ func writes() []harness.Scenario {
 				return c.Do(relWrite(map[string]any{"relation": "amenities", "schema": "hotel", "select": sel("id", "name")}, bulkAmenities(n)))
 			}},
 			harness.PostgREST: {Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-				return c.Do(restWrite("POST", "/amenities?select=id", bulkAmenities(n), "return=representation"))
+				return c.Do(restWrite("POST", "/amenities?select=id,name", bulkAmenities(n), "return=representation"))
 			}},
 		},
 	}
@@ -209,7 +209,7 @@ func writes() []harness.Scenario {
 			var b strings.Builder
 			b.WriteString("mutation {")
 			for i := range bulkRows {
-				fmt.Fprintf(&b, ` m%d: createAmenity(input: {amenity: {name: "bench-bulk-%d-%d"}}) { amenity { %s } }`, i, n, i, d.pk())
+				fmt.Fprintf(&b, ` m%d: createAmenity(input: {amenity: {name: "bench-bulk-%d-%d"}}) { amenity { %s name } }`, i, n, i, d.pk())
 			}
 			b.WriteString(" }")
 			return gqlDo(c, b.String())
@@ -269,7 +269,7 @@ func writes() []harness.Scenario {
 					[]any{upsertRow(n)}))
 			}},
 			harness.PostgREST: {Support: harness.Native, Run: func(c *harness.Client, e *env, n uint64) ([]byte, error) {
-				return c.Do(restWrite("POST", "/guests?on_conflict=email&select=id", upsertRow(n), "resolution=merge-duplicates,return=representation"))
+				return c.Do(restWrite("POST", "/guests?on_conflict=email&select=id,email,first_name,last_name", upsertRow(n), "resolution=merge-duplicates,return=representation"))
 			}},
 			harness.PostGraphile4: {Support: harness.Unsupported, Note: "no upsert mutation without an extra plugin"},
 			harness.PostGraphile5: {Support: harness.Unsupported, Note: "no upsert mutation without an extra plugin"},
