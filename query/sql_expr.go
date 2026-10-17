@@ -288,6 +288,13 @@ func (c *sqlCompiler) compileColumnPath(cp ColumnPath, n *QueryNode) error {
 	if !ok {
 		return errNoAlias(fmt.Sprintf("column %q", cp.Path[0].Name))
 	}
+	if c.castBackAggs && len(cp.Path) == 1 {
+		if back := castBackSuffix(cp.Path[0].Type); back != "" {
+			c.w.Paren(func() { c.compileColumnPathN(alias, cp.Path, 0) })
+			c.w.Write(back)
+			return nil
+		}
+	}
 	c.compileColumnPathN(alias, cp.Path, len(cp.Path)-1)
 	return nil
 }
@@ -639,15 +646,17 @@ func (c *sqlCompiler) compileAgg(v *AggExpr, n *QueryNode) error {
 	childAlias := c.allocAlias()
 	c.alias[target] = childAlias
 
+	keepCast := aggsTakeRows(v)
 	var err error
 	c.w.Paren(func() {
 		c.w.Write("select ")
-		if e := c.compileAggFunctionCall(v, target, childAlias); e != nil {
+		if e := c.compileAggFunctionCall(v, target, childAlias, keepCast); e != nil {
 			err = e
 			return
 		}
 		c.w.Write(" from (\n")
 		c.w.Indented(func() {
+			defer c.setRawProjection(!keepCast)()
 			if e := c.compileNodeCorrelated(target, childAlias, parentAlias); e != nil {
 				err = e
 			}
@@ -660,7 +669,10 @@ func (c *sqlCompiler) compileAgg(v *AggExpr, n *QueryNode) error {
 
 // compileAggFunctionCall emits only "fn(args...) filter (where ...)" ; used
 // by compileLateralJoin too, never compileAgg, to avoid re-triggering the shared-vs-not lookup.
-func (c *sqlCompiler) compileAggFunctionCall(v *AggExpr, target *QueryNode, targetAlias string) error {
+func (c *sqlCompiler) compileAggFunctionCall(v *AggExpr, target *QueryNode, targetAlias string, castBack bool) error {
+	prev := c.castBackAggs
+	c.castBackAggs = castBack
+	defer func() { c.castBackAggs = prev }()
 	c.w.Write(v.ResolvedFunction.Identifier.EscapedString())
 	var err error
 	writer.SurroundList(c.w.Writer, "(", ", ", ")", v.Arguments, func(a Expression) {
@@ -821,6 +833,9 @@ func (c *sqlCompiler) compileColumnRead(col *pg.Column, n *QueryNode, def Expres
 		return errNoAlias(fmt.Sprintf("column %q", col.Name))
 	}
 	cast := textCastSuffix(col.Type)
+	if c.rawProjection {
+		cast = ""
+	}
 	if def == nil {
 		c.qualify(alias, col.Name)
 		c.w.Write(cast)

@@ -1200,3 +1200,61 @@ func TestCompileSelect_DistinctOn(t *testing.T) {
 		t.Fatalf("expected 2 distinct titles, got %d : %#v (sql: %s)", len(rows), rows, sql)
 	}
 }
+
+// aggChildParent inserts a parent with children whose amounts/bigs make a text
+// comparison disagree with the numeric one ("1000.00" < "150" is true as text).
+func aggChildParent(t *testing.T) int {
+	t.Helper()
+	ctx := context.Background()
+	var id int
+	if err := testDb.Pool.QueryRow(ctx, `insert into agg_parent default values returning id`).Scan(&id); err != nil {
+		t.Fatalf("insert parent: %v", err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into agg_child (parent_id, amount, big) values ($1, 99.00, 3), ($1, 120.50, 10), ($1, 1000.00, 100000000000)`, id); err != nil {
+		t.Fatalf("insert children: %v", err)
+	}
+	return id
+}
+
+// TestCompileSelect_AggFilterOnNumericColumns proves an agg's filter compares
+// int8/numeric child columns as numbers, in every way the child can be shared :
+// aggregated alone, aggregated next to its embedded array, and aggregated with a
+// whole-row argument.
+func TestCompileSelect_AggFilterOnNumericColumns(t *testing.T) {
+	parentID := aggChildParent(t)
+	count := `{"schema": "pg_catalog", "name": "count"}`
+	cases := map[string]struct {
+		query string
+		want  float64
+	}{
+		"numeric, single consumer": {
+			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids", "id"]], ["<", [".", "kids", "amount"], 150]]}}`,
+			2,
+		},
+		"int8, single consumer": {
+			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids", "id"]], [">", [".", "kids", "big"], 5]]}}`,
+			2,
+		},
+		"numeric, shared with the embedded array": {
+			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"kids": [".", "kids"], "n": ["agg", ` + count + `, [[".", "kids", "id"]], ["<", [".", "kids", "amount"], 150]]}}`,
+			2,
+		},
+		"numeric, whole-row argument": {
+			`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"n": ["agg", ` + count + `, [[".", "kids"]], ["<", [".", "kids", "amount"], 150]]}}`,
+			2,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			node := mustResolveQuery(t, fmt.Sprintf(tc.query, parentID))
+			sql, args := mustCompileSelect(t, node)
+			rows := runSelect(t, sql, args)
+			if len(rows) != 1 {
+				t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+			}
+			if got, ok := rows[0]["n"].(float64); !ok || got != tc.want {
+				t.Errorf("expected n=%v, got %#v (sql: %s)", tc.want, rows[0]["n"], sql)
+			}
+		})
+	}
+}

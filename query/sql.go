@@ -36,6 +36,15 @@ type sqlCompiler struct {
 	// "select 1" and skips distinct/order-by/limit-offset/lateral-join-into-FROM,
 	// keeping FROM/WHERE identical to CompileSelect's (specs/complex-query.md ## count).
 	countMode bool
+
+	// rawProjection switches off the int8/numeric text cast of SELECT-position
+	// column reads (textCastSuffix), for a subselect that only an aggregate reads :
+	// the aggregate then compares and combines real numbers, not their text.
+	rawProjection bool
+	// castBackAggs makes a column reference inside an aggregate's arguments or
+	// filter cast the text projection back to its real type, for a subselect that
+	// must keep the text cast because it also feeds JSON output.
+	castBackAggs bool
 }
 
 func newSQLCompiler() *sqlCompiler {
@@ -455,7 +464,9 @@ func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f select
 	switch {
 	case f.column != nil:
 		c.qualify(alias, f.column.Name)
-		c.w.Write(textCastSuffix(f.column.Type))
+		if !c.rawProjection {
+			c.w.Write(textCastSuffix(f.column.Type))
+		}
 		return nil
 	default:
 		if child := embedChildOf(f); child != nil {
@@ -463,6 +474,42 @@ func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f select
 		}
 		return c.compileExpr(f.expr, node)
 	}
+}
+
+// setRawProjection sets c.rawProjection and returns the func that restores it.
+func (c *sqlCompiler) setRawProjection(on bool) func() {
+	prev := c.rawProjection
+	c.rawProjection = on
+	return func() { c.rawProjection = prev }
+}
+
+// aggsTakeRows reports whether any aggregate takes a whole row of its target
+// (a bare reference to the child) as an argument : its rows are then built into
+// JSON, which wants the text-cast int8/numeric values.
+func aggsTakeRows(aggs ...*AggExpr) bool {
+	for _, agg := range aggs {
+		target := aggTargetChild(agg)
+		for _, a := range agg.Arguments {
+			if resolved := bareResolvedField(a); resolved != nil {
+				if qn, _ := resolved.(*QueryNode); qn != nil && qn == target {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// castBackSuffix is the cast that turns a column's text projection (see
+// textCastSuffix) back into its real type ; "" when the projection isn't cast.
+func castBackSuffix(t *pg.Type) string {
+	if textCastSuffix(t) == "" {
+		return ""
+	}
+	if t.IsArray() {
+		return "::" + t.ElementType.Underlying().PgIdentifier.EscapedString() + "[]"
+	}
+	return "::" + t.Underlying().PgIdentifier.EscapedString()
 }
 
 // textCastSuffix is the cast suffix ("::text"/"::text[]"/"") a SELECT-position reference to a column of type t
@@ -638,6 +685,13 @@ func (c *sqlCompiler) analyzeLaterals(node *QueryNode) (map[*QueryNode]*lateralP
 }
 
 func (c *sqlCompiler) compileLateralJoin(child *QueryNode, parentAlias string, plan *lateralPlan) error {
+	aggs := make([]*AggExpr, len(plan.aggs))
+	for i, a := range plan.aggs {
+		aggs[i] = a.expr
+	}
+	// The subselect feeds JSON when the child is also embedded, or when an
+	// aggregate takes whole rows ; only then does it need the text cast.
+	keepCast := plan.hasArray || aggsTakeRows(aggs...)
 	childAlias := c.allocAlias()
 	// Registered before compiling the aggs below : each agg's own
 	// arguments need child's alias already resolvable.
@@ -659,7 +713,7 @@ func (c *sqlCompiler) compileLateralJoin(child *QueryNode, parentAlias string, p
 			first = false
 			// compileAggFunctionCall, not compileExpr/compileAgg : this
 			// emits the aggregate's own definition (see compileAgg's doc comment).
-			if e := c.compileAggFunctionCall(a.expr, child, childAlias); e != nil {
+			if e := c.compileAggFunctionCall(a.expr, child, childAlias, keepCast); e != nil {
 				err = e
 				return
 			}
@@ -667,6 +721,7 @@ func (c *sqlCompiler) compileLateralJoin(child *QueryNode, parentAlias string, p
 		}
 		c.w.Write(" from (\n")
 		c.w.Indented(func() {
+			defer c.setRawProjection(!keepCast)()
 			if e := c.compileNodeCorrelated(child, childAlias, parentAlias); e != nil {
 				err = e
 			}
