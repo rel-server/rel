@@ -94,6 +94,9 @@ silent data loss.
 - A **relation** is writable only if its identity columns (the primary key, or whatever
   `on_conflict` names) are present and writable, by the rule above, exactly once in its own
   `select`.
+- A joined relation's **own foreign-key column** to its parent (the `on` column, e.g.
+  `room_types.property_id`) is written from the join with the parent's key, whether or not `select`
+  lists it ; a payload value for it is ignored.
 - A **query** is writable only if every relation in it is writable — root and every joined
   relation, at every depth. One unwritable relation anywhere in the tree makes the *whole*
   write request fail, not just that relation's own piece of it - unless it is explicitely
