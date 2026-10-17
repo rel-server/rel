@@ -66,6 +66,12 @@ type WriteResult struct {
 	// across every writable node.
 	RowCount int
 
+	// Rows is non-nil when the write also built its own response : the JSON of
+	// each response row, in order (an empty, non-nil slice when there are none).
+	// The caller then has no read-back to run — there is no "_data" to scope one by.
+	// Nil when the response still has to be read back (query/write_fast.go).
+	Rows [][]byte
+
 	// Stats is populated only when WriteOptions.Stats was set — one entry
 	// per writable node an insert/update/upsert/delete statement actually
 	// ran against (specs/complex-query.md ## stats). Nil otherwise.
@@ -132,6 +138,8 @@ type WriteOptions struct {
 	Stats     bool
 	QueryPlan bool
 	Sql       bool
+	// NoFastPath forces the general ("_data") path ; tests compare the two.
+	NoFastPath bool
 }
 
 // assignNodeIDs walks root pre-order, pruning a READONLY node's whole
@@ -217,6 +225,10 @@ type WriteState struct {
 	nextRowID  int
 }
 
+// ExecuteWrite and its ExecuteWriteState* variants always take the general path,
+// leaving what they wrote in "_data" for the caller to read back ; only
+// ExecuteWriteStateParamsOpts may answer from the write itself (WriteResult.Rows).
+//
 // ExecuteWrite runs the whole Writing Algorithm for one request : denormalize
 // payload into "_data" (already expected to exist on conn), phase 1
 // (insert/update/upsert, outgoing-before-self-before-incoming, recursive),
@@ -248,7 +260,7 @@ func ExecuteWriteStateParams(ctx context.Context, conn Querier, root *QueryNode,
 // ExecuteWriteStateParamsStats is ExecuteWriteStateParamsOpts with only
 // WriteOptions.Stats settable.
 func ExecuteWriteStateParamsStats(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState, paramValues map[string]any, collectStats bool) (*WriteResult, error) {
-	return ExecuteWriteStateParamsOpts(ctx, conn, root, payload, state, paramValues, WriteOptions{Stats: collectStats})
+	return ExecuteWriteStateParamsOpts(ctx, conn, root, payload, state, paramValues, WriteOptions{Stats: collectStats, NoFastPath: true})
 }
 
 // ExecuteWriteStateParamsOpts is ExecuteWriteStateParams, additionally
@@ -279,6 +291,9 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 			return nil, err
 		}
 		payload = wrapped
+	}
+	if fastWriteEligible(root, opts) {
+		return executeFast(ctx, conn, root, ids, payload, state, nextNodeID, paramValues)
 	}
 
 	rows, nextRowID, err := denormalize(root, ids, payload, state.nextRowID)

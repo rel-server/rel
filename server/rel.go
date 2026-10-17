@@ -424,8 +424,11 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		if item.root.WriteMode == query.DELETE {
 			bufferedResult[i] = [][]byte{} // the rows are gone : the response is the empty selection
 		}
+		if result.Rows != nil {
+			bufferedResult[i] = result.Rows // the write built its own response (fast path)
+		}
 		if item.rollback {
-			if item.returns != "none" {
+			if item.returns != "none" && bufferedResult[i] == nil {
 				rows, berr := bufferReadback(ctx, conn, item.root, nodeIDs[i], item.paramValues)
 				if berr != nil {
 					_, _ = conn.Exec(ctx, "rollback")
@@ -457,7 +460,8 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	for i, item := range resolved {
 		// returns=="none" on a write skips compiling/running the read-back
 		// SELECT entirely (specs/complex-query.md ## Response shape).
-		skipReadback := item.isWrite && (item.returns == "none" || item.root.WriteMode == query.DELETE)
+		skipReadback := item.isWrite && (item.returns == "none" || item.root.WriteMode == query.DELETE ||
+			(writeResults[i] != nil && writeResults[i].Rows != nil))
 
 		if !skipReadback {
 			var sw *writer.SQLWriter

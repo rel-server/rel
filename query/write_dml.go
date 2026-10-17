@@ -59,6 +59,10 @@ type dmlCompiler struct {
 	batcher Batcher
 	queue   []queuedStmt
 
+	// fast, when set, makes run* write straight from the request's JSON and answer from
+	// the write statement's own RETURNING rows, without "_data" (query/write_fast.go).
+	fast *fastWrite
+
 	// nextRowID is the first free "_data" __row_id ; runUpdateWhere allocates
 	// one row per row it updates, past the ids denormalize used.
 	nextRowID int
@@ -557,7 +561,11 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 	}
 	w.Unindent()
 	w.Write("\n")
-	w.Write("from _data tmp\n")
+	if dc.fast != nil {
+		w.Write("from tmp\n") // the CTE built from the request's JSON
+	} else {
+		w.Write("from _data tmp\n")
+	}
 	w.Write("join lateral jsonb_populate_record(null::")
 	w.Write(relID)
 	w.Write(", tmp.data) as obj on true\n")
@@ -716,7 +724,9 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	// and the INSERT column list, or a member absent from cols is a flat SQL error (or a discarded, mismatched sequence value).
 	cols = withKeysColumns(node, cols)
 	w := writer.NewSQL()
-	w.Write("with ")
+	if err := dc.writeWith(w, node); err != nil {
+		return err
+	}
 	if err := dc.writeResolvedCTE(w, node, cols); err != nil {
 		return err
 	}
@@ -741,8 +751,15 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 		w.Write("resolved.")
 		w.Id(columnPathFlatName(cp))
 	}
-	w.Write(" from resolved\n")
+	w.Write(" from resolved")
+	if dc.fast != nil {
+		w.Write(" order by resolved.__row_id") // RETURNING comes back in insertion order
+	}
+	w.Write("\n")
 	identCols := identityColumns(node)
+	if dc.fast != nil {
+		w.Write("returning *\n")
+	}
 	if doNothing {
 		w.Write("on conflict (")
 		for i, col := range identCols {
@@ -763,6 +780,9 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	}
 	w.Unindent()
 	w.Write(")\n")
+	if dc.fast != nil {
+		return dc.finishFast(ctx, node, w, "ins")
+	}
 	writeInsertDataUpdate(w, node, identCols, doNothing)
 
 	args, err := dc.args(w)
@@ -843,7 +863,9 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	}
 
 	w := writer.NewSQL()
-	w.Write("with ")
+	if err := dc.writeWith(w, node); err != nil {
+		return err
+	}
 	if err := dc.writeResolvedCTE(w, node, dedupeColumnPaths(cols, wrapColumns(node, identCols))); err != nil {
 		return err
 	}
@@ -868,8 +890,13 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 		// Nothing to change (select holds only identity columns, e.g. a parent
 		// kept in place for its nested children) : read the row's keys instead.
 		w.Write("select resolved.__row_id, ")
-		writeKeysObject(w, node, "t")
-		w.Write(" as keys from resolved join ")
+		if dc.fast != nil {
+			w.Write("t.*")
+		} else {
+			writeKeysObject(w, node, "t")
+			w.Write(" as keys")
+		}
+		w.Write(" from resolved join ")
 		w.Write(node.Relation.Identifier.EscapedString())
 		w.Write(" t on ")
 		writeIdentMatch()
@@ -894,11 +921,18 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 		// Keys read off "t" (post-update row via RETURNING), unlike runInsert :
 		// no need to force keysColumns' extras into the SET list here.
 		w.Write("returning resolved.__row_id, ")
-		writeKeysObject(w, node, "t")
-		w.Write(" as keys")
+		if dc.fast != nil {
+			w.Write("t.*")
+		} else {
+			writeKeysObject(w, node, "t")
+			w.Write(" as keys")
+		}
 	}
 	w.Unindent()
 	w.Write("\n)\n")
+	if dc.fast != nil {
+		return dc.finishFast(ctx, node, w, "dml")
+	}
 	// Folded into "dml" itself (like runUpsert), not a separate per-row Go
 	// round trip : keeps this EXPLAIN-ANALYZE-safe for query_plan, since
 	// nothing downstream needs RETURNING back in Go (specs/complex-query.md
@@ -956,7 +990,9 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	updateCols = excludeColumnPaths(updateCols, exclude)
 
 	w := writer.NewSQL()
-	w.Write("with ")
+	if err := dc.writeWith(w, node); err != nil {
+		return err
+	}
 	if err := dc.writeResolvedCTE(w, node, insertCols); err != nil {
 		return err
 	}
@@ -981,7 +1017,11 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		w.Write("resolved.")
 		w.Id(columnPathFlatName(cp))
 	}
-	w.Write(" from resolved\n")
+	w.Write(" from resolved")
+	if dc.fast != nil {
+		w.Write(" order by resolved.__row_id")
+	}
+	w.Write("\n")
 	w.Write("on conflict (")
 	for i, col := range identCols {
 		if i > 0 {
@@ -1030,6 +1070,12 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		}
 	}
 	w.Write("\n")
+	if dc.fast != nil {
+		w.Write("returning *")
+		w.Unindent()
+		w.Write("\n)\n")
+		return dc.finishFast(ctx, node, w, "dml")
+	}
 	w.Write("returning ")
 	for i, col := range keysColumns(node) {
 		if i > 0 {
@@ -1344,6 +1390,9 @@ func (dc *dmlCompiler) runDeleteWhere(ctx context.Context, node *QueryNode) erro
 // columns the patch names. Each updated row's keys land in a fresh "_data" row,
 // which is what the read-back scopes by (like any other write).
 func (dc *dmlCompiler) runUpdateWhere(ctx context.Context, node *QueryNode) error {
+	if dc.fast != nil {
+		return dc.runUpdateWhereFast(ctx, node)
+	}
 	var present map[string]json.RawMessage
 	if err := dc.flush(ctx); err != nil { // the patch row is loaded by a queued statement
 		return err

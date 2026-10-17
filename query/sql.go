@@ -45,6 +45,13 @@ type sqlCompiler struct {
 	// filter cast the text projection back to its real type, for a subselect that
 	// must keep the text cast because it also feeds JSON output.
 	castBackAggs bool
+
+	// fromCTE, when set, makes the root node read from that CTE instead of its
+	// table : the response of a write built from the write statement's own
+	// RETURNING rows (query/write_fast.go). orderByRowID adds the CTE's
+	// __row_id as the default order, like the "_data" scope does.
+	fromCTE      string
+	orderByRowID bool
 }
 
 func newSQLCompiler() *sqlCompiler {
@@ -262,6 +269,10 @@ func (c *sqlCompiler) compileFrom(node *QueryNode, alias string) error {
 	if node.Relation == nil {
 		return oops.With("node", node.InnerName).Errorf("sql: node has no relation to select from")
 	}
+	if c.fromCTE != "" && node.Parent == nil {
+		c.w.Write(c.fromCTE).Write(" ").Write(alias)
+		return nil
+	}
 	c.w.Write(node.Relation.Identifier.EscapedString()).Write(" ").Write(alias)
 	if c.dataScopeRoot != nil && node == c.dataScopeRoot {
 		c.w.Write(" inner join _data ")
@@ -336,6 +347,11 @@ func (c *sqlCompiler) compileOrderBy(node *QueryNode) error {
 			// no order_by of its own ; an explicit one is left untouched.
 			c.w.Write(" order by ")
 			c.w.Write(c.dataScopeAlias)
+			c.w.Write(".__row_id")
+		}
+		if c.orderByRowID && node.Parent == nil {
+			c.w.Write(" order by ")
+			c.w.Write(c.alias[node])
 			c.w.Write(".__row_id")
 		}
 		return nil
