@@ -43,12 +43,24 @@ import (
 // calling os.Exit, so callers (the main.go wrapper, or a benchmark's setup)
 // can decide how to handle failure themselves.
 func Run(ctx context.Context, pool *pgxpool.Pool, seedValue int64) error {
+	return RunScaled(ctx, pool, seedValue, 1)
+}
+
+// RunScaled is Run with the volume multiplied by scale (>= 1): properties,
+// rooms, guests and bookings all grow linearly, so rooms-per-booking density
+// (and thus the no-overlap booking pass) stays the same as at scale 1. The
+// named fixture rows exist once whatever the scale. Rows go in one statement
+// at a time, so large scales take a while: expect minutes at scale 1000.
+func RunScaled(ctx context.Context, pool *pgxpool.Pool, seedValue int64, scale int) error {
+	if scale < 1 {
+		return oops.Errorf("seed scale must be >= 1, got %d", scale)
+	}
 	if err := gofakeit.Seed(seedValue); err != nil {
 		return oops.Wrapf(err, "gofakeit.Seed")
 	}
 	rng := rand.New(rand.NewSource(seedValue))
 
-	s := &seeder{ctx: ctx, pool: pool, rng: rng}
+	s := &seeder{ctx: ctx, pool: pool, rng: rng, scale: scale}
 	s.run()
 	return nil
 }
@@ -57,6 +69,8 @@ type seeder struct {
 	ctx  context.Context
 	pool *pgxpool.Pool
 	rng  *rand.Rand
+
+	scale int // volume multiplier, see RunScaled
 
 	loyaltyTierIDs []int64
 	amenityIDs     []int64
@@ -178,7 +192,7 @@ func (s *seeder) seedChains() {
 }
 
 func (s *seeder) seedProperties() {
-	const propertiesPerChain = 4
+	propertiesPerChain := 4 * s.scale
 	for _, chainID := range s.chainIDs {
 		for i := 0; i < propertiesPerChain; i++ {
 			city := gofakeit.City()
@@ -277,7 +291,7 @@ func (s *seeder) seedPropertyAmenities() {
 // ---- guests, payment methods -------------------------------------------------
 
 func (s *seeder) seedGuests() {
-	const count = 200
+	count := 200 * s.scale
 	for i := 0; i < count; i++ {
 		first, last := gofakeit.FirstName(), gofakeit.LastName()
 		email := gofakeit.Email()
@@ -342,7 +356,7 @@ func (s *seeder) seedBookings() {
 		}
 	}
 
-	const count = 500
+	count := 500 * s.scale
 	for i := 0; i < count; i++ {
 		r := &s.rooms[s.rng.Intn(len(s.rooms))]
 		guestID := bookableGuests[s.rng.Intn(len(bookableGuests))]

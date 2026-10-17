@@ -18,13 +18,14 @@
 // benchmarks/internal/inprocess) instead of being duplicated here. This file is just a thin
 // CLI wrapper around seed.Run.
 //
-// Usage : go run ./test/seed <postgres-uri>  (or set DATABASE_URL)
+// Usage : go run ./test/seed <postgres-uri> [scale]  (or set DATABASE_URL ; scale defaults to 1, see seed.RunScaled)
 package main
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/rel-server/rel/test/seed/seed"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -44,12 +45,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	scale := 1
+	if len(os.Args) > 2 {
+		n, err := strconv.Atoi(os.Args[2])
+		must(err)
+		scale = n
+	}
+
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, uri)
 	must(err)
 	defer pool.Close()
 
-	must(seed.Run(ctx, pool, fixedSeed))
+	must(seed.RunScaled(ctx, pool, fixedSeed, scale))
 
 	fmt.Println("seed complete")
 }
