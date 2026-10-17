@@ -358,6 +358,19 @@ export type FunctionIdentifier = string | { schema: string; name: string }
  RelationQuery<...>` (querier.ts) : a `const` type parameter infers `readonly` from `as const`/readonly-typed
  inputs, which a mutable array/tuple type here would then reject.
  */
+/** The options of an `"agg"` expression, each optional. */
+export interface AggOptions<K extends string = string> {
+  /** Only the rows this condition holds for are aggregated (SQL's `filter (where ...)`). */
+  filter?: Expression<K>
+  /** `count(distinct x)` : aggregate each distinct combination of the arguments once. */
+  distinct?: boolean
+  /** `array_agg(x order by y)` : the order rows are fed to the aggregate. With `distinct`, every term must also be an argument. */
+  order_by?: readonly (
+    | Expression<K>
+    | readonly ["asc" | "desc" | "asc-nulls-first" | "desc-nulls-last", Expression<K>]
+  )[]
+}
+
 export type Expression<K extends string = string> =
   | null
   | true
@@ -408,13 +421,15 @@ export type Expression<K extends string = string> =
   | readonly ["format", format: string, ...Expression<K>[]]
 
   /** Aggregate an incoming relation's expression, callable only from the parent relation ; the optional last
-  expression filters. `identifier` is a FunctionIdentifier, not an Expression, so allowlisting (query-engine.md
-  ## Scoping) can check a static, schema-qualified name at compile time. */
+  operand is an options object (`AggOptions`). `identifier` is a FunctionIdentifier, not an Expression, so
+  allowlisting (query-engine.md ## Scoping) can check a static, schema-qualified name at compile time. An
+  overloaded aggregate (`sum`, `min`, ...) is fine : Postgres picks the overload from the argument types, so pin a
+  literal's type with `["::", value, "numeric"]` when it has none. */
   | readonly [
       "agg" | "aggregate",
       identifier: FunctionIdentifier,
       arguments: readonly Expression<K>[],
-      filter?: Expression<K>,
+      options?: AggOptions<K>,
     ]
   /** A function call ; `identifier` must be allowed — same static-name constraint as "agg" above. */
   | readonly ["call", identifier: FunctionIdentifier, ...arguments: Expression<K>[]]

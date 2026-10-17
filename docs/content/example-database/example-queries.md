@@ -105,13 +105,13 @@ curl http://localhost:8080/rel \
     "select": {
       "name": ["col", "name"],
       "room_type_count": ["agg", "count", [[".", "room_types", "id"]]],
-      "budget_type_count": ["agg", "count", [[".", "room_types", "id"]], ["<", [".", "room_types", "base_price"], 150]]
+      "budget_type_count": ["agg", "count", [[".", "room_types", "id"]], { "filter": ["<", [".", "room_types", "base_price"], 150] }]
     }
   }'
 ```
 
 `agg` only works over a joined **incoming** relation — `room_types.property_id` points at
-`properties.id`, so `room_types` qualifies. `budget_type_count`'s fourth argument filters which
+`properties.id`, so `room_types` qualifies. `budget_type_count`'s `filter` option decides which
 rows get counted, independent of the query's own (absent) `where`. See
 [Aggregates](../query-language/aggregates.md).
 

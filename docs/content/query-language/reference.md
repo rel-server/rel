@@ -130,7 +130,7 @@ take.
 | `["concat_ws", separator, ...Expression[]]` | Join strings with a separator. | [Operators reference](operators.md). |
 | `["coalesce", ...Expression[]]` | First non-null operand. | [Operators reference](operators.md). |
 | `["format", format: string, ...Expression[]]` | `printf`-style string building. | [Operators reference](operators.md). |
-| <code>["agg"&#124;"aggregate", identifier, arguments, filter?]</code> | Aggregate an incoming relation's column. | [Aggregates](aggregates.md). |
+| <code>["agg"&#124;"aggregate", identifier, arguments, options?]</code> | Aggregate an incoming relation's column. | [Aggregates](aggregates.md). |
 | `["call", identifier, ...arguments]` | Call an allowed function explicitly — needed for a cross-schema computed field, or any other function call. | [Computed fields](computed-fields.md). |
 | `{[name]: Expression}` | An object literal — a select shape. | [Selecting fields](selecting.md). |
 | `["*"]` / `["*~"]` | All columns plus joins / all columns, no joins. | [Selecting fields](selecting.md). |
