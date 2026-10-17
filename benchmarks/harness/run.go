@@ -33,12 +33,21 @@ type Profile struct {
 	Clients      []int // reads
 	WriteClients []int
 	WriteOps     int
+	// Sample reads docker stats around each measurement (each sample takes
+	// about a second, so quick skips it).
+	Sample bool
+	// ResetPerRun recreates the database and restarts the server before every
+	// write measurement. Without it, all write scenarios share one database per
+	// server, and only the first WriteClients entry is used (the state checks
+	// count rows from a clean start).
+	ResetPerRun bool
 }
 
 // Profiles are selectable with -profile.
 var Profiles = map[string]Profile{
-	"quick": {"quick", 2 * time.Second, 5 * time.Second, 1, []int{1, 8}, []int{1, 8}, 200},
-	"full":  {"full", 5 * time.Second, 15 * time.Second, 3, []int{1, 8, 32, 64}, []int{1, 8, 32}, 2000},
+	// quick : indicative numbers in under two minutes for the four servers
+	"quick": {"quick", 200 * time.Millisecond, 700 * time.Millisecond, 1, []int{8}, []int{8}, 60, false, false},
+	"full":  {"full", 5 * time.Second, 15 * time.Second, 3, []int{1, 8, 32, 64}, []int{1, 8, 32}, 2000, true, true},
 }
 
 // Config is everything one benchmark run needs.
@@ -180,6 +189,14 @@ func benchServer(ctx context.Context, cfg Config, size string, srv Server, sr *S
 			}
 			continue
 		}
+		if !cfg.Profile.ResetPerRun {
+			lvl, err := measureWriteInPlace(ctx, cfg, srv, sc, impl, c, env)
+			if err != nil {
+				return err
+			}
+			cell.Levels = append(cell.Levels, lvl)
+			continue
+		}
 		// write scenario : fresh database for every (clients, repeat)
 		for _, clients := range cfg.Profile.WriteClients {
 			lvl, err := measureWrite(ctx, cfg, size, srv, sc, impl, clients)
@@ -205,9 +222,15 @@ func measure(ctx context.Context, c *Client, env *Env, impl Impl, srv Server, p 
 	}
 	var runs []Level
 	for range p.Repeats {
-		smp := StartSampler(srv)
+		var smp *Sampler
+		if p.Sample {
+			smp = StartSampler(srv)
+		}
 		r := RunLoad(ctx, c, env, impl, &nextN, spec)
-		lvl := Level{LoadResult: r, Resources: smp.Stop()}
+		lvl := Level{LoadResult: r}
+		if smp != nil {
+			lvl.Resources = smp.Stop()
+		}
 		if after != nil {
 			if err := after(int(r.Ops)); err != nil {
 				lvl.CheckError = err.Error()
@@ -371,4 +394,25 @@ func prepareFor(ctx context.Context, st *Stack, sc Scenario, ops int, env *Env) 
 	}
 	*env = *fresh
 	return nil
+}
+
+// measureWriteInPlace runs a write scenario on the database the server is
+// already using (see Profile.ResetPerRun), with the first write client count only.
+func measureWriteInPlace(ctx context.Context, cfg Config, srv Server, sc Scenario, impl Impl, c *Client, env *Env) (Level, error) {
+	db, err := cfg.Stack.Pool(ctx, BenchDB)
+	if err != nil {
+		return Level{}, err
+	}
+	defer db.Close()
+	if sc.Prepare != nil {
+		if err := sc.Prepare(ctx, db, cfg.Profile.WriteOps); err != nil {
+			return Level{}, err
+		}
+		fresh, err := LoadEnv(ctx, db, env.Size)
+		if err != nil {
+			return Level{}, err
+		}
+		*env = *fresh
+	}
+	return measure(ctx, c, env, impl, srv, cfg.Profile, cfg.Profile.WriteClients[0], func(ok int) error { return sc.Check(ctx, db, ok) }), nil
 }

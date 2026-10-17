@@ -90,9 +90,13 @@ func Markdown(r *Result, stack *Stack) string {
 					continue
 				}
 				for _, l := range cell.Levels {
-					fmt.Fprintf(&b, "| %s | %s | %d | %.0f | %.0f–%.0f | %s | %s | %s | %d | %.0f | %.0f | %.0f | %.0f | %.1f |\n",
+					cpu, dbCPU, mem := "–", "–", "–" // not sampled
+					if l.Resources.Samples > 0 {
+						cpu, dbCPU, mem = fmt.Sprintf("%.0f", l.Resources.ServerCPU), fmt.Sprintf("%.0f", l.Resources.DBCPU), fmt.Sprintf("%.0f", l.Resources.ServerMemMB)
+					}
+					fmt.Fprintf(&b, "| %s | %s | %d | %.0f | %.0f–%.0f | %s | %s | %s | %d | %s | %s | %s | %.0f | %.1f |\n",
 						srv, support, l.Clients, l.RPS, l.RPSMin, l.RPSMax, ms(l.P50), ms(l.P95), ms(l.P99), l.Errors,
-						l.Resources.ServerCPU, l.Resources.DBCPU, l.Resources.ServerMemMB, l.BytesPerOp, l.TripsPerOp)
+						cpu, dbCPU, mem, l.BytesPerOp, l.TripsPerOp)
 					if l.FirstError != "" {
 						fmt.Fprintf(&b, "| | | | first error: `%s` | | | | | | | | | | |\n", strings.ReplaceAll(l.FirstError, "|", "/"))
 					}

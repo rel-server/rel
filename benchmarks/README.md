@@ -5,7 +5,7 @@ Compares rel with PostgREST and PostGraphile (v4 and v5) on the same Postgres da
 ## Running
 
 ```sh
-just bench-quick          # small data, 1 repeat, a few minutes of measuring per server
+just bench-quick          # about 2 minutes: small data, 8 clients, ~1 s per scenario, no CPU sampling
 just bench-full           # small, medium and large data, 3 repeats ; takes hours
 go run ./benchmarks/cmd/bench -list                        # list the scenarios
 go run ./benchmarks/cmd/bench -check                       # run every scenario once per server, no timing
@@ -57,7 +57,8 @@ Each cell of the report says how a server did the work: **native** (one request)
 ## How it is measured
 
 - Closed loop: each client sends its next request when the previous answer arrives, at 1, 8, 32 and 64 clients (reads) or 1, 8 and 32 (writes). Under overload this understates tail latency, because a slow server is also sent fewer requests.
-- Reads: a warm-up (discarded), then a fixed time window. Writes: a fixed number of operations on a fresh copy of the database, with no warm-up.
+- Reads: a warm-up (discarded), then a fixed time window. Writes: a fixed number of operations, with no warm-up. The `full` profile gives every write measurement a fresh copy of the database and a restarted server; `quick` runs all of a server's write scenarios on one database, to stay fast.
+- `quick` is indicative only: 8 clients, windows under a second, one run, no variance. Use `full` for numbers you publish.
 - Reported: requests per second, p50/p95/p99 latency, errors, bytes and round trips per operation, and CPU and memory of the server and database containers, sampled with `docker stats`. With several repeats the median run by throughput is shown, with the minimum and maximum.
 - CPU pinning: the machine's cores are split between the load generator (a quarter), the database and the server under test. The split is printed in the report.
 
