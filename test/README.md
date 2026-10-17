@@ -43,7 +43,7 @@ dmut quirk found while writing this" below for how it was originally authored.
 just test      # go test ./... — every package, including the testcontainer-backed ones
 ```
 
-`query_bench` applies `test/hotel/schema.sql` itself, in its own `TestMain` — nothing to
+`benchmarks/internal/inprocess` applies `test/hotel/schema.sql` itself, in its own `TestMain` — nothing to
 run by hand first.
 
 ### Manual testing : a database that stays up

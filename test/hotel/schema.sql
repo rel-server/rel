@@ -2,7 +2,7 @@
 -- enough in relationships and Postgres types to exercise rel's query engine
 -- against something more demanding than a handful of flat tables. Applied
 -- directly via postgres.WithInitScripts, not through any migration tool —
--- query_bench/main_test.go only ever needed a schema to exist, not to
+-- benchmarks/internal/inprocess/main_test.go only ever needed a schema to exist, not to
 -- exercise a particular tool's own migration mechanics (specs/reload.md).
 
 create schema hotel;
@@ -299,7 +299,7 @@ comment on table hotel.staff is 'Property staff, self-referencing via manager_id
 
 -- ---- anonymous access ----
 
--- Lets rel itself (not query_bench, which connects directly via pg and
+-- Lets rel itself (not benchmarks/internal/inprocess, which connects directly via pg and
 -- never role-switches) serve unauthenticated requests against this schema —
 -- docs/content/getting-started.md's curl examples, and every example
 -- throughout docs/content/example-database/, run with no session at all.

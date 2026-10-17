@@ -32,7 +32,7 @@ generating hundreds of rows), but it's the only fixture that :
 - Has genuine relationship depth and volume : composite types, ranges with an exclusion
   constraint, full-text search, a self-referencing table, hundreds of rows — deep/wide
   enough to stress the query engine in ways a handful of hand-picked rows can't.
-- Is what `query_bench/`'s read-path benchmarks build on. `query/write_bench_test.go`'s
+- Is what `benchmarks/internal/inprocess/`'s read-path benchmarks build on. `query/write_bench_test.go`'s
   write-path benchmarks do NOT use this tier — they run against the flat `director`/`movie`
   fixture above, via `query/node_resolve_test.go`'s own `TestMain`.
 

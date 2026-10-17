@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package query_bench holds READ-path benchmarks (query.CompileSelect +
+// Package inprocess holds READ-path benchmarks (query.CompileSelect +
 // execution) against the hotel/booking fixture (test/hotel, test/seed/seed —
 // see test/README.md), at a realistic data volume : ~13 properties, ~195
 // rooms, 200 guests, 500 bookings, plus reviews/payments/staff.
@@ -27,8 +27,8 @@
 //
 // Run with e.g.:
 //
-//	go test ./query_bench/... -run=^$ -bench=. -benchtime=1x
-package query_bench
+//	go test ./benchmarks/internal/inprocess/... -run=^$ -bench=. -benchtime=1x
+package inprocess
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies(),
-		postgres.WithInitScripts("../test/hotel/schema.sql"))
+		postgres.WithInitScripts("../../../test/hotel/schema.sql"))
 	if err != nil {
 		panic(err)
 	}

@@ -6,7 +6,7 @@
 // exactly this kind of measurement (test/README.md's own "Why a hotel/
 // booking domain"). Run with e.g.:
 //
-//	go test ./query_bench/... -run=^$ -bench=. -benchtime=1x
+//	go test ./benchmarks/internal/inprocess/... -run=^$ -bench=. -benchtime=1x
 //
 // ## What each benchmark measures, and the two-part split
 //
@@ -73,7 +73,7 @@
 // hotel.search_properties (SETOF hotel.properties) never had this problem
 // in the first place — it reuses a real composite type (properties' own),
 // not an anonymous record — covered below (BenchmarkSelect_FullTextSearch).
-package query_bench
+package inprocess
 
 import (
 	"context"

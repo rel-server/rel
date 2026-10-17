@@ -15,7 +15,7 @@
 // Package seed holds the actual hotel/booking fixture data generation logic
 // (see test/README.md) — extracted out of test/seed/main.go (which stays a
 // thin `package main` wrapper around Run below) so it's importable from
-// other packages, notably the read-path benchmarks in query_bench, without
+// other packages, notably the read-path benchmarks in benchmarks/internal/inprocess, without
 // duplicating ~500 lines of seeding code (AGENTS.md's DRY rule).
 //
 // A fixed seed value makes every run reproducible : the volume of data is

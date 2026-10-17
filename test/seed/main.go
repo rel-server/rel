@@ -15,7 +15,7 @@
 // Seeds the test/hotel schema with fake data — see test/README.md. The
 // actual seeding logic lives in test/seed/seed (package seed), so it can
 // also be imported directly (e.g. by the read-path benchmarks in
-// query_bench) instead of being duplicated here. This file is just a thin
+// benchmarks/internal/inprocess) instead of being duplicated here. This file is just a thin
 // CLI wrapper around seed.Run.
 //
 // Usage : go run ./test/seed <postgres-uri>  (or set DATABASE_URL)
