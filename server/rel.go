@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
@@ -46,6 +47,11 @@ type resolvedItem struct {
 	// Non-nil only for a well-known READ item, reusing the statement
 	// compiled once at load time (well-known-queries.md ## Behaviour).
 	precompiledRead *writer.SQLWriter
+	// precompiledReadCBOR is the same statement for a CBOR response.
+	precompiledReadCBOR *writer.SQLWriter
+
+	// enc is non-nil when the response is CBOR (the request Accepts it) ; it turns the binary rows into CBOR.
+	enc *query.ResultEncoder
 
 	// returns/count/stats/queryPlan/sql/rollback are ComplexQuery's own
 	// response-shaping flags (specs/complex-query.md) — zero values (no
@@ -200,7 +206,7 @@ func resolveWellKnownItem(wkReg *wellknown.Registry, name string, paramsRaw []by
 	if data != nil {
 		return resolvedItem{root: wk.Root, isWrite: true, data: data, paramValues: paramValues}, nil
 	}
-	return resolvedItem{root: wk.Root, isWrite: false, paramValues: paramValues, precompiledRead: wk.Read}, nil
+	return resolvedItem{root: wk.Root, isWrite: false, paramValues: paramValues, precompiledRead: wk.Read, precompiledReadCBOR: wk.ReadCBOR}, nil
 }
 
 func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
@@ -213,6 +219,11 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// fields get captured for free.
 	rec := logging.NewResponseRecorder(w)
 	w = rec
+	w.Header().Add("Vary", "Accept") // the representation depends on it, errors included
+	format := query.FormatJSON
+	if cborenc.Accepts(r.Header.Get("Accept")) {
+		format = query.FormatCBOR
+	}
 	var role string
 	var itemCount int
 	var anyWrite bool
@@ -356,6 +367,16 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 		resolved = append(resolved, ri)
 	}
+	if format == query.FormatCBOR {
+		for i := range resolved {
+			enc, err := query.NewResultEncoder(db, resolved[i].root)
+			if err != nil {
+				writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
+				return
+			}
+			resolved[i].enc = enc
+		}
+	}
 	targets = make([]string, len(resolved))
 	for i, ri := range resolved {
 		if ri.isWrite {
@@ -436,6 +457,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			Stats:     item.stats && cfg.Pg.Query.AllowStats,
 			QueryPlan: item.queryPlan && cfg.Pg.Query.AllowQueryPlan,
 			Sql:       item.sql && cfg.Pg.Query.AllowSql,
+			Format:    format,
 		}
 		result, err := query.ExecuteWriteNode(ctx, loggingQuerier{inner: conn}, item.root, item.data, state, item.paramValues, opts)
 		if err != nil {
@@ -453,7 +475,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 		if item.rollback {
 			if item.returns != "none" && bufferedResult[i] == nil {
-				rows, berr := bufferReadback(ctx, conn, item.root, nodeIDs[i], item.paramValues)
+				rows, berr := bufferReadback(ctx, conn, item.root, nodeIDs[i], item.paramValues, format)
 				if berr != nil {
 					_, _ = conn.Exec(ctx, "rollback")
 					writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: buffering read-back before rollback: %w", i, berr)), cfg.Dev)
@@ -492,11 +514,14 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			var cerr error
 			switch {
 			case item.isWrite:
-				sw, cerr = query.CompileSelectForDataNode(item.root, nodeIDs[i])
+				sw, cerr = query.CompileSelectForDataNodeFormat(item.root, nodeIDs[i], format)
 			case item.precompiledRead != nil:
 				sw = item.precompiledRead
+				if format == query.FormatCBOR {
+					sw = item.precompiledReadCBOR
+				}
 			default:
-				sw, cerr = query.CompileSelect(item.root)
+				sw, cerr = query.CompileSelectFormat(item.root, format)
 			}
 			if cerr != nil {
 				writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: compiling response: %w", i, cerr)), cfg.Dev)
@@ -563,13 +588,20 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	multi := len(resolved) > 1
-	if multi {
-		_, _ = w.Write([]byte("["))
+	if format == query.FormatCBOR {
+		w.Header().Set("Content-Type", cborenc.MediaType)
+		if multi {
+			_, _ = w.Write(cborenc.AppendArrayHead(nil, len(resolved)))
+		}
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		if multi {
+			_, _ = w.Write([]byte("["))
+		}
 	}
 	for i, item := range resolved {
-		if multi && i > 0 {
+		if multi && i > 0 && format == query.FormatJSON {
 			_, _ = w.Write([]byte(","))
 		}
 		if err := writeItemResponse(ctx, w, conn, &item, statements[i], args[i], envelopes[i], bufferedResult[i], multi, i); err != nil {
@@ -591,7 +623,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		logging.FromContext(ctx).With("module", "server").Error("commit failed after streaming had already started", "error", err.Error())
 		return
 	}
-	if multi {
+	if multi && format == query.FormatJSON {
 		_, _ = w.Write([]byte("]"))
 	}
 }
@@ -615,9 +647,9 @@ func writeItemResponse(ctx context.Context, w http.ResponseWriter, conn *pgxpool
 
 	if !item.usesEnvelope() {
 		if buffered != nil {
-			return writeBufferedRows(w, buffered)
+			return item.writeBuffered(w, buffered)
 		}
-		return streamItem(ctx, w, conn, item.root, sw, args, cleanErrorPossible)
+		return streamItem(ctx, w, conn, item, sw, args, cleanErrorPossible)
 	}
 
 	// A read's "returns": "none" still executes (a side-effecting function/
@@ -630,12 +662,24 @@ func writeItemResponse(ctx context.Context, w http.ResponseWriter, conn *pgxpool
 	}
 
 	// Past this point, "{" is about to be written — no clean fallback survives it.
-	return writeEnvelope(w, item, env, func(rw io.Writer) error {
+	envelope := writeEnvelope
+	if item.enc != nil {
+		envelope = writeEnvelopeCBOR
+	}
+	return envelope(w, item, env, func(rw io.Writer) error {
 		if buffered != nil {
-			return writeBufferedRows(rw, buffered)
+			return item.writeBuffered(rw, buffered)
 		}
-		return streamItem(ctx, rw, conn, item.root, sw, args, false)
+		return streamItem(ctx, rw, conn, item, sw, args, false)
 	})
+}
+
+// writeBuffered writes rows kept aside for a rolled-back write, in the item's format.
+func (ri *resolvedItem) writeBuffered(w io.Writer, rows [][]byte) error {
+	if ri.enc != nil {
+		return writeBufferedRowsCBOR(w, rows, ri.enc)
+	}
+	return writeBufferedRows(w, rows)
 }
 
 // writeBufferedRows writes rows (captured by bufferReadback) as the same
@@ -683,9 +727,10 @@ func executeDiscard(ctx context.Context, conn *pgxpool.Conn, sw *writer.SQLWrite
 
 // streamItem runs sw and streams the result : a bare scalar for a scalar
 // function root, a JSON array otherwise (## Response Shape).
-func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, root *query.QueryNode, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
+func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, item *resolvedItem, sw *writer.SQLWriter, args []any, cleanErrorPossible bool) error {
+	root := item.root
 	logging.FromContext(ctx).Debug("executing read", "sql", sw.String(), "args", args)
-	rows, err := conn.Query(ctx, sw.String(), args...)
+	rows, err := conn.Query(ctx, sw.String(), item.queryArgs(args)...)
 	if err != nil {
 		if cleanErrorPossible {
 			return &cleanStreamError{err}
@@ -693,6 +738,13 @@ func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, root *quer
 		return err
 	}
 	defer rows.Close()
+
+	if item.enc != nil {
+		if root.IsFunction() && !root.Function.ReturnsSet {
+			return writeScalarCBOR(w, rows, item.enc)
+		}
+		return streamRowsCBOR(w, rows, item.enc, cleanErrorPossible)
+	}
 
 	if root.IsFunction() && !root.Function.ReturnsSet {
 		hasRow := rows.Next()

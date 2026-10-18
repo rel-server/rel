@@ -67,14 +67,17 @@ var emptyPath = []string{}
 // and this item's own temp rows the read-back would otherwise join
 // against. A write is never function-rooted (findUnwritableNode rejects
 // it), so root.IsFunction()'s scalar special case never applies here.
-func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, nodeID int, paramValues map[string]any) ([][]byte, error) {
-	sw, err := query.CompileSelectForDataNode(root, nodeID)
+func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, nodeID int, paramValues map[string]any, format query.OutputFormat) ([][]byte, error) {
+	sw, err := query.CompileSelectForDataNodeFormat(root, nodeID, format)
 	if err != nil {
 		return nil, fmt.Errorf("compiling read-back: %w", err)
 	}
 	args, err := sw.ResolveArgs(paramValues)
 	if err != nil {
 		return nil, fmt.Errorf("resolving read-back params: %w", err)
+	}
+	if format == query.FormatCBOR {
+		args = withBinaryResults(args)
 	}
 	rows, err := conn.Query(ctx, sw.String(), args...)
 	if err != nil {
@@ -83,6 +86,10 @@ func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNo
 	defer rows.Close()
 	var out [][]byte
 	for rows.Next() {
+		if format == query.FormatCBOR { // binary records, read later by the result encoder
+			out = append(out, copyRaw(rows))
+			continue
+		}
 		var raw []byte
 		if err := rows.Scan(&raw); err != nil {
 			return nil, fmt.Errorf("scanning read-back row: %w", err)

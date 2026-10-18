@@ -5,10 +5,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 )
 
@@ -118,5 +120,177 @@ func TestRelHandler_CBORRequestErrors(t *testing.T) {
 	rec := postRel(t, "{nope")
 	if got := errcode.Code(rec.Header().Get(errcode.Header)); got != errcode.QueryMalformedJSON {
 		t.Errorf("JSON : X-Rel-Errorcode = %q", got)
+	}
+}
+
+func postAccepting(t *testing.T, handler http.Handler, body, accept string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/rel", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func decodeCBOR[T any](t *testing.T, data []byte) T {
+	t.Helper()
+	var v T
+	dm, err := cbor.DecOptions{DefaultMapType: reflect.TypeOf(map[string]any{})}.DecMode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dm.Unmarshal(data, &v); err != nil {
+		t.Fatalf("not CBOR (%v) : %x", err, data)
+	}
+	return v
+}
+
+func TestRelHandler_AcceptCBOR(t *testing.T) {
+	if _, err := testDb.Pool.Exec(context.Background(), `insert into director (name) values ('Accept Director')`); err != nil {
+		t.Fatal(err)
+	}
+	read := `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], "Accept Director"]}`
+
+	for accept, wantCBOR := range map[string]bool{
+		"": false, "*/*": false, "application/json": false, "application/cbor": true, "application/cbor, application/json;q=0.5": true,
+		"application/json, application/cbor;q=0.5": false, "text/html, application/cbor": true, "application/cbor;q=0": false,
+	} {
+		rec := postAccepting(t, testHandler, read, accept)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%q : status %d : %s", accept, rec.Code, rec.Body.String())
+		}
+		if got := rec.Header().Get("Vary"); got != "Accept" {
+			t.Errorf("%q : Vary = %q", accept, got)
+		}
+		ct := rec.Header().Get("Content-Type")
+		var rows []map[string]any
+		if wantCBOR {
+			if ct != "application/cbor" {
+				t.Errorf("%q : Content-Type = %q", accept, ct)
+			}
+			rows = decodeCBOR[[]map[string]any](t, rec.Body.Bytes())
+		} else {
+			if ct != "application/json" {
+				t.Errorf("%q : Content-Type = %q", accept, ct)
+			}
+			rows = decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+		}
+		if len(rows) != 1 || rows[0]["name"] != "Accept Director" {
+			t.Errorf("%q : rows = %v", accept, rows)
+		}
+	}
+
+	// errors stay JSON whatever is accepted
+	rec := postAccepting(t, testHandler, `{"relation": "nope", "schema": "public", "select": ["*~"]}`, "application/cbor")
+	if rec.Code == http.StatusOK || rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("error answered with %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+
+	// no rows : an empty array
+	rec = postAccepting(t, testHandler, `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "id"], -1]}`, "application/cbor")
+	if rows := decodeCBOR[[]any](t, rec.Body.Bytes()); len(rows) != 0 || !bytes.Equal(rec.Body.Bytes(), []byte{0x80}) {
+		t.Errorf("empty = %x", rec.Body.Bytes())
+	}
+}
+
+func TestRelHandler_AcceptCBOR_ShapesAndTypes(t *testing.T) {
+	// nested joins, typed columns and a sequence, answered with the same content as JSON
+	if _, err := testDb.Pool.Exec(context.Background(), `insert into tz_t (id, at, plain, day) values (9201, '2023-11-14 22:13:20.5+00', '2026-10-18 14:30:00', '2026-10-18') on conflict do nothing`); err != nil {
+		t.Fatal(err)
+	}
+	body := `[
+		{"relation": "tz_t", "schema": "public", "select": ["*~"], "where": ["=", ["col", "id"], 9201]},
+		{"relation": "director", "schema": "public", "select": {"name": ["col", "name"], "movies": [".", "movies"]}, "where": ["=", ["col", "name"], "CBOR Director"],
+		 "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}}}}
+	]`
+	j := postAccepting(t, testHandler, body, "")
+	c := postAccepting(t, testHandler, body, "application/cbor")
+	if j.Code != 200 || c.Code != 200 {
+		t.Fatalf("status %d / %d : %s %s", j.Code, c.Code, j.Body.String(), c.Body.String())
+	}
+	jr := decodeJSON[[][]map[string]any](t, j.Body.Bytes())
+	cr := decodeCBOR[[][]map[string]any](t, c.Body.Bytes())
+	if len(cr) != 2 || len(cr[0]) != len(jr[0]) || len(cr[1]) != len(jr[1]) {
+		t.Fatalf("shapes differ : %s / %v", j.Body.String(), cr)
+	}
+	if cr[0][0]["id"] != uint64(9201) {
+		t.Errorf("id = %#v", cr[0][0]["id"])
+	}
+	at, ok := cr[0][0]["at"].(time.Time)
+	if !ok || at.UnixNano() != 1700000000500000000 {
+		t.Errorf("at = %#v", cr[0][0]["at"])
+	}
+	if len(cr[1]) > 0 {
+		if m := cr[1][0]["movies"].([]any); len(m) != len(jr[1][0]["movies"].([]any)) {
+			t.Errorf("movies = %v", m)
+		}
+	}
+}
+
+func TestRelHandler_AcceptCBOR_Envelope(t *testing.T) {
+	handler := complexHandler(t, func(c *config.Config) {
+		c.Pg.Query.AllowRollback, c.Pg.Query.AllowStats, c.Pg.Query.AllowCount, c.Pg.Query.AllowSql, c.Pg.Query.AllowQueryPlan = true, true, true, true, true
+	})
+	body := `{
+		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
+		"data": [{"name": "Accept Rollback Director"}],
+		"stats": true, "sql": true, "rollback": true
+	}`
+	rec := postAccepting(t, handler, body, "application/cbor")
+	if rec.Code != 200 {
+		t.Fatalf("status %d : %s", rec.Code, rec.Body.String())
+	}
+	env := decodeCBOR[map[string]any](t, rec.Body.Bytes())
+	if res, _ := env["result"].([]any); len(res) != 1 || res[0].(map[string]any)["name"] != "Accept Rollback Director" {
+		t.Errorf("result = %v", env["result"])
+	}
+	for _, k := range []string{"stats", "sql"} {
+		if _, ok := env[k].([]any); !ok {
+			t.Errorf("%s = %#v", k, env[k])
+		}
+	}
+	var n int
+	if err := testDb.Pool.QueryRow(context.Background(), `select count(*) from director where name = 'Accept Rollback Director'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("rolled back write persisted : %d (%v)", n, err)
+	}
+
+	// a read's plan is EXPLAIN's JSON, transcoded
+	rec = postAccepting(t, handler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "limit": 1}, "query_plan": true}`, "application/cbor")
+	env = decodeCBOR[map[string]any](t, rec.Body.Bytes())
+	if plans, ok := env["query_plan"].([]any); !ok || len(plans) != 1 {
+		t.Errorf("query_plan = %#v", env["query_plan"])
+	}
+
+	// a read with count, returns none
+	rec = postAccepting(t, handler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "limit": 1}, "count": true}`, "application/cbor")
+	env = decodeCBOR[map[string]any](t, rec.Body.Bytes())
+	if _, ok := env["count"].(uint64); !ok || env["limit"] != uint64(1) {
+		t.Errorf("envelope = %v", env)
+	}
+	rec = postAccepting(t, handler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"]}, "count": true, "returns": "none"}`, "application/cbor")
+	env = decodeCBOR[map[string]any](t, rec.Body.Bytes())
+	if _, has := env["result"]; has {
+		t.Errorf("returns none, got %v", env)
+	}
+}
+
+func TestRelHandler_AcceptCBOR_WriteFastPathAndWellKnown(t *testing.T) {
+	// the single-node write answers from its own binary rows
+	rec := postAccepting(t, testHandler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Accept Fast A"}, {"name": "Accept Fast B"}]}`, "application/cbor")
+	if rec.Code != 200 {
+		t.Fatalf("status %d : %s", rec.Code, rec.Body.String())
+	}
+	if rows := decodeCBOR[[]map[string]any](t, rec.Body.Bytes()); len(rows) != 2 || rows[0]["name"] != "Accept Fast A" {
+		t.Errorf("rows = %v", rows)
+	}
+
+	handler := newWellKnownRelHandler(t, map[string]string{"d.json": `{"name": "by_name", "params": {"name": {"type": "text"}},
+		"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], ["$param", "name", "text"]]}}`})
+	rec = postAccepting(t, handler, `{"wellknown": "by_name", "params": {"name": "Accept Fast B"}}`, "application/cbor")
+	if rows := decodeCBOR[[]map[string]any](t, rec.Body.Bytes()); len(rows) != 1 || rows[0]["name"] != "Accept Fast B" {
+		t.Errorf("well-known rows = %x", rec.Body.Bytes())
 	}
 }
