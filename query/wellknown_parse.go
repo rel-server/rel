@@ -90,7 +90,7 @@ func parseWellKnownDefinition(n *ast.Node) (RawWellKnownDefinition, error) {
 	if !queryNode.Exists() {
 		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: missing "query"`, name)
 	}
-	rel, err := parseRawRelation(queryNode)
+	rel, err := parseRawRelation(sonicNode{queryNode})
 	if err != nil {
 		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: "query": %w`, name, err)
 	}
