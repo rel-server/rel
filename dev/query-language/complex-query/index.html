@@ -2983,6 +2983,9 @@ what the response carries beyond the plain selection, on a read as much as a wri
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nx">rollback?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">}</span>
 </span></code></pre></div>
+<p>With <code>Accept: application/cbor</code> the same envelope is a CBOR map, <code>result</code> holding the rows as described in
+<a href="../#cbor-responses">CBOR responses</a> ; <code>stats</code>, <code>sql</code> and <code>query_plan</code> are converted from their JSON forms
+(so the numbers of a <code>query_plan</code> are decimal fractions).</p>
 <p>None of these flags change what <code>query</code> selects — they only add information alongside it, or
 change whether the selection itself is sent back at all.</p>
 <h2 id="no-flag-set-nothing-changes">No flag set : nothing changes<a class="headerlink" href="#no-flag-set-nothing-changes" title="Permanent link">&para;</a></h2>

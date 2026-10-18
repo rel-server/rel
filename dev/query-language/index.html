@@ -1536,6 +1536,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#cbor-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CBOR responses
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#in-this-section" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2664,6 +2675,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#cbor-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CBOR responses
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#in-this-section" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2796,12 +2818,95 @@
 <p>A query is one JSON object, sent as <code>POST /rel</code>. Every page in this section covers one part of
 that object — there's no separate "read" and "write" grammar; the same tree does both (see
 <a href="writing/">Writing data back</a>).</p>
+<p><code>POST /rel</code> also takes the same object as CBOR (<a href="https://www.rfc-editor.org/rfc/rfc8949">RFC 8949</a>) when the
+request's <code>Content-Type</code> is <code>application/cbor</code>. The query is the same tree, with CBOR maps, arrays, text strings,
+numbers, booleans and null in the places JSON has them, and a write's <code>data</code> can also carry the types CBOR has
+and JSON lacks (<a href="writing/#from-cbor">value forms</a>). Map keys must be text strings and appear once. A body that is not
+valid CBOR is refused with <code>QUERY_MALFORMED_CBOR</code>. The format of the request does not decide the format of the response :
+see <a href="#cbor-responses">CBOR responses</a>.</p>
 <p>Examples throughout use the hotel-booking schema from <a href="../getting-started/">Getting started</a>:
 <code>hotel.chains</code> → <code>hotel.properties</code> → <code>hotel.room_types</code> → <code>hotel.rooms</code>, and <code>hotel.guests</code> →
 <code>hotel.bookings</code> → <code>hotel.payments</code>. <a href="../example-database/reference/">Database reference</a> has the full
 diagram if you want the whole shape at a glance before diving in. <a href="reference/">Query shape
 reference</a> does the same for the query language itself — the whole thing in one
 page — before the rest of this section walks through it by example.</p>
+<h2 id="cbor-responses">CBOR responses<a class="headerlink" href="#cbor-responses" title="Permanent link">&para;</a></h2>
+<p>A response is JSON unless the request's <code>Accept</code> header prefers <code>application/cbor</code> (<code>Accept: application/cbor</code>, or
+<code>application/cbor, application/json;q=0.5</code>). <code>*/*</code>, <code>application/*</code> and no header at all are JSON. <code>GET /rel</code> and
+<code>POST /rel</code> both negotiate, and the response says <code>Vary: Accept</code>. Errors are always JSON, whatever was asked.</p>
+<p>The shape is the one the JSON response has : an array of rows (a sequence answers an array with one entry per
+item), or the <code>count</code>/<code>stats</code>/<code>sql</code>/<code>query_plan</code>/<code>result</code> map of a <a href="complex-query/">complex query</a>. What changes is
+that values keep their column types instead of being squeezed into JSON's :</p>
+<table>
+<thead>
+<tr>
+<th>Column type</th>
+<th>CBOR</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>smallint</code>, <code>integer</code>, <code>bigint</code>, <code>oid</code></td>
+<td>integer</td>
+</tr>
+<tr>
+<td><code>real</code>, <code>double precision</code></td>
+<td>float (a <code>real</code> stays a single)</td>
+</tr>
+<tr>
+<td><code>numeric</code></td>
+<td>tag 4 decimal fraction <code>[exponent, mantissa]</code>, keeping its scale (<code>1.50</code> is <code>[-2, 150]</code>) ; a bignum mantissa when it is large. <code>NaN</code> and the infinities are floats</td>
+</tr>
+<tr>
+<td><code>timestamptz</code></td>
+<td>tag 1 : integer seconds, or a float of seconds when there is a fraction</td>
+</tr>
+<tr>
+<td><code>timestamp</code></td>
+<td>text, ISO 8601 without an offset (<code>2026-10-18T14:30:00.123456</code>) : it is a wall-clock reading, not an instant</td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td>tag 100 : days since 1970-01-01</td>
+</tr>
+<tr>
+<td><code>infinity</code>, <code>-infinity</code> (<code>date</code>, <code>timestamp</code>, <code>timestamptz</code>)</td>
+<td>the text <code>"infinity"</code> / <code>"-infinity"</code></td>
+</tr>
+<tr>
+<td><code>uuid</code></td>
+<td>tag 37</td>
+</tr>
+<tr>
+<td><code>bytea</code></td>
+<td>byte string (JSON gives <code>\x...</code> text)</td>
+</tr>
+<tr>
+<td><code>boolean</code>, <code>text</code>, <code>varchar</code>, <code>char</code>, enums</td>
+<td>boolean, text</td>
+</tr>
+<tr>
+<td><code>json</code>, <code>jsonb</code></td>
+<td>the same value as CBOR (numbers as in <code>numeric</code>)</td>
+</tr>
+<tr>
+<td>arrays, composite types</td>
+<td>arrays, maps</td>
+</tr>
+<tr>
+<td>domains</td>
+<td>their base type</td>
+</tr>
+<tr>
+<td>anything else (<code>interval</code>, <code>inet</code>, ranges, geometry...)</td>
+<td>what the JSON response gives for it</td>
+</tr>
+</tbody>
+</table>
+<p>Rows stream as they are read, like the JSON ones. If the query fails before the first row the answer is a JSON error ;
+after it, the body just stops.</p>
+<p>A <a href="well-known-queries/">well-known query</a> and a <a href="../http/requests-responses/#response-format">route</a> are negotiated
+the same way.</p>
 <h2 id="in-this-section">In this section<a class="headerlink" href="#in-this-section" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><a href="reference/">Query shape reference</a></strong> — every field and every <code>Expression</code> form, in one

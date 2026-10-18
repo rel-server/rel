@@ -2157,6 +2157,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#response-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Response format
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#httprequest" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2741,6 +2752,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#response-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Response format
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#httprequest" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2927,7 +2949,11 @@ never be declared there, from either source.</p>
 <code>text/plain</code>, <code>json</code>/<code>jsonb</code> → <code>application/json</code>, <code>bytea</code> → <code>application/octet-stream</code>, and a
 domain whose name contains <code>/</code> (over <code>bytea</code> or <code>text</code>) → that name as <code>Content-Type</code> — see
 <a href="../static-files/#returning-binary-or-text-content-directly">Static files ## Returning binary or text content
-directly</a>.</p>
+directly</a>. Any other type that has a value
+(<code>integer</code>, <code>numeric</code>, <code>timestamptz</code>, an array, an enum, a composite type...) is also allowed : it replies
+<code>application/json</code>, being its <code>to_jsonb</code> form, or CBOR as described in <a href="#response-format">Response format</a>. Only
+<code>void</code>, <code>record</code>, the polymorphic types and <code>setof</code> returns are refused. The <code>content</code> column of a full-control
+function may have any such type too.</p>
 <p>For control over the response itself — status, cookies, <code>jwt</code>, a template, deferring to a
 static file — declare two trailing <code>OUT</code> columns instead: <code>..., OUT resp JSON/JSONB, OUT
 content &lt;type&gt;) returns record</code>. <code>resp</code> receives <code>HttpResponse</code> (below); <code>content</code> behaves
@@ -2956,6 +2982,23 @@ function.</p>
 falls back to its own default (<code>status</code> defaults to <code>200</code>, no cookies/<code>jwt</code>/<code>template</code> are
 touched). <code>content</code> is the second <code>OUT</code> column, sent as the body the same way a plain-return
 function's value would be — here <code>application/json</code>, since it's <code>jsonb</code>.</p>
+<h2 id="response-format">Response format<a class="headerlink" href="#response-format" title="Permanent link">&para;</a></h2>
+<p>A body whose <code>Content-Type</code> is <code>application/json</code> is answered as <code>application/cbor</code> when the request's <code>Accept</code>
+prefers it (<code>Accept: application/cbor</code>; <code>*/*</code> and no header stay JSON). The route's <code>Vary: Accept</code> header says so.</p>
+<ul>
+<li>A function returning <code>json</code>/<code>jsonb</code> : the JSON is converted as it is, number by number from its text : an integer
+  is a CBOR integer (a bignum when large), a number with a fraction or exponent is a decimal fraction (tag 4) that
+  keeps its digits, <code>1.50</code> being <code>[-2, 150]</code>. Strings stay strings : the JSON holds no information to type them
+  by.</li>
+<li>A function returning any other type (<code>timestamptz</code>, <code>numeric</code>, <code>bytea</code>, a composite...) : the value itself is
+  encoded with the types of its columns, as a <a href="../../query-language/#cbor-responses">query result</a> is. A
+  type with no CBOR form (<code>interval</code>, <code>inet</code>...) gives what its JSON would. Returning the typed value is both
+  cheaper and richer than building a <code>jsonb</code> by hand.</li>
+<li>A full-control function : <code>status</code>, headers and cookies are as usual and only the content is converted. Its content
+  is converted from JSON even when it has a native type.</li>
+<li><code>text</code>, <code>bytea</code> and mimetype-domain returns, templates, <code>static_file</code> and errors are never converted.</li>
+</ul>
+<p>A JSON body that cannot be converted (a number with an exponent beyond 64 bits) is sent as JSON.</p>
 <h2 id="httprequest"><code>HttpRequest</code><a class="headerlink" href="#httprequest" title="Permanent link">&para;</a></h2>
 <div class="language-typescript highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">HttpRequest</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>

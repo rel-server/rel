@@ -1887,6 +1887,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#columns-a-row-leaves-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Columns a row leaves out
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#value-forms-by-column-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Value forms by column type
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Value forms by column type">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from-cbor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        From CBOR
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-driven-writes-update-and-delete" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2686,6 +2725,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#columns-a-row-leaves-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Columns a row leaves out
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#value-forms-by-column-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Value forms by column type
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Value forms by column type">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from-cbor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        From CBOR
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-driven-writes-update-and-delete" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2918,6 +2996,144 @@ names the constraint (by name, or by its column list) used to detect an existing
 insert/upsert/merge; it defaults to the relation's primary key. <code>insert_columns</code>/
 <code>update_columns</code> narrow which columns a write actually touches, beyond whatever <code>select</code>
 already made writable.</p>
+<h2 id="columns-a-row-leaves-out">Columns a row leaves out<a class="headerlink" href="#columns-a-row-leaves-out" title="Permanent link">&para;</a></h2>
+<p>A row only writes the columns it supplies. What a missing column means depends on the mode:</p>
+<ul>
+<li><strong><code>update-existing</code>, <code>merge-update</code></strong> — an update changes what it names. A column the row leaves out keeps its current value, and an explicit <code>null</code> sets it to <code>NULL</code>. The same holds for each field of a composite column.</li>
+<li><strong><code>insert</code>, <code>merge-new</code></strong> — a missing column takes its <code>DEFAULT</code>, or <code>NULL</code> if it has none. An explicit <code>null</code> in a <code>NOT NULL</code> column that has a default also takes the default.</li>
+<li><strong><code>upsert</code>, <code>merge</code></strong> — the row is prepared as a new row first, so a missing column is filled the way an insert would fill it (its <code>DEFAULT</code>, else <code>NULL</code>). If the row already exists, that prepared value then overwrites the stored one. To keep a column's current value, send the full row, or use <code>update-existing</code>.</li>
+</ul>
+<h2 id="value-forms-by-column-type">Value forms by column type<a class="headerlink" href="#value-forms-by-column-type" title="Permanent link">&para;</a></h2>
+<p>rel reads each value of a payload itself and hands Postgres its binary form, so what a column accepts is
+defined per type. Anything Postgres can read as text but that is not listed here as accepted is refused with an error naming
+the column ; the error is the one Postgres would give for the same value (<code>PG_INVALID_TEXT_REPRESENTATION</code> for a value
+that does not read as the type).</p>
+<table>
+<thead>
+<tr>
+<th>Column type</th>
+<th>Accepted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>int2</code>, <code>int4</code>, <code>int8</code></td>
+<td>a whole number, or a string of optional sign and digits. <code>1.0</code>, <code>1.5</code> and <code>1e3</code> are refused.</td>
+</tr>
+<tr>
+<td><code>float4</code>, <code>float8</code></td>
+<td>a number, or a string in Postgres' float syntax, including <code>NaN</code>, <code>Infinity</code>, <code>-Infinity</code>.</td>
+</tr>
+<tr>
+<td><code>numeric</code></td>
+<td>a number (its digits are kept exactly, <code>1.50</code> stays <code>1.50</code>), or a numeric string including <code>NaN</code> and <code>Infinity</code>.</td>
+</tr>
+<tr>
+<td><code>bool</code></td>
+<td><code>true</code>, <code>false</code>, <code>0</code>, <code>1</code>, or a string Postgres reads as a boolean (<code>"t"</code>, <code>"yes"</code>, <code>"on"</code>, …).</td>
+</tr>
+<tr>
+<td><code>text</code>, <code>varchar</code>, <code>char(n)</code>, <code>name</code>, enums</td>
+<td>a string. A number or a boolean is refused.</td>
+</tr>
+<tr>
+<td><code>uuid</code></td>
+<td>a string : hyphenated, 32 hex digits, or either in braces, in any case.</td>
+</tr>
+<tr>
+<td><code>bytea</code></td>
+<td>a string in <code>\x</code> hex form.</td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td><code>"2026-10-18"</code>, <code>"infinity"</code>, <code>"-infinity"</code>.</td>
+</tr>
+<tr>
+<td><code>timestamp</code>, <code>timestamptz</code></td>
+<td>an ISO 8601 string (<code>"2026-10-18T14:30:00.123456+02:00"</code>, a space for the <code>T</code>, <code>Z</code>, <code>±hh[:mm]</code>), <code>"infinity"</code>, <code>"-infinity"</code>.</td>
+</tr>
+<tr>
+<td><code>json</code>, <code>jsonb</code></td>
+<td>any JSON value. A JSON <code>null</code> is a SQL <code>NULL</code>.</td>
+</tr>
+<tr>
+<td>arrays</td>
+<td>a JSON array. Nested arrays are extra dimensions, and must be rectangular. A <code>null</code> element is a NULL element.</td>
+</tr>
+<tr>
+<td>composite types</td>
+<td>a JSON object. A missing key is <code>NULL</code> and an unknown key is ignored.</td>
+</tr>
+<tr>
+<td>any other type (<code>interval</code>, <code>inet</code>, ranges, <code>money</code>, geometric types, extension types such as <code>citext</code>, <code>hstore</code> or PostGIS' <code>geometry</code>)</td>
+<td>the text Postgres reads for the type, as a string ; a number or a boolean is passed as its text. A JSON object or array is passed as its JSON text, which is how a GeoJSON object reaches a <code>geometry</code> column.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="from-cbor">From CBOR<a class="headerlink" href="#from-cbor" title="Permanent link">&para;</a></h3>
+<p>A request sent as <code>application/cbor</code> takes every form above, a number being a CBOR integer or float, and in <code>data</code> also:</p>
+<table>
+<thead>
+<tr>
+<th>Column type</th>
+<th>Accepted CBOR</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>int2</code>, <code>int4</code>, <code>int8</code></td>
+<td>an integer, or a bignum (tag 2 or 3) that fits. A float, even <code>3.0</code>, and a tag 4 decimal are refused.</td>
+</tr>
+<tr>
+<td><code>float4</code>, <code>float8</code></td>
+<td>a float of any width (<code>NaN</code> and the infinities included), an integer, a bignum, or a tag 4 decimal.</td>
+</tr>
+<tr>
+<td><code>numeric</code></td>
+<td>an integer, a bignum, a float, or a tag 4 decimal fraction <code>[exponent, mantissa]</code>, which keeps its scale (<code>[-2, 150]</code> is <code>1.50</code>).</td>
+</tr>
+<tr>
+<td><code>bytea</code></td>
+<td>a byte string.</td>
+</tr>
+<tr>
+<td><code>uuid</code></td>
+<td>tag 37 (16 bytes).</td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td>tag 100 (days since 1970-01-01, RFC 8943).</td>
+</tr>
+<tr>
+<td><code>timestamptz</code></td>
+<td>tag 1 (integer or float seconds since the epoch, rounded to the microsecond) or tag 0 (text with an offset). No session time zone is involved.</td>
+</tr>
+<tr>
+<td><code>timestamp</code></td>
+<td>a text string only.</td>
+</tr>
+<tr>
+<td><code>json</code>, <code>jsonb</code></td>
+<td>any CBOR value JSON can hold : maps with text keys, arrays, text, integers, finite floats, booleans, null, bignums, tag 4 decimals. A byte string, a date or time, another tag, <code>NaN</code> or an infinity is refused.</td>
+</tr>
+<tr>
+<td>any other type</td>
+<td>as in the table above, a byte string reading as <code>\x</code> and hex digits, tag 37 as a hyphenated UUID, tag 1 as an ISO 8601 UTC time, tag 100 as a date, numbers as plain decimal digits.</td>
+</tr>
+</tbody>
+</table>
+<p>Any other tag is refused, and a byte string for a column that does not take one.</p>
+<p>For <code>timestamp</code> and <code>timestamptz</code> strings:</p>
+<ul>
+<li>At most 6 fractional digits, and <code>24:00:00</code> is the start of the next day.</li>
+<li>The year has four or more digits, and a <code>BC</code> suffix marks a year before 1 AD, which is the form rel's own output uses.</li>
+<li>A <code>timestamptz</code> without an offset is read in the connection's session time zone. If that zone is one rel cannot load, such a value is refused and an offset is needed.</li>
+<li>A <code>timestamp</code> ignores an offset, as Postgres does.</li>
+<li><code>now</code>, <code>today</code>, <code>epoch</code>, time zone names inside the string, and <code>DateStyle</code> forms such as <code>10/11/2026</code> are refused.</li>
+<li>rel places a <code>timestamptz</code> without an offset with its own time zone data, not the server's. If the two disagree about a clock change (a country changed its rules and one side is not updated), a time near that change can land an hour off. UTC sessions, and times that carry an offset, are not affected.</li>
+</ul>
+<p>Lengths, precision and domain constraints are checked by Postgres : a string too long for a <code>varchar(20)</code>, or a number that does not fit
+a <code>numeric(6,2)</code>, is an error, and a value that is merely more precise is rounded as it would be by an <code>insert</code>.</p>
 <h2 id="where-driven-writes-update-and-delete">Where-driven writes: <code>update</code> and <code>delete</code><a class="headerlink" href="#where-driven-writes-update-and-delete" title="Permanent link">&para;</a></h2>
 <p>Every other mode finds the rows to touch from the payload. <code>update</code> and <code>delete</code> find them with
 the root's <code>where</code>, the way SQL's <code>UPDATE ... WHERE</code> and <code>DELETE ... WHERE</code> do:</p>

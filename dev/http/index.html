@@ -2958,7 +2958,9 @@ a session's lifecycle (claims, renewal, roles) is covered in
 <code>text</code> → <code>text/plain</code>, <code>json</code>/<code>jsonb</code> → <code>application/json</code>, <code>bytea</code> → <code>application/octet-stream</code>,
 and a domain whose name contains <code>/</code> (over <code>bytea</code> or <code>text</code>) → that name as <code>Content-Type</code> —
 see <a href="static-files/#returning-binary-or-text-content-directly">Static files ## Returning binary or text content
-directly</a>.</p>
+directly</a>. Any other type that has a value (<code>integer</code>,
+<code>timestamptz</code>, <code>numeric[]</code>, a composite type...) is accepted too and replies <code>application/json</code>, or
+<code>application/cbor</code> in the value's own types when the request <a href="requests-responses/#response-format">accepts it</a>.</p>
 <p>For control over the response itself — status, cookies, <code>jwt</code>, a template, deferring to a
 static file — declare two trailing <code>OUT</code> columns instead: <code>..., OUT resp JSON/JSONB, OUT
 content &lt;type&gt;) returns record</code>. <code>resp</code> carries every side-effecting field (see <a href="requests-responses/">Requests and
