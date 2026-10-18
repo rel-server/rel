@@ -42,7 +42,7 @@ const (
 )
 
 // AllServers is the order servers are benchmarked and reported in.
-var AllServers = []Server{Rel, PostgREST, PostGraphile4, PostGraphile5}
+var AllServers = []Server{Rel, RelCBOR, PostgREST, PostGraphile4, PostGraphile5}
 
 // Support says how a server handles a scenario.
 type Support int
@@ -129,6 +129,9 @@ type Scenario struct {
 type Client struct {
 	Base string
 	hc   *http.Client
+	cbor bool // sends requests as CBOR and asks for CBOR (RelCBOR)
+	// captured, when non-nil, makes Do convert the request, keep it here and send nothing (see Prepare).
+	captured *[]Request
 
 	trips atomic.Int64
 	bytes atomic.Int64
@@ -149,6 +152,40 @@ func NewClient(base string) *Client {
 // Do sends r and returns the body. Any status outside 2xx is an error that
 // includes the (truncated) body.
 func (c *Client) Do(r Request) ([]byte, error) {
+	if c.cbor {
+		var err error
+		if r, err = toCBORRequest(r); err != nil {
+			return nil, err
+		}
+	}
+	if c.captured != nil {
+		*c.captured = append(*c.captured, r)
+		return nil, nil
+	}
+	return c.send(r)
+}
+
+// Prepare builds, outside any timing, the one request operation n of impl would send, converted for this client's
+// format (building a request is the load generator's work for every server, not only for rel-cbor's conversion). ok is false when the operation is not a single request (or fails to build) ; the caller then runs it whole.
+// A request already converted is sent as it is by Send.
+func (c *Client) Prepare(impl Impl, env *Env, n uint64) (r Request, ok bool) {
+	var got []Request
+	cc := &Client{Base: c.Base, cbor: c.cbor, captured: &got}
+	defer func() { // a Run that reads the (absent) response may fail in any way : then it is not one request
+		if recover() != nil {
+			r, ok = Request{}, false
+		}
+	}()
+	if _, err := impl.Run(cc, env, n); err != nil || len(got) != 1 {
+		return Request{}, false
+	}
+	return got[0], true
+}
+
+// Send sends a request that Prepare built.
+func (c *Client) Send(r Request) ([]byte, error) { return c.send(r) }
+
+func (c *Client) send(r Request) ([]byte, error) {
 	var body io.Reader
 	if r.Body != nil {
 		body = bytes.NewReader(r.Body)

@@ -52,7 +52,7 @@ func containerName(service string) string { return "relbench-" + service + "-1" 
 // StartSampler begins sampling in the background.
 func StartSampler(srv Server) *Sampler {
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Sampler{server: containerName(string(srv)), db: containerName("db"), ctx: ctx, cancel: cancel, stop: make(chan struct{})}
+	s := &Sampler{server: containerName(srv.Service()), db: containerName("db"), ctx: ctx, cancel: cancel, stop: make(chan struct{})}
 	s.done.Add(1)
 	go func() {
 		defer s.done.Done()

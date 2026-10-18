@@ -19,7 +19,7 @@ Before a run that matters, set the CPU governor to `performance` and close other
 
 ## What runs
 
-Four servers, each started on its own and stopped before the next one starts, so they never compete:
+Four servers (rel is run twice, see below), each started on its own and stopped before the next one starts, so they never compete:
 
 | Server | Image | Notes |
 |---|---|---|
@@ -29,6 +29,8 @@ Four servers, each started on its own and stopped before the next one starts, so
 | PostGraphile 5 | `postgraphile@5.1.5` | plugins: connection filter, simplify inflection |
 
 All of them connect to one Postgres 16 container (`compose.yaml`) as the same role, with a pool of 20 connections each. No authentication is used anywhere, so the numbers show query and serialisation cost, not token checking. rel and PostgREST still switch to their anonymous role on every request, as they would in production; PostGraphile does not.
+
+**rel-cbor** is the same rel container as **rel**, driven in CBOR : the scenarios build their JSON request once, and the client converts it to CBOR and sends `Accept: application/cbor`. Its answers are converted back to JSON before the equivalence check, so it is held to the same rows as every other server. PostgREST and PostGraphile have no CBOR, so they are the JSON baseline. Requests are built, and converted to CBOR, before the clock starts for every server whose scenario is a single request (the multi-request ones are built and timed whole); the response is not decoded during timing.
 
 The nested-mutations plugin only exists for PostGraphile 4, so the three-level write is native there and emulated (3 round trips) on PostGraphile 5.
 

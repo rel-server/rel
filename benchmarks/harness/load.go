@@ -96,8 +96,17 @@ func runWindow(ctx context.Context, c *Client, env *Env, impl Impl, nextN *atomi
 					return
 				}
 				n := nextN.Add(1)
+				// Building the request (marshalling, and rel-cbor's conversion to CBOR) is the load
+				// generator's work, not the server's : done before the clock starts, so only sending and
+				// receiving are timed. An operation of several requests is built and timed whole.
+				pre, prepared := c.Prepare(impl, env, n)
 				t0 := time.Now()
-				_, err := impl.Run(c, env, n)
+				var err error
+				if prepared {
+					_, err = c.Send(pre)
+				} else {
+					_, err = impl.Run(c, env, n)
+				}
 				if err != nil {
 					errs.Add(1)
 					firstErr.CompareAndSwap(nil, err.Error())

@@ -40,7 +40,7 @@ func main() {
 	var (
 		profile   = flag.String("profile", "quick", "quick or full")
 		sizes     = flag.String("sizes", "", "comma-separated data sizes (small, medium, large) ; default small for quick, all for full")
-		srvs      = flag.String("servers", "rel,postgrest,postgraphile4,postgraphile5", "comma-separated servers")
+		srvs      = flag.String("servers", "rel,rel-cbor,postgrest,postgraphile4,postgraphile5", "comma-separated servers")
 		only      = flag.String("scenarios", "", "regexp ; only scenarios whose name matches")
 		out       = flag.String("out", "", "results directory ; default benchmarks/results/<date>-<profile>")
 		check     = flag.Bool("check", false, "run each scenario once per server without timing (equivalence and write smoke test)")

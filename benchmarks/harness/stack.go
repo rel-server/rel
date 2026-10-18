@@ -52,6 +52,8 @@ var graphqlProbe = Request{Method: "POST", Path: "/graphql", Header: http.Header
 var servers = map[Server]serverInfo{
 	Rel: {"http://localhost:18080", Request{Method: "POST", Path: "/rel", Header: http.Header{"Content-Type": {"application/json"}},
 		Body: []byte(`{"relation":"chains","schema":"hotel","limit":1,"select":{"id":["col","id"]}}`)}},
+	RelCBOR: {"http://localhost:18080", Request{Method: "POST", Path: "/rel", Header: http.Header{"Content-Type": {"application/json"}},
+		Body: []byte(`{"relation":"chains","schema":"hotel","limit":1,"select":{"id":["col","id"]}}`)}},
 	PostgREST:     {"http://localhost:13000", Request{Method: "GET", Path: "/chains?limit=1"}},
 	PostGraphile4: {"http://localhost:15004", graphqlProbe},
 	PostGraphile5: {"http://localhost:15005", graphqlProbe},
@@ -212,11 +214,11 @@ func (s *Stack) Reset(ctx context.Context, size string) error {
 
 // Start (re)builds and starts a server, then waits until it answers its probe.
 func (s *Stack) Start(srv Server) error {
-	if err := s.compose("up", "-d", "--build", string(srv)); err != nil {
+	if err := s.compose("up", "-d", "--build", srv.Service()); err != nil {
 		return err
 	}
 	info := servers[srv]
-	c := NewClient(info.URL)
+	c := NewClient(info.URL) // the probe is JSON whichever format the server is spoken to in
 	defer c.Close()
 	deadline := time.Now().Add(90 * time.Second)
 	for {
@@ -230,7 +232,7 @@ func (s *Stack) Start(srv Server) error {
 }
 
 // Stop stops a server container.
-func (s *Stack) Stop(srv Server) error { return s.compose("stop", string(srv)) }
+func (s *Stack) Stop(srv Server) error { return s.compose("stop", srv.Service()) }
 
 // LoadEnv reads from db what scenarios need to target real rows.
 func LoadEnv(ctx context.Context, db *pgxpool.Pool, size string) (*Env, error) {

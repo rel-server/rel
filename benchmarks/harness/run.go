@@ -147,7 +147,7 @@ func benchServer(ctx context.Context, cfg Config, size string, srv Server, sr *S
 		return err
 	}
 	defer func() { _ = st.Stop(srv) }()
-	c := NewClient(URL(srv))
+	c := NewServerClient(srv)
 	defer c.Close()
 	// reads first, on the pristine copy ; writes reset the database per run
 	ordered := append([]Scenario(nil), cfg.Scenarios...)
@@ -273,7 +273,7 @@ func measureWrite(ctx context.Context, cfg Config, size string, srv Server, sc S
 			db.Close()
 			return Level{}, err
 		}
-		c := NewClient(URL(srv))
+		c := NewServerClient(srv)
 		one := cfg.Profile
 		one.Repeats = 1
 		lvl := measure(ctx, c, env, impl, srv, one, clients, func(ok int) error { return sc.Check(ctx, db, ok) })

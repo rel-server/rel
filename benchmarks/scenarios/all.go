@@ -18,5 +18,27 @@ import "github.com/rel-server/rel/benchmarks/harness"
 
 // All returns every scenario, reads first.
 func All() []harness.Scenario {
-	return append(reads(), writes()...)
+	return withCBOR(append(reads(), writes()...))
+}
+
+// withCBOR gives every scenario a rel-cbor implementation : rel's own request, converted to CBOR by the client, and
+// its answer converted back to JSON before it is compared with the other servers'.
+func withCBOR(list []harness.Scenario) []harness.Scenario {
+	for _, sc := range list {
+		impl, ok := sc.Impls[harness.Rel]
+		if !ok || impl.Support == harness.Unsupported {
+			continue
+		}
+		if norm := impl.Normalize; norm != nil {
+			impl.Normalize = func(body []byte) (any, error) {
+				js, err := harness.CBORToJSON(body)
+				if err != nil {
+					return nil, err
+				}
+				return norm(js)
+			}
+		}
+		sc.Impls[harness.RelCBOR] = impl
+	}
+	return list
 }
