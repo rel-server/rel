@@ -12,6 +12,9 @@ import (
 var testDb *pg.DbInfos
 var testCfg *config.Config
 
+// testDbURI is how tests reach the test container, to introspect it again after a change.
+var testDbURI string
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -31,12 +34,14 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
+	testDbURI = uri
 	testDb, err = pg.NewInfos(uri)
 	if err != nil {
 		panic(err)
 	}
 
 	testCfg = config.Test()
+	keepRowsAtCommit = true // tests commit every statement and read the temp rows afterwards
 
 	m.Run()
 }

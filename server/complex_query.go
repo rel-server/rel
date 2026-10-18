@@ -64,7 +64,7 @@ var emptyPath = []string{}
 // capturing every row's raw JSON — used only to give a rolled-back write's
 // "result" something to stream from, since by the time the normal per-item
 // streaming loop runs, the rollback has already erased both the real rows
-// and this item's own "_data" rows the read-back would otherwise join
+// and this item's own temp rows the read-back would otherwise join
 // against. A write is never function-rooted (findUnwritableNode rejects
 // it), so root.IsFunction()'s scalar special case never applies here.
 func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, nodeID int, paramValues map[string]any) ([][]byte, error) {

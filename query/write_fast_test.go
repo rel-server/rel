@@ -17,6 +17,9 @@ func runBothWays(t *testing.T, setup []string, node *QueryNode, payload string, 
 	t.Helper()
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
+	if err := PrepareWrite(ctx, conn, node); err != nil { // creating temp tables cannot happen inside the transaction below
+		t.Fatalf("preparing the temp tables: %v", err)
+	}
 	for _, s := range append([]string{"begin"}, setup...) {
 		if _, err := conn.Exec(ctx, s); err != nil {
 			t.Fatalf("setup %q: %v", s, err)

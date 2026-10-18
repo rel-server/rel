@@ -1,51 +1,34 @@
-// Pass 4, the Writing Algorithm : denormalizes a JSON payload into the
-// shared "_data" temp table (write_denormalize.go), then executes phased
-// DML off it (write_dml.go) — per specs/query-engine.md's Writing Algorithm.
-// Scoped to codegen+execution only : the connection-pool/request lifecycle
-// ("_data"'s creation and truncation policy, one-connection-per-request
-// pinning) is deliberately out of scope here, same deferral this session
-// used for pass 3's HTTP response streaming — see the approved plan. A
-// caller (not built here) is expected to have already created "_data" on
-// the connection it passes in.
+// Pass 4, the Writing Algorithm : denormalizes a payload into typed temp
+// tables, one per destination table (write_denormalize.go, write_temp.go), then
+// executes phased DML off them (write_dml.go) — per specs/query-engine.md's
+// Writing Algorithm and specs/typed-write-loading.md. The temp tables are
+// created on the connection the first time a write touches their table
+// (PrepareWrite, called before the request's transaction begins ; ExecuteWrite
+// calls it too) and their rows go away at commit or rollback.
 package query
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/bytedance/sonic"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/pg"
 	"github.com/samber/oops"
 )
 
-// DataTableDDL creates "_data" if it doesn't already exist on the
-// connection — the one shared source of truth for its schema, referenced by
-// both this package's own tests (query/write_test.go) and the HTTP server
-// (server/rel.go), so the two can't silently drift apart. Its rows survive
-// commits ("on commit preserve rows"), which the tests need since each of their
-// statements commits on its own. The server uses DataTableDDLPerTransaction.
-const DataTableDDL = dataTableColumns + ` on commit preserve rows`
-
-// DataTableDDLPerTransaction is "_data" for the HTTP server, which does a
-// request's whole write and read-back in one transaction : its rows go away at
-// commit or rollback, inside that commit's own WAL flush. An explicit TRUNCATE
-// afterwards would be a second transaction, hence a second flush, per write.
-const DataTableDDLPerTransaction = dataTableColumns + ` on commit delete rows`
-
-const dataTableColumns = `create temp table if not exists _data (
-	__row_id int primary key,
-	__node_id int not null,
-	__parent_id int,
-	data jsonb not null,
-	keys jsonb
-)`
-
 // Querier is the connection surface this package needs : enough to load
-// "_data" via COPY and run the phased DML. Satisfied directly by
-// *pgxpool.Conn (and *pgx.Conn), so callers/tests can pass either.
+// the temp tables and run the phased DML. Satisfied directly by
+// *pgxpool.Conn (and *pgx.Conn), so callers/tests can pass either. Creating the
+// temp tables also needs the underlying *pgx.Conn : a wrapper must expose it
+// with a Conn() *pgx.Conn method.
 type Querier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
@@ -53,22 +36,21 @@ type Querier interface {
 }
 
 // WriteResult is ExecuteWrite's report : just enough for a caller (or a
-// test) to go find what happened in "_data" — the eventual read-back query
-// (out of scope here, see package doc) is what actually reconstructs a
-// response from it.
+// test) to go find what happened in the temp tables — the eventual read-back query
+// is what actually reconstructs a response from them.
 type WriteResult struct {
 	// NodeIDs is every writable node's assigned __node_id (see assignNodeIDs)
 	// — nodes pruned for being READONLY, or nested under a READONLY node,
 	// are absent.
 	NodeIDs map[*QueryNode]int
 
-	// RowCount is the total number of "_data" rows this write produced,
+	// RowCount is the total number of temp rows this write produced,
 	// across every writable node.
 	RowCount int
 
 	// Rows is non-nil when the write also built its own response : the JSON of
 	// each response row, in order (an empty, non-nil slice when there are none).
-	// The caller then has no read-back to run — there is no "_data" to scope one by.
+	// The caller then has no read-back to run — there are no temp rows to scope one by.
 	// Nil when the response still has to be read back (query/write_fast.go).
 	Rows [][]byte
 
@@ -138,7 +120,7 @@ type WriteOptions struct {
 	Stats     bool
 	QueryPlan bool
 	Sql       bool
-	// NoFastPath forces the general ("_data") path ; tests compare the two.
+	// NoFastPath forces the general (temp table) path ; tests compare the two.
 	NoFastPath bool
 }
 
@@ -210,31 +192,36 @@ func hasDeleteComponent(m WriteMode) bool {
 	}
 }
 
-// WriteState carries the __node_id/__row_id allocators across several
-// ExecuteWriteState calls that share one "_data" table within a single
+// WriteState carries the node id and row id allocators across several
+// ExecuteWriteState calls that share their temp tables within a single
 // request — e.g. several write items in one Sequence (specs/query-engine.md
 // ## Transactions : "several queries... run in a single transaction").
 // Each call must continue numbering where the previous one left off : both
 // counters restart from 0 internally (assignNodeIDs/denormalize), so two
-// items sharing a zero-valued WriteState would both assign __node_id 0 to
-// their own root and collide on __row_id (_data's primary key) the moment
-// the second item's COPY runs. The zero value is exactly what a single,
+// items sharing a zero-valued WriteState would both assign node id 0 to
+// their own root and share row ids, which the statements joining the temp tables by row id
+// would mix up. The zero value is exactly what a single,
 // one-off ExecuteWrite call wants — see its own doc comment.
 type WriteState struct {
 	nextNodeID int
 	nextRowID  int
+
+	// tableNodes is, per relation, the node ids that have rows loaded in its temp table so far, which
+	// tells a statement whether it may leave out the "node_id = N" filter (dmlCompiler.soleNode).
+	tableNodes map[*pg.Relation]map[int]bool
 }
 
 // ExecuteWrite and its ExecuteWriteState* variants always take the general path,
-// leaving what they wrote in "_data" for the caller to read back ; only
+// leaving what they wrote in the temp tables for the caller to read back ; only
 // ExecuteWriteStateParamsOpts may answer from the write itself (WriteResult.Rows).
 //
 // ExecuteWrite runs the whole Writing Algorithm for one request : denormalize
-// payload into "_data" (already expected to exist on conn), phase 1
+// payload into the temp tables (created on conn when missing, which needs conn
+// to be outside a transaction : see PrepareWrite), phase 1
 // (insert/update/upsert, outgoing-before-self-before-incoming, recursive),
 // then phase 2 (deletes, post-order). root must already be pass-1/pass-2
 // resolved (Shape/Extractors populated). Equivalent to ExecuteWriteState
-// with a fresh *WriteState — use that instead when "_data" is shared with
+// with a fresh *WriteState — use that instead when the temp tables are shared with
 // other ExecuteWrite calls in the same request (see WriteState).
 func ExecuteWrite(ctx context.Context, conn Querier, root *QueryNode, payload []byte) (*WriteResult, error) {
 	return ExecuteWriteState(ctx, conn, root, payload, &WriteState{})
@@ -292,35 +279,47 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 		}
 		payload = wrapped
 	}
+	ec := encodeContextFor(conn)
 	if fastWriteEligible(root, opts) {
-		return executeFast(ctx, conn, root, ids, payload, state, nextNodeID, paramValues)
+		return executeFast(ctx, conn, root, ids, payload, state, nextNodeID, paramValues, ec)
 	}
 
-	rows, nextRowID, err := denormalize(root, ids, payload, state.nextRowID)
+	tables, err := prepareTables(ctx, conn, ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := denormalize(root, ids, payload, tables, state.nextRowID, true, ec)
 	if err != nil {
 		return nil, err
 	}
 
-	populated := make(map[int]bool, len(ids))
-	submitted := make(map[int]int, len(ids))
-	for _, r := range rows {
-		populated[r.NodeID] = true
-		submitted[r.NodeID]++
+	if state.tableNodes == nil {
+		state.tableNodes = map[*pg.Relation]map[int]bool{}
+	}
+	for t, nodes := range rows.tableNodes {
+		known := state.tableNodes[t.rel]
+		if known == nil {
+			known = map[int]bool{}
+			state.tableNodes[t.rel] = known
+		}
+		for id := range nodes {
+			known[id] = true
+		}
 	}
 
 	dc := &dmlCompiler{
-		conn: conn, ids: ids, populated: populated, paramValues: paramValues, submitted: submitted,
+		conn: conn, ids: ids, temps: tables, tableNodes: state.tableNodes, populated: rows.populated, paramValues: paramValues, submitted: rows.submitted,
 		collectStats: opts.Stats, collectSQL: opts.Sql, explainAnalyze: opts.QueryPlan,
-		nextRowID: nextRowID,
+		nextRowID: rows.nextRowID,
 	}
 	if b, ok := conn.(Batcher); ok {
 		dc.batcher = b
 	}
-	if err := dc.loadData(ctx, rows); err != nil {
+	if err := dc.loadRows(ctx, rows); err != nil {
 		return nil, err
 	}
-	if root.WriteMode == UPDATE && len(rows) > 0 {
-		dc.patchRowID = rows[0].RowID
+	if root.WriteMode == UPDATE && rows.count > 0 {
+		dc.patchRowID, dc.patchMask = int(rows.rootRowID), rows.patchMask
 	}
 	if err := dc.phase1(ctx, root); err != nil {
 		return nil, err
@@ -333,11 +332,100 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 	}
 
 	state.nextNodeID = nextNodeID
-	state.nextRowID = max(nextRowID, dc.nextRowID)
+	state.nextRowID = max(rows.nextRowID, dc.nextRowID)
 	return &WriteResult{
-		NodeIDs: ids, RowCount: len(rows),
+		NodeIDs: ids, RowCount: rows.count,
 		Stats: dc.finalStats(), Sql: dc.finalSQL(), QueryPlan: dc.finalPlans(),
 	}, nil
+}
+
+// PrepareWrite creates, on conn, the temp tables the writes of roots go through, and
+// registers their types for it. It does nothing for a table already prepared. It must run outside
+// a transaction : a rolled back transaction would take the tables away. A server calls it
+// before beginning a request's transaction ; ExecuteWrite calls it itself, which is enough for a caller
+// that holds no transaction.
+func PrepareWrite(ctx context.Context, conn Querier, roots ...*QueryNode) error {
+	rels := map[*pg.Relation]bool{}
+	var walk func(n *QueryNode)
+	walk = func(n *QueryNode) {
+		if n.WriteMode == READONLY || n.Relation == nil || n.IsFunction() {
+			return
+		}
+		if n.WriteMode != DELETE {
+			rels[n.Relation] = true
+		}
+		for _, c := range n.OutgoingNodes {
+			walk(c)
+		}
+		for _, c := range n.IncomingNodes {
+			walk(c)
+		}
+	}
+	for _, r := range roots {
+		walk(r)
+	}
+	return ensureAll(ctx, conn, rels)
+}
+
+// prepareTables ensures the temp tables of every writable node of a request and returns them by relation.
+func prepareTables(ctx context.Context, conn Querier, ids map[*QueryNode]int) (map[*pg.Relation]*tempTable, error) {
+	rels := map[*pg.Relation]bool{}
+	for n := range ids {
+		if n.Relation != nil {
+			rels[n.Relation] = true
+		}
+	}
+	return ensureAllTables(ctx, conn, rels)
+}
+
+func ensureAll(ctx context.Context, conn Querier, rels map[*pg.Relation]bool) error {
+	_, err := ensureAllTables(ctx, conn, rels)
+	return err
+}
+
+func ensureAllTables(ctx context.Context, conn Querier, rels map[*pg.Relation]bool) (map[*pg.Relation]*tempTable, error) {
+	out := make(map[*pg.Relation]*tempTable, len(rels))
+	ordered := make([]*pg.Relation, 0, len(rels))
+	for r := range rels {
+		ordered = append(ordered, r)
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].PgRelId < ordered[j].PgRelId })
+	for _, r := range ordered {
+		t, err := ensureTempTables(ctx, conn, r)
+		if err != nil {
+			return nil, err
+		}
+		out[r] = t
+	}
+	return out, nil
+}
+
+// sessionZones caches the result of loading each session time zone name.
+var sessionZones sync.Map // string -> zoneResult
+
+type zoneResult struct {
+	loc *time.Location
+	err error
+}
+
+// encodeContextFor builds the encoding context of conn : its session time zone, which the server
+// reports as the TimeZone parameter, read the way Go loads it.
+func encodeContextFor(q Querier) *encodeContext {
+	conn, ok := pgxConnOf(q)
+	if !ok {
+		return &encodeContext{}
+	}
+	name := conn.PgConn().ParameterStatus("TimeZone")
+	if name == "" {
+		return &encodeContext{}
+	}
+	if v, ok := sessionZones.Load(name); ok {
+		r := v.(zoneResult)
+		return &encodeContext{Location: r.loc, zoneName: name, zoneErr: r.err}
+	}
+	loc, err := time.LoadLocation(name)
+	sessionZones.Store(name, zoneResult{loc, err})
+	return &encodeContext{Location: loc, zoneName: name, zoneErr: err}
 }
 
 // patchAsPayload checks that an "update" root's data is one patch object and
@@ -367,29 +455,31 @@ func executeDeleteWhere(ctx context.Context, conn Querier, root *QueryNode, ids 
 	return &WriteResult{NodeIDs: ids, Stats: dc.finalStats(), Sql: dc.finalSQL(), QueryPlan: dc.finalPlans()}, nil
 }
 
-// loadData puts denormalize's rows into "_data" with one INSERT whose rows come
-// from a single JSON parameter, so it can travel in the same batch as the
-// statements that read them (COPY cannot).
-func (dc *dmlCompiler) loadData(ctx context.Context, rows []dataRow) error {
-	if len(rows) == 0 {
+// loadRows queues one statement putting every table's batch of rows in, in the same batch
+// as the statements that read them. The tables are loaded by data-modifying CTEs of a single statement,
+// which costs one statement's overhead however many tables the request writes.
+func (dc *dmlCompiler) loadRows(ctx context.Context, rows *writeRows) error {
+	tables := make([]*tempTable, 0, len(rows.batches))
+	for t, b := range rows.batches {
+		if b.Len() > 0 {
+			tables = append(tables, t)
+		}
+	}
+	if len(tables) == 0 {
 		return nil
 	}
-	type jsonRow struct {
-		RowID    int             `json:"__row_id"`
-		NodeID   int             `json:"__node_id"`
-		ParentID *int            `json:"__parent_id"`
-		Data     json.RawMessage `json:"data"`
+	sort.Slice(tables, func(i, j int) bool { return tables[i].rel.PgRelId < tables[j].rel.PgRelId })
+	var sql strings.Builder
+	args := make([]any, 0, len(tables))
+	sql.WriteString("with ")
+	for i, t := range tables {
+		if i > 0 {
+			sql.WriteString(",\n")
+		}
+		q := t.general.qualified()
+		fmt.Fprintf(&sql, "l%d as (insert into %s select * from unnest($%d::%s[]))", i, q, i+1, q)
+		args = append(args, rows.batches[t].param())
 	}
-	payload := make([]jsonRow, len(rows))
-	for i, r := range rows {
-		payload[i] = jsonRow{r.RowID, r.NodeID, r.ParentID, r.Data}
-	}
-	encoded, err := sonic.Marshal(payload)
-	if err != nil {
-		return oops.Wrapf(err, "write: encoding _data rows")
-	}
-	const sql = `insert into _data (__row_id, __node_id, __parent_id, data)
-select r.__row_id, r.__node_id, r.__parent_id, r.data
-from jsonb_to_recordset($1::jsonb) as r(__row_id int, __node_id int, __parent_id int, data jsonb)`
-	return dc.enqueue(ctx, nil, "loading _data", sql, []any{string(encoded)})
+	sql.WriteString("\nselect 1")
+	return dc.enqueue(ctx, nil, "loading rows", sql.String(), args)
 }

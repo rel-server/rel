@@ -31,6 +31,7 @@ type sqlCompiler struct {
 	dataScopeRoot   *QueryNode
 	dataScopeNodeID int
 	dataScopeAlias  string
+	dataScopeTable  *tempTable
 
 	// countMode is CompileCount's own flag : compileNodeCorrelated emits
 	// "select 1" and skips distinct/order-by/limit-offset/lateral-join-into-FROM,
@@ -40,7 +41,7 @@ type sqlCompiler struct {
 	// fromCTE, when set, makes the root node read from that CTE instead of its
 	// table : the response of a write built from the write statement's own
 	// RETURNING rows (query/write_fast.go). orderByRowID adds the CTE's
-	// __row_id as the default order, like the "_data" scope does.
+	// __row_id as the default order, like the temp-row scope does.
 	fromCTE      string
 	orderByRowID bool
 }
@@ -126,30 +127,35 @@ func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
 
 // CompileSelectForDataNode compiles root exactly like CompileSelect, with
 // one addition : restricted to the rows this write request actually
-// touched, via "_data" — nodeID is root's own assigned __node_id (see
+// touched, via the temp table of its relation — nodeID is root's own assigned __node_id (see
 // ExecuteWrite/WriteResult.NodeIDs), and only its root-level rows
 // (__parent_id is null) are in scope. Used for the write-then-reread
 // response (specs/query-engine.md ## Response Shape : the response is built by
 // a separate, read-only statement issued after the write transaction's
-// commit, never from inside it) — "_data" must already exist and hold this
+// commit, never from inside it) — the temp table must already exist and hold this
 // request's rows on the connection this statement later runs against.
 //
 // A function-rooted node is rejected : functions aren't writable
-// (query/node.go), so there's never a "_data" row for one to scope against.
+// (query/node.go), so there's never a temp row for one to scope against.
 func CompileSelectForDataNode(root *QueryNode, nodeID int) (*writer.SQLWriter, error) {
 	if root.IsFunction() {
 		return nil, oops.With("node", root.InnerName).Errorf("sql: a function-rooted node can't be write-scoped — functions aren't writable")
 	}
 
+	t, err := newTempTable(root.Relation)
+	if err != nil {
+		return nil, err
+	}
 	c := newSQLCompiler()
 	c.dataScopeRoot = root
 	c.dataScopeNodeID = nodeID
 	c.dataScopeAlias = "__wq"
+	c.dataScopeTable = t
 
 	alias := c.allocAlias()
 	c.w.Write("select ").Write(wrapNodeAsValue(root, alias)).Write(" from (\n")
 	c.w.Indent()
-	err := c.compileNode(root, alias)
+	err = c.compileNode(root, alias)
 	c.w.Unindent()
 	if err != nil {
 		return nil, err
@@ -266,15 +272,18 @@ func (c *sqlCompiler) compileFrom(node *QueryNode, alias string) error {
 	}
 	c.w.Write(node.Relation.Identifier.EscapedString()).Write(" ").Write(alias)
 	if c.dataScopeRoot != nil && node == c.dataScopeRoot {
-		c.w.Write(" inner join _data ")
+		t := c.dataScopeTable
+		c.w.Write(" inner join ")
+		c.w.Write(t.qualifiedGeneral())
+		c.w.Write(" ")
 		c.w.Write(c.dataScopeAlias)
 		c.w.Write(" on ")
-		c.w.Write(c.dataScopeAlias)
-		c.w.Write(".__node_id = ")
+		c.w.Write(t.nodeIDRef(c.dataScopeAlias))
+		c.w.Write(" = ")
 		c.w.Write(fmt.Sprintf("%d", c.dataScopeNodeID))
 		c.w.Write(" and ")
-		c.w.Write(c.dataScopeAlias)
-		c.w.Write(".__parent_id is null")
+		c.w.Write(t.parentIDRef(c.dataScopeAlias))
+		c.w.Write(" is null")
 	}
 	return nil
 }
@@ -311,12 +320,8 @@ func (c *sqlCompiler) compileWhere(node *QueryNode, alias string, onParentAlias 
 				c.w.Write(" and ")
 			}
 			c.qualify(alias, col.Name)
-			c.w.Write(" = (")
-			c.w.Write(c.dataScopeAlias)
-			c.w.Write(".keys->>")
-			c.w.Bind(col.Name)
-			c.w.Write("::text)::")
-			c.w.Write(col.Type.PgIdentifier.EscapedString())
+			c.w.Write(" = ")
+			c.w.Write(c.dataScopeTable.colRef(c.dataScopeAlias, col))
 		}
 		wrote = true
 	}
@@ -337,8 +342,7 @@ func (c *sqlCompiler) compileOrderBy(node *QueryNode) error {
 			// Default to payload order only when the write query specified
 			// no order_by of its own ; an explicit one is left untouched.
 			c.w.Write(" order by ")
-			c.w.Write(c.dataScopeAlias)
-			c.w.Write(".__row_id")
+			c.w.Write(c.dataScopeTable.rowIDRef(c.dataScopeAlias))
 		}
 		if c.orderByRowID && node.Parent == nil {
 			c.w.Write(" order by ")

@@ -236,7 +236,7 @@ func encodeScalarText(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 			return nil, oops.Wrapf(err, "write: reading text")
 		}
 		if strings.IndexByte(s, 0) >= 0 {
-			return nil, errBadValue("text", s, "a string cannot hold a NUL character")
+			return nil, errBadCharacter("text", s)
 		}
 		return append(dst, s...), nil
 	case KindNumber, KindObject, KindArray:

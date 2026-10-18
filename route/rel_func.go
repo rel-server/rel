@@ -3,7 +3,7 @@
 // templates.go), reusing beginRoleScopedTx (tx.go) for its own per-call,
 // role-scoped transaction rather than /rel's write/streaming machinery
 // (server/rel.go), which is entangled with concerns rel() deliberately
-// doesn't have (writes, sequences of mixed reads/writes, the "_data" table).
+// doesn't have (writes, sequences of mixed reads/writes, the write temp tables).
 package route
 
 import (

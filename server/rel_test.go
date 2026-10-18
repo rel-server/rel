@@ -316,8 +316,8 @@ func TestRelHandler_TwoWriteItemsInOneSequence(t *testing.T) {
 }
 
 func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T) {
-	// Pool forced to one connection, so every request reuses the same "_data" ;
-	// its rows must be gone after a write, whether the request committed or not.
+	// Pool forced to one connection, so every request reuses the same write temp tables ;
+	// their rows must be gone after a write, whether the request committed or not.
 	container, err := postgres.Run(context.Background(), "postgres:16-alpine",
 		postgres.WithOrderedInitScripts("../pg/testdata/schema.sql", "testdata/roles.sql"),
 		postgres.BasicWaitStrategies(),
@@ -341,20 +341,38 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	handler := NewRelHandler(db, cfg, nil)
 	ctx := context.Background()
 
+	// the rows left in every write temp table of the pool's only connection
 	staleRows := func() int {
 		conn, err := db.Pool.Acquire(ctx)
 		if err != nil {
 			t.Fatalf("acquire: %v", err)
 		}
 		defer conn.Release()
-		var n int
-		if err := conn.QueryRow(ctx, `select count(*) from _data`).Scan(&n); err != nil {
-			t.Fatalf("count _data: %v", err)
+		names, err := conn.Query(ctx, `select relname from pg_class where relnamespace = pg_my_temp_schema() and relname like '\_\_rel\_w\_%'`)
+		if err != nil {
+			t.Fatalf("list the write tables: %v", err)
 		}
-		return n
+		var tables []string
+		for names.Next() {
+			var name string
+			if err := names.Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			tables = append(tables, name)
+		}
+		names.Close()
+		total := 0
+		for _, name := range tables {
+			var n int
+			if err := conn.QueryRow(ctx, `select count(*) from pg_temp."`+name+`"`).Scan(&n); err != nil {
+				t.Fatalf("count %s: %v", name, err)
+			}
+			total += n
+		}
+		return total
 	}
 
-	// in order : the first request creates "_data" on the pool's only connection
+	// in order : the first request creates the write temp tables on the pool's only connection
 	for _, tc := range []struct{ name, body string }{
 		{"committed write", `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check A"}]}`},
 		{"rolled-back write", `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Leak Check B"}], "rollback": true, "stats": true}`},
@@ -362,7 +380,7 @@ func TestRelHandler_DataDoesNotLeakAcrossRequestsOnReusedConnection(t *testing.T
 	} {
 		postRelTo(t, handler, tc.body)
 		if n := staleRows(); n != 0 {
-			t.Fatalf("%s left %d rows in _data", tc.name, n)
+			t.Fatalf("%s left %d rows in the write temp tables", tc.name, n)
 		}
 	}
 

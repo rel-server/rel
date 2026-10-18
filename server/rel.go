@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,9 +61,6 @@ type resolvedItem struct {
 // queryTargetIdentifier is specs/logging.md ## Access logging's per-item
 // "targets" entry : the schema-qualified function name for a function-root
 // item, otherwise the schema-qualified relation name.
-// dataTables records the physical connections whose "_data" table exists and is granted.
-var dataTables sync.Map
-
 func queryTargetIdentifier(root *query.QueryNode) string {
 	if root.Function != nil {
 		return root.Function.Identifier.String()
@@ -348,20 +344,21 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	defer conn.Release()
 
-	// "_data" is per physical connection, and a switched role (the role switch below)
-	// has no default privileges on it : create and grant it once per connection,
-	// not every request (each is a catalog write that waits for a WAL flush). Its
-	// rows disappear at commit or rollback, so nothing ever needs clearing.
-	if _, known := dataTables.Load(conn.Conn()); !known {
-		if _, err := conn.Exec(ctx, query.DataTableDDLPerTransaction); err != nil {
-			writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("preparing _data: %w", err)), cfg.Dev)
+	// The write temp tables are per physical connection, and a switched role (the role switch
+	// below) has no default privileges on them : they are created and granted once per
+	// connection and table, here, because that cannot happen inside the transaction begun
+	// next. Their rows disappear at commit or rollback, so nothing ever needs clearing.
+	var writeRoots []*query.QueryNode
+	for _, item := range resolved {
+		if item.isWrite {
+			writeRoots = append(writeRoots, item.root)
+		}
+	}
+	if len(writeRoots) > 0 {
+		if err := query.PrepareWrite(ctx, loggingQuerier{inner: conn}, writeRoots...); err != nil {
+			writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("preparing the write tables: %w", err)), cfg.Dev)
 			return
 		}
-		if _, err := conn.Exec(ctx, "grant all on _data to public"); err != nil {
-			writeError(ctx, w, serverError(errcode.TransactionError, fmt.Errorf("granting _data: %w", err)), cfg.Dev)
-			return
-		}
-		dataTables.Store(conn.Conn(), struct{}{})
 	}
 
 	// Lifecycle steps 3-5 : the role is decided first (no database involved), then
@@ -392,7 +389,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// bufferedResult holds a rolled-back write's own read-back rows,
 	// captured while its SAVEPOINT is still live — "result" must still
 	// reflect what happened (## rollback), but the physical rows (and this
-	// item's own "_data" rows, written inside the same savepoint scope) are
+	// item's own temp rows, written inside the same savepoint scope) are
 	// gone the instant "rollback to savepoint" runs, so the read-back has to
 	// execute before that, not in the later per-item compile/stream loops.
 	bufferedResult := make([][][]byte, len(resolved))

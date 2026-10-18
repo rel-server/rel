@@ -19,6 +19,14 @@ type loggingQuerier struct {
 	inner query.Querier
 }
 
+// Conn gives the write path the pgx connection under the wrapper, which it needs to create the temp tables.
+func (q loggingQuerier) Conn() *pgx.Conn {
+	if c, ok := q.inner.(interface{ Conn() *pgx.Conn }); ok {
+		return c.Conn()
+	}
+	return nil
+}
+
 func (q loggingQuerier) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	logging.FromContext(ctx).Debug("executing write", "sql", sql, "args", args)
 	return q.inner.Exec(ctx, sql, args...)

@@ -174,7 +174,7 @@ func parseDateTimeText(typ, s string, wantTime bool) (timeFields, error) {
 		}
 	}
 	if f.hour > 24 || f.min > 59 || f.sec > 59 || (f.hour == 24 && (f.min != 0 || f.sec != 0 || f.micro != 0)) {
-		return f, errBadValue(typ, s, "time out of range")
+		return f, errOutOfRange(typ, s)
 	}
 
 	// zone : Z, or a numeric offset, optionally after one space
@@ -206,7 +206,7 @@ func parseDateTimeText(typ, s string, wantTime bool) (timeFields, error) {
 			}
 		}
 		if oh > 15 || om > 59 {
-			return f, errBadValue(typ, s, "offset out of range")
+			return f, errOutOfRange(typ, s)
 		}
 		f.hasZone = true
 		f.zoneSeconds = oh*3600 + om*60
@@ -261,7 +261,7 @@ func encodeDate(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 	}
 	days := f.epochDays()
 	if days < dateMinDays || days > dateMaxDays {
-		return nil, errBadValue("date", s, "out of range")
+		return nil, errOutOfRange("date", s)
 	}
 	return appendInt32(dst, int32(days)), nil
 }
@@ -271,14 +271,15 @@ func encodeTimestamp(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 }
 
 func encodeTimestamptz(dst []byte, n Node, ec *encodeContext) ([]byte, error) {
-	loc := ec.location()
-	return encodeTimestampText(dst, n, "timestamptz", loc)
+	return encodeTimestampText(dst, n, "timestamptz", ec)
 }
 
-// encodeTimestampText serves both timestamp types : loc nil means timestamp
+// encodeTimestampText serves both timestamp types : a nil ec means timestamp
 // (a zone suffix is read and ignored), otherwise timestamptz, where a text without
-// an offset is a wall-clock time in loc.
-func encodeTimestampText(dst []byte, n Node, typ string, loc *time.Location) ([]byte, error) {
+// an offset is a wall-clock time in the session zone.
+func encodeTimestampText(dst []byte, n Node, typ string, ec *encodeContext) ([]byte, error) {
+	timestamptz := typ == "timestamptz"
+	loc := ec.location()
 	s, err := nodeString(typ, n)
 	if err != nil {
 		return nil, err
@@ -295,22 +296,25 @@ func encodeTimestampText(dst []byte, n Node, typ string, loc *time.Location) ([]
 	}
 	days := f.epochDays()
 	if days < tsMinMicros/microsPerDay-1 || days > tsEndMicros/microsPerDay+1 {
-		return nil, errBadValue(typ, s, "out of range")
+		return nil, errOutOfRange(typ, s)
 	}
 	var micros int64
 	switch {
-	case loc != nil && !f.hasZone:
+	case timestamptz && !f.hasZone:
+		if ec != nil && ec.zoneErr != nil {
+			return nil, errUnknownZone(s, ec.zoneName)
+		}
 		wall := days*86400 + f.hour*3600 + f.min*60 + f.sec // the wall clock read as if it were UTC, in seconds since 2000
 		micros = (wall-zoneOffsetAt(loc, wall))*microsPerSecond + f.micro
 	default:
 		secs := days*86400 + f.hour*3600 + f.min*60 + f.sec
-		if loc != nil {
+		if timestamptz {
 			secs -= f.zoneSeconds // a timestamp ignores the offset ; a timestamptz applies it
 		}
 		micros = secs*microsPerSecond + f.micro
 	}
 	if micros < tsMinMicros || micros >= tsEndMicros {
-		return nil, errBadValue(typ, s, "out of range")
+		return nil, errOutOfRange(typ, s)
 	}
 	return appendInt64(dst, micros), nil
 }

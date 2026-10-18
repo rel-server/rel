@@ -6,11 +6,13 @@ package query
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rel-server/rel/pg"
 	"github.com/samber/oops"
 )
@@ -20,6 +22,11 @@ import (
 type encodeContext struct {
 	// Location is the session TimeZone ; nil means UTC.
 	Location *time.Location
+
+	// zoneName and zoneErr record a session TimeZone Go could not load : a timestamptz written
+	// without an offset then cannot be placed, and says so.
+	zoneName string
+	zoneErr  error
 }
 
 func (ec *encodeContext) location() *time.Location {
@@ -109,17 +116,71 @@ func kindName(k NodeKind) string {
 	return "invalid value"
 }
 
-// errWrongKind reports a value of a kind the type does not accept.
-func errWrongKind(typ string, n Node) error {
-	return oops.With("type", typ, "received", kindName(n.Kind())).Errorf("write: a %s value is not accepted for type %s", kindName(n.Kind()), typ)
+// A value that cannot be written is reported as the error Postgres itself raises for the same
+// value, SQLSTATE included, so it classifies and reaches the client the way it always has
+// (server/rel.go classifyWriteError, pgerr.Classify).
+
+// isDateTimeType reports whether typ is one of the date and time types.
+func isDateTimeType(typ string) bool {
+	return typ == "date" || typ == "timestamp" || typ == "timestamptz"
 }
 
-// errBadValue reports a value of the right kind that does not parse as typ.
-func errBadValue(typ, text, why string) error {
-	if len(text) > 64 {
-		text = text[:64] + "…"
+// errWrongKind reports a value of a kind the type does not accept : invalid_text_representation.
+func errWrongKind(typ string, n Node) error {
+	code, msg := "22P02", fmt.Sprintf("invalid input syntax for type %s: a %s value is not accepted", typ, kindName(n.Kind()))
+	if isDateTimeType(typ) {
+		code = "22007"
 	}
-	return oops.With("type", typ, "value", text).Errorf("write: %q is not a valid %s: %s", text, typ, why)
+	return oops.With("type", typ, "received", kindName(n.Kind())).Wrap(&pgconn.PgError{Severity: "ERROR", Code: code, Message: msg})
+}
+
+func shorten(text string) string {
+	if len(text) > 64 {
+		return text[:64] + "…"
+	}
+	return text
+}
+
+// errBadValue reports a value of the right kind that does not parse as typ : invalid_text_representation,
+// or invalid_datetime_format for a date or time.
+func errBadValue(typ, text, why string) error {
+	text = shorten(text)
+	code := "22P02"
+	if isDateTimeType(typ) {
+		code = "22007"
+	}
+	return oops.With("type", typ, "value", text).Wrap(&pgconn.PgError{
+		Severity: "ERROR", Code: code,
+		Message: fmt.Sprintf("invalid input syntax for type %s: %q", typ, text), Detail: why,
+	})
+}
+
+// errOutOfRange reports a value that parses but does not fit the type : numeric_value_out_of_range, or
+// datetime_field_overflow for a date or time.
+func errOutOfRange(typ, text string) error {
+	text = shorten(text)
+	code, msg := "22003", fmt.Sprintf("value %q is out of range for type %s", text, typ)
+	if isDateTimeType(typ) {
+		code, msg = "22008", fmt.Sprintf("%s out of range: %q", typ, text)
+	}
+	return oops.With("type", typ, "value", text).Wrap(&pgconn.PgError{Severity: "ERROR", Code: code, Message: msg})
+}
+
+// errUnknownZone reports a timestamptz written without an offset while the session time zone is one Go
+// cannot load : invalid_datetime_format, with a message that names the zone.
+func errUnknownZone(text, zone string) error {
+	text = shorten(text)
+	return oops.With("type", "timestamptz", "value", text, "zone", zone).Wrap(&pgconn.PgError{
+		Severity: "ERROR", Code: "22007",
+		Message: fmt.Sprintf("cannot place %q in time zone %q, which rel does not know : write the time with an offset", text, zone),
+	})
+}
+
+// errBadCharacter reports a string Postgres cannot store as text, a NUL : character_not_in_repertoire.
+func errBadCharacter(typ, text string) error {
+	return oops.With("type", typ, "value", shorten(text)).Wrap(&pgconn.PgError{
+		Severity: "ERROR", Code: "22021", Message: "invalid byte sequence for encoding \"UTF8\": 0x00",
+	})
 }
 
 // ---- helpers ------------------------------------------------------------------------
@@ -154,7 +215,7 @@ func encodeInt(bits int) fieldEncoder {
 		v, perr := strconv.ParseInt(text, 10, bits)
 		if perr != nil {
 			if ne, ok := perr.(*strconv.NumError); ok && ne.Err == strconv.ErrRange {
-				return nil, errBadValue(name, text, "out of range")
+				return nil, errOutOfRange(name, text)
 			}
 			return nil, errBadValue(name, text, "not an integer")
 		}
@@ -333,7 +394,7 @@ func encodeText(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 		return nil, oops.Wrapf(err, "write: reading text")
 	}
 	if strings.IndexByte(s, 0) >= 0 {
-		return nil, errBadValue("text", s, "a string cannot hold a NUL character")
+		return nil, errBadCharacter("text", s)
 	}
 	return append(dst, s...), nil
 }
@@ -434,7 +495,7 @@ func encodeJSON(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 		return nil, oops.Wrapf(err, "write: reading json")
 	}
 	if strings.IndexByte(raw, 0) >= 0 {
-		return nil, errBadValue("json", raw, "a NUL character")
+		return nil, errBadCharacter("json", raw)
 	}
 	return append(dst, raw...), nil
 }

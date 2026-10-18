@@ -13,8 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// acquireWriteConn returns one pinned connection with a fresh "_data" temp
-// table — writes need one physical connection throughout (temp tables are connection-scoped).
+// acquireWriteConn returns one pinned connection whose write temp tables are empty — writes need
+// one physical connection throughout (temp tables are connection-scoped), and the pool can hand
+// back one with rows left by an earlier test.
 func acquireWriteConn(t *testing.T) *pgxpool.Conn {
 	t.Helper()
 	conn, err := testDb.Pool.Acquire(context.Background())
@@ -22,22 +23,37 @@ func acquireWriteConn(t *testing.T) *pgxpool.Conn {
 		t.Fatalf("acquire: %v", err)
 	}
 	t.Cleanup(conn.Release)
-	// The pool can hand back a connection with a leftover "_data" from a
-	// previous test (temp tables outlive Release) — DROP first for idempotency.
-	if _, err := conn.Exec(context.Background(), `drop table if exists _data`); err != nil {
-		t.Fatalf("drop _data: %v", err)
-	}
-	if _, err := conn.Exec(context.Background(), DataTableDDL); err != nil {
-		t.Fatalf("create _data: %v", err)
-	}
+	resetWriteTables(t, conn)
 	return conn
 }
 
-func dataKeysFor(t *testing.T, conn *pgxpool.Conn, nodeID int) []map[string]any {
+// resetWriteTables empties every general write temp table of the connection.
+func resetWriteTables(t testing.TB, conn *pgxpool.Conn) {
 	t.Helper()
-	rows, err := conn.Query(context.Background(), `select keys from _data where __node_id = $1 order by __row_id`, nodeID)
+	if _, err := conn.Exec(context.Background(), `do $$ declare r record; begin
+		for r in select c.relname from pg_class c where c.relnamespace = pg_my_temp_schema() and c.relname like '\_\_rel\_w\_%' loop
+			execute format('truncate pg_temp.%I', r.relname);
+		end loop; end $$`); err != nil {
+		t.Fatalf("resetting the write tables: %v", err)
+	}
+}
+
+// dataKeysFor reads the key columns the write left in node's temp rows, in row order, as JSON-decoded maps.
+func dataKeysFor(t *testing.T, conn *pgxpool.Conn, node *QueryNode, result *WriteResult) []map[string]any {
+	t.Helper()
+	tt, err := newTempTable(node.Relation)
 	if err != nil {
-		t.Fatalf("query _data: %v", err)
+		t.Fatal(err)
+	}
+	var cols []string
+	for _, c := range keysColumns(node) {
+		cols = append(cols, quoteIdent(c.Name))
+	}
+	sql := fmt.Sprintf(`select to_jsonb(k) from (select %s from %s where %s = $1 order by %s) k`,
+		strings.Join(cols, ", "), tt.qualifiedGeneral(), quoteIdent(tt.nodeIDCol()), quoteIdent(tt.rowIDCol()))
+	rows, err := conn.Query(context.Background(), sql, result.NodeIDs[node])
+	if err != nil {
+		t.Fatalf("query temp rows: %v", err)
 	}
 	defer rows.Close()
 	var out []map[string]any
@@ -47,10 +63,18 @@ func dataKeysFor(t *testing.T, conn *pgxpool.Conn, nodeID int) []map[string]any 
 			t.Fatalf("scan: %v", err)
 		}
 		var m map[string]any
-		if raw != nil {
-			if err := json.Unmarshal(raw, &m); err != nil {
-				t.Fatalf("unmarshal keys %s: %v", raw, err)
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatalf("unmarshal keys %s: %v", raw, err)
+		}
+		// a key still NULL was never written : the old keys column was NULL for such a row
+		allNull := true
+		for _, v := range m {
+			if v != nil {
+				allNull = false
 			}
+		}
+		if allNull {
+			m = nil
 		}
 		out = append(out, m)
 	}
@@ -71,7 +95,7 @@ func TestExecuteWrite_PlainInsert(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", result.RowCount)
 	}
 
-	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	keys := dataKeysFor(t, conn, node, result)
 	if len(keys) != 1 {
 		t.Fatalf("expected 1 keys row, got %d : %#v", len(keys), keys)
 	}
@@ -108,11 +132,11 @@ func TestExecuteWrite_IncomingChildFK(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	directorKeys := dataKeysFor(t, conn, result.NodeIDs[node])
+	directorKeys := dataKeysFor(t, conn, node, result)
 	if len(directorKeys) != 1 {
 		t.Fatalf("expected 1 director keys row, got %d", len(directorKeys))
 	}
-	movieKeys := dataKeysFor(t, conn, result.NodeIDs[movieNode])
+	movieKeys := dataKeysFor(t, conn, movieNode, result)
 	if len(movieKeys) != 2 {
 		t.Fatalf("expected 2 movie keys rows, got %d : %#v", len(movieKeys), movieKeys)
 	}
@@ -150,8 +174,8 @@ func TestExecuteWrite_OutgoingChildFK(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	movieKeys := dataKeysFor(t, conn, result.NodeIDs[node])
-	directorKeys := dataKeysFor(t, conn, result.NodeIDs[directorNode])
+	movieKeys := dataKeysFor(t, conn, node, result)
+	directorKeys := dataKeysFor(t, conn, directorNode, result)
 	if len(movieKeys) != 1 || len(directorKeys) != 1 {
 		t.Fatalf("expected 1 movie + 1 director keys row, got %d/%d", len(movieKeys), len(directorKeys))
 	}
@@ -208,9 +232,9 @@ func TestExecuteWrite_ThreeLevelNestedIncomingChildren(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	studioKeys := dataKeysFor(t, conn, result.NodeIDs[node])
-	directorKeys := dataKeysFor(t, conn, result.NodeIDs[directorNode])
-	movieKeys := dataKeysFor(t, conn, result.NodeIDs[movieNode])
+	studioKeys := dataKeysFor(t, conn, node, result)
+	directorKeys := dataKeysFor(t, conn, directorNode, result)
+	movieKeys := dataKeysFor(t, conn, movieNode, result)
 	if len(studioKeys) != 1 {
 		t.Fatalf("expected 1 studio keys row, got %d", len(studioKeys))
 	}
@@ -328,7 +352,7 @@ func TestExecuteWrite_Upsert(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	keys := dataKeysFor(t, conn, node, result)
 	if len(keys) != 2 {
 		t.Fatalf("expected 2 keys rows, got %d : %#v", len(keys), keys)
 	}
@@ -530,7 +554,7 @@ func TestExecuteWriteStateParamsStats_Upsert(t *testing.T) {
 		t.Errorf("expected inserted=1 updated=1, got %#v", s)
 	}
 
-	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	keys := dataKeysFor(t, conn, node, result)
 	if len(keys) != 2 {
 		t.Fatalf("expected 2 keys rows (upsert side effects unaffected by stats collection), got %d", len(keys))
 	}
@@ -712,6 +736,12 @@ type countingQuerier struct {
 	queries int
 }
 
+// Conn lets the write path reach the pgx connection under the wrapper.
+func (c *countingQuerier) Conn() *pgx.Conn {
+	conn, _ := pgxConnOf(c.Querier)
+	return conn
+}
+
 func (c *countingQuerier) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	c.execs++
 	return c.Querier.Exec(ctx, sql, args...)
@@ -743,11 +773,11 @@ func TestExecuteWrite_NullOutgoingSkipsChildStatements(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	directorKeys := dataKeysFor(t, conn, result.NodeIDs[node])
+	directorKeys := dataKeysFor(t, conn, node, result)
 	if len(directorKeys) != 1 {
 		t.Fatalf("expected 1 director keys row, got %d", len(directorKeys))
 	}
-	studioKeys := dataKeysFor(t, conn, result.NodeIDs[studioNode])
+	studioKeys := dataKeysFor(t, conn, studioNode, result)
 	if len(studioKeys) != 0 {
 		t.Fatalf("expected 0 studio keys rows (studio was null), got %d : %#v", len(studioKeys), studioKeys)
 	}
@@ -796,7 +826,7 @@ func TestExecuteWrite_MergeNewLeavesExistingUntouched(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	keys := dataKeysFor(t, conn, result.NodeIDs[movieNode])
+	keys := dataKeysFor(t, conn, movieNode, result)
 	if len(keys) != 1 || keys[0]["id"] == nil {
 		t.Fatalf("expected the existing movie's key recovered despite do-nothing, got %#v", keys)
 	}
@@ -868,7 +898,7 @@ func TestExecuteWrite_DefaultValueOmitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
-	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	keys := dataKeysFor(t, conn, node, result)
 	if len(keys) != 1 || keys[0]["id"] == nil {
 		t.Fatalf("expected id filled from the column's default, got %#v", keys)
 	}
@@ -906,7 +936,7 @@ func TestExecuteWrite_CompositeSubFieldInsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
-	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	keys := dataKeysFor(t, conn, node, result)
 	if len(keys) != 1 {
 		t.Fatalf("expected 1 keys row, got %d : %#v", len(keys), keys)
 	}
@@ -1015,7 +1045,7 @@ func TestExecuteWrite_CompositeSubFieldWithNestedChild(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 	amenityNode := node.IncomingNodes[0]
-	amenityKeys := dataKeysFor(t, conn, result.NodeIDs[amenityNode])
+	amenityKeys := dataKeysFor(t, conn, amenityNode, result)
 	if len(amenityKeys) != 2 {
 		t.Fatalf("expected 2 amenity keys rows, got %d : %#v", len(amenityKeys), amenityKeys)
 	}
@@ -1197,7 +1227,7 @@ func TestExecuteWrite_MergeNewNonPKOnConflictRecoversRealKey(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	keys := dataKeysFor(t, conn, result.NodeIDs[profileNode])
+	keys := dataKeysFor(t, conn, profileNode, result)
 	if len(keys) != 1 {
 		t.Fatalf("expected 1 keys row, got %d", len(keys))
 	}
@@ -1242,14 +1272,12 @@ func TestExecuteWrite_UpsertNonPKOnConflictPreservesRealKey(t *testing.T) {
 	payload := []byte(`[{"user_email": "upsert-phantom@example.com", "notes": []}]`)
 
 	for i := 0; i < 2; i++ {
-		if _, err := conn.Exec(ctx, `truncate _data`); err != nil {
-			t.Fatalf("truncate _data: %v", err)
-		}
+		resetWriteTables(t, conn)
 		result, err := ExecuteWrite(ctx, conn, node, payload)
 		if err != nil {
 			t.Fatalf("ExecuteWrite (run %d): %v", i, err)
 		}
-		keys := dataKeysFor(t, conn, result.NodeIDs[node])
+		keys := dataKeysFor(t, conn, node, result)
 		if len(keys) != 1 {
 			t.Fatalf("run %d: expected 1 keys row, got %d", i, len(keys))
 		}
@@ -1293,9 +1321,7 @@ func TestExecuteWrite_UpsertMultiColumnOnConflict(t *testing.T) {
 	}`)
 
 	// First write : no existing (1, 2) row, so this is a genuine insert.
-	if _, err := conn.Exec(ctx, `truncate _data`); err != nil {
-		t.Fatalf("truncate _data: %v", err)
-	}
+	resetWriteTables(t, conn)
 	if _, err := ExecuteWrite(ctx, conn, node, []byte(`[{"x": 1, "y": 2, "z": 10}]`)); err != nil {
 		t.Fatalf("ExecuteWrite (insert): %v", err)
 	}
@@ -1310,9 +1336,7 @@ func TestExecuteWrite_UpsertMultiColumnOnConflict(t *testing.T) {
 	// Second write : same (x, y), different z — must hit the ON CONFLICT
 	// (x, y) DO UPDATE branch, updating z in place rather than erroring on a
 	// duplicate-key violation or inserting a second row.
-	if _, err := conn.Exec(ctx, `truncate _data`); err != nil {
-		t.Fatalf("truncate _data: %v", err)
-	}
+	resetWriteTables(t, conn)
 	if _, err := ExecuteWrite(ctx, conn, node, []byte(`[{"x": 1, "y": 2, "z": 99}]`)); err != nil {
 		t.Fatalf("ExecuteWrite (conflicting update): %v", err)
 	}
@@ -1354,7 +1378,7 @@ func TestExecuteWrite_UpsertDefaultPKConflictSelfReferencesOtherColumn(t *testin
 	if err != nil {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
-	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	keys := dataKeysFor(t, conn, node, result)
 	if len(keys) != 1 {
 		t.Fatalf("expected 1 keys row, got %d", len(keys))
 	}
@@ -1428,7 +1452,7 @@ func TestExecuteWrite_MergeNewInsertsGenuinelyNewRow(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	keys := dataKeysFor(t, conn, result.NodeIDs[movieNode])
+	keys := dataKeysFor(t, conn, movieNode, result)
 	if len(keys) != 1 || keys[0]["id"] == nil {
 		t.Fatalf("expected the new row's real id recovered, got %#v", keys)
 	}
@@ -1457,7 +1481,7 @@ func TestExecuteWrite_OwnFullSkipsGeneratedColumn(t *testing.T) {
 		t.Fatalf("ExecuteWrite: %v", err)
 	}
 
-	keys := dataKeysFor(t, conn, result.NodeIDs[node])
+	keys := dataKeysFor(t, conn, node, result)
 	if len(keys) != 1 || keys[0]["id"] == nil {
 		t.Fatalf("expected the new row's id recovered, got %#v", keys)
 	}
@@ -1771,8 +1795,10 @@ func TestExecuteWrite_IncomingChildFK_NotInSelect(t *testing.T) {
 }
 
 // batchCountingConn counts the round trips a write makes through a pipelining connection.
+type poolConn = pgxpool.Conn // an alias, so embedding it does not hide the Conn() method the write path looks for
+
 type batchCountingConn struct {
-	*pgxpool.Conn
+	*poolConn
 	batches, execs, queries int
 	queued                  int
 }
@@ -1780,23 +1806,23 @@ type batchCountingConn struct {
 func (c *batchCountingConn) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
 	c.batches++
 	c.queued += b.Len()
-	return c.Conn.SendBatch(ctx, b)
+	return c.poolConn.SendBatch(ctx, b)
 }
 
 func (c *batchCountingConn) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	c.execs++
-	return c.Conn.Exec(ctx, sql, args...)
+	return c.poolConn.Exec(ctx, sql, args...)
 }
 
 func (c *batchCountingConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	c.queries++
-	return c.Conn.Query(ctx, sql, args...)
+	return c.poolConn.Query(ctx, sql, args...)
 }
 
 // TestExecuteWrite_SendsAllStatementsInOneBatch proves a write over a pipelining connection
-// loads _data and runs every phase in a single round trip, however deep the tree.
+// loads the temp rows and runs every phase in a single round trip, however deep the tree.
 func TestExecuteWrite_SendsAllStatementsInOneBatch(t *testing.T) {
-	conn := &batchCountingConn{Conn: acquireWriteConn(t)}
+	conn := &batchCountingConn{poolConn: acquireWriteConn(t)}
 	ctx := context.Background()
 
 	node := mustResolveQuery(t, `{

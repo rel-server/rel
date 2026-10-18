@@ -2,31 +2,30 @@ package query
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	"github.com/bytedance/sonic"
+	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/writer"
 	"github.com/samber/oops"
 )
 
 // The fast write path : for the common case of a flat write (one relation, no
-// nested writes, a select of plain columns), skip the "_data" scratch table. The
-// request's rows go in as one JSON parameter, the write statement returns the
-// written rows (RETURNING), and the response is built from them in the same
-// statement. See write.go for where it is chosen.
+// nested writes, a select of plain columns), skip the general temp table. The
+// request's rows go in as one binary array parameter of the table's fast row type,
+// the write statement returns the written rows (RETURNING), and the response is
+// built from them in the same statement. See write.go for where it is chosen.
 
 // fastWrite is the state of one fast write.
 type fastWrite struct {
-	// rows is the JSON array of flat row objects (insert, upsert, update-existing),
-	// or patch the single patch object (update).
-	rows  []byte
-	patch []byte
+	// param is the rows (or, for an "update" root, the one patch row) as an array of the fast
+	// row type, and patchMask the presence words of the first row.
+	param     rawBinary
+	patchMask []int64
 	// responses is filled by finishFast : one JSON document per response row.
 	responses [][]byte
 }
 
-// fastWriteEligible reports whether root can be written without "_data". It is
+// fastWriteEligible reports whether root can be written without the general temp table. It is
 // deliberately narrow : anything it does not recognize takes the general path.
 func fastWriteEligible(root *QueryNode, opts WriteOptions) bool {
 	if opts.NoFastPath || opts.Stats || opts.Sql || opts.QueryPlan {
@@ -109,17 +108,26 @@ func plainRowExpr(e Expression, root *QueryNode) bool {
 }
 
 // writeWith opens the statement's WITH list ; in fast mode with the "tmp" CTE
-// that stands in for the node's "_data" rows, built from the JSON parameter.
+// that stands in for the node's temp rows, built from the binary array parameter.
 func (dc *dmlCompiler) writeWith(w *writer.SQLWriter, node *QueryNode) error {
 	w.Write("with ")
 	if dc.fast == nil {
 		return nil
 	}
-	w.Write("tmp as (select o.ord::int as __row_id, ")
+	t := dc.tempOf(node)
+	w.Write("tmp as (select z.*, z.ordinality::int as ")
+	w.Write(quoteIdent(t.rowIDCol()))
+	w.Write(", ")
 	w.Write(fmt.Sprintf("%d", dc.ids[node]))
-	w.Write(" as __node_id, null::int as __parent_id, o.data from jsonb_array_elements(")
-	w.Bind(string(dc.fast.rows))
-	w.Write("::jsonb) with ordinality as o(data, ord)),\n")
+	w.Write(" as ")
+	w.Write(quoteIdent(t.nodeIDCol()))
+	w.Write(", null::int as ")
+	w.Write(quoteIdent(t.parentIDCol()))
+	w.Write(" from unnest(")
+	w.Bind(dc.fast.param)
+	w.Write("::")
+	w.Write(t.fast.qualified())
+	w.Write("[]) with ordinality as z),\n")
 	return nil
 }
 
@@ -160,38 +168,21 @@ func (dc *dmlCompiler) finishFast(ctx context.Context, node *QueryNode, w *write
 	return nil
 }
 
-// runUpdateWhereFast is runUpdateWhere without "_data" : the patch comes in as
-// a JSON parameter and the updated rows are the response.
+// runUpdateWhereFast is runUpdateWhere without the general temp table : the patch comes in
+// as a one-row array parameter and the updated rows are the response.
 func (dc *dmlCompiler) runUpdateWhereFast(ctx context.Context, node *QueryNode) error {
-	var present map[string]json.RawMessage
-	if err := sonic.Unmarshal(dc.fast.patch, &present); err != nil {
-		return oops.Wrapf(err, "decoding the patch")
-	}
-	allowlist := node.UpdateColumns
-	if len(allowlist) == 0 {
-		allowlist = node.InsertColumns
-	}
-	cols, err := columnsFor(node, allowlist)
+	setCols, err := patchSetColumns(node, dc.fast.patchMask)
 	if err != nil {
 		return err
 	}
-	var setCols []ColumnPath
-	for _, cp := range cols {
-		if _, ok := present[columnPathFlatName(cp)]; ok {
-			setCols = append(setCols, cp)
-		}
-	}
-	if len(setCols) == 0 {
-		return oops.Errorf("update: the patch names no column the select makes writable")
-	}
-
+	t := dc.tempOf(node)
 	relID := node.Relation.Identifier.EscapedString()
 	w := writer.NewSQL()
-	w.Write("with p as (select obj.* from jsonb_populate_record(null::")
-	w.Write(relID)
-	w.Write(", ")
-	w.Bind(string(dc.fast.patch))
-	w.Write("::jsonb) as obj),\nupd as (\n\tupdate ")
+	w.Write("with p as (select z.* from unnest(")
+	w.Bind(dc.fast.param)
+	w.Write("::")
+	w.Write(t.fast.qualified())
+	w.Write("[]) as z),\nupd as (\n\tupdate ")
 	w.Write(relID)
 	w.Write(" t\n\tset ")
 	for i, cp := range setCols {
@@ -200,7 +191,7 @@ func (dc *dmlCompiler) runUpdateWhereFast(ctx context.Context, node *QueryNode) 
 		}
 		writeTargetPath(w, cp)
 		w.Write(" = ")
-		writeQualifiedPathN(w, "p", cp.Path, len(cp.Path)-1)
+		w.Write(t.cpRef("p", cp.Path))
 	}
 	w.Write("\n\tfrom p\n\twhere ")
 	if err := dc.compileRootWhere(w, node); err != nil {
@@ -211,29 +202,22 @@ func (dc *dmlCompiler) runUpdateWhereFast(ctx context.Context, node *QueryNode) 
 }
 
 // executeFast runs the whole write as one statement and returns the response rows.
-func executeFast(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload []byte, state *WriteState, nextNodeID int, paramValues map[string]any) (*WriteResult, error) {
-	dc := &dmlCompiler{conn: conn, ids: ids, paramValues: paramValues, fast: &fastWrite{}}
-	if root.WriteMode == UPDATE {
-		dc.fast.patch = append([]byte(nil), payload[1:len(payload)-1]...) // patchAsPayload wrapped it in [ ]
-	} else {
-		rows, _, err := denormalize(root, ids, payload, 0)
-		if err != nil {
-			return nil, err
-		}
-		data := make([]json.RawMessage, len(rows))
-		for i, r := range rows {
-			data[i] = r.Data
-		}
-		encoded, err := sonic.Marshal(data)
-		if err != nil {
-			return nil, oops.Wrapf(err, "write: encoding rows")
-		}
-		dc.fast.rows = encoded
-		if len(rows) == 0 {
-			state.nextNodeID = nextNodeID
-			return &WriteResult{NodeIDs: ids, Rows: [][]byte{}}, nil
-		}
+func executeFast(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload []byte, state *WriteState, nextNodeID int, paramValues map[string]any, ec *encodeContext) (*WriteResult, error) {
+	t, err := ensureTempTables(ctx, conn, root.Relation)
+	if err != nil {
+		return nil, err
 	}
+	tables := map[*pg.Relation]*tempTable{root.Relation: t}
+	rows, err := denormalize(root, ids, payload, tables, 0, false, ec)
+	if err != nil {
+		return nil, err
+	}
+	if rows.count == 0 {
+		state.nextNodeID = nextNodeID
+		return &WriteResult{NodeIDs: ids, Rows: [][]byte{}}, nil
+	}
+	dc := &dmlCompiler{conn: conn, ids: ids, temps: tables, paramValues: paramValues,
+		fast: &fastWrite{param: rows.batches[t].param(), patchMask: rows.patchMask}}
 	if err := dc.runPhase1Node(ctx, root); err != nil {
 		return nil, oops.With("node", root.InnerName).Wrapf(err, "write")
 	}

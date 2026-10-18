@@ -107,7 +107,7 @@ func appendNumeric(dst []byte, text string) ([]byte, error) {
 		dscale = 0
 	}
 	if dscale > numericMaxDscale {
-		return nil, errBadValue("numeric", text, "scale too large")
+		return nil, errOutOfRange("numeric", text)
 	}
 
 	lead := 0
@@ -130,7 +130,7 @@ func appendNumeric(dst []byte, text string) ([]byte, error) {
 	total := lpad + len(digits)
 	ngroups := (total + 3) / 4
 	if ngroups > 0x7fff || weight > 0x7fff || weight < -0x8000 {
-		return nil, errBadValue("numeric", text, "out of range")
+		return nil, errOutOfRange("numeric", text)
 	}
 
 	sign := uint16(numericPos)
