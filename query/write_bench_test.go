@@ -1,5 +1,5 @@
 // Benchmarks for ExecuteWrite's write path (outgoing relationships). Each
-// iteration truncates "_data" first — __row_id is a PRIMARY KEY, so replays collide.
+// iteration empties the write temp tables first, so rows of earlier iterations never pile up.
 package query
 
 import (
@@ -19,23 +19,29 @@ func acquireWriteConnB(b *testing.B) *pgxpool.Conn {
 		b.Fatalf("acquire: %v", err)
 	}
 	b.Cleanup(conn.Release)
-	if _, err := conn.Exec(context.Background(), `drop table if exists _data`); err != nil {
-		b.Fatalf("drop _data: %v", err)
-	}
-	if _, err := conn.Exec(context.Background(), DataTableDDL); err != nil {
-		b.Fatalf("create _data: %v", err)
-	}
+	resetWriteTables(b, conn)
+	analyzeB(b, conn)
 	return conn
 }
 
-// truncateDataB clears "_data" with the timer stopped, so only ExecuteWrite's
-// own cost is measured (see the package comment for why truncation resets).
+// analyzeB refreshes the planner statistics of the tables the benchmarks write, as autovacuum would
+// in a database that lives long enough : a table that just grew by thousands of rows has none, which makes the planner
+// scan it instead of using its index and drowns what is being measured.
+func analyzeB(b *testing.B, conn *pgxpool.Conn) {
+	b.Helper()
+	b.StopTimer()
+	if _, err := conn.Exec(context.Background(), `analyze studio, director, movie`); err != nil {
+		b.Fatalf("analyze: %v", err)
+	}
+	b.StartTimer()
+}
+
+// truncateDataB clears the write temp tables with the timer stopped, so only ExecuteWrite's
+// own cost is measured.
 func truncateDataB(b *testing.B, conn *pgxpool.Conn) {
 	b.Helper()
 	b.StopTimer()
-	if _, err := conn.Exec(context.Background(), `truncate _data`); err != nil {
-		b.Fatalf("truncate _data: %v", err)
-	}
+	resetWriteTables(b, conn)
 	b.StartTimer()
 }
 
@@ -75,6 +81,9 @@ func BenchmarkExecuteWrite_FlatInsert(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		payload := fmt.Appendf(nil, `[{"name": "Bench Director %d"}]`, i)
 		truncateDataB(b, conn)
+		if i%50 == 49 {
+			analyzeB(b, conn)
+		}
 		if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 			b.Fatalf("ExecuteWrite: %v", err)
 		}
@@ -97,6 +106,9 @@ func BenchmarkExecuteWrite_OneOutgoingChild(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		payload := fmt.Appendf(nil, `[{"title": "Bench Movie %d", "director": {"name": "Bench Director %d"}}]`, i, i)
 		truncateDataB(b, conn)
+		if i%50 == 49 {
+			analyzeB(b, conn)
+		}
 		if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 			b.Fatalf("ExecuteWrite: %v", err)
 		}
@@ -124,6 +136,9 @@ func BenchmarkExecuteWrite_DeepOutgoingChain(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		payload := fmt.Appendf(nil, `[{"title": "Bench Chain Movie %d", "director": {"name": "Bench Chain Director %d", "studio": {"name": "Bench Studio %d"}}}]`, i, i, i)
 		truncateDataB(b, conn)
+		if i%50 == 49 {
+			analyzeB(b, conn)
+		}
 		if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 			b.Fatalf("ExecuteWrite: %v", err)
 		}
@@ -150,6 +165,9 @@ func BenchmarkExecuteWrite_WideOutgoingFanout(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		payload := []byte(`[{"customer": {}, "billing_customer": {}}]`)
 		truncateDataB(b, conn)
+		if i%50 == 49 {
+			analyzeB(b, conn)
+		}
 		if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 			b.Fatalf("ExecuteWrite: %v", err)
 		}
@@ -175,10 +193,11 @@ func BenchmarkExecuteWrite_BatchSize(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				b.StopTimer()
 				payload := buildBatchPayload(n, i)
-				if _, err := conn.Exec(ctx, `truncate _data`); err != nil {
-					b.Fatalf("truncate _data: %v", err)
-				}
+				resetWriteTables(b, conn)
 				b.StartTimer()
+				if i%10 == 9 {
+					analyzeB(b, conn)
+				}
 				if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 					b.Fatalf("ExecuteWrite: %v", err)
 				}
@@ -226,6 +245,9 @@ func BenchmarkExecuteWrite_MixedOutgoingIncoming(b *testing.B) {
 			"movies": [{"title": "Bench Mixed Movie A %d"}, {"title": "Bench Mixed Movie B %d"}]
 		}]`, i, i, i, i)
 		truncateDataB(b, conn)
+		if i%50 == 49 {
+			analyzeB(b, conn)
+		}
 		if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
 			b.Fatalf("ExecuteWrite: %v", err)
 		}
