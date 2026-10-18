@@ -77,11 +77,18 @@ A pointer-sized wrapper type over `*sonic/ast.Node` implementing `Node`. Its met
 
 ### CBOR adapter
 
-Decode the request body with `cbor.Unmarshal` (library : `fxamacker/cbor/v2`) into `any`, with maps decoded to `map[string]any`, tags allowed, tags 0 and 1 decoded to `time.Time`, integers beyond 64 bits to `big.Int`, duplicate map keys refused and nesting limited to 64 levels. Wrap the result in a second `Node` implementation, `cborNode` (`query/node_cbor.go`).
+Read the request body in one pass into a flat arena of items (`query/node_cbor.go`), and make each `Node` a pointer to one item. An item records its kind and where its data sits in the body ; a string is copied out, and a number's text built, only when a column asks for it. No Go value is decoded for the document. The same pass validates it, so a malformed body is refused before anything else happens.
 
-> 📜 **ADR**: One decode call instead of a lazy walk. Query DSL bodies are small (a query tree, not a data payload), so sonic's lazy/SIMD advantage does not matter here ; `fxamacker/cbor` has no AST type equivalent to `sonic/ast`, so full decode is the only option anyway.
+> 📜 **ADR**: a purpose-built reader instead of a CBOR library's decode into `any`. The query and write payloads are only ever read, never decoded into Go values, so the general decoder's maps, slices and boxed values were pure cost : on a 50,000-row write body (3.7 MB) the library took 38 ms and the arena reader 6.5 ms, with about 40 % fewer allocations than the JSON path. `fxamacker/cbor` stays as a test-only reference (`query/node_cbor_ref_test.go`) : every document, 65,536 half floats, every truncation, and over a million mutated random documents are read by both and must give the same tree or both be refused.
 
-- A CBOR map key that is not a text string is an error (`errcode`-wrapped, not coerced to a string), as is a repeated key, trailing bytes after the item, and anything that is not well-formed CBOR.
+Limits and rules of the reader:
+
+- Nesting of arrays, maps and tags is limited to 64 levels. A count in a header must be backed by the bytes that remain.
+- Text strings must be valid UTF-8, chunk by chunk for an indefinite-length string. Indefinite-length arrays, maps and strings are read.
+- Duplicate map keys are refused.
+- Simple values other than `false`, `true`, `null` and `undefined` (read as null) are refused. Half, single and double floats are read.
+- Tag 0 over text that is not an RFC 3339 date and time, and tag 1 over a non-finite or out-of-range number, are refused.
+- A CBOR map key that is not a text string is an error (`errcode`-wrapped, not coerced to a string ; a byte string key is one), as is trailing bytes after the item, and anything that is not well-formed CBOR.
 - A CBOR integer, bignum, float or tag 4 decimal fraction is a `KindNumber` node whose `Raw()` is the number's digits : an integer prints as itself, a float so that it never reads as an integer (`3.0`), a tag 4 value as `<mantissa>e<exponent>`. The number encoders of the write path parse that text, so they read a CBOR number exactly as they read a JSON one ; `StrictInt64` and `StrictFloat64` read the CBOR value's own type.
 - `Node` has four more kinds, which only CBOR produces : `KindBytes` (a byte string), `KindInstant` (tag 0 or 1), `KindDate` (tag 100) and `KindUUID` (tag 37), read through `StrictBytes`, `Instant` and `Days`. A tag not listed here, or a listed tag with content of the wrong shape, is `KindInvalid` and refused with an error naming the tag.
 - `Raw()` converts a map, an array, a string or a null to JSON text (map keys sorted) ; a byte string, a date or time, any other tag, and a non-finite float have no JSON form and are an error.

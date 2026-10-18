@@ -14,7 +14,7 @@ import (
 )
 
 var cborEncMode = func() cbor.EncMode {
-	em, err := cbor.EncOptions{BigIntConvert: cbor.BigIntConvertShortest, Time: cbor.TimeUnix, TimeTag: cbor.EncTagRequired}.EncMode()
+	em, err := cbor.EncOptions{BigIntConvert: cbor.BigIntConvertShortest, Time: cbor.TimeUnix, TimeTag: cbor.EncTagRequired, Sort: cbor.SortCanonical}.EncMode()
 	if err != nil {
 		panic(err)
 	}
@@ -237,7 +237,7 @@ func TestCBORNode_NumberText(t *testing.T) {
 		{cbor.Tag{Number: 4, Content: []any{int64(-1), int64(0)}}, "0e-1", "0.0"},
 		{cbor.Tag{Number: 4, Content: []any{int64(1000), int64(1)}}, "1e1000", "1e1000"},
 	} {
-		n := cborOf(t, c.v).(cborNode)
+		n := cborOf(t, c.v).(*cnode)
 		raw, _ := n.Raw()
 		plain, _ := n.decimalText()
 		if raw != c.raw || plain != c.plain {
@@ -252,7 +252,7 @@ func TestCBORNode_NumberText(t *testing.T) {
 
 func TestCBORNode_JSONText(t *testing.T) {
 	doc := map[string]any{"b": []any{int64(1), 2.5, nil, true, "x\"y"}, "a": cbor.Tag{Number: 4, Content: []any{int64(-2), int64(150)}}}
-	got, err := cborOf(t, doc).(cborNode).jsonText()
+	got, err := cborOf(t, doc).(*cnode).jsonText()
 	if err != nil || got != `{"a":150e-2,"b":[1,2.5,null,true,"x\"y"]}` {
 		t.Errorf("jsonText = %q, %v", got, err)
 	}
@@ -261,7 +261,7 @@ func TestCBORNode_JSONText(t *testing.T) {
 		"another tag": cbor.Tag{Number: 999, Content: "x"}, "NaN": math.NaN(), "infinity": math.Inf(1),
 		"a byte string inside": map[string]any{"a": []any{[]byte{1}}},
 	} {
-		if text, err := cborOf(t, v).(cborNode).jsonText(); err == nil {
+		if text, err := cborOf(t, v).(*cnode).jsonText(); err == nil {
 			t.Errorf("%s: converted to %q", name, text)
 		}
 	}
