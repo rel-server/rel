@@ -132,6 +132,9 @@ func classifyShape(rd resolvedDeclaration) (Route, bool) {
 	switch len(outArgs) {
 	case 0:
 		contentType, binary, ok := classifySingleReturn(fn)
+		if !ok && !fn.ReturnsSet && anyValueType(fn.ReturnType) {
+			contentType, ok, entry.ContentNative = "application/json", true, true
+		}
 		if !ok {
 			log.Error("route: unsupported return type, function disabled",
 				"schema", fn.Identifier.Schema, "function", fn.Identifier.Name)
@@ -146,6 +149,9 @@ func classifyShape(rd resolvedDeclaration) (Route, bool) {
 			return Route{}, false
 		}
 		contentType, binary, ok := classifySingleReturnType(outArgs[1].Type)
+		if !ok && anyValueType(outArgs[1].Type) {
+			contentType, ok, entry.ContentNative = "application/json", true, true
+		}
 		if !ok {
 			log.Error("route: full-control return's second OUT column has an unsupported type, function disabled",
 				"schema", fn.Identifier.Schema, "function", fn.Identifier.Name)
@@ -213,6 +219,22 @@ func classifySingleReturnType(t *pg.Type) (contentType string, isBinary bool, ok
 		return t.PgIdentifier.Name, binary, true
 	}
 	return "", false, false
+}
+
+// pseudoTypeOids are the types a value cannot have : void, record, the polymorphic and the internal ones.
+var pseudoTypeOids = map[int]bool{
+	705: true, 2249: true, 2275: true, 2276: true, 2277: true, 2278: true, 2279: true, 2280: true, 2281: true, 2282: true,
+	2283: true, 2776: true, 3500: true, 3831: true, 3838: true, 4537: true, 5077: true, 5078: true,
+}
+
+// anyValueType reports whether a function may return t as its one value, beyond the mimetype table's :
+// any type that has a value, so every JSON form (to_jsonb) and, in CBOR, most have a native form.
+func anyValueType(t *pg.Type) bool {
+	if t == nil {
+		return false
+	}
+	u := t.Underlying()
+	return u != nil && !pseudoTypeOids[u.PgOid] && !pseudoTypeOids[t.PgOid]
 }
 
 // resolveMethods is ## Method inference : GET by default, POST when the

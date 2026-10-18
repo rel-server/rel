@@ -12,9 +12,11 @@ import (
 
 	"github.com/bytedance/sonic"
 
+	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 	jwtpkg "github.com/rel-server/rel/jwt"
+	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/querystring"
 	"github.com/rel-server/rel/static"
 	"github.com/rel-server/rel/websec"
@@ -258,18 +260,44 @@ func applyResponseSideEffects(w http.ResponseWriter, r *http.Request, cfg *confi
 // as Data when set — specs/new-routes.md ## Templates : "the other return
 // type is then used as the Data" applies here too, there being no
 // per-response override without full control.
-func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, route Route, accumulated relHttpResponsePayload, raw []byte, templates *TemplateSet) {
+func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, route Route, accumulated relHttpResponsePayload, raw []byte, isCBOR bool, templates *TemplateSet) {
 	applyResponseSideEffects(w, r, cfg, functionIdent, accumulated)
 
 	if route.Template != "" {
 		writeTemplateResponse(w, r, cfg, templates, route.Template, templateDataFromSingleReturn(raw, route.ContentType), route.ContentType, http.StatusOK)
 		return
 	}
-	if route.ContentType != "" {
-		w.Header().Set("Content-Type", route.ContentType)
+	contentType := route.ContentType
+	if isCBOR { // already CBOR, in the value's own types
+		w.Header().Add("Vary", "Accept")
+		contentType = cborenc.MediaType
+	} else {
+		raw, contentType = negotiateBody(w, r, contentType, raw)
+	}
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(raw)
+}
+
+// negotiateBody answers a JSON body in CBOR when the request Accepts it more than JSON (specs/cbor.md ## Responses).
+// The body is converted as a whole : a route function returns its value at once, there is nothing to stream.
+// Whatever cannot be converted stays JSON ; any other media type is left alone.
+func negotiateBody(w http.ResponseWriter, r *http.Request, contentType string, raw []byte) ([]byte, string) {
+	if mediaTypeOf(contentType) != "application/json" {
+		return raw, contentType
+	}
+	w.Header().Add("Vary", "Accept")
+	if len(raw) == 0 || !cborenc.Accepts(r.Header.Get("Accept")) {
+		return raw, contentType
+	}
+	out, err := cborenc.AppendJSON(nil, raw)
+	if err != nil {
+		logging.FromContext(r.Context()).Warn("route: a JSON body has no CBOR form, sent as JSON", "error", err.Error())
+		return raw, contentType
+	}
+	return out, cborenc.MediaType
 }
 
 // writeFullControlResponse decodes envelopeRaw (the first OUT column) and
@@ -347,6 +375,7 @@ func renderFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *conf
 		return
 	}
 
+	contentRaw, contentType = negotiateBody(w, r, contentType, contentRaw)
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}

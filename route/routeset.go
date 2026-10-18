@@ -64,6 +64,11 @@ type Route struct {
 	ContentType     string
 	ContentIsBinary bool
 
+	// ContentNative marks a value of a type with no mimetype of its own (an int, a timestamp, an array, a
+	// composite...) : it is sent as application/json through to_jsonb, or as CBOR in its own types when that is
+	// what the request Accepts.
+	ContentNative bool
+
 	// AnonymousAuthorized reports whether the anonymous role could reach
 	// this route/middleware at registry-build time, via an EXPLICIT grant —
 	// see applyAnonymousAuthorization. Meaningless when anonymous access is

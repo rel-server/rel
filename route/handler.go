@@ -12,11 +12,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/query"
 	"github.com/rel-server/rel/static"
 	"github.com/rel-server/rel/wellknown"
 )
@@ -207,7 +209,13 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		return
 	}
 
-	raw, err := invokeSingleReturnRoute(ctx, tx, route, reqJSON, resolved, pathArgValues)
+	var raw []byte
+	nativeCBOR := route.ContentNative && route.Template == "" && cborenc.Accepts(r.Header.Get("Accept")) && query.NativeCBORType(route.Function.ReturnType)
+	if nativeCBOR {
+		raw, err = invokeNativeCBORRoute(ctx, tx, db, route, reqJSON, resolved, pathArgValues)
+	} else {
+		raw, err = invokeSingleReturnRoute(ctx, tx, route, reqJSON, resolved, pathArgValues)
+	}
 	if err != nil {
 		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
@@ -216,7 +224,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
-	writeSingleReturnResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, raw, templates)
+	writeSingleReturnResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, raw, nativeCBOR, templates)
 }
 
 // buildInvokeCall builds the positional-argument SQL call for route, in
@@ -262,10 +270,42 @@ func invokeSingleReturnRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSO
 	logging.FromContext(ctx).Debug("invoking route",
 		"function", route.Function.Identifier.String(), "sql", "select "+call, "args", args)
 	var raw []byte
-	if err := tx.QueryRow(ctx, "select "+call, args...).Scan(&raw); err != nil {
+	sql := "select " + call
+	if route.ContentNative { // a type with no text form of its own : its JSON, never SQL NULL
+		sql = "select coalesce(to_jsonb(" + call + "), 'null'::jsonb)"
+	}
+	if err := tx.QueryRow(ctx, sql, args...).Scan(&raw); err != nil {
 		return nil, err
 	}
 	return raw, nil
+}
+
+// invokeNativeCBORRoute calls a single-return route whose type is not a mimetype one, and returns the value as
+// CBOR, built from Postgres' binary format without going through JSON.
+func invokeNativeCBORRoute(ctx context.Context, tx pgx.Tx, db *pg.DbInfos, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) ([]byte, error) {
+	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
+	logging.FromContext(ctx).Debug("invoking route", "function", route.Function.Identifier.String(), "sql", "select "+call, "args", args)
+	rows, err := tx.Query(ctx, "select "+call, append([]any{pgx.QueryResultFormats{pgx.BinaryFormatCode}}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return cborenc.AppendNull(nil), nil
+	}
+	oid := rows.FieldDescriptions()[0].DataTypeOID
+	raw := append([]byte{}, rows.RawValues()[0]...)
+	if rows.RawValues()[0] == nil {
+		raw = nil
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return query.NewValueEncoder(db).AppendValue(nil, oid, raw)
 }
 
 // invokeFullControlRoute calls a two-OUT-column route via "select * from
@@ -275,7 +315,11 @@ func invokeFullControlRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSON
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
 	logging.FromContext(ctx).Debug("invoking route",
 		"function", route.Function.Identifier.String(), "sql", "select * from "+call, "args", args)
-	if err := tx.QueryRow(ctx, "select * from "+call, args...).Scan(&envelope, &content); err != nil {
+	sql := "select * from " + call
+	if route.ContentNative { // the content column has a type with no text form of its own : its JSON
+		sql = "select r.e, to_jsonb(r.c) from (select * from " + call + ") as r(e, c)"
+	}
+	if err := tx.QueryRow(ctx, sql, args...).Scan(&envelope, &content); err != nil {
 		return nil, nil, err
 	}
 	return envelope, content, nil

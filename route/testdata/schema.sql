@@ -302,3 +302,30 @@ grant execute on function fn_mw_ungranted(jsonb) to app_user;
 create function fn_mw_ungranted_target() returns jsonb language sql as $$ select '{}'::jsonb; $$;
 comment on function fn_mw_ungranted_target() is 'route:: path: "/ungranted/target"';
 grant execute on function fn_mw_ungranted_target() to "~anonymous", app_user;
+
+-- Any-type returns and CBOR negotiation : a value of a type with no mimetype of its own is sent as JSON, or as CBOR in
+-- its own types.
+create type fn_cbor_row as (id int, at timestamptz, price numeric(8,2), tags text[]);
+
+create function fn_cbor_int() returns int language sql as $$ select 42; $$;
+comment on function fn_cbor_int() is 'route:: path: "/cbor/int"';
+
+create function fn_cbor_null() returns int language sql as $$ select null::int; $$;
+comment on function fn_cbor_null() is 'route:: path: "/cbor/null"';
+
+create function fn_cbor_row() returns fn_cbor_row language sql as $$
+  select row(7, '2023-11-14 22:13:20.5+00', 12.50, array['a','b'])::fn_cbor_row;
+$$;
+comment on function fn_cbor_row() is 'route:: path: "/cbor/row"';
+
+create function fn_cbor_interval() returns interval language sql as $$ select '1 day'::interval; $$;
+comment on function fn_cbor_interval() is 'route:: path: "/cbor/interval"';
+
+create function fn_cbor_json() returns jsonb language sql as $$ select '{"a":[1,2.5,null],"b":"é"}'::jsonb; $$;
+comment on function fn_cbor_json() is 'route:: path: "/cbor/json"';
+
+create function fn_cbor_full(out resp jsonb, out content fn_cbor_row[]) returns record language sql as $$
+  select jsonb_build_object('status', 201), array[row(1, '1970-01-01 00:00:01+00', 1.25, array['x'])::fn_cbor_row];
+$$;
+comment on function fn_cbor_full() is 'route:: path: "/cbor/full"';
+grant execute on function fn_cbor_int(), fn_cbor_null(), fn_cbor_row(), fn_cbor_interval(), fn_cbor_json(), fn_cbor_full() to "~anonymous";

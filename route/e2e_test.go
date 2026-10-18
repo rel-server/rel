@@ -8,16 +8,20 @@ package route
 // invocation, response writing) actually works together.
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/static"
 )
@@ -395,5 +399,99 @@ func TestE2E_StreamUpload_TwoCallFlow(t *testing.T) {
 	}
 	if string(written) != "hello upload" {
 		t.Errorf("expected the file's real content, got %q", written)
+	}
+}
+
+func getAccepting(path, accept string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	return rec
+}
+
+func decodeCBORAny(t *testing.T, b []byte) any {
+	t.Helper()
+	dm, err := cbor.DecOptions{DefaultMapType: reflect.TypeOf(map[string]any{})}.DecMode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v any
+	if err := dm.Unmarshal(b, &v); err != nil {
+		t.Fatalf("not CBOR (%v) : %x", err, b)
+	}
+	return v
+}
+
+func TestE2E_AnyTypeReturn_JSON(t *testing.T) {
+	for path, want := range map[string]string{
+		"/cbor/int":      "42",
+		"/cbor/null":     "null",
+		"/cbor/interval": `"1 day"`,
+		"/cbor/row":      `{"id":7,"at":"2023-11-14T22:13:20.5+00:00","price":12.50,"tags":["a","b"]}`,
+	} {
+		rec := getAccepting(path, "")
+		if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/json" {
+			t.Errorf("%s : %d %q %s", path, rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+			continue
+		}
+		var got, exp any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Errorf("%s : %v : %s", path, err, rec.Body.String())
+		}
+		_ = json.Unmarshal([]byte(want), &exp)
+		if !reflect.DeepEqual(got, exp) {
+			t.Errorf("%s = %s, want %s", path, rec.Body.String(), want)
+		}
+	}
+}
+
+func TestE2E_AcceptCBOR_Routes(t *testing.T) {
+	// native : the value's own types
+	rec := getAccepting("/cbor/int", "application/cbor")
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/cbor" || rec.Header().Get("Vary") != "Accept" || !bytes.Equal(rec.Body.Bytes(), []byte{0x18, 42}) {
+		t.Errorf("int : %d %q %q %x", rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Vary"), rec.Body.Bytes())
+	}
+	if rec = getAccepting("/cbor/null", "application/cbor"); !bytes.Equal(rec.Body.Bytes(), []byte{0xf6}) {
+		t.Errorf("null = %x", rec.Body.Bytes())
+	}
+	rec = getAccepting("/cbor/row", "application/cbor")
+	row, _ := decodeCBORAny(t, rec.Body.Bytes()).(map[string]any)
+	if at, ok := row["at"].(time.Time); !ok || at.UnixNano() != 1700000000500000000 {
+		t.Errorf("row = %#v", row)
+	}
+	if tags, _ := row["tags"].([]any); len(tags) != 2 || row["id"] != uint64(7) {
+		t.Errorf("row = %#v", row)
+	}
+	// a type with no CBOR form of its own falls back to its JSON, converted
+	rec = getAccepting("/cbor/interval", "application/cbor")
+	if rec.Header().Get("Content-Type") != "application/cbor" || decodeCBORAny(t, rec.Body.Bytes()) != "1 day" {
+		t.Errorf("interval : %q %x", rec.Header().Get("Content-Type"), rec.Body.Bytes())
+	}
+	// json/jsonb : converted as a whole
+	rec = getAccepting("/cbor/json", "application/cbor")
+	m, _ := decodeCBORAny(t, rec.Body.Bytes()).(map[string]any)
+	if rec.Header().Get("Content-Type") != "application/cbor" || m["b"] != "é" || len(m["a"].([]any)) != 3 {
+		t.Errorf("json : %q %#v", rec.Header().Get("Content-Type"), m)
+	}
+	// JSON remains the default, and the answer varies by Accept either way
+	for _, accept := range []string{"", "*/*", "application/json", "application/cbor;q=0.1, application/json"} {
+		rec = getAccepting("/cbor/json", accept)
+		if rec.Header().Get("Content-Type") != "application/json" || rec.Header().Get("Vary") != "Accept" {
+			t.Errorf("%q : %q %q", accept, rec.Header().Get("Content-Type"), rec.Header().Get("Vary"))
+		}
+	}
+	// full control : the status and headers are untouched, the content is converted
+	rec = getAccepting("/cbor/full", "application/cbor")
+	if rec.Code != 201 || rec.Header().Get("Content-Type") != "application/cbor" {
+		t.Fatalf("full : %d %q %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+	if rows, _ := decodeCBORAny(t, rec.Body.Bytes()).([]any); len(rows) != 1 || rows[0].(map[string]any)["tags"].([]any)[0] != "x" {
+		t.Errorf("full = %#v", decodeCBORAny(t, rec.Body.Bytes()))
+	}
+	if rec = getAccepting("/cbor/full", ""); rec.Code != 201 || rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("full as JSON : %d %q %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
 	}
 }
