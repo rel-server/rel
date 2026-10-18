@@ -136,7 +136,7 @@ No decoding library is involved : the leaves are read straight from the wire byt
 | `float8` | double-precision float |
 | `numeric` | tag 4 `[exponent, mantissa]`, keeping the display scale (`1.50` → `[-2, 150]`) ; mantissa a bignum (tag 2/3) beyond 64 bits. `NaN`, `Infinity`, `-Infinity` are floats, which a decimal fraction cannot hold. |
 | `timestamptz` | tag 1 : integer seconds, or a double of seconds when it has a fraction. `infinity`/`-infinity` are the text strings. |
-| `timestamp` | untagged text, ISO 8601 without offset (`2026-10-18T14:30:00.123456`) ; `infinity`/`-infinity` as text. |
+| `timestamp` | tag 1, as a `timestamptz` : the instant its wall clock stands for in the connection's `TimeZone`, the one `ts::timestamptz` gives. A reading skipped by a clock change gets the offset in force before it, a reading that occurs twice the offset in force after it. `infinity`/`-infinity` are the text strings. A session time zone rel cannot load refuses the request before the first row. |
 | `date` | tag 100 (days since 1970-01-01) ; `infinity`/`-infinity` as text. |
 | `uuid` | tag 37 over the 16 bytes |
 | `bytea` | byte string, untagged |
@@ -148,7 +148,7 @@ No decoding library is involved : the leaves are read straight from the wire byt
 | domains | their base type |
 | `void` | `null` |
 
-> 📜 **ADR**: `timestamp` is untagged text because it is a wall-clock reading, not an instant : tag 1 would let a client mistake it for one and shift it by its own zone. Both types also keep microseconds as text or as a double, which a JavaScript `Date` (milliseconds) could not. `date` uses tag 100 for compactness ; the TypeScript decoder converts it to the representation its types expect (a plain string today).
+> 📜 **ADR**: `timestamp` is an instant in the session zone, the value `CURRENT_TIMESTAMP` gives when stored in such a column, so CBOR has one date-time form and no ISO text to parse. The client cannot know which zone the server used : a column that holds wall-clock readings of another zone reads as the wrong instant. Both types keep microseconds as a double of seconds, which a JavaScript `Date` (milliseconds) could not. A `tsrange`, and a `jsonb` holding timestamps, keep their JSON text. `date` uses tag 100 for compactness ; the TypeScript decoder converts it to the representation its types expect.
 
 > 📜 **ADR**: `infinity` values are text because tag 1 and tag 100 cannot hold them, and `null` would lose the difference from a missing value. They are the strings Postgres prints.
 

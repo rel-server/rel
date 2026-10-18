@@ -278,30 +278,38 @@ func encodeDate(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 	return appendInt32(dst, int32(days)), nil
 }
 
-func encodeTimestamp(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
-	return encodeTimestampText(dst, n, "timestamp", nil)
+func encodeTimestamp(dst []byte, n Node, ec *encodeContext) ([]byte, error) {
+	return encodeTimestampText(dst, n, "timestamp", ec)
 }
 
 func encodeTimestamptz(dst []byte, n Node, ec *encodeContext) ([]byte, error) {
 	return encodeTimestampText(dst, n, "timestamptz", ec)
 }
 
-// encodeTimestampText serves both timestamp types : a nil ec means timestamp
-// (a zone suffix is read and ignored), otherwise timestamptz, where a text without
-// an offset is a wall-clock time in the session zone.
+// encodeTimestampText serves both timestamp types. A text without an offset is a wall-clock time in the
+// session zone for a timestamptz, and the wall clock itself for a timestamp, which ignores any offset. An
+// instant (CBOR tag 0 or 1) is placed as is for a timestamptz, and read as the wall clock it shows in the
+// session zone for a timestamp.
 func encodeTimestampText(dst []byte, n Node, typ string, ec *encodeContext) ([]byte, error) {
 	timestamptz := typ == "timestamptz"
 	loc := ec.location()
-	if timestamptz && n.Kind() == KindInstant { // CBOR tag 0 or 1 : an instant, no zone to place
+	if n.Kind() == KindInstant {
 		t, err := n.(instantNode).Instant()
 		if err != nil {
-			return nil, oops.Wrapf(err, "write: reading timestamptz")
+			return nil, oops.Wrapf(err, "write: reading %s", typ)
 		}
 		sec := t.Unix() - pgEpochUnixDays*86400
 		if sec < tsMinMicros/microsPerSecond-1 || sec > tsEndMicros/microsPerSecond+1 {
 			return nil, errOutOfRange(typ, t.UTC().Format(time.RFC3339))
 		}
 		micros := sec*microsPerSecond + int64((t.Nanosecond()+500)/1000) // rounded to the nearest microsecond
+		if !timestamptz {
+			if ec != nil && ec.zoneErr != nil {
+				return nil, errUnknownZone(typ, t.UTC().Format(time.RFC3339), ec.zoneName)
+			}
+			_, off := t.In(loc).Zone()
+			micros += int64(off) * microsPerSecond
+		}
 		if micros < tsMinMicros || micros >= tsEndMicros {
 			return nil, errOutOfRange(typ, t.UTC().Format(time.RFC3339))
 		}
@@ -329,7 +337,7 @@ func encodeTimestampText(dst []byte, n Node, typ string, ec *encodeContext) ([]b
 	switch {
 	case timestamptz && !f.hasZone:
 		if ec != nil && ec.zoneErr != nil {
-			return nil, errUnknownZone(s, ec.zoneName)
+			return nil, errUnknownZone(typ, s, ec.zoneName)
 		}
 		wall := days*86400 + f.hour*3600 + f.min*60 + f.sec // the wall clock read as if it were UTC, in seconds since 2000
 		micros = (wall-zoneOffsetAt(loc, wall))*microsPerSecond + f.micro

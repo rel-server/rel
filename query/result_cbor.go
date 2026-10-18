@@ -51,6 +51,19 @@ const (
 type ResultEncoder struct {
 	db   *pg.DbInfos
 	plan *recordPlan
+	ec   *encodeContext // the session time zone a timestamp is read in ; nil until BindSession, which means UTC
+}
+
+// BindSession tells the encoder which connection's rows it will read : a timestamp is answered as the instant its
+// wall clock stands for in that connection's TimeZone. It fails when that zone is one rel cannot load, so the
+// caller can refuse the request before any row is sent.
+func (e *ResultEncoder) BindSession(q Querier) error {
+	ec := encodeContextFor(q)
+	if ec.zoneErr != nil {
+		return errUnknownZone("timestamp", "a timestamp column", ec.zoneName)
+	}
+	e.ec = ec
+	return nil
 }
 
 // recordPlan names the fields of the records a node produces, and which of them hold nested records.
@@ -190,7 +203,12 @@ func (e *ResultEncoder) appendValue(dst []byte, oid uint32, d []byte, plan *reco
 		case negInfTimeste:
 			return cborenc.AppendText(dst, "-infinity"), nil
 		}
-		return cborenc.AppendText(dst, string(appendTimestampText(nil, micros))), nil
+		// A wall clock, read as the instant it stands for in the session zone (what ts::timestamptz gives).
+		wall := floorDiv(micros, microsPerSecond)
+		off := zoneOffsetAt(e.ec.location(), wall)
+		micros -= off * microsPerSecond
+		sec := floorDiv(micros, microsPerSecond)
+		return cborenc.AppendEpoch(dst, sec+pgEpochUnixDays*86400, int(micros-sec*microsPerSecond)), nil
 	case oidJSON:
 		return appendJSONCBOR(dst, d)
 	case oidJSONB:
@@ -412,48 +430,6 @@ func floorDiv(a, b int64) int64 {
 		q--
 	}
 	return q
-}
-
-// civilFromDays is the inverse of daysFromCivil : days since 1970-01-01 to an astronomical year, month and day.
-func civilFromDays(z int64) (y, m, d int64) {
-	z += 719468
-	era := floorDiv(z, 146097)
-	doe := z - era*146097
-	yoe := (doe - doe/1460 + doe/36524 - doe/146096) / 365
-	y = yoe + era*400
-	doy := doe - (365*yoe + yoe/4 - yoe/100)
-	mp := (5*doy + 2) / 153
-	d = doy - (153*mp+2)/5 + 1
-	if mp < 10 {
-		m = mp + 3
-	} else {
-		m = mp - 9
-	}
-	if m <= 2 {
-		y++
-	}
-	return y, m, d
-}
-
-// appendTimestampText prints a timestamp (microseconds since 2000-01-01) the way Postgres' JSON does :
-// 2026-10-18T14:30:00.123456, with ' BC' after a year before 1 AD.
-func appendTimestampText(dst []byte, micros int64) []byte {
-	days := floorDiv(micros, microsPerDay)
-	rem := micros - days*microsPerDay
-	y, m, d := civilFromDays(days + pgEpochUnixDays)
-	year, bc := y, false
-	if y <= 0 {
-		year, bc = 1-y, true
-	}
-	dst = fmt.Appendf(dst, "%04d-%02d-%02dT%02d:%02d:%02d", year, m, d, rem/(3600*microsPerSecond), rem/(60*microsPerSecond)%60, rem/microsPerSecond%60)
-	if frac := rem % microsPerSecond; frac != 0 {
-		dst = append(dst, '.')
-		dst = append(dst, strings.TrimRight(fmt.Sprintf("%06d", frac), "0")...)
-	}
-	if bc {
-		dst = append(dst, " BC"...)
-	}
-	return dst
 }
 
 // nativeCBORType reports whether a value of type t has a CBOR form of its own : the scalar types the encoder maps,

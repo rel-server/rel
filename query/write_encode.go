@@ -178,13 +178,18 @@ func errOutOfRange(typ, text string) error {
 	return oops.With("type", typ, "value", text).Wrap(&pgconn.PgError{Severity: "ERROR", Code: code, Message: msg})
 }
 
-// errUnknownZone reports a timestamptz written without an offset while the session time zone is one Go
-// cannot load : invalid_datetime_format, with a message that names the zone.
-func errUnknownZone(text, zone string) error {
+// errUnknownZone reports a time that needs the session time zone (a timestamptz written without an offset, a
+// timestamp written as an instant, a timestamp read as an instant) while that zone is one Go cannot load :
+// invalid_datetime_format, with a message that names the zone.
+func errUnknownZone(typ, text, zone string) error {
 	text = shorten(text)
-	return oops.With("type", "timestamptz", "value", text, "zone", zone).Wrap(&pgconn.PgError{
+	hint := "write the time with an offset"
+	if typ == "timestamp" {
+		hint = "write the time as text"
+	}
+	return oops.With("type", typ, "value", text, "zone", zone).Wrap(&pgconn.PgError{
 		Severity: "ERROR", Code: "22007",
-		Message: fmt.Sprintf("cannot place %q in time zone %q, which rel does not know : write the time with an offset", text, zone),
+		Message: fmt.Sprintf("cannot place %q in time zone %q, which rel does not know : %s", text, zone, hint),
 	})
 }
 

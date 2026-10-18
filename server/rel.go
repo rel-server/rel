@@ -392,6 +392,18 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	defer conn.Release()
 
+	// A timestamp is answered as an instant in the connection's time zone : a zone rel cannot load is
+	// refused here, before anything is sent.
+	for i := range resolved {
+		if resolved[i].enc == nil {
+			continue
+		}
+		if err := resolved[i].enc.BindSession(conn); err != nil {
+			writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
+			return
+		}
+	}
+
 	// The write temp tables are per physical connection, and a switched role (the role switch
 	// below) has no default privileges on them : they are created and granted once per
 	// connection and table, here, because that cannot happen inside the transaction begun

@@ -305,7 +305,11 @@ func invokeNativeCBORRoute(ctx context.Context, tx pgx.Tx, db *pg.DbInfos, route
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return query.NewValueEncoder(db).AppendValue(nil, oid, raw)
+	enc := query.NewValueEncoder(db)
+	if err := enc.BindSession(tx); err != nil { // a timestamp is read in the connection's time zone
+		return nil, err
+	}
+	return enc.AppendValue(nil, oid, raw)
 }
 
 // invokeFullControlRoute calls a two-OUT-column route via "select * from

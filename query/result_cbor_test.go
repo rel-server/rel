@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -101,6 +102,19 @@ func equivalent(path string, n Node, j any) string {
 			}
 			got = time.Date(2000, got.Month(), got.Day(), got.Hour(), got.Minute(), got.Second(), got.Nanosecond(), time.UTC)
 		}
+		if y, _, ok := strings.Cut(js, "-"); ok && len(y) > 4 { // a year Go cannot parse : same calendar, 400-year cycle shifted
+			year := 0
+			fmt.Sscanf(y, "%d", &year)
+			got = got.UTC()
+			if got.Year() != year {
+				return bad("instant year %d, JSON has %d", got.Year(), year)
+			}
+			js = fmt.Sprintf("%04d", 2000+year%400) + js[len(y):]
+			got = time.Date(2000+year%400, got.Month(), got.Day(), got.Hour(), got.Minute(), got.Second(), got.Nanosecond(), time.UTC)
+		}
+		if len(js) > 10 && !strings.ContainsAny(js[10:], "Z+-") { // a timestamp : a wall clock, read in the session zone (UTC here)
+			js += "Z"
+		}
 		want, err := time.Parse(time.RFC3339Nano, js)
 		if err != nil {
 			return bad("instant %v, JSON has %q which is no time", got, js)
@@ -179,7 +193,11 @@ func cborOfExpr(t *testing.T, conn *pgxpool.Conn, expr string) (Node, error) {
 	if raw != nil {
 		cp = append([]byte{}, raw...)
 	}
-	out, err := (&ResultEncoder{db: testDb}).AppendValue(nil, oid, cp)
+	enc := &ResultEncoder{db: testDb}
+	if err := enc.BindSession(conn); err != nil {
+		return nil, err
+	}
+	out, err := enc.AppendValue(nil, oid, cp)
 	if rows.Err() != nil {
 		return nil, rows.Err()
 	}
@@ -412,5 +430,58 @@ func TestResultCBOR_CompiledQueriesMatchJSON(t *testing.T) {
 				t.Errorf("%s", d)
 			}
 		}
+	}
+}
+
+// A timestamp is answered as the instant Postgres gives for ts::timestamptz in the session zone, gaps and overlaps included.
+func TestResultCBOR_TimestampInZone(t *testing.T) {
+	timestamps := []string{
+		"2026-10-18 14:30:00.123456", "2026-03-29 01:59:59", "2026-03-29 02:30:00", "2026-03-29 03:00:00", // Europe/Paris springs forward
+		"2026-10-25 01:59:59", "2026-10-25 02:30:00", "2026-10-25 03:00:00", // and falls back
+		"2026-04-05 01:45:00", "2026-04-05 02:15:00", // Lord Howe's half hour change
+		"2011-12-30 12:00:00", "1850-06-01 00:00:00", "0044-03-15 00:00:00 BC", "10000-01-01 00:00:00",
+	}
+	for _, zone := range []string{"UTC", "Europe/Paris", "America/New_York", "Asia/Kolkata", "Australia/Lord_Howe", "Pacific/Apia"} {
+		conn := tempTestConn(t)
+		if _, err := conn.Exec(context.Background(), "set time zone '"+zone+"'"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = conn.Exec(context.Background(), "reset time zone") })
+		for _, ts := range timestamps {
+			got, err := cborOfExpr(t, conn, "'"+ts+"'::timestamp")
+			if err != nil {
+				t.Fatalf("%s %s: %v", zone, ts, err)
+			}
+			want, err := cborOfExpr(t, conn, "'"+ts+"'::timestamp::timestamptz")
+			if err != nil {
+				t.Fatalf("%s %s: %v", zone, ts, err)
+			}
+			g, _ := got.(*cnode).Instant()
+			w, _ := want.(*cnode).Instant()
+			if !g.Equal(w) {
+				t.Errorf("%s %s: instant %v, Postgres gives %v", zone, ts, g.UTC(), w.UTC())
+			}
+		}
+	}
+}
+
+// A session zone rel cannot load is refused when the encoder is bound, before any row.
+func TestResultCBOR_BindSessionRefusesAnUnknownZone(t *testing.T) {
+	conn := tempTestConn(t)
+	if _, err := conn.Exec(context.Background(), "set time zone 'Asia/Tokyo'"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = conn.Exec(context.Background(), "reset time zone") })
+	old, had := sessionZones.Load("Asia/Tokyo")
+	sessionZones.Store("Asia/Tokyo", zoneResult{err: errors.New("unknown zone")})
+	t.Cleanup(func() {
+		if had {
+			sessionZones.Store("Asia/Tokyo", old)
+		} else {
+			sessionZones.Delete("Asia/Tokyo")
+		}
+	})
+	if err := (&ResultEncoder{db: testDb}).BindSession(conn); err == nil || !strings.Contains(err.Error(), "Asia/Tokyo") {
+		t.Errorf("BindSession err = %v, want one naming the zone", err)
 	}
 }

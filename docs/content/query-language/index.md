@@ -38,7 +38,7 @@ that values keep their column types instead of being squeezed into JSON's :
 | `real`, `double precision` | float (a `real` stays a single) |
 | `numeric` | tag 4 decimal fraction `[exponent, mantissa]`, keeping its scale (`1.50` is `[-2, 150]`) ; a bignum mantissa when it is large. `NaN` and the infinities are floats |
 | `timestamptz` | tag 1 : integer seconds, or a float of seconds when there is a fraction |
-| `timestamp` | text, ISO 8601 without an offset (`2026-10-18T14:30:00.123456`) : it is a wall-clock reading, not an instant |
+| `timestamp` | tag 1, like `timestamptz` : the instant its wall clock stands for in the connection's time zone, what `ts::timestamptz` gives. The client cannot tell which zone that was, and a `timestamp` holding another zone's wall clock reads as the wrong instant. A wall clock skipped by a clock change gets the offset in force before it, one that occurs twice the offset in force after it. A time zone rel cannot load refuses the request |
 | `date` | tag 100 : days since 1970-01-01 |
 | `infinity`, `-infinity` (`date`, `timestamp`, `timestamptz`) | the text `"infinity"` / `"-infinity"` |
 | `uuid` | tag 37 |
@@ -47,7 +47,7 @@ that values keep their column types instead of being squeezed into JSON's :
 | `json`, `jsonb` | the same value as CBOR (numbers as in `numeric`) |
 | arrays, composite types | arrays, maps |
 | domains | their base type |
-| anything else (`interval`, `inet`, ranges, geometry...) | what the JSON response gives for it |
+| anything else (`interval`, `inet`, ranges, geometry...) | what the JSON response gives for it (a `tsrange` keeps its wall-clock text, and so does a time inside a `jsonb`) |
 
 Rows stream as they are read, like the JSON ones. If the query fails before the first row the answer is a JSON error ;
 after it, the body just stops.

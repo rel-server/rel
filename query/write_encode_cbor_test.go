@@ -1,6 +1,7 @@
 package query
 
 import (
+	"context"
 	"errors"
 	"math"
 	"math/big"
@@ -97,10 +98,40 @@ func TestEncodeCBOR_Instants(t *testing.T) {
 		{"the text still works", "2026-10-18T14:30:00Z", "2026-10-18 14:30:00+00"},
 		{"a plain integer", int64(1700000000), ""},
 	})
-	// a timestamp has no zone, so an instant is not one
+	// a timestamp takes an instant as the wall clock it shows in the session zone (UTC here)
 	runCBORCases(t, "timestamp", encodeTimestamp, []cborCase{
-		{"an instant", time.Unix(1700000000, 0), ""}, {"the text", "2026-10-18T14:30:00", "2026-10-18 14:30:00"},
+		{"an instant", tag1(int64(1700000000)), "2023-11-14 22:13:20"},
+		{"an instant with a fraction", tag1(1700000000.5), "2023-11-14 22:13:20.5"},
+		{"the text", "2026-10-18T14:30:00", "2026-10-18 14:30:00"},
 	})
+}
+
+// A timestamp written as an instant is the wall clock Postgres shows for it in the session zone, clock changes included.
+func TestEncodeCBOR_TimestampInstantInZone(t *testing.T) {
+	instants := []time.Time{
+		time.Date(2026, 10, 18, 12, 30, 0, 123456000, time.UTC),
+		time.Date(2026, 3, 29, 0, 59, 59, 0, time.UTC), time.Date(2026, 3, 29, 1, 0, 0, 0, time.UTC), // Europe/Paris springs forward
+		time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), time.Date(2026, 10, 25, 1, 30, 0, 0, time.UTC), // and falls back
+		time.Date(2026, 4, 5, 15, 29, 59, 0, time.UTC), time.Date(1850, 6, 1, 0, 0, 0, 0, time.UTC),
+	}
+	for _, zone := range []string{"UTC", "Europe/Paris", "America/New_York", "Asia/Kolkata", "Australia/Lord_Howe", "Pacific/Apia"} {
+		conn, ec := encTestConn(t, zone)
+		for _, at := range instants {
+			var want string
+			if err := conn.QueryRow(context.Background(), `select (to_timestamp($1::float8) at time zone $2)::text`, float64(at.UnixMicro())/1e6, zone).Scan(&want); err != nil {
+				t.Fatal(err)
+			}
+			got, err := renderCBOR(t, conn, ec, "timestamp", encodeTimestamp, cborOf(t, cbor.Tag{Number: 1, Content: float64(at.UnixMicro()) / 1e6}))
+			if err != nil || got != want {
+				t.Errorf("%s %v : read back as %q (%v), want %q", zone, at, got, err, want)
+			}
+		}
+	}
+	// a session zone rel cannot load cannot place an instant
+	_, err := encodeTimestamp(nil, cborOf(t, cbor.Tag{Number: 1, Content: int64(0)}), &encodeContext{zoneName: "Mars/Base", zoneErr: errors.New("unknown")})
+	if err == nil || !strings.Contains(err.Error(), "Mars/Base") {
+		t.Errorf("an unloadable zone : err = %v", err)
+	}
 }
 
 func TestEncodeCBOR_FloatsAndBignums(t *testing.T) {
