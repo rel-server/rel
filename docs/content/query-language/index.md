@@ -8,6 +8,12 @@ A query is one JSON object, sent as `POST /rel`. Every page in this section cove
 that object — there's no separate "read" and "write" grammar; the same tree does both (see
 [Writing data back](writing.md)).
 
+`POST /rel` also takes the same object as CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)) when the
+request's `Content-Type` is `application/cbor`. The query is the same tree, with CBOR maps, arrays, text strings,
+numbers, booleans and null in the places JSON has them, and a write's `data` can also carry the types CBOR has
+and JSON lacks ([value forms](writing.md#from-cbor)). Map keys must be text strings and appear once. The response is JSON
+whichever format the request used. A body that is not valid CBOR is refused with `QUERY_MALFORMED_CBOR`.
+
 Examples throughout use the hotel-booking schema from [Getting started](../getting-started/index.md):
 `hotel.chains` → `hotel.properties` → `hotel.room_types` → `hotel.rooms`, and `hotel.guests` →
 `hotel.bookings` → `hotel.payments`. [Database reference](../example-database/reference.md) has the full

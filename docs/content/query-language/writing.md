@@ -71,7 +71,26 @@ that does not read as the type).
 | composite types | a JSON object. A missing key is `NULL` and an unknown key is ignored. |
 | any other type (`interval`, `inet`, ranges, `money`, geometric types, extension types such as `citext`, `hstore` or PostGIS' `geometry`) | the text Postgres reads for the type, as a string ; a number or a boolean is passed as its text. A JSON object or array is passed as its JSON text, which is how a GeoJSON object reaches a `geometry` column. |
 
-For `timestamp` and `timestamptz`:
+### From CBOR
+
+A request sent as `application/cbor` takes every form above, a number being a CBOR integer or float, and in `data` also:
+
+| Column type | Accepted CBOR |
+|---|---|
+| `int2`, `int4`, `int8` | an integer, or a bignum (tag 2 or 3) that fits. A float, even `3.0`, and a tag 4 decimal are refused. |
+| `float4`, `float8` | a float of any width (`NaN` and the infinities included), an integer, a bignum, or a tag 4 decimal. |
+| `numeric` | an integer, a bignum, a float, or a tag 4 decimal fraction `[exponent, mantissa]`, which keeps its scale (`[-2, 150]` is `1.50`). |
+| `bytea` | a byte string. |
+| `uuid` | tag 37 (16 bytes). |
+| `date` | tag 100 (days since 1970-01-01, RFC 8943). |
+| `timestamptz` | tag 1 (integer or float seconds since the epoch, rounded to the microsecond) or tag 0 (text with an offset). No session time zone is involved. |
+| `timestamp` | a text string only. |
+| `json`, `jsonb` | any CBOR value JSON can hold : maps with text keys, arrays, text, integers, finite floats, booleans, null, bignums, tag 4 decimals. A byte string, a date or time, another tag, `NaN` or an infinity is refused. |
+| any other type | as in the table above, a byte string reading as `\x` and hex digits, tag 37 as a hyphenated UUID, tag 1 as an ISO 8601 UTC time, tag 100 as a date, numbers as plain decimal digits. |
+
+Any other tag is refused, and a byte string for a column that does not take one.
+
+For `timestamp` and `timestamptz` strings:
 
 - At most 6 fractional digits, and `24:00:00` is the start of the next day.
 - The year has four or more digits, and a ` BC` suffix marks a year before 1 AD, which is the form rel's own output uses.

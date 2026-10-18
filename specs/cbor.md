@@ -77,16 +77,20 @@ A pointer-sized wrapper type over `*sonic/ast.Node` implementing `Node`. Its met
 
 ### CBOR adapter
 
-Decode the request body with `cbor.Unmarshal(data, &v)` (library : `fxamacker/cbor/v2`) into `any`, which yields `map[string]any`, `[]any`, `int64`/`float64`, `string`, `bool`, or `nil`. Wrap that value in a second `Node` implementation, type-switching on `Kind()`.
+Decode the request body with `cbor.Unmarshal` (library : `fxamacker/cbor/v2`) into `any`, with maps decoded to `map[string]any`, tags allowed, tags 0 and 1 decoded to `time.Time`, integers beyond 64 bits to `big.Int`, duplicate map keys refused and nesting limited to 64 levels. Wrap the result in a second `Node` implementation, `cborNode` (`query/node_cbor.go`).
 
 > 📜 **ADR**: One decode call instead of a lazy walk. Query DSL bodies are small (a query tree, not a data payload), so sonic's lazy/SIMD advantage does not matter here ; `fxamacker/cbor` has no AST type equivalent to `sonic/ast`, so full decode is the only option anyway.
 
-- A CBOR map key that is not a text string MUST be rejected (`errcode`-wrapped error, not coerced to a string) : the DSL only ever used string keys and there is no coercion rule to fall back on.
-- `StrictInt64`/`StrictFloat64` on the CBOR adapter read the CBOR value's own major type (integer vs. floating-point) directly ; there is no text-number reparsing step like the JSON path has.
+- A CBOR map key that is not a text string is an error (`errcode`-wrapped, not coerced to a string), as is a repeated key, trailing bytes after the item, and anything that is not well-formed CBOR.
+- A CBOR integer, bignum, float or tag 4 decimal fraction is a `KindNumber` node whose `Raw()` is the number's digits : an integer prints as itself, a float so that it never reads as an integer (`3.0`), a tag 4 value as `<mantissa>e<exponent>`. The number encoders of the write path parse that text, so they read a CBOR number exactly as they read a JSON one ; `StrictInt64` and `StrictFloat64` read the CBOR value's own type.
+- `Node` has four more kinds, which only CBOR produces : `KindBytes` (a byte string), `KindInstant` (tag 0 or 1), `KindDate` (tag 100) and `KindUUID` (tag 37), read through `StrictBytes`, `Instant` and `Days`. A tag not listed here, or a listed tag with content of the wrong shape, is `KindInvalid` and refused with an error naming the tag.
+- `Raw()` converts a map, an array, a string or a null to JSON text (map keys sorted) ; a byte string, a date or time, any other tag, and a non-finite float have no JSON form and are an error.
 
 ### Content-Type dispatch
 
-At the HTTP boundary, select the adapter from the request's `Content-Type` header : `application/json` (or absent) → sonic adapter, `application/cbor` → CBOR adapter. Produce a `Node` before calling `ParseExpression`/`ParseQuery` ; those functions' signatures change to accept `Node` per the above and are otherwise unaware of which wire format produced it.
+At the HTTP boundary, `POST /rel` selects the adapter from the request's `Content-Type` header, media type parameters and case ignored : `application/cbor` → CBOR adapter, anything else (or absent) → sonic adapter. The server produces a `Node` and calls `query.ParseQueryNode`, which is what `ParseQuery` does after parsing its JSON ; the parsers are unaware of which wire format produced the node. A body that does not decode is refused with `QUERY_MALFORMED_CBOR` (`QUERY_MALFORMED_JSON` for JSON). `GET /rel` is always JSON.
+
+A write's `"data"` stays a `Node`, never JSON text : the write path encodes it into Postgres values directly (`specs/typed-write-loading.md ## Value source`). A well-known query's `"params"` are converted to JSON text by `Raw()`, so a param holding a byte string or a date and time is refused.
 
 ## 2. Query-engine response encoding
 
