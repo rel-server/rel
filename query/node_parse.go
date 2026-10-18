@@ -93,16 +93,16 @@ func ParseQuery(data []byte) (ParsedQuery, error) {
 	if perr != 0 {
 		return ParsedQuery{}, oops.Wrapf(perr, "query: invalid query JSON")
 	}
-	return parseQueryNode(&root)
+	return parseQueryNode(sonicNode{&root})
 }
 
 // boolField decodes n's key as a boolean, present reporting whether the key
 // existed at all — the same "exists, then strictly typed" check every
 // ComplexQuery response-shaping flag needs (rawWriteQuery's
 // Count/Stats/QueryPlan/Sql/Rollback).
-func boolField(n *ast.Node, key string) (val, present bool, err error) {
-	x := n.Get(key)
-	if !x.Exists() {
+func boolField(n Node, key string) (val, present bool, err error) {
+	x, ok := n.ObjectGet(key)
+	if !ok {
 		return false, false, nil
 	}
 	b, err := x.StrictBool()
@@ -112,16 +112,16 @@ func boolField(n *ast.Node, key string) (val, present bool, err error) {
 	return b, true, nil
 }
 
-func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
-	switch n.TypeSafe() {
-	case ast.V_ARRAY:
-		items, err := n.ArrayUseNode()
+func parseQueryNode(n Node) (ParsedQuery, error) {
+	switch n.Kind() {
+	case KindArray:
+		items, err := arrayItems(n)
 		if err != nil {
 			return ParsedQuery{}, oops.Wrapf(err, "query: invalid query sequence")
 		}
-		seq := make([]ParsedQuery, len(items))
-		for i := range items {
-			pq, err := parseQueryNode(&items[i])
+		seq := make([]ParsedQuery, items.len)
+		for i := range items.len {
+			pq, err := parseQueryNode(items.at(i))
 			if err != nil {
 				return ParsedQuery{}, oops.With("index", i).Wrapf(err, "query: sequence item %d", i)
 			}
@@ -129,22 +129,22 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 		}
 		return ParsedQuery{Sequence: seq}, nil
 
-	case ast.V_OBJECT:
-		if wk := n.Get("wellknown"); wk.Exists() {
+	case KindObject:
+		if wk, ok := n.ObjectGet("wellknown"); ok {
 			rawWK, err := parseRawWellKnown(n, wk)
 			if err != nil {
 				return ParsedQuery{}, err
 			}
 			// Never its own "data" — wrap in {"query": {...}, "data": ...} instead.
-			if n.Get("data").Exists() {
+			if _, ok := n.ObjectGet("data"); ok {
 				return ParsedQuery{}, oops.Errorf(`query: a bare "wellknown" query never takes "data" directly — wrap it in {"query": {...}, "data": ...} instead`)
 			}
 			return ParsedQuery{WellKnown: rawWK}, nil
 		}
 
-		if q := n.Get("query"); q.Exists() {
+		if q, ok := n.ObjectGet("query"); ok {
 			rawWQ := &rawWriteQuery{}
-			if wk := q.Get("wellknown"); wk.Exists() {
+			if wk, ok := q.ObjectGet("wellknown"); ok {
 				rawWK, err := parseRawWellKnown(q, wk)
 				if err != nil {
 					return ParsedQuery{}, oops.Wrapf(err, `query: "query"`)
@@ -157,14 +157,14 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 				}
 				rawWQ.Query = rel
 			}
-			if d := n.Get("data"); d.Exists() {
+			if d, ok := n.ObjectGet("data"); ok {
 				raw, err := d.Raw()
 				if err != nil {
 					return ParsedQuery{}, oops.Wrapf(err, `query: "data"`)
 				}
 				rawWQ.Data = []byte(raw)
 			}
-			if ret := n.Get("returns"); ret.Exists() {
+			if ret, ok := n.ObjectGet("returns"); ok {
 				s, err := ret.StrictString()
 				if err != nil {
 					return ParsedQuery{}, oops.With("field", "returns").Wrapf(err, `query: "returns" must be a string`)
@@ -200,19 +200,19 @@ func parseQueryNode(n *ast.Node) (ParsedQuery, error) {
 		return ParsedQuery{Relation: rel}, nil
 
 	default:
-		return ParsedQuery{}, oops.With("json_type", int(n.TypeSafe())).Errorf("query: top-level query must be an object or an array, got type %d", n.TypeSafe())
+		return ParsedQuery{}, oops.With("json_type", int(n.Kind())).Errorf("query: top-level query must be an object or an array, got type %d", n.Kind())
 	}
 }
 
 // parseRawWellKnown decodes {wellknown, params?} off n (wk already
 // confirmed to exist) ; shared so both call sites can't drift on params.
-func parseRawWellKnown(n *ast.Node, wk *ast.Node) (*rawWellKnown, error) {
+func parseRawWellKnown(n Node, wk Node) (*rawWellKnown, error) {
 	name, err := wk.StrictString()
 	if err != nil {
 		return nil, oops.With("field", "wellknown").Wrapf(err, `query: "wellknown" must be a string`)
 	}
 	rawWK := &rawWellKnown{WellKnown: name}
-	if p := n.Get("params"); p.Exists() {
+	if p, ok := n.ObjectGet("params"); ok {
 		raw, err := p.Raw()
 		if err != nil {
 			return nil, oops.With("field", "params").Wrapf(err, `query: "params"`)
@@ -270,11 +270,11 @@ var orderByDirectionTags = map[string]OrderByDirection{
 	"desc-nulls-last": OrderDescNullsLast,
 }
 
-func parseRawRelation(n *ast.Node) (*rawRelation, error) {
-	relNode := n.Get("relation")
-	fnNode := n.Get("function")
-	if relNode.Exists() == fnNode.Exists() {
-		if relNode.Exists() {
+func parseRawRelation(n Node) (*rawRelation, error) {
+	relNode, hasRel := n.ObjectGet("relation")
+	fnNode, hasFn := n.ObjectGet("function")
+	if hasRel == hasFn {
+		if hasRel {
 			return nil, oops.Errorf(`query: relation object must have exactly one of "relation" or "function", not both`)
 		}
 		return nil, oops.Errorf(`query: relation object needs exactly one of "relation" or "function"`)
@@ -282,7 +282,7 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 
 	raw := &rawRelation{}
 	var err error
-	if relNode.Exists() {
+	if hasRel {
 		raw.Relation, err = relNode.StrictString()
 		if err != nil {
 			return nil, oops.With("field", "relation").Wrapf(err, `query: "relation" must be a string`)
@@ -301,33 +301,33 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 		}
 	}
 
-	if s := n.Get("schema"); s.Exists() {
+	if s, ok := n.ObjectGet("schema"); ok {
 		raw.Schema, err = s.StrictString()
 		if err != nil {
 			return nil, oops.With("field", "schema").Wrapf(err, `query: "schema" must be a string`)
 		}
 	}
-	if a := n.Get("alias"); a.Exists() {
+	if a, ok := n.ObjectGet("alias"); ok {
 		raw.Alias, err = a.StrictString()
 		if err != nil {
 			return nil, oops.With("field", "alias").Wrapf(err, `query: "alias" must be a string`)
 		}
 	}
 
-	if on := n.Get("on"); on.Exists() {
+	if on, ok := n.ObjectGet("on"); ok {
 		raw.On, err = parseStringMap(on)
 		if err != nil {
 			return nil, oops.Wrapf(err, `query: "on"`)
 		}
 	}
 
-	if args := n.Get("arguments"); args.Exists() {
+	if args, ok := n.ObjectGet("arguments"); ok {
 		if !raw.IsFunction {
 			return nil, oops.Errorf(`query: "arguments" is only valid alongside "function", not "relation"`)
 		}
-		switch args.TypeSafe() {
-		case ast.V_ARRAY:
-			items, err := args.ArrayUseNode()
+		switch args.Kind() {
+		case KindArray:
+			items, err := arrayItems(args)
 			if err != nil {
 				return nil, oops.Wrapf(err, `query: "arguments"`)
 			}
@@ -335,7 +335,7 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 			if err != nil {
 				return nil, oops.Wrapf(err, `query: "arguments"`)
 			}
-		case ast.V_OBJECT:
+		case KindObject:
 			raw.ArgumentsNamed, err = parseObjectFields(args)
 			if err != nil {
 				return nil, oops.Wrapf(err, `query: "arguments"`)
@@ -345,28 +345,28 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 		}
 	}
 
-	if w := n.Get("where"); w.Exists() {
+	if w, ok := n.ObjectGet("where"); ok {
 		raw.Where, err = parseNode(w)
 		if err != nil {
 			return nil, oops.Wrapf(err, `query: "where"`)
 		}
 	}
 
-	if wm := n.Get("write_mode"); wm.Exists() {
+	if wm, ok := n.ObjectGet("write_mode"); ok {
 		raw.WriteMode, err = wm.StrictString()
 		if err != nil {
 			return nil, oops.With("field", "write_mode").Wrapf(err, `query: "write_mode" must be a string`)
 		}
 	}
 
-	if oc := n.Get("on_conflict"); oc.Exists() {
-		switch oc.TypeSafe() {
-		case ast.V_STRING:
+	if oc, ok := n.ObjectGet("on_conflict"); ok {
+		switch oc.Kind() {
+		case KindString:
 			raw.OnConflictConstraintName, err = oc.StrictString()
 			if err != nil {
 				return nil, oops.Wrapf(err, `query: "on_conflict"`)
 			}
-		case ast.V_ARRAY:
+		case KindArray:
 			raw.OnConflictColumns, err = parseStringListValue(oc)
 			if err != nil {
 				return nil, oops.Wrapf(err, `query: "on_conflict"`)
@@ -376,49 +376,49 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 		}
 	}
 
-	if ic := n.Get("insert_columns"); ic.Exists() {
+	if ic, ok := n.ObjectGet("insert_columns"); ok {
 		raw.InsertColumns, err = parseStringListValue(ic)
 		if err != nil {
 			return nil, oops.Wrapf(err, `query: "insert_columns"`)
 		}
 	}
-	if uc := n.Get("update_columns"); uc.Exists() {
+	if uc, ok := n.ObjectGet("update_columns"); ok {
 		raw.UpdateColumns, err = parseStringListValue(uc)
 		if err != nil {
 			return nil, oops.Wrapf(err, `query: "update_columns"`)
 		}
 	}
 
-	if j := n.Get("join"); j.Exists() {
-		fields, err := j.MapUseNode()
-		if err != nil {
-			return nil, oops.Wrapf(err, `query: "join" must be an object`)
-		}
-		raw.Join = make(map[string]*rawRelation, len(fields))
-		for alias, child := range fields {
-			childRaw, err := parseRawRelation(&child)
+	if j, ok := n.ObjectGet("join"); ok {
+		raw.Join = map[string]*rawRelation{}
+		err := j.ObjectEach(func(alias string, child Node) error {
+			childRaw, err := parseRawRelation(child)
 			if err != nil {
-				return nil, oops.With("join_alias", alias).Wrapf(err, "query: join %q", alias)
+				return oops.With("join_alias", alias).Wrapf(err, "query: join %q", alias)
 			}
 			raw.Join[alias] = childRaw
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	if s := n.Get("select"); s.Exists() {
+	if s, ok := n.ObjectGet("select"); ok {
 		raw.Select, err = parseNode(s)
 		if err != nil {
 			return nil, oops.Wrapf(err, `query: "select"`)
 		}
 	}
 
-	if d := n.Get("distinct"); d.Exists() {
+	if d, ok := n.ObjectGet("distinct"); ok {
 		raw.Distinct, err = d.StrictBool()
 		if err != nil {
 			return nil, oops.With("field", "distinct").Wrapf(err, `query: "distinct" must be a boolean`)
 		}
 	}
-	if do := n.Get("distinct_on"); do.Exists() {
-		items, err := do.ArrayUseNode()
+	if do, ok := n.ObjectGet("distinct_on"); ok {
+		items, err := arrayItems(do)
 		if err != nil {
 			return nil, oops.With("field", "distinct_on").Wrapf(err, `query: "distinct_on" must be an array`)
 		}
@@ -428,14 +428,14 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 		}
 	}
 
-	if ob := n.Get("order_by"); ob.Exists() {
-		items, err := ob.ArrayUseNode()
+	if ob, ok := n.ObjectGet("order_by"); ok {
+		items, err := arrayItems(ob)
 		if err != nil {
 			return nil, oops.With("field", "order_by").Wrapf(err, `query: "order_by" must be an array`)
 		}
-		raw.OrderBy = make([]OrderByTerm, len(items))
-		for i := range items {
-			term, err := parseOrderByTerm(&items[i])
+		raw.OrderBy = make([]OrderByTerm, items.len)
+		for i := range items.len {
+			term, err := parseOrderByTerm(items.at(i))
 			if err != nil {
 				return nil, oops.With("index", i).Wrapf(err, `query: "order_by" item %d`, i)
 			}
@@ -443,7 +443,7 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 		}
 	}
 
-	if o := n.Get("offset"); o.Exists() {
+	if o, ok := n.ObjectGet("offset"); ok {
 		v, err := o.StrictInt64()
 		if err != nil {
 			return nil, oops.With("field", "offset").Wrapf(err, `query: "offset" must be a number`)
@@ -451,7 +451,7 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 		offset := int(v)
 		raw.Offset = &offset
 	}
-	if l := n.Get("limit"); l.Exists() {
+	if l, ok := n.ObjectGet("limit"); ok {
 		v, err := l.StrictInt64()
 		if err != nil {
 			return nil, oops.With("field", "limit").Wrapf(err, `query: "limit" must be a number`)
@@ -465,12 +465,12 @@ func parseRawRelation(n *ast.Node) (*rawRelation, error) {
 
 // parseOrderByTerm disambiguates a bare Expression from an explicit
 // [direction, Expression] pair — only a known direction string counts as the tuple form.
-func parseOrderByTerm(n *ast.Node) (OrderByTerm, error) {
-	if n.TypeSafe() == ast.V_ARRAY {
-		if items, err := n.ArrayUseNode(); err == nil && len(items) == 2 {
-			if tag, err := items[0].StrictString(); err == nil {
+func parseOrderByTerm(n Node) (OrderByTerm, error) {
+	if n.Kind() == KindArray {
+		if items, err := arrayItems(n); err == nil && items.len == 2 {
+			if tag, err := items.at(0).StrictString(); err == nil {
 				if dir, ok := orderByDirectionTags[tag]; ok {
-					expr, err := parseNode(&items[1])
+					expr, err := parseNode(items.at(1))
 					if err != nil {
 						return OrderByTerm{}, err
 					}
@@ -486,18 +486,18 @@ func parseOrderByTerm(n *ast.Node) (OrderByTerm, error) {
 	return OrderByTerm{Expr: expr, Direction: OrderAsc}, nil
 }
 
-func parseStringMap(n *ast.Node) (map[string]string, error) {
-	fields, err := n.MapUseNode()
-	if err != nil {
-		return nil, oops.Wrapf(err, "expected an object")
-	}
-	out := make(map[string]string, len(fields))
-	for k, v := range fields {
+func parseStringMap(n Node) (map[string]string, error) {
+	out := map[string]string{}
+	err := n.ObjectEach(func(k string, v Node) error {
 		s, err := v.StrictString()
 		if err != nil {
-			return nil, oops.With("field", k).Wrapf(err, "field %q: expected a string", k)
+			return oops.With("field", k).Wrapf(err, "field %q: expected a string", k)
 		}
 		out[k] = s
+		return nil
+	})
+	if err != nil {
+		return nil, oops.Wrapf(err, "expected an object")
 	}
 	return out, nil
 }

@@ -31,50 +31,50 @@ func ParseExpression(data []byte) (Expression, error) {
 	if perr != 0 {
 		return nil, fmt.Errorf("query: invalid expression JSON: %w", perr)
 	}
-	return parseNode(&root)
+	return parseNode(sonicNode{&root})
 }
 
-func parseNode(n *ast.Node) (Expression, error) {
-	switch n.TypeSafe() {
-	case ast.V_NULL:
+func parseNode(n Node) (Expression, error) {
+	switch n.Kind() {
+	case KindNull:
 		return NullLiteral{}, nil
 
-	case ast.V_TRUE, ast.V_FALSE:
+	case KindBool:
 		b, err := n.StrictBool()
 		if err != nil {
 			return nil, fmt.Errorf("query: invalid boolean expression: %w", err)
 		}
 		return BoolLiteral{Value: b}, nil
 
-	case ast.V_NUMBER:
+	case KindNumber:
 		f, err := n.StrictFloat64()
 		if err != nil {
 			return nil, fmt.Errorf("query: invalid number expression: %w", err)
 		}
 		return NumberLiteral{Value: f}, nil
 
-	case ast.V_STRING:
+	case KindString:
 		s, err := n.StrictString()
 		if err != nil {
 			return nil, fmt.Errorf("query: invalid string expression: %w", err)
 		}
 		return StringLiteral{Value: s}, nil
 
-	case ast.V_OBJECT:
+	case KindObject:
 		fields, err := parseObjectFields(n)
 		if err != nil {
 			return nil, err
 		}
 		return ObjectExpr{Fields: fields}, nil
 
-	case ast.V_ARRAY:
+	case KindArray:
 		return parseArrayExpression(n)
 
-	case ast.V_ERROR:
-		return nil, fmt.Errorf("query: invalid expression JSON: %w", n.Check())
+	case KindInvalid:
+		return nil, fmt.Errorf("query: invalid expression JSON")
 
 	default:
-		return nil, fmt.Errorf("query: unexpected JSON value in expression position (type %d)", n.TypeSafe())
+		return nil, fmt.Errorf("query: unexpected JSON value in expression position (type %d)", n.Kind())
 	}
 }
 
@@ -122,16 +122,16 @@ var comparisonFoldOps = map[FoldedOperator]bool{
 	FoldNeq: true, FoldIsDistinctFrom: true, FoldIsNotDistinctFrom: true,
 }
 
-func parseArrayExpression(n *ast.Node) (Expression, error) {
-	items, err := n.ArrayUseNode()
+func parseArrayExpression(n Node) (Expression, error) {
+	items, err := arrayItems(n)
 	if err != nil {
 		return nil, fmt.Errorf("query: invalid array expression: %w", err)
 	}
-	if len(items) == 0 {
+	if items.len == 0 {
 		return nil, fmt.Errorf("query: empty array is not a valid expression")
 	}
 
-	tag, err := items[0].StrictString()
+	tag, err := items.at(0).StrictString()
 	if err != nil {
 		return nil, fmt.Errorf("query: expression array must start with a string tag: %w", err)
 	}
@@ -140,22 +140,22 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 	if canonical, ok := OperatorWords[tag]; ok {
 		tag = canonical
 	}
-	rest := items[1:]
+	rest := items.from(1)
 
 	switch tag {
 	case "between", "not_between":
-		if len(rest) != 3 {
-			return nil, fmt.Errorf("query: %q needs exactly 3 operands, got %d", tag, len(rest))
+		if rest.len != 3 {
+			return nil, fmt.Errorf("query: %q needs exactly 3 operands, got %d", tag, rest.len)
 		}
-		minE, err := parseNode(&rest[0])
+		minE, err := parseNode(rest.at(0))
 		if err != nil {
 			return nil, err
 		}
-		expE, err := parseNode(&rest[1])
+		expE, err := parseNode(rest.at(1))
 		if err != nil {
 			return nil, err
 		}
-		maxE, err := parseNode(&rest[2])
+		maxE, err := parseNode(rest.at(2))
 		if err != nil {
 			return nil, err
 		}
@@ -167,24 +167,24 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return parseValidatedStringArgLiteral(tag, rest, validNumericLiteral, func(v string) Expression { return NumericLiteral{Value: v} })
 
 	case "in", "not_in":
-		if len(rest) < 1 {
+		if rest.len < 1 {
 			return nil, fmt.Errorf("query: %q needs a subject", tag)
 		}
-		subject, err := parseNode(&rest[0])
+		subject, err := parseNode(rest.at(0))
 		if err != nil {
 			return nil, err
 		}
-		candidates, err := parseExpressionList(rest[1:])
+		candidates, err := parseExpressionList(rest.from(1))
 		if err != nil {
 			return nil, err
 		}
 		return InExpr{Negate: tag == "not_in", Subject: subject, Candidates: candidates}, nil
 
 	case "any", "all":
-		if len(rest) != 3 {
-			return nil, fmt.Errorf("query: %q needs exactly 3 operands, got %d", tag, len(rest))
+		if rest.len != 3 {
+			return nil, fmt.Errorf("query: %q needs exactly 3 operands, got %d", tag, rest.len)
 		}
-		op, err := rest[0].StrictString()
+		op, err := rest.at(0).StrictString()
 		if err != nil {
 			return nil, fmt.Errorf("query: %q operator must be a string: %w", tag, err)
 		}
@@ -196,25 +196,25 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 				return nil, fmt.Errorf("query: %q operator %q is not a known operator", tag, op)
 			}
 		}
-		subject, err := parseNode(&rest[1])
+		subject, err := parseNode(rest.at(1))
 		if err != nil {
 			return nil, err
 		}
-		arr, err := parseNode(&rest[2])
+		arr, err := parseNode(rest.at(2))
 		if err != nil {
 			return nil, err
 		}
 		return AnyAllExpr{All: tag == "all", Op: op, Subject: subject, Array: arr}, nil
 
 	case "concat_ws":
-		if len(rest) < 1 {
+		if rest.len < 1 {
 			return nil, fmt.Errorf("query: %q needs a separator", tag)
 		}
-		sep, err := parseNode(&rest[0])
+		sep, err := parseNode(rest.at(0))
 		if err != nil {
 			return nil, err
 		}
-		args, err := parseExpressionList(rest[1:])
+		args, err := parseExpressionList(rest.from(1))
 		if err != nil {
 			return nil, err
 		}
@@ -228,28 +228,28 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return CoalesceExpr{Args: args}, nil
 
 	case "format":
-		if len(rest) < 1 {
+		if rest.len < 1 {
 			return nil, fmt.Errorf("query: %q needs a format string", tag)
 		}
-		format, err := rest[0].StrictString()
+		format, err := rest.at(0).StrictString()
 		if err != nil {
 			return nil, fmt.Errorf("query: %q format must be a string: %w", tag, err)
 		}
-		args, err := parseExpressionList(rest[1:])
+		args, err := parseExpressionList(rest.from(1))
 		if err != nil {
 			return nil, err
 		}
 		return FormatExpr{Format: format, Args: args}, nil
 
 	case "agg", "aggregate":
-		if len(rest) < 2 || len(rest) > 3 {
-			return nil, fmt.Errorf("query: %q needs 2 or 3 operands, got %d", tag, len(rest))
+		if rest.len < 2 || rest.len > 3 {
+			return nil, fmt.Errorf("query: %q needs 2 or 3 operands, got %d", tag, rest.len)
 		}
-		ident, err := parseFunctionRef(&rest[0])
+		ident, err := parseFunctionRef(rest.at(0))
 		if err != nil {
 			return nil, fmt.Errorf("query: %q identifier: %w", tag, err)
 		}
-		argItems, err := rest[1].ArrayUseNode()
+		argItems, err := arrayItems(rest.at(1))
 		if err != nil {
 			return nil, fmt.Errorf("query: %q arguments must be an array: %w", tag, err)
 		}
@@ -258,22 +258,22 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 			return nil, err
 		}
 		agg := &AggExpr{Identifier: ident, Arguments: args}
-		if len(rest) == 3 {
-			if err := parseAggOptions(&rest[2], agg); err != nil {
+		if rest.len == 3 {
+			if err := parseAggOptions(rest.at(2), agg); err != nil {
 				return nil, fmt.Errorf("query: %q options: %w", tag, err)
 			}
 		}
 		return agg, nil
 
 	case "call":
-		if len(rest) < 1 {
+		if rest.len < 1 {
 			return nil, fmt.Errorf("query: %q needs an identifier", tag)
 		}
-		ident, err := parseFunctionRef(&rest[0])
+		ident, err := parseFunctionRef(rest.at(0))
 		if err != nil {
 			return nil, fmt.Errorf("query: %q identifier: %w", tag, err)
 		}
-		args, err := parseExpressionList(rest[1:])
+		args, err := parseExpressionList(rest.from(1))
 		if err != nil {
 			return nil, err
 		}
@@ -285,8 +285,8 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		// StringLiteral like any other bare string now does. Left-associative
 		// fold, same shape foldExpression would produce, but Right is always
 		// an *Identifier (see resolveHopInto/compileFolded).
-		if len(rest) < 1 {
-			return nil, fmt.Errorf("query: %q needs at least 1 operand, got %d", tag, len(rest))
+		if rest.len < 1 {
+			return nil, fmt.Errorf("query: %q needs at least 1 operand, got %d", tag, rest.len)
 		}
 		// The chain's own starting point : a bare JSON string in this leading
 		// position is ALWAYS a name to resolve against the current scope —
@@ -301,20 +301,20 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		// least one hop after it; there's nothing else it could mean.
 		var result Expression
 		hopsFrom := 1
-		if name, err := rest[0].StrictString(); err == nil {
+		if name, err := rest.at(0).StrictString(); err == nil {
 			result = &Identifier{Name: name}
 		} else {
-			if len(rest) < 2 {
+			if rest.len < 2 {
 				return nil, fmt.Errorf("query: %q needs a hop name after a non-bare-name base", tag)
 			}
-			base, err := parseNode(&rest[0])
+			base, err := parseNode(rest.at(0))
 			if err != nil {
 				return nil, err
 			}
 			result = base
 		}
-		for i := hopsFrom; i < len(rest); i++ {
-			name, err := rest[i].StrictString()
+		for i := hopsFrom; i < rest.len; i++ {
+			name, err := rest.at(i).StrictString()
 			if err != nil {
 				return nil, fmt.Errorf("query: %q hop name must be a bare string: %w", tag, err)
 			}
@@ -340,32 +340,32 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return LstExpr{Items: items}, nil
 
 	case "index":
-		if len(rest) != 2 {
+		if rest.len != 2 {
 			return nil, fmt.Errorf("query: %q needs exactly [array, index]", tag)
 		}
-		arr, err := parseNode(&rest[0])
+		arr, err := parseNode(rest.at(0))
 		if err != nil {
 			return nil, err
 		}
-		idx, err := parseNode(&rest[1])
+		idx, err := parseNode(rest.at(1))
 		if err != nil {
 			return nil, err
 		}
 		return IndexExpr{Array: arr, Index: idx}, nil
 
 	case "slice":
-		if len(rest) != 3 {
+		if rest.len != 3 {
 			return nil, fmt.Errorf("query: %q needs exactly [array, from, to]", tag)
 		}
-		arr, err := parseNode(&rest[0])
+		arr, err := parseNode(rest.at(0))
 		if err != nil {
 			return nil, err
 		}
-		from, err := parseNode(&rest[1])
+		from, err := parseNode(rest.at(1))
 		if err != nil {
 			return nil, err
 		}
-		to, err := parseNode(&rest[2])
+		to, err := parseNode(rest.at(2))
 		if err != nil {
 			return nil, err
 		}
@@ -377,16 +377,16 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return parseGetOrSet(tag, rest)
 
 	case "$param":
-		if len(rest) < 1 || len(rest) > 2 {
+		if rest.len < 1 || rest.len > 2 {
 			return nil, fmt.Errorf("query: %q needs [name] or [name, cast]", tag)
 		}
-		name, err := rest[0].StrictString()
+		name, err := rest.at(0).StrictString()
 		if err != nil {
 			return nil, fmt.Errorf("query: %q name must be a string: %w", tag, err)
 		}
 		var cast string
-		if len(rest) == 2 {
-			cast, err = rest[1].StrictString()
+		if rest.len == 2 {
+			cast, err = rest.at(1).StrictString()
 			if err != nil {
 				return nil, fmt.Errorf("query: %q cast must be a string: %w", tag, err)
 			}
@@ -396,25 +396,25 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 
 	// "-"/"~" are members of two vocabularies ; checking unary (fixed
 	// arity 1) before folded/binary resolves both without ambiguity.
-	if op, ok := unaryOperators[tag]; ok && len(rest) == 1 {
-		expr, err := parseNode(&rest[0])
+	if op, ok := unaryOperators[tag]; ok && rest.len == 1 {
+		expr, err := parseNode(rest.at(0))
 		if err != nil {
 			return nil, err
 		}
 		return UnaryExpr{Op: op, Expr: expr}, nil
 	}
-	if op, ok := binaryOperators[tag]; ok && len(rest) == 2 {
-		left, err := parseNode(&rest[0])
+	if op, ok := binaryOperators[tag]; ok && rest.len == 2 {
+		left, err := parseNode(rest.at(0))
 		if err != nil {
 			return nil, err
 		}
-		right, err := parseNode(&rest[1])
+		right, err := parseNode(rest.at(1))
 		if err != nil {
 			return nil, err
 		}
 		return BinaryExpr{Op: op, Left: left, Right: right}, nil
 	}
-	if op, ok := foldedOperators[tag]; ok && len(rest) >= 1 {
+	if op, ok := foldedOperators[tag]; ok && rest.len >= 1 {
 		operands, err := parseExpressionList(rest)
 		if err != nil {
 			return nil, err
@@ -422,7 +422,7 @@ func parseArrayExpression(n *ast.Node) (Expression, error) {
 		return foldExpression(op, operands)
 	}
 
-	return nil, fmt.Errorf("query: unrecognized expression tag %q (array length %d)", tag, len(items))
+	return nil, fmt.Errorf("query: unrecognized expression tag %q (array length %d)", tag, items.len)
 }
 
 // foldExpression collapses an N-ary folded-operator array into nested,
@@ -450,30 +450,30 @@ func foldExpression(op FoldedOperator, operands []Expression) (Expression, error
 
 // parseDefaultPosition parses a default-value slot, where a bare "default"
 // string means DefaultKeyword rather than an Identifier.
-func parseDefaultPosition(n *ast.Node) (Expression, error) {
+func parseDefaultPosition(n Node) (Expression, error) {
 	if s, err := n.StrictString(); err == nil && s == "default" {
 		return DefaultKeyword{}, nil
 	}
 	return parseNode(n)
 }
 
-func parseCol(rest []ast.Node) (Expression, error) {
-	if len(rest) < 1 || len(rest) > 3 {
+func parseCol(rest nodeList) (Expression, error) {
+	if rest.len < 1 || rest.len > 3 {
 		return nil, fmt.Errorf("query: %q needs [column, default_get?, default_set?]", "col")
 	}
-	column, err := rest[0].StrictString()
+	column, err := rest.at(0).StrictString()
 	if err != nil {
 		return nil, fmt.Errorf("query: col column must be a string: %w", err)
 	}
 	var defaultGet, defaultSet Expression
-	if len(rest) >= 2 {
-		defaultGet, err = parseDefaultPosition(&rest[1])
+	if rest.len >= 2 {
+		defaultGet, err = parseDefaultPosition(rest.at(1))
 		if err != nil {
 			return nil, err
 		}
 	}
-	if len(rest) == 3 {
-		defaultSet, err = parseDefaultPosition(&rest[2])
+	if rest.len == 3 {
+		defaultSet, err = parseDefaultPosition(rest.at(2))
 		if err != nil {
 			return nil, err
 		}
@@ -481,17 +481,17 @@ func parseCol(rest []ast.Node) (Expression, error) {
 	return &ColExpr{Column: column, DefaultGet: defaultGet, DefaultSet: defaultSet}, nil
 }
 
-func parseGetOrSet(tag string, rest []ast.Node) (Expression, error) {
-	if len(rest) < 1 || len(rest) > 2 {
+func parseGetOrSet(tag string, rest nodeList) (Expression, error) {
+	if rest.len < 1 || rest.len > 2 {
 		return nil, fmt.Errorf("query: %q needs [column, default_value?]", tag)
 	}
-	column, err := rest[0].StrictString()
+	column, err := rest.at(0).StrictString()
 	if err != nil {
 		return nil, fmt.Errorf("query: %q column must be a string: %w", tag, err)
 	}
 	var def Expression
-	if len(rest) == 2 {
-		def, err = parseDefaultPosition(&rest[1])
+	if rest.len == 2 {
+		def, err = parseDefaultPosition(rest.at(1))
 		if err != nil {
 			return nil, err
 		}
@@ -504,10 +504,10 @@ func parseGetOrSet(tag string, rest []ast.Node) (Expression, error) {
 
 // ---- small shared decode helpers -------------------------------------------------
 
-func parseExpressionList(items []ast.Node) ([]Expression, error) {
-	out := make([]Expression, len(items))
-	for i := range items {
-		expr, err := parseNode(&items[i])
+func parseExpressionList(items nodeList) ([]Expression, error) {
+	out := make([]Expression, items.len)
+	for i := 0; i < items.len; i++ {
+		expr, err := parseNode(items.at(i))
 		if err != nil {
 			return nil, fmt.Errorf("query: item %d: %w", i, err)
 		}
@@ -516,14 +516,14 @@ func parseExpressionList(items []ast.Node) ([]Expression, error) {
 	return out, nil
 }
 
-func parseStringListValue(n *ast.Node) ([]string, error) {
-	items, err := n.ArrayUseNode()
+func parseStringListValue(n Node) ([]string, error) {
+	items, err := arrayItems(n)
 	if err != nil {
 		return nil, fmt.Errorf("query: expected a string array: %w", err)
 	}
-	out := make([]string, len(items))
-	for i := range items {
-		s, err := items[i].StrictString()
+	out := make([]string, items.len)
+	for i := range items.len {
+		s, err := items.at(i).StrictString()
 		if err != nil {
 			return nil, fmt.Errorf("query: expected a string array, item %d: %w", i, err)
 		}
@@ -532,18 +532,18 @@ func parseStringListValue(n *ast.Node) ([]string, error) {
 	return out, nil
 }
 
-func parseObjectFields(n *ast.Node) (map[string]Expression, error) {
-	raw, err := n.MapUseNode()
-	if err != nil {
-		return nil, fmt.Errorf("query: expected an object: %w", err)
-	}
-	out := make(map[string]Expression, len(raw))
-	for k, v := range raw {
-		expr, err := parseNode(&v)
+func parseObjectFields(n Node) (map[string]Expression, error) {
+	out := map[string]Expression{}
+	err := n.ObjectEach(func(k string, v Node) error {
+		expr, err := parseNode(v)
 		if err != nil {
-			return nil, fmt.Errorf("query: field %q: %w", k, err)
+			return fmt.Errorf("query: field %q: %w", k, err)
 		}
 		out[k] = expr
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query: expected an object: %w", err)
 	}
 	return out, nil
 }
@@ -553,23 +553,23 @@ func parseObjectFields(n *ast.Node) (map[string]Expression, error) {
 // JSON type rather than position or count — every array is concatenated
 // into one except list, every object merged into one and map (later keys
 // overriding earlier), in the order given.
-func parseStarTag(own bool, rest []ast.Node) (Expression, error) {
+func parseStarTag(own bool, rest nodeList) (Expression, error) {
 	tagName := "*"
 	if own {
 		tagName = "*~"
 	}
 	var except []string
 	var and map[string]Expression
-	for i := range rest {
-		switch rest[i].TypeSafe() {
-		case ast.V_ARRAY:
-			e, err := parseStringListValue(&rest[i])
+	for i := range rest.len {
+		switch rest.at(i).Kind() {
+		case KindArray:
+			e, err := parseStringListValue(rest.at(i))
 			if err != nil {
 				return nil, err
 			}
 			except = append(except, e...)
-		case ast.V_OBJECT:
-			a, err := parseObjectFields(&rest[i])
+		case KindObject:
+			a, err := parseObjectFields(rest.at(i))
 			if err != nil {
 				return nil, err
 			}
@@ -588,18 +588,18 @@ func parseStarTag(own bool, rest []ast.Node) (Expression, error) {
 
 // parseFunctionRef parses AggExpr/CallExpr's identifier : a bare string
 // (unqualified, never split on ".") or an explicit {schema, name} object.
-func parseFunctionRef(n *ast.Node) (FunctionRef, error) {
-	switch n.TypeSafe() {
-	case ast.V_STRING:
+func parseFunctionRef(n Node) (FunctionRef, error) {
+	switch n.Kind() {
+	case KindString:
 		name, err := n.StrictString()
 		if err != nil {
 			return FunctionRef{}, fmt.Errorf("must be a string or {schema, name} object: %w", err)
 		}
 		return FunctionRef{Name: name}, nil
 
-	case ast.V_OBJECT:
-		nameNode := n.Get("name")
-		if !nameNode.Exists() {
+	case KindObject:
+		nameNode, ok := n.ObjectGet("name")
+		if !ok {
 			return FunctionRef{}, fmt.Errorf(`object form needs a "name"`)
 		}
 		name, err := nameNode.StrictString()
@@ -607,7 +607,7 @@ func parseFunctionRef(n *ast.Node) (FunctionRef, error) {
 			return FunctionRef{}, fmt.Errorf(`"name" must be a string: %w`, err)
 		}
 		var schema string
-		if schemaNode := n.Get("schema"); schemaNode.Exists() {
+		if schemaNode, ok := n.ObjectGet("schema"); ok {
 			schema, err = schemaNode.StrictString()
 			if err != nil {
 				return FunctionRef{}, fmt.Errorf(`"schema" must be a string: %w`, err)
@@ -616,7 +616,7 @@ func parseFunctionRef(n *ast.Node) (FunctionRef, error) {
 		return FunctionRef{Schema: schema, Name: name}, nil
 
 	default:
-		return FunctionRef{}, fmt.Errorf("must be a string or {schema, name} object, got type %d", n.TypeSafe())
+		return FunctionRef{}, fmt.Errorf("must be a string or {schema, name} object, got type %d", n.Kind())
 	}
 }
 
@@ -629,11 +629,11 @@ var (
 
 // parseValidatedStringArgLiteral is parseStringArgLiteral plus a format
 // gate, for literal kinds written straight into SQL text, not bound.
-func parseValidatedStringArgLiteral(tag string, rest []ast.Node, valid *regexp.Regexp, build func(string) Expression) (Expression, error) {
-	if len(rest) != 1 {
-		return nil, fmt.Errorf("query: %q expects exactly one string argument, got %d", tag, len(rest))
+func parseValidatedStringArgLiteral(tag string, rest nodeList, valid *regexp.Regexp, build func(string) Expression) (Expression, error) {
+	if rest.len != 1 {
+		return nil, fmt.Errorf("query: %q expects exactly one string argument, got %d", tag, rest.len)
 	}
-	v, err := rest[0].StrictString()
+	v, err := rest.at(0).StrictString()
 	if err != nil {
 		return nil, fmt.Errorf("query: %q expects a string argument: %w", tag, err)
 	}
@@ -644,15 +644,12 @@ func parseValidatedStringArgLiteral(tag string, rest []ast.Node, valid *regexp.R
 }
 
 // parseAggOptions reads an "agg"'s last operand, {filter?, distinct?, order_by?}.
-func parseAggOptions(n *ast.Node, agg *AggExpr) error {
-	opts, err := n.MapUseNode()
-	if err != nil {
-		return fmt.Errorf(`must be an object {"filter", "distinct", "order_by"} : %w`, err)
-	}
-	for key, v := range opts {
+func parseAggOptions(n Node, agg *AggExpr) error {
+	return n.ObjectEach(func(key string, v Node) error {
+		var err error
 		switch key {
 		case "filter":
-			if agg.Filter, err = parseNode(&v); err != nil {
+			if agg.Filter, err = parseNode(v); err != nil {
 				return err
 			}
 		case "distinct":
@@ -660,12 +657,12 @@ func parseAggOptions(n *ast.Node, agg *AggExpr) error {
 				return fmt.Errorf(`"distinct" must be a boolean : %w`, err)
 			}
 		case "order_by":
-			items, err := v.ArrayUseNode()
+			items, err := arrayItems(v)
 			if err != nil {
 				return fmt.Errorf(`"order_by" must be an array : %w`, err)
 			}
-			for i := range items {
-				term, err := parseOrderByTerm(&items[i])
+			for i := range items.len {
+				term, err := parseOrderByTerm(items.at(i))
 				if err != nil {
 					return fmt.Errorf(`"order_by" item %d : %w`, i, err)
 				}
@@ -674,6 +671,6 @@ func parseAggOptions(n *ast.Node, agg *AggExpr) error {
 		default:
 			return fmt.Errorf("unknown option %q (expected filter, distinct or order_by)", key)
 		}
-	}
-	return nil
+		return nil
+	})
 }

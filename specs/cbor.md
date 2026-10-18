@@ -1,0 +1,165 @@
+# CBOR support
+
+rel accepts and produces JSON today via `github.com/bytedance/sonic` end to end : the query DSL parser (`query/expression_parse.go`, `query/node_parse.go`) walks a `sonic/ast.Node` tree, and query results are built entirely in Postgres (`row_to_json`/`json_agg`) and streamed as raw bytes by `server/response.go`'s `streamRows`, never touched by sonic at all. This document specifies CBOR (RFC 8949) as a second wire format alongside JSON, on both the request and response side, without duplicating either the DSL parser or the query compiler.
+
+The IANA media type for CBOR is `application/cbor`. JSON stays the default on every surface this document covers ; CBOR is opt-in per request. CBOR support is always enabled. No configuration flag exists.
+
+> 📜 **ADR**: CBOR support is unconditional (no `http.cbor.enabled` flag) because CBOR is opt-in per request through `Content-Type`/`Accept`, so it cannot change the behavior of existing JSON clients.
+
+## Scope
+
+Three independent surfaces, each with its own section below :
+
+1. **Request decoding** — the query DSL body (`ParseExpression`/`ParseQuery`) accepting CBOR as an alternative to JSON.
+2. **Query-engine response encoding** — results of the query compiler (`query/sql.go`), which knows each output field's Postgres type at compile time. Full-fidelity native CBOR.
+3. **Declared-route response encoding** — a route function's own returned `jsonb` value (`docs/content/http/requests-responses.md`), which carries no compile-time type information. Token-level transcoding.
+
+## 1. Request decoding
+
+### `Node` interface
+
+Introduce an interface in package `query` abstracting the operations the parsers in `query/expression_parse.go`, `query/node_parse.go` and `query/wellknown_parse.go` use today (a subset of `sonic/ast.Node`'s surface, restricted to the `Strict*` accessors per `AGENTS.md`'s existing mandate) :
+
+```go
+type NodeKind int
+
+const (
+	KindInvalid NodeKind = iota
+	KindNull
+	KindBool
+	KindNumber
+	KindString
+	KindArray
+	KindObject
+)
+
+type Node interface {
+	Kind() NodeKind
+	StrictString() (string, error)
+	StrictBool() (bool, error)
+	StrictInt64() (int64, error)
+	StrictFloat64() (float64, error)
+	// ArrayItems returns every element of an array node, converted once.
+	ArrayItems() ([]Node, error)
+	ObjectGet(key string) (Node, bool)
+	// ObjectEach calls fn for each key of an object node, in no particular order, and stops at the first error.
+	ObjectEach(fn func(key string, v Node) error) error
+	// Raw returns the node's source text as JSON.
+	Raw() (string, error)
+}
+```
+
+Change every function in those files that currently takes `*ast.Node` or `[]ast.Node` to take `Node` or `[]Node` instead. Call sites that use `Get(...).Exists()` become `ObjectGet`, and call sites that use `MapUseNode()` become `ObjectEach`. `ParseExpression`, `ParseQuery` and `ParseWellKnownFile` keep their `[]byte` signatures and build the sonic adapter internally ; the Content-Type dispatch below picks the adapter at the HTTP boundary.
+
+An array is read through `ArrayItems()` once per array, never per element : the interface has no `ArrayLen`/`ArrayIndex(i)` pair.
+
+> **Why:** an `ArrayLen()`/`ArrayIndex(i)` pair measured 16 to 38 % slower to parse than the current parser, against 5 to 7 % for `ArrayItems()`. `ast.Node.ArrayUseNode()` allocates a new slice on every call, so an index-based loop converts the whole array once per element. Benchmark : `query/parse_bench_test.go`.
+
+> **Why:** `Raw()` exists because `"data"` and `"params"` in `node_parse.go` and `wellknown_parse.go` are forwarded as verbatim JSON text, not parsed.
+
+> **Question:** what does `Raw()` return on the CBOR adapter ? Options : (a) re-encode the CBOR subtree as JSON text (lossy for byte strings, tags and non-text keys) ; (b) reject CBOR bodies that carry `"data"`/`"params"`, which makes CBOR requests unable to write ; (c) change `rawWriteQuery.Data` and `rawWellKnown.Params` to hold a `Node` instead of bytes, and convert at the point where they are bound as SQL parameters. Recommendation : (c), since CBOR input should not be forced through JSON text.
+
+### sonic adapter
+
+A pointer-sized wrapper type over `*sonic/ast.Node` implementing `Node`. Its methods delegate to `ast.Node` as follows :
+
+- `Kind` maps `TypeSafe()` (`V_TRUE` and `V_FALSE` both map to `KindBool` ; `V_ERROR` and anything unknown map to `KindInvalid`).
+- `ArrayItems` calls `ArrayUseNode()` once and wraps each element.
+- `ObjectGet` calls `Get(key)` and reports `Exists()`.
+- `ObjectEach` calls `MapUseNode()` and iterates the result.
+- `Strict*` and `Raw` delegate directly.
+
+`ast.Node.Len()` MUST NOT be used to size an array : it returns `0` without an error on a lazily parsed array.
+
+> **Why:** the adapter is not free. Measured against the pre-interface parser with `ArrayItems()`/`ObjectEach` : 5 to 7 % more time to parse a query body (up to about 8 µs on a 50-field body), 20 to 25 % more allocations, and about 1 % more on parse + resolve + compile together. The extra allocations are one `[]Node` per array and one closure per object.
+
+### CBOR adapter
+
+Decode the request body with `cbor.Unmarshal(data, &v)` (library : `fxamacker/cbor/v2`) into `any`, which yields `map[string]any`, `[]any`, `int64`/`float64`, `string`, `bool`, or `nil`. Wrap that value in a second `Node` implementation, type-switching on `Kind()`.
+
+> 📜 **ADR**: One decode call instead of a lazy walk. Query DSL bodies are small (a query tree, not a data payload), so sonic's lazy/SIMD advantage does not matter here ; `fxamacker/cbor` has no AST type equivalent to `sonic/ast`, so full decode is the only option anyway.
+
+- A CBOR map key that is not a text string MUST be rejected (`errcode`-wrapped error, not coerced to a string) : the DSL only ever used string keys and there is no coercion rule to fall back on.
+- `StrictInt64`/`StrictFloat64` on the CBOR adapter read the CBOR value's own major type (integer vs. floating-point) directly ; there is no text-number reparsing step like the JSON path has.
+
+### Content-Type dispatch
+
+At the HTTP boundary, select the adapter from the request's `Content-Type` header : `application/json` (or absent) → sonic adapter, `application/cbor` → CBOR adapter. Produce a `Node` before calling `ParseExpression`/`ParseQuery` ; those functions' signatures change to accept `Node` per the above and are otherwise unaware of which wire format produced it.
+
+## 2. Query-engine response encoding
+
+This tier applies only when the client asks for CBOR (`Accept: application/cbor`). The existing JSON path (`row_to_json`/`json_agg` in `query/sql.go`, raw-byte passthrough in `server/response.go`'s `streamRows`) is unchanged and used for every other request.
+
+### SQL generation
+
+For a CBOR-requesting query, replace `row_to_json(alias)` with `row(alias)` and `coalesce(json_agg(row_to_json(sub)), '[]'::json)` with `array_agg(row(sub))` in `wrapNodeAsValue` and `compileEmbedField` (`query/sql.go`). Everything else about `CompileSelect`'s shape — the LATERAL-sharing plan, `compileShapeAsJsonObject` (`query/sql_expr.go`) for key/shape objects, `countMode` — is unaffected ; only the two wrapping expressions differ, selected by which wire format the request asked for.
+
+> 📜 **ADR**: row/array_agg instead of a CBOR-producing SQL function. Postgres has no `row_to_cbor` builtin. Postgres's own binary wire encoding for a composite value (`ROW(...)`, including the anonymous `record` pseudo-type) is self-describing per field — each field carries its own type OID inline — and array binary encoding is self-describing per element the same way. That removes the need for row_to_json's JSON-text intermediate entirely.
+
+### Binary extraction
+
+Execute the compiled statement requesting binary result format for the composite/array column, using pgx's low-level API (`pgx.Rows.RawValues()` + `FieldDescriptions()`) instead of `rows.Scan(&raw)` — `streamRows`'s current single `Scan` into `[]byte` only works for the JSON path, where the column is already `json`/`jsonb` text.
+
+### Decoding a field
+
+Walk the composite/array binary payload recursively :
+
+- Composite : read field count, then per field `(type OID, length, bytes)` in order.
+- Array : read dimensions/element OID/null bitmap, then per element `(length, bytes)`.
+- A length of `-1` is SQL `NULL` → CBOR `null`.
+
+Field **names** come from the query's own compiled `Shape` (`query/sql_expr.go`), not from Postgres — `ROW(...)` results are positional. Match binary field position to `Shape`'s field order 1:1.
+
+Decode each leaf's bytes via `pgtype.Map`'s existing per-OID codec (`jackc/pgx/v5/pgtype` already registers a codec for every built-in type — no `LoadType`/`RegisterType` call needed for these), then encode the resulting Go value as CBOR per the type mapping below.
+
+### Type mapping
+
+| Postgres type | Go value (`pgtype.Map`) | CBOR encoding |
+|---|---|---|
+| `int2`/`int4`/`int8` | `int64` | CBOR integer (major type 0/1) |
+| `numeric` | `pgtype.Numeric` | tag 4 (decimal fraction: `[exponent, mantissa]`) ; mantissa as a CBOR bignum (tag 2/3) if it exceeds 64 bits |
+| `timestamptz` | `time.Time` | tag 1 (epoch-based date/time), as a CBOR double (fractional seconds since epoch) |
+| `timestamp` | `time.Time` (UTC-labeled wall clock) | see the open question below |
+| `date` | `time.Time` | tag 100 (RFC 8943 epoch-based date : integer days since 1970-01-01) |
+| `uuid` | `[16]byte` | tag 37 (binary UUID) |
+| `bytea` | `[]byte` | plain CBOR byte string (major type 2), no tag |
+| `bool` | `bool` | CBOR true/false |
+| `text`/`varchar`/... | `string` | CBOR text string (major type 3) |
+| everything else | `pgtype.Map`'s default Go value | nearest CBOR equivalent by Go kind |
+
+> 📜 **ADR**: `date` uses tag 100 (integer days) instead of tag 1004 (string) because it is compact and needs no parsing. The TypeScript decoder must convert tag 100 to the representation its client types expect (the TypeScript client currently types `date` as a plain string).
+
+> 💬 You ask how a JavaScript client can decode `timestamp` afterwards, and how Postgres stores `timestamptz` and `timestamp`.
+
+> 🤖 Postgres stores both types as the same 8-byte integer : microseconds since 2000-01-01 00:00:00. The difference is the meaning. `timestamptz` is a UTC instant ; the session time zone only applies on input and output. `timestamp` is a wall-clock reading with no zone, and Postgres never converts it. pgx decodes `timestamp` into a `time.Time` whose location is UTC, so the Go value looks like an instant but is not one.
+> If `timestamp` is sent as tag 1, a JavaScript `Date` shows the correct wall-clock digits only if the client reads it with `getUTC*` methods. Any code that uses local-time methods, or `toISOString()` and then compares it with real instants, silently shifts the value. Nothing in the encoded bytes tells the decoder that the value is not an instant. Also, a JavaScript `Date` keeps milliseconds only, so the microseconds Postgres stores are lost for both types.
+> Recommendation : encode `timestamp` as a plain CBOR text string in ISO 8601 form without offset (`2026-10-18T14:30:00.123456`). This keeps microseconds, matches how the TypeScript client already types `timestamp` (plain string), and cannot be mistaken for an instant. Only `timestamptz` gets tag 1.
+
+> ❓ **Question**: Do you accept encoding `timestamp` as an untagged ISO 8601 text string without offset, and `timestamptz` as tag 1 ? Also decide the encoding of the Postgres values `infinity`/`-infinity` for `timestamp`, `timestamptz` and `date` (pgx returns an infinity modifier instead of a `time.Time`) : tag 1 cannot represent them. Options : CBOR `null`, or the text strings `"infinity"`/`"-infinity"` (as Postgres prints them).
+
+### Streaming and framing
+
+Encode CBOR indefinite-length arrays/maps (major type 4/5 header byte, items, `0xff` break) for the top-level row stream and for every nested array/object produced during decoding, never definite-length. This mirrors the existing hand-rolled `"["`/`","`/`"]"` JSON framing in `streamRows` one level down, and avoids buffering a sub-structure to learn its item count before writing its header.
+
+Per-row memory cost stays O(nesting depth), matching the JSON path's constant-memory guarantee — no full-row Go value is built before encoding starts.
+
+## 3. Declared-route response encoding
+
+A route function's returned `jsonb` (`docs/content/http/requests-responses.md` ## Function prototype) carries no compile-time `Shape` — it is whatever JSON the function computed. CBOR output for this surface is a token-level JSON→CBOR transcode, not the native path above :
+
+- Read the returned JSON with a streaming tokenizer that exposes the exact text of each number token (`encoding/json.Decoder.UseNumber()`, or sonic's equivalent), never through `float64`.
+- Encode each token to the matching CBOR token as it is read — no intermediate tree.
+- A number token without `.`, `e` or `E` that fits `int64`/`uint64` → CBOR integer.
+- A number token without `.`, `e` or `E` that does not fit → CBOR bignum (tag 2/3), parsed from the token's exact digit text.
+- A number token with `.`, `e` or `E` → tag 4 (decimal fraction) `[exponent, mantissa]`, computed from the token's exact digit text : mantissa = all digits without the decimal point (signed), exponent = the exponent part minus the count of digits after the decimal point. The mantissa is a CBOR bignum (tag 2/3) if it exceeds 64 bits. No `float64` conversion occurs, so the trailing scale is kept (`1.50` → `[-2, 150]`).
+- A string token is always encoded as a plain CBOR text string. No date/UUID tagging — there is no per-field type information available to justify it here.
+
+> 📜 **ADR**: Every `jsonb` number is a Postgres `numeric` internally, so tag 4 for fractional tokens is the type-correct, lossless choice, and it matches the `numeric` row in section 2. The TypeScript decoder decides how to represent tag 4 values (for example as a decimal library type or as a `number`).
+
+## HTTP negotiation
+
+- Request body format : `Content-Type` header, `application/json` (default) or `application/cbor`.
+- Response format : `Accept` header, `application/json` (default) or `application/cbor`.
+- The two are independent — a CBOR request body does not imply a CBOR response, and vice versa.
+
+> ⌚ **Deferred**: The TypeScript client (`tsgen/`) needs its own CBOR encode/decode to use this from a browser/Node client. This includes the JS-side CBOR library, and the JS representation of tag 1, tag 4 and tag 100 values. It needs its own pass once the Go side lands.
