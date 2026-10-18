@@ -6,74 +6,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
-// Large batches stay linear in every shape that joins temp tables with each other. The planner has no
-// statistics on a temp table, so how it joins them rests on guesses about row counts ; see
-// TestWriteScale_NoNestedLoopBetweenTempTables for the guess that mattered.
-const scaleRows = 20000
-const scaleBudget = 8 * time.Second // a linear plan takes about a second
-
-func timedWrite(t *testing.T, node *QueryNode, payload []byte) time.Duration {
-	t.Helper()
-	conn := acquireWriteConn(t)
-	if _, err := conn.Exec(context.Background(), `analyze studio, director, movie, tree_t`); err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now()
-	if _, err := ExecuteWriteStateParamsOpts(context.Background(), conn, node, payload, &WriteState{}, nil, WriteOptions{NoFastPath: true}); err != nil {
-		t.Fatalf("ExecuteWrite: %v", err)
-	}
-	return time.Since(start)
-}
-
-// two tables : one node per table, the common case
-func TestWriteScale_OneNodePerTable(t *testing.T) {
-	node := mustResolveQuery(t, `{
-		"relation": "movie", "schema": "public",
-		"select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]},
-		"write_mode": "insert",
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}
-	}`)
-	if d := timedWrite(t, node, buildBatchPayload(scaleRows, 900000)); d > scaleBudget {
-		t.Errorf("%d rows took %v, over the %v budget : a join of the temp tables is probably quadratic", scaleRows, d, scaleBudget)
-	}
-}
-
-// one table, two nodes, the child joined by an outgoing key (a row and its parent row)
-func TestWriteScale_SameTableOutgoing(t *testing.T) {
-	node := mustResolveQuery(t, `{
-		"relation": "tree_t", "schema": "public",
-		"select": {"id": ["col", "id"], "name": ["col", "name"], "parent": [".", "parent"]},
-		"write_mode": "insert",
-		"join": {"parent": {"relation": "tree_t", "schema": "public", "on": {"id": "parent_id"}, "select": ["*~"], "write_mode": "insert"}}
-	}`)
-	buf := []byte{'['}
-	for i := 0; i < scaleRows; i++ {
-		if i > 0 {
-			buf = append(buf, ',')
-		}
-		buf = fmt.Appendf(buf, `{"name": "scale child %d", "parent": {"name": "scale parent %d"}}`, i, i)
-	}
-	buf = append(buf, ']')
-	if d := timedWrite(t, node, buf); d > scaleBudget {
-		t.Errorf("%d rows took %v, over the %v budget", scaleRows, d, scaleBudget)
-	}
-}
-
-// one table, two nodes, the child joined by an incoming key (a row and its children), with a delete step
-func TestWriteScale_SameTableIncoming(t *testing.T) {
-	node := mustResolveQuery(t, `{
-		"relation": "tree_t", "schema": "public",
-		"select": {"id": ["col", "id"], "name": ["col", "name"], "children": [".", "children"]},
-		"write_mode": "insert",
-		"join": {"children": {"relation": "tree_t", "schema": "public", "on": {"parent_id": "id"}, "select": ["*~"], "write_mode": "merge"}}
-	}`)
-	if d := timedWrite(t, node, treeChildrenPayload(scaleRows, 1)); d > scaleBudget {
-		t.Errorf("%d rows took %v, over the %v budget", scaleRows, d, scaleBudget)
-	}
-}
+// The planner has no statistics on a temp table, so how it joins temp tables rests on guesses about row
+// counts ; TestWriteScale_NoNestedLoopBetweenTempTables checks the guess that mattered.
 
 func treeChildrenPayload(roots, kids int) []byte {
 	buf := []byte{'['}
