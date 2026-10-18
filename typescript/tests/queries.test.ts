@@ -2,7 +2,7 @@
 // the hotel schema and test/hotel/fixture.sql : what comes back, and what its type says it is.
 import { describe, expect, test } from "bun:test"
 import {
-  type JsonCodec,
+  type Codec,
   Querier,
   type Int8,
   RelRequestError,
@@ -417,12 +417,12 @@ describe("write_mode update and delete", () => {
 // what a double cannot hold ; a JSON implementation that keeps it can be plugged in. This one is a minimal
 // stand-in (it does not look inside strings) for lossless-json or json-bigint : integers of 16 digits or more
 // become bigint, and a bigint is written back as a bare number.
-const bigintJson: JsonCodec = {
-  parse: (text) =>
-    JSON.parse(text.replace(/(?<![\w."])(-?\d{16,})(?![\w."])/g, '"$1n"'), (_k, v) =>
+const bigintJson: Codec = {
+  decode: (text) =>
+    JSON.parse((text as string).replace(/(?<![\w."])(-?\d{16,})(?![\w."])/g, '"$1n"'), (_k, v) =>
       typeof v === "string" && /^-?\d{16,}n$/.test(v) ? BigInt(v.slice(0, -1)) : v,
     ),
-  stringify: (value) =>
+  encode: (value) =>
     JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? `__bigint${v}__` : v)).replace(
       /"__bigint(-?\d+)__"/g,
       "$1",
@@ -434,19 +434,19 @@ const beyondDouble = { big: ["::", "9007199254740993", "bigint"] } as const
 
 describe("big numbers", () => {
   test("the default is the browser's JSON, which rounds what a double cannot hold", async () => {
-    expect(Querier.prototype.json).toBe(JSON)
+    expect(Querier.prototype.codec.contentType).toBeUndefined()
     const [row] = await relation("hotel.properties", { select: beyondDouble, limit: 1 }).get()
     expect(raw(row?.big)).toBe(9007199254740992) // not ...993 : the digits were on the wire, JSON.parse dropped them
   })
 
   test("a plugged-in JSON implementation keeps every digit, for one query only", async () => {
     const exact = relation("hotel.properties", { select: beyondDouble, limit: 1 })
-    exact.json = bigintJson
+    exact.codec = bigintJson
     const [row] = await exact.get()
     expect(raw(row?.big)).toBe(9007199254740993n)
 
-    expect(Object.hasOwn(relation("hotel.properties"), "json")).toBe(false)
-    expect(Querier.prototype.json).toBe(JSON)
+    expect(Object.hasOwn(relation("hotel.properties"), "codec")).toBe(false)
+    expect(Querier.prototype.codec).not.toBe(bigintJson)
   })
 
   test("a bigint is sent as a bare number once the JSON implementation can write it", async () => {
@@ -459,7 +459,7 @@ describe("big numbers", () => {
     await expect(byId(1n).get()).rejects.toThrow(TypeError)
 
     const query = byId(1n)
-    query.json = bigintJson
+    query.codec = bigintJson
     expect((await query.get()).map((r) => r.name)).toEqual(["Marina Bay Grand Hotel"])
   })
 

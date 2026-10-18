@@ -21,6 +21,6 @@
     "types": []
   },
   "include": ["./**/*.ts"],
-  // tests/ has its own tsconfig : it needs bun's types, and the database.ts a running server generates
-  "exclude": ["node_modules", "tests"]
+  // tests/ and presets/* have their own tsconfig : they need bun's types, and the database.ts a running server generates
+  "exclude": ["node_modules", "tests", "presets"]
 }

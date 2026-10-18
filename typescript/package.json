@@ -7,6 +7,8 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.3",
+    "cbor-x": "^1.6.7",
+    "lossless-json": "^4.3.2",
     "typescript": "7.0.2"
   }
 }

@@ -558,10 +558,17 @@ function applyProto(value: unknown, query: ProtoQuery): unknown {
  */
 type OptionalWhenNoParams<P> = unknown extends P ? [params?: P] : [params: P]
 
-/** The two methods a Querier needs from a JSON implementation ; the global `JSON` has them. */
-export interface JsonCodec {
-  parse(text: string): unknown
-  stringify(value: unknown): string
+/**
+ How requests are written and responses read : JSON text by default. `contentType` is sent as both `Content-Type` and
+ `Accept` when set, so a codec for another format (CBOR : "application/cbor") needs nothing else ; left out, neither
+ header is sent and the server answers JSON. `binary` says `decode` takes the response bytes rather than its text.
+ Errors are always JSON text whatever was asked, so they never reach `decode`.
+ */
+export interface Codec {
+  contentType?: string
+  binary?: boolean
+  encode(value: unknown): string | Uint8Array
+  decode(body: string | Uint8Array): unknown
 }
 
 /**
@@ -587,10 +594,10 @@ export class Querier<
   declare baseUrl: string
 
   // How requests are written and responses read : the browser's own JSON unless replaced. Assign
-  // `Querier.prototype.json` to change it for every query that doesn't override it, or assign `json` on one. Anything
-  // with these two methods works, so a JSON implementation that keeps numbers beyond 2^53 exact (lossless-json,
-  // json-bigint, ...) can be plugged in ; see docs/content/typescript/index.md ## Big numbers.
-  declare json: JsonCodec
+  // `Querier.prototype.codec` to change it for every query that doesn't override it, or assign `codec` on one. A JSON
+  // implementation that keeps numbers beyond 2^53 exact (lossless-json, ...) or a CBOR one plugs in here, together
+  // with the `PgWire` types it implies ; see docs/content/typescript/index.md ## Codecs.
+  declare codec: Codec
 
   // Type-only handles, for `typeof someQuery.$row` / `typeof someQuery.$draft` (docs/content/typescript/index.md
   // ### Naming a row's type) : declared, never assigned, so they emit no code and read as `undefined` at runtime.
@@ -798,15 +805,21 @@ export class Querier<
   }
 
   private async _send(query: unknown) {
+    const { codec } = this
     const res = await fetch(`${this.baseUrl.replace(/\/+$/, "")}/rel`, {
       credentials: "include",
       method: "POST",
-      body: this.json.stringify(query),
+      body: codec.encode(query) as BodyInit,
+      headers: codec.contentType
+        ? { "Content-Type": codec.contentType, Accept: codec.contentType }
+        : undefined,
     })
     if (res.status >= 400) {
       throw new RelRequestError(res.status, await res.text())
     }
-    const data = this.json.parse(await res.text())
+    const data = codec.decode(
+      codec.binary ? new Uint8Array(await res.arrayBuffer()) : await res.text(),
+    )
     return applyProto(data, this.query as ProtoQuery) as Shape
   }
 }
@@ -814,8 +827,11 @@ export class Querier<
 // "/" (this origin) unless changed : see the `baseUrl` declaration above.
 Querier.prototype.baseUrl = "/"
 
-// The browser's JSON unless changed : see the `json` declaration above.
-Querier.prototype.json = JSON
+// The browser's JSON unless changed : see the `codec` declaration above.
+Querier.prototype.codec = {
+  encode: (value) => JSON.stringify(value),
+  decode: (body) => JSON.parse(body as string),
+}
 
 /**
  Thrown by get()/write() (both funnel through _send) whenever the server responds with a >= 400 status —

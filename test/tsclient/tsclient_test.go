@@ -8,6 +8,7 @@ package tsclient
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -40,7 +41,7 @@ func TestTypeScriptClient(t *testing.T) {
 
 	ctx := context.Background()
 	container, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithOrderedInitScripts("../hotel/schema.sql", "../hotel/fixture.sql"),
+		postgres.WithOrderedInitScripts("../hotel/schema.sql", "../hotel/fixture.sql", "codec_samples.sql"),
 		postgres.BasicWaitStrategies(),
 	)
 	if err != nil {
@@ -90,14 +91,24 @@ func TestTypeScriptClient(t *testing.T) {
 	if err := os.MkdirAll(generated, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	out, err := os.Create(filepath.Join(generated, "database.ts"))
+	database, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := out.ReadFrom(res.Body); err != nil {
+	if err := os.WriteFile(filepath.Join(generated, "database.ts"), database, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_ = out.Close()
+	// Each preset (typescript/presets/<name>) is a program and a test process of its own : its PgWire
+	// augmentation is program-wide, and its codec is assigned on the Querier prototype of the process.
+	presets, err := filepath.Glob(filepath.Join(tsDir, "presets", "*", "tsconfig.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tsconfig := range presets {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(tsconfig), "database.ts"), database, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	run := func(name string, args ...string) {
 		t.Helper()
@@ -114,5 +125,10 @@ func TestTypeScriptClient(t *testing.T) {
 	run(bun, "x", "tsc", "--noEmit", "-p", "tests/tsconfig.json")
 	// PgWire module augmentation is program-wide, so its check is a program of its own.
 	run(bun, "x", "tsc", "--noEmit", "-p", "tests/augment/tsconfig.json")
-	run(bun, "test")
+	run(bun, "test", "./tests")
+	for _, tsconfig := range presets {
+		preset := filepath.Base(filepath.Dir(tsconfig))
+		run(bun, "x", "tsc", "--noEmit", "-p", "presets/"+preset+"/tsconfig.json")
+		run(bun, "test", "./presets/"+preset)
+	}
 }

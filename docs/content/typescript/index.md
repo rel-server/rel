@@ -413,7 +413,7 @@ accepted in `path`, not column names, and a name that is not a join of that leve
 
 Every column comes back typed as the JS type its wire value actually has, not the type its
 Postgres type name might suggest. (`int8` and `numeric` are the exception that proves the rule: they
-are bare JSON numbers, and [Big numbers](#big-numbers) says how to type and read them.) A `timestamptz` column doesn't come back as `number` or `Date`;
+are bare JSON numbers, and [Codecs](#codecs) says how to type and read them.) A `timestamptz` column doesn't come back as `number` or `Date`;
 it comes back as a distinct branded string type (`Timestamptz`), because the value on the wire is
 a string, and giving it a `Date`-shaped type would let you call `.getFullYear()` on something that
 has no such method at runtime. This applies to every Postgres type this section covers.
@@ -459,11 +459,11 @@ const properties = await relation("hotel.properties", {
 | `Timestamp` | `timestampAccessor` | `Temporal.PlainDateTime` (naive — no time zone assumed) |
 | `PgDate` | `dateAccessor` | `Temporal.PlainDate` |
 | `Interval` | `intervalAccessor` | `Temporal.Duration` |
-| `Int8` | `int8Accessor` | `bigint`, via `BigInt()` — exact if the value you hold is exact (see [Big numbers](#big-numbers)) |
+| `Int8` | `int8Accessor` | `bigint`, via `BigInt()` — exact if the value you hold is exact (see [Codecs](#codecs)) |
 | `Int4Range`/`Int8Range`/`NumRange`/`DateRange`/`TsRange`/`TstzRange` | `int4RangeAccessor`/... | `Range<T>` (below), `T` matching the table above |
 | `PgPoint` | `pointAccessor` | `{x: number, y: number}` |
 | `Money` | `moneyAccessor` | `bigint` (whole cents), via `..._as_cents` |
-| `bytea` (a bare `string`, no brand) | `bytesAccessor` | `Uint8Array`, via `..._as_bytes` |
+| `bytea` (`Bytea`, a bare `string` of hex unless a [codec](#codecs) says otherwise) | `bytesAccessor` | `Uint8Array`, via `..._as_bytes` |
 
 `moneyAccessor` parses whatever currency symbol and grouping character your server's locale
 formats `money` with (confirmed against a live Postgres instance to always use 2 fractional
@@ -474,7 +474,7 @@ decimal string, which Postgres's own `money` input parser accepts regardless of 
 `PgTimetz` and `numeric` have no accessor: `Temporal` has no "time of day with a UTC offset, no
 date" class for the former, and no native JS type represents an arbitrary-scale decimal for the
 latter. `compareNumeric` (also exported from `database.ts`) compares two `PgNumeric` values
-digit by digit, whatever type your [JSON implementation](#big-numbers) gives them.
+digit by digit, whatever type your [codec](#codecs) gives them.
 
 Every temporal accessor returns a [`Temporal`](https://tc39.es/proposal-temporal/docs/) value, not
 a `Date` — `Temporal`'s classes are immutable and genuinely distinct from one another (a
@@ -501,7 +501,7 @@ await relation("hotel.properties", { select: { id: ["col", "id"], created_at: ["
 `asTimestamptz` throws if given a string with no time zone offset — Postgres would otherwise
 silently reinterpret it using the session's own time zone. `asMoney` and every range cast only
 brand the value, since nothing about their string shape is unsafe to skip validating. `asInt8`
-and `asNumeric` only brand a value that already has the type [`PgWire`](#big-numbers) says.
+and `asNumeric` only brand a value that already has the type [`PgWire`](#what-pgwire-can-retype) says.
 
 ### Ranges
 
@@ -586,55 +586,61 @@ you pass pick which overload's return type you get back.
 `["$param", name]` placeholder, since a `func()` query is built once and can be reused with different
 `.get(params)`/`.write(params, data)` values, unlike `call()`, which runs immediately.
 
-## Big numbers
+## Codecs
 
-`int8` and `numeric` columns come back as bare JSON numbers, with every digit Postgres has —
-`9007199254740993`, `12345678901234567890.123456789`. That is what Postgres itself writes, and what
-PostgREST sends. The loss happens on your side: the browser's `JSON.parse` turns every number into
-a double, so anything beyond 2^53 (or about 15 significant digits for a decimal) is silently rounded.
-
-Most values are far smaller than that and need nothing. When yours are not, there are two knobs,
-and both work like `baseUrl`: set them once, or per query.
-
-### Reading with a JSON implementation that keeps the digits
-
-Every query reads responses and writes requests through `Querier.prototype.json`, the browser's
-`JSON` unless you replace it. Anything with `parse(text)` and `stringify(value)` fits, which
-includes the libraries built for this:
+Every query writes its request and reads its response through `Querier.prototype.codec`, the browser's `JSON` unless you
+replace it. Replace it once, or per query like `baseUrl`:
 
 ```ts
-import { Querier } from "./database"
-import JSONbig from "json-bigint"
+Querier.prototype.codec = myCodec
 
-// every integer that does not fit a double becomes a bigint ; a bigint is written back as a bare number
-Querier.prototype.json = JSONbig({ useNativeBigInt: true })
-
-// or only for one query
 const ledger = relation("hotel.ledgers")
-ledger.json = JSONbig({ useNativeBigInt: true })
+ledger.codec = myCodec   // only this query
 ```
 
-[`lossless-json`](https://github.com/josdejong/lossless-json) fits too, with its
-`parseNumberAndBigInt` number parser (safe integers stay numbers, larger ones become bigints):
+A codec is an object of this shape:
 
 ```ts
-import { parse, parseNumberAndBigInt, stringify } from "lossless-json"
-
-Querier.prototype.json = { parse: (text) => parse(text, undefined, parseNumberAndBigInt), stringify }
+interface Codec {
+  contentType?: string                              // sent as Content-Type and Accept ; left out, neither is sent
+  binary?: boolean                                  // decode() takes the response bytes, not its text
+  encode(value: unknown): string | Uint8Array
+  decode(body: string | Uint8Array): unknown
+}
 ```
 
-Nothing is added to `database.ts`: it stays a single file with no imports, and
-the default stays the fast native `JSON`. Without a bigint-aware implementation, passing a `bigint`
-in a query or a payload throws a `TypeError`, since the browser's `JSON.stringify` cannot write one.
+A failed request (status 400 or more) is always JSON text, whatever was asked, and never reaches `decode`: it becomes a
+`RelRequestError` whose `body` is that text.
 
-### Telling the types what the JSON implementation gives
+A codec changes what some values *are* at runtime, so the types have to follow. Two things go together: the codec, and a
+merge into `PgWire` saying what the codec yields. The repository keeps both halves in one file per codec, in
+`typescript/presets/`, tested against a real server. Copy the one you want next to your `database.ts`, fix its import path
+and `import` it once before the first query. A preset's `PgWire` block applies to the whole program: there is one choice per
+project, not one per query. (A `.codec` set on a single query changes only the runtime half; keep it to a codec that
+yields the same values as the preset.)
 
-Whatever you plug in, the types default to `number` for `Int8` and `PgNumeric` (each still carries
-a brand, so one table's ids and another's cannot be mixed). To say that your implementation yields
-something else, merge into `PgWire` in a file of your own:
+| Preset | Needs | What changes |
+|---|---|---|
+| none (default) | | JSON text. `Int8` and `PgNumeric` are `number`, so anything beyond 2^53 (or about 15 significant digits for a decimal) is silently rounded by `JSON.parse`. Dates, times and `bytea` are strings. |
+| `presets/json-bigint/json-bigint.ts` | `lossless-json` | `int8` is `number \| bigint`: a safe integer is a number, a larger one a bigint. A `bigint` can be sent. |
+| `presets/cbor/cbor.ts` | `cbor-x`, `Temporal` | CBOR both ways, see [below](#cbor). |
+
+Without a bigint-aware codec, passing a `bigint` in a query or a payload throws a `TypeError`, since the browser's
+`JSON.stringify` cannot write one.
+
+### What `PgWire` can retype
+
+| Member | Default | A codec may say | Write-side cast |
+|---|---|---|---|
+| `int8` | `number` | `bigint`, `number \| bigint` | `asInt8` |
+| `numeric` | `number` | a decimal class | `asNumeric` |
+| `timestamptz` | `string` | `Temporal.Instant` | `asTimestamptz` |
+| `timestamp` | `string` | `Temporal.Instant` | `asTimestamp` |
+| `date` | `string` | `Temporal.PlainDate` | `asPgDate` |
+| `bytea` | `string` (`\x…` hex) | `Uint8Array` | the `bytea` entry of `pgWireCasts` |
 
 ```ts
-// wire.d.ts — any file of your project that is a module
+// any file of your project that is a module
 declare module "./database" {
   interface PgWire {
     int8: number | bigint // a safe integer is a number, a larger one a bigint
@@ -642,25 +648,43 @@ declare module "./database" {
 }
 ```
 
-Every column of that type, in reads and writes, is typed that way from then on, and an id column
-over a `bigserial` follows. Use `bigint` alone if your implementation parses every integer as one.
-Two things to know:
+Every column of that type, in reads and writes, is typed that way from then on, and an id column over a `bigserial`
+follows. Use `bigint` alone if your codec reads every integer as one. The defaults live in the types, not in `PgWire`,
+which is empty on purpose: TypeScript cannot redeclare an existing member of an interface with another type (error
+`TS2717`), but it can add a missing one, so a member that is absent means "the default".
 
-- The augmentation applies to the whole program: there is one choice per project, not one per query.
-- The defaults live in the types, not in `PgWire`, which is empty on purpose. TypeScript cannot
-  redeclare an existing member of an interface with another type (error `TS2717`), but it can add
-  a missing one — so a member that is absent means "the default".
+The write-side casts build values at runtime, and must build what the member says. `pgWireCasts` (exported next to them)
+holds one function per member that a codec can retype; the default ones build the JSON strings, and a preset replaces the
+entries it retypes (`pgWireCasts.date = (v) => ...`), so the type and the value stay one decision.
 
-`int8Accessor` always gives a `bigint` (`row.id_as_bigint`), and stores a safe integer as a number
-and anything larger as a bigint.
+The accessors (`timestampTzAccessor`, `timestampAccessor`, `dateAccessor`, `bytesAccessor`, `int8Accessor`) accept whichever
+form the column has: they convert a string, and pass a value that already is a `Temporal` or `Uint8Array` through. Code
+written against the JSON default keeps compiling and running under a preset, with one exception: with `timestamp` as an
+`Instant` there is no wall clock to read, so `timestampAccessor`'s getter gives that `Instant`.
 
-A JSON implementation reads *every* number the same way, whatever column it came from, so it cannot
-make `numeric` exact without changing the type of every `int4` and `float8` too. When a decimal
-must stay exact, ask for it as text in the query — `["::", ["col", "base_price"], "text"]` — and
-read it as a string.
+A JSON codec reads *every* number the same way, whatever column it came from, so it cannot make `numeric` exact without
+changing the type of every `int4` and `float8` too. When a decimal must stay exact in JSON, ask for it as text in the query
+— `["::", ["col", "base_price"], "text"]` — and read it as a string.
 
-`money`, intervals, timestamps, ranges and the rest are strings in JSON and stay strings: only types
-Postgres writes as JSON numbers are affected.
+### CBOR
+
+The `cbor` preset sends `application/cbor` and asks for it ([the wire format](../query-language/index.md#cbor-responses)),
+using [`cbor-x`](https://github.com/kriszyp/cbor-x). A value then keeps its column type instead of becoming a string:
+
+| Postgres type | JS value |
+|---|---|
+| `timestamptz` | `Temporal.Instant` |
+| `timestamp` | `Temporal.Instant`: the server answers the instant the wall clock stands for **in its own session time zone**, which the client cannot see. A column that holds another zone's wall clock reads as the wrong instant |
+| `date` | `Temporal.PlainDate` |
+| `bytea` | `Uint8Array` |
+| `uuid` | `string` (hyphenated) |
+| `int2`, `int4`, `int8` | `number`; a value of 2^32 or more is a `bigint` (`cbor-x` reads every 8-byte integer that way), so `int8` is `number \| bigint` |
+| `numeric` | `number` (an exact decimal needs a tag 4 extension of your own and `PgWire["numeric"]` set to its class) |
+| `interval`, ranges, `inet`, `money`... | the same string as JSON |
+
+The preset is about 100 lines: three tag extensions (1, 100, 37), the encoder options, and a rewrite of what `cbor-x`
+writes differently from `JSON.stringify` (an `undefined` object member is dropped, and a whole number of 2^32 or more is
+sent as an integer, which an `int8` column needs). It needs a runtime with `Temporal`, or a polyfill loaded before it.
 
 ## database.json
 

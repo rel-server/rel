@@ -200,4 +200,10 @@ The same applies to the second `OUT` column of a full-control function, **except
 - **Errors are always JSON**, whichever format was accepted, since a client that asked for CBOR can read the error status and code from either, and a stream that fails midway has no clean place for one.
 - `GET /rel` also negotiates its response.
 
-> ⌚ **Deferred**: The TypeScript client (`tsgen/`) needs its own CBOR encode/decode to use this from a browser/Node client. This includes the JS-side CBOR library, and the JS representation of tag 1, tag 4, tag 37 and tag 100 values.
+## TypeScript client
+
+The client reads and writes through `Querier.prototype.codec` (`typescript/querier.ts`), an object with `encode`, `decode`, and optionally `contentType` and `binary`. A codec with a `contentType` has it sent as both `Content-Type` and `Accept` ; without one, neither header is sent. A failed request is read as text and thrown as `RelRequestError`, never decoded.
+
+`typescript/presets/<name>/` holds one file per codec, copied by hand by the consumer : the codec, and the `PgWire` merge (`typescript/pg_values.ts`) that types the values it yields, in one file. The CBOR preset uses `cbor-x`, decodes tag 1 to `Temporal.Instant`, tag 100 to `Temporal.PlainDate` and tag 37 to a hyphenated string, and sends byte strings untagged. Each preset has its own `tsc` program and its own `bun test` process, run by `test/tsclient`.
+
+> 📜 **ADR**: Presets are not served with `database.ts` : they import third-party packages, which the served file never does.

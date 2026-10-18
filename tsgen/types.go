@@ -33,7 +33,7 @@ var baseScalarTypes = map[string]string{
 	// it's usable as binary content. No separate Type__ marks this ; nothing
 	// in the introspected schema JSON distinguishes "true text" from
 	// "bytea-shaped string" once it's collapsed to `string` here.
-	"bytea":  "string",
+	"bytea":  "Bytea",
 	"bool":   "boolean",
 	"int2":   "number",
 	"int4":   "number",

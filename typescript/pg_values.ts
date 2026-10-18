@@ -7,30 +7,36 @@ client-side value from one, without losing type safety or requiring a runtime de
 
 // ---- Temporal-backed branded types ----
 
-export type Timestamptz = string & { readonly __pg: "timestamptz" }
-export type Timestamp = string & { readonly __pg: "timestamp" }
-export type PgDate = string & { readonly __pg: "date" }
+export type Timestamptz = PgWireType<"timestamptz", string> & { readonly __pg: "timestamptz" }
+export type Timestamp = PgWireType<"timestamp", string> & { readonly __pg: "timestamp" }
+export type PgDate = PgWireType<"date", string> & { readonly __pg: "date" }
 export type PgTime = string & { readonly __pg: "time" }
 export type PgTimetz = string & { readonly __pg: "timetz" }
 export type Interval = string & { readonly __pg: "interval" }
 
-// ---- int8 and numeric : bare JSON numbers, typed by what the JSON implementation in use yields ----
+// ---- Types whose JS value depends on the codec : typed by what the codec in use yields ----
 
 /**
- What the JS values of the Postgres types that are bare numbers in JSON actually are. It is empty on purpose,
- so client code can say what its JSON implementation (`Querier.prototype.json`) produces, by declaration
- merging in a file of its own, once per project :
+ What the JS values of the Postgres types that a codec (`Querier.prototype.codec`) may hand over as something other
+ than the JSON default actually are. It is empty on purpose, so client code can say what its codec produces, by
+ declaration merging in a file of its own, once per project (presets/ has one per codec, runtime and type halves
+ together) :
 
      declare module "./database" {
        interface PgWire {
-         int8: bigint           // a JSON implementation that parses every big integer as a bigint
+         int8: bigint                     // a codec that reads every big integer as a bigint
          numeric: LosslessNumber
+         timestamptz: Temporal.Instant    // CBOR : tag 1 ; timestamp, an instant in the server's zone, likewise
+         date: Temporal.PlainDate         // CBOR : tag 100
+         bytea: Uint8Array                // CBOR : a byte string
        }
      }
 
  Without it `Int8` and `PgNumeric` are `number`, which is what the browser's JSON.parse gives (and silently
- rounds anything beyond 2^53 or about 15 significant digits). The members cannot be redeclared with another type
- afterwards, which is why the defaults live in the types below and not here.
+ rounds anything beyond 2^53 or about 15 significant digits), and the date and time types and `bytea` are the
+ strings JSON carries them as. The members cannot be redeclared with another type afterwards, which is why the
+ defaults live in the types below and not here. The values the write-side casts build must match what a member
+ says : see `pgWireCasts`.
  */
 // biome-ignore lint/suspicious/noEmptyInterface: filled in by client code through declaration merging
 export interface PgWire {}
@@ -40,6 +46,8 @@ export type PgWireType<K extends string, Default> = PgWire extends { [P in K]: i
   ? T
   : Default
 
+/** `bytea` : the `\x…` hex text JSON gives, or whatever `PgWire["bytea"]` says (a `Uint8Array` with the CBOR preset). */
+export type Bytea = PgWireType<"bytea", string>
 export type Money = string & { readonly __pg: "money" }
 export type Int8 = PgWireType<"int8", number> & { readonly __pg: "int8" }
 export type PgNumeric = PgWireType<"numeric", number> & { readonly __pg: "numeric" }
@@ -98,28 +106,59 @@ export type PgLsn = string & { readonly __pg: "pg_lsn" }
 // ---- Write-side casts ----
 
 /**
- asTimestamptz requires a trailing `Z` or `±HH:MM`/`±HH` offset — the one type in this file with a
- meaningful runtime check, since Postgres would otherwise silently reinterpret an offset-less string using
- the session's own time zone.
+ How a write-side cast builds the wire type of a `PgWire` member from the values client code hands over. The
+ defaults build the strings JSON carries ; a codec preset that retypes a member in `PgWire` replaces the matching
+ entry, so the type and the value stay one decision (presets/ does both in one file). Each entry returns what the
+ member's type says, which the compiler cannot check across that boundary.
  */
-export function asTimestamptz(value: Date | Temporal.Instant | string): Timestamptz {
-  const s = typeof value === "string" ? value : value.toString()
-  if (!/[Zz]$|[+-]\d{2}(:\d{2})?$/.test(s)) {
-    throw new Error(`asTimestamptz: "${s}" has no time zone offset`)
-  }
-  return s as Timestamptz
+export const pgWireCasts = {
+  /** Requires an offset : Postgres would otherwise silently reinterpret the text in the session's own time zone. */
+  timestamptz(value: Date | Temporal.Instant | string): unknown {
+    const s =
+      typeof value === "string"
+        ? value
+        : value instanceof Date
+          ? value.toISOString()
+          : value.toString()
+    if (!/[Zz]$|[+-]\d{2}(:\d{2})?$/.test(s)) {
+      throw new Error(`asTimestamptz: "${s}" has no time zone offset`)
+    }
+    return s
+  },
+  timestamp(value: Temporal.PlainDateTime | Temporal.Instant | string): unknown {
+    return typeof value === "string" ? value : value.toString()
+  },
+  date(value: Temporal.PlainDate | string): unknown {
+    return typeof value === "string" ? value : value.toString()
+  },
+  bytea(value: Uint8Array | string): unknown {
+    return typeof value === "string" ? value : formatBytea(value)
+  },
 }
 
 /**
- Round-tripping a Temporal.PlainDateTime back to a Timestamp is lossless and unambiguous — PlainDateTime never
- invented a time-zone assumption in the first place.
+ Brands a value as a `Timestamptz`, in the form `PgWire["timestamptz"]` says (an ISO string with an offset by
+ default, which the cast checks since Postgres would otherwise read an offset-less string in the session's own
+ time zone).
  */
-export function asTimestamp(value: Temporal.PlainDateTime | string): Timestamp {
-  return (typeof value === "string" ? value : value.toString()) as Timestamp
+export function asTimestamptz(value: Date | Temporal.Instant | string): Timestamptz {
+  return pgWireCasts.timestamptz(value) as Timestamptz
+}
+
+/** What a `Timestamp` is read and written as : a wall clock by default, an instant when `PgWire["timestamp"]` says. */
+export type TimestampValue = Timestamp extends string ? Temporal.PlainDateTime : Temporal.Instant
+
+/**
+ Round-tripping a Temporal.PlainDateTime back to a Timestamp is lossless and unambiguous — PlainDateTime never
+ invented a time-zone assumption in the first place. When `PgWire["timestamp"]` is an instant (the server reads it in
+ its own time zone), the value is an `Temporal.Instant` instead.
+ */
+export function asTimestamp(value: TimestampValue | string): Timestamp {
+  return pgWireCasts.timestamp(value) as Timestamp
 }
 
 export function asPgDate(value: Temporal.PlainDate | string): PgDate {
-  return (typeof value === "string" ? value : value.toString()) as PgDate
+  return pgWireCasts.date(value) as PgDate
 }
 
 export function asMoney(value: string): Money {
@@ -332,11 +371,19 @@ export class MultiRange<T> {
 type GetSetDescriptor<T, S = T> = { get(): T; set(value: S): void; enumerable: true }
 type GetOnlyDescriptor<T> = { get(): T; enumerable: true }
 
+// The wire value of a date or time type is a string unless a codec made it a Temporal value (or a Date) : an
+// accessor converts what it is given and passes through what already is the richer value.
+function toInstant(v: unknown): Temporal.Instant {
+  if (v instanceof Temporal.Instant) return v
+  if (v instanceof Date) return Temporal.Instant.fromEpochMilliseconds(v.getTime())
+  return Temporal.Instant.from(v as string)
+}
+
 export function timestampTzAccessor<Col extends string>(column: Col) {
   return {
     [`${column}_as_date`]: {
       get(this: Record<Col, Timestamptz>): Temporal.Instant {
-        return Temporal.Instant.from(this[column])
+        return toInstant(this[column])
       },
       set(this: Record<Col, Timestamptz>, value: Date | Temporal.Instant | string) {
         this[column] = asTimestamptz(value)
@@ -351,19 +398,20 @@ export function timestampTzAccessor<Col extends string>(column: Col) {
 export function timestampAccessor<Col extends string>(column: Col) {
   return {
     [`${column}_as_date`]: {
-      get(this: Record<Col, Timestamp>): Temporal.PlainDateTime {
-        return Temporal.PlainDateTime.from(this[column])
+      get(this: Record<Col, Timestamp>): TimestampValue {
+        const v: unknown = this[column]
+        // a wall clock out of text ; an instant (PgWire["timestamp"] retyped by the codec) is already the value
+        return (
+          v instanceof Temporal.Instant ? v : Temporal.PlainDateTime.from(v as string)
+        ) as TimestampValue
       },
-      set(this: Record<Col, Timestamp>, value: Temporal.PlainDateTime | string) {
+      set(this: Record<Col, Timestamp>, value: TimestampValue | string) {
         this[column] = asTimestamp(value)
       },
       enumerable: true,
     },
   } as {
-    [K in `${Col}_as_date`]: GetSetDescriptor<
-      Temporal.PlainDateTime,
-      Temporal.PlainDateTime | string
-    >
+    [K in `${Col}_as_date`]: GetSetDescriptor<TimestampValue, TimestampValue | string>
   }
 }
 
@@ -371,7 +419,8 @@ export function dateAccessor<Col extends string>(column: Col) {
   return {
     [`${column}_as_date`]: {
       get(this: Record<Col, PgDate>): Temporal.PlainDate {
-        return Temporal.PlainDate.from(this[column])
+        const v: unknown = this[column]
+        return v instanceof Temporal.PlainDate ? v : Temporal.PlainDate.from(v as string)
       },
       set(this: Record<Col, PgDate>, value: Temporal.PlainDate | string) {
         this[column] = asPgDate(value)
@@ -609,8 +658,8 @@ export function moneyAccessor<Col extends string>(column: Col) {
   } as { [K in `${Col}_as_cents`]: GetSetDescriptor<bigint, bigint | number> }
 }
 
-// ---- Bytes accessor : bytea (already correctly mapped to a bare `string`, hex form, per
-// tsgen/types.go's own comment — no brand, unlike every other type here) decodes to a Uint8Array, including the
+// ---- Bytes accessor : bytea (a bare `string` in hex form, per
+// tsgen/types.go's own comment — no brand, unlike every other type here — unless a codec says otherwise) decodes to a Uint8Array, including the
 // empty case, confirmed to still render "\\x" (the prefix alone, no digits after it). ----
 
 function parseBytea(text: string): Uint8Array {
@@ -636,11 +685,12 @@ function formatBytea(bytes: Uint8Array): string {
 export function bytesAccessor<Col extends string>(column: Col) {
   return {
     [`${column}_as_bytes`]: {
-      get(this: Record<Col, string>): Uint8Array {
-        return parseBytea(this[column])
+      get(this: Record<Col, Bytea>): Uint8Array {
+        const v: unknown = this[column]
+        return typeof v === "string" ? parseBytea(v) : (v as Uint8Array)
       },
-      set(this: Record<Col, string>, value: Uint8Array) {
-        this[column] = formatBytea(value)
+      set(this: Record<Col, Bytea>, value: Uint8Array) {
+        this[column] = pgWireCasts.bytea(value) as Bytea
       },
       enumerable: true,
     },
