@@ -48,6 +48,9 @@ type Compiled struct {
 	// Behaviour's "prepared" story) ; only ResolveArgs' paramValues change.
 	Read *writer.SQLWriter
 
+	// ReadCBOR is the same statement in query.FormatCBOR, for a request that Accepts application/cbor.
+	ReadCBOR *writer.SQLWriter
+
 	// QueryRaw is the definition's own "query" field, verbatim JSON —
 	// query.RawWellKnownDefinition.QueryRaw carried through unchanged.
 	// tsgen embeds this as a TS literal for Wellknowns (specs/typescript.md

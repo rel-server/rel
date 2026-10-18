@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/writer"
 	"github.com/samber/oops"
@@ -134,9 +136,9 @@ func (dc *dmlCompiler) writeWith(w *writer.SQLWriter, node *QueryNode) error {
 // finishFast ends a fast statement : the response select over cte (the CTE that
 // RETURNs the written rows), then runs it and keeps the response rows.
 func (dc *dmlCompiler) finishFast(ctx context.Context, node *QueryNode, w *writer.SQLWriter, cte string) error {
-	c := &sqlCompiler{w: w, alias: map[*QueryNode]string{}, fromCTE: cte, orderByRowID: node.WriteMode == UPDATE_EXISTING}
+	c := &sqlCompiler{w: w, alias: map[*QueryNode]string{}, fromCTE: cte, orderByRowID: node.WriteMode == UPDATE_EXISTING, format: dc.format}
 	alias := c.allocAlias()
-	w.Write("select ").Write(wrapNodeAsValue(node, alias)).Write(" from (\n")
+	w.Write("select ").Write(c.wrapNodeAsValue(node, alias)).Write(" from (\n")
 	w.Indent()
 	err := c.compileNode(node, alias)
 	w.Unindent()
@@ -149,6 +151,9 @@ func (dc *dmlCompiler) finishFast(ctx context.Context, node *QueryNode, w *write
 	if err != nil {
 		return err
 	}
+	if dc.format == FormatCBOR { // the rows are records in binary
+		args = append([]any{pgx.QueryResultFormats{pgx.BinaryFormatCode}}, args...)
+	}
 	rows, err := dc.conn.Query(ctx, w.String(), args...)
 	if err != nil {
 		return oops.With("sql", w.String()).Wrapf(err, "write")
@@ -156,11 +161,8 @@ func (dc *dmlCompiler) finishFast(ctx context.Context, node *QueryNode, w *write
 	defer rows.Close()
 	dc.fast.responses = [][]byte{}
 	for rows.Next() {
-		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
-			return oops.Wrapf(err, "write: reading the written rows")
-		}
-		dc.fast.responses = append(dc.fast.responses, append([]byte(nil), raw...))
+		// the raw value, not a Scan : a binary record has no scan target but its own codec's
+		dc.fast.responses = append(dc.fast.responses, append([]byte{}, rows.RawValues()[0]...))
 	}
 	if err := rows.Err(); err != nil {
 		return oops.With("sql", w.String()).Wrapf(err, "write")
@@ -202,7 +204,7 @@ func (dc *dmlCompiler) runUpdateWhereFast(ctx context.Context, node *QueryNode) 
 }
 
 // executeFast runs the whole write as one statement and returns the response rows.
-func executeFast(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload Node, state *WriteState, nextNodeID int, paramValues map[string]any, ec *encodeContext) (*WriteResult, error) {
+func executeFast(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload Node, state *WriteState, nextNodeID int, paramValues map[string]any, ec *encodeContext, format OutputFormat) (*WriteResult, error) {
 	t, err := ensureTempTables(ctx, conn, root.Relation)
 	if err != nil {
 		return nil, err
@@ -219,7 +221,7 @@ func executeFast(ctx context.Context, conn Querier, root *QueryNode, ids map[*Qu
 		state.nextNodeID = nextNodeID
 		return &WriteResult{NodeIDs: ids, Rows: [][]byte{}}, nil
 	}
-	dc := &dmlCompiler{conn: conn, ids: ids, temps: tables, paramValues: paramValues,
+	dc := &dmlCompiler{conn: conn, ids: ids, temps: tables, paramValues: paramValues, format: format,
 		fast: &fastWrite{param: rows.batches[t].param(), patchMask: rows.patchMask}}
 	if err := dc.runPhase1Node(ctx, root); err != nil {
 		return nil, oops.With("node", root.InnerName).Wrapf(err, "write")

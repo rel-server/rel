@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	goccyyaml "github.com/goccy/go-yaml"
+	"github.com/huml-lang/go-huml"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/query"
-	goccyyaml "github.com/goccy/go-yaml"
-	"github.com/huml-lang/go-huml"
 	"github.com/samber/oops"
 )
 
@@ -162,6 +162,11 @@ func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled
 		return nil, oops.Code(errcode.Internal).Errorf("compiling read statement: %w", err)
 	}
 
+	swCBOR, err := query.CompileSelectFormat(root, query.FormatCBOR)
+	if err != nil {
+		return nil, oops.Code(errcode.Internal).Errorf("compiling CBOR read statement: %w", err)
+	}
+
 	referenced := sw.ParamNames()
 	used := make(map[string]bool, len(referenced))
 	for _, name := range referenced {
@@ -176,5 +181,5 @@ func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled
 		}
 	}
 
-	return &Compiled{Name: def.Name, Params: params, Root: root, Read: sw, QueryRaw: def.QueryRaw}, nil
+	return &Compiled{Name: def.Name, Params: params, Root: root, Read: sw, ReadCBOR: swCBOR, QueryRaw: def.QueryRaw}, nil
 }

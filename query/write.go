@@ -123,6 +123,10 @@ type WriteOptions struct {
 	Sql       bool
 	// NoFastPath forces the general (temp table) path ; tests compare the two.
 	NoFastPath bool
+
+	// Format is how the fast path's response rows (WriteResult.Rows) are produced : JSON text, or the binary
+	// records of FormatCBOR, which a ResultEncoder reads.
+	Format OutputFormat
 }
 
 // assignNodeIDs walks root pre-order, pruning a READONLY node's whole
@@ -305,7 +309,7 @@ func ExecuteWriteNode(ctx context.Context, conn Querier, root *QueryNode, payloa
 	}
 	ec := encodeContextFor(conn)
 	if fastWriteEligible(root, opts) {
-		return executeFast(ctx, conn, root, ids, payload, state, nextNodeID, paramValues, ec)
+		return executeFast(ctx, conn, root, ids, payload, state, nextNodeID, paramValues, ec, opts.Format)
 	}
 
 	tables, err := prepareTables(ctx, conn, ids)

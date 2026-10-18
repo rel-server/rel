@@ -66,6 +66,9 @@ type dmlCompiler struct {
 	batcher Batcher
 	queue   []queuedStmt
 
+	// format is how a fast write's response rows are produced (WriteOptions.Format).
+	format OutputFormat
+
 	// fast, when set, makes run* write straight from the request's rows and answer from
 	// the write statement's own RETURNING rows, without the general temp table (query/write_fast.go).
 	fast *fastWrite

@@ -44,6 +44,9 @@ type sqlCompiler struct {
 	// __row_id as the default order, like the temp-row scope does.
 	fromCTE      string
 	orderByRowID bool
+
+	// format is how the rows come out : JSON text built by Postgres, or records read by a ResultEncoder.
+	format OutputFormat
 }
 
 func newSQLCompiler() *sqlCompiler {
@@ -77,7 +80,14 @@ func (c *sqlCompiler) qualify(alias, name string) {
 // response's "["/","/"]" per ## Response Shape — this function's contract
 // stops at "here is one valid, executable statement plus its bind args".
 func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
+	return CompileSelectFormat(root, FormatJSON)
+}
+
+// CompileSelectFormat is CompileSelect producing rows in the given format. In FormatCBOR the one column is the row
+// as a record (or, for a scalar select, the bare value), and a to-many embed an array of records.
+func CompileSelectFormat(root *QueryNode, format OutputFormat) (*writer.SQLWriter, error) {
 	c := newSQLCompiler()
+	c.format = format
 
 	if root.IsFunction() && !root.Function.ReturnsSet && root.Relation == nil {
 		c.w.Write("select ")
@@ -88,7 +98,7 @@ func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 	}
 
 	alias := c.allocAlias()
-	c.w.Write("select ").Write(wrapNodeAsValue(root, alias)).Write(" from (\n")
+	c.w.Write("select ").Write(c.wrapNodeAsValue(root, alias)).Write(" from (\n")
 	c.w.Indent()
 	err := c.compileNode(root, alias)
 	c.w.Unindent()
@@ -138,6 +148,11 @@ func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
 // A function-rooted node is rejected : functions aren't writable
 // (query/node.go), so there's never a temp row for one to scope against.
 func CompileSelectForDataNode(root *QueryNode, nodeID int) (*writer.SQLWriter, error) {
+	return CompileSelectForDataNodeFormat(root, nodeID, FormatJSON)
+}
+
+// CompileSelectForDataNodeFormat is CompileSelectForDataNode producing rows in the given format.
+func CompileSelectForDataNodeFormat(root *QueryNode, nodeID int, format OutputFormat) (*writer.SQLWriter, error) {
 	if root.IsFunction() {
 		return nil, oops.With("node", root.InnerName).Errorf("sql: a function-rooted node can't be write-scoped — functions aren't writable")
 	}
@@ -147,13 +162,14 @@ func CompileSelectForDataNode(root *QueryNode, nodeID int) (*writer.SQLWriter, e
 		return nil, err
 	}
 	c := newSQLCompiler()
+	c.format = format
 	c.dataScopeRoot = root
 	c.dataScopeNodeID = nodeID
 	c.dataScopeAlias = "__wq"
 	c.dataScopeTable = t
 
 	alias := c.allocAlias()
-	c.w.Write("select ").Write(wrapNodeAsValue(root, alias)).Write(" from (\n")
+	c.w.Write("select ").Write(c.wrapNodeAsValue(root, alias)).Write(" from (\n")
 	c.w.Indent()
 	err = c.compileNode(root, alias)
 	c.w.Unindent()
@@ -215,12 +231,20 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 			}
 		} else {
 			// ## Reading Algorithm ### Scalar-selected nodes : to_jsonb(...),
-			// not a bare emission, since streamRows writes this column raw.
-			c.w.Write("to_jsonb(")
-			if err := c.compileExpr(node.Select, node); err != nil {
-				return err
+			// not a bare emission, since streamRows writes this column raw. In CBOR the value
+			// comes out as it is, and its own type says how to encode it.
+			if c.format == FormatCBOR {
+				if err := c.compileExpr(node.Select, node); err != nil {
+					return err
+				}
+				c.w.Write(" as __scalar")
+			} else {
+				c.w.Write("to_jsonb(")
+				if err := c.compileExpr(node.Select, node); err != nil {
+					return err
+				}
+				c.w.Write(") as __scalar")
 			}
-			c.w.Write(") as __scalar")
 		}
 	}
 
@@ -411,13 +435,33 @@ func isShapeProducingSelect(sel Expression) bool {
 	}
 }
 
-// wrapNodeAsValue writes node's already-compiled inner query as one jsonb
-// value : row_to_json(innerAlias), or innerAlias.__scalar for a scalar select.
-func wrapNodeAsValue(node *QueryNode, innerAlias string) string {
+// wrapNodeAsValue writes node's already-compiled inner query as one value : row_to_json(innerAlias) in
+// JSON, the row itself (a record) in CBOR, or innerAlias.__scalar for a scalar select.
+func (c *sqlCompiler) wrapNodeAsValue(node *QueryNode, innerAlias string) string {
 	if isShapeProducingSelect(node.Select) {
+		if c.format == FormatCBOR {
+			return innerAlias
+		}
 		return "row_to_json(" + innerAlias + ")"
 	}
 	return innerAlias + ".__scalar"
+}
+
+// aggregateRows writes the aggregate collecting the wrapped rows of a to-many embed : json_agg, or array_agg
+// in CBOR, whose result (an array of records) is read as one value.
+func (c *sqlCompiler) aggregateRows(wrapped string) string {
+	if c.format == FormatCBOR {
+		return "array_agg(" + wrapped + ")"
+	}
+	return "json_agg(" + wrapped + ")"
+}
+
+// emptyRows is what a to-many embed with no row is.
+func (c *sqlCompiler) emptyRows() string {
+	if c.format == FormatCBOR {
+		return "'{}'"
+	}
+	return "'[]'::json"
 }
 
 // selectFieldsFor's switch enumerates the same type set isShapeProducingSelect
@@ -479,6 +523,13 @@ func selectFieldsFor(node *QueryNode) ([]selectField, error) {
 func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f selectField) error {
 	switch {
 	case f.column != nil:
+		if c.format == FormatCBOR && !nativeCBORType(f.column.Type) {
+			// no CBOR form for this type : its JSON form, which a jsonb field carries as is
+			c.w.Write("to_jsonb(")
+			c.qualify(alias, f.column.Name)
+			c.w.Write(")")
+			return nil
+		}
 		c.qualify(alias, f.column.Name)
 		return nil
 	default:
@@ -532,9 +583,9 @@ func (c *sqlCompiler) compileEmbedField(child *QueryNode, parent *QueryNode, par
 	c.w.Paren(func() {
 		c.w.Write("select ")
 		if isToOne {
-			c.w.Write(wrapNodeAsValue(child, childAlias))
+			c.w.Write(c.wrapNodeAsValue(child, childAlias))
 		} else {
-			c.w.Write("coalesce(json_agg(").Write(wrapNodeAsValue(child, childAlias)).Write("), '[]'::json)")
+			c.w.Write("coalesce(").Write(c.aggregateRows(c.wrapNodeAsValue(child, childAlias))).Write(", ").Write(c.emptyRows()).Write(")")
 		}
 		c.w.Write(" from (\n")
 		c.w.Indented(func() {
@@ -640,7 +691,7 @@ func (c *sqlCompiler) compileLateralJoin(child *QueryNode, parentAlias string, p
 		c.w.Write("select ")
 		first := true
 		if plan.hasArray {
-			c.w.Write("json_agg(").Write(wrapNodeAsValue(child, childAlias)).Write(") as arr")
+			c.w.Write(c.aggregateRows(c.wrapNodeAsValue(child, childAlias))).Write(" as arr")
 			first = false
 		}
 		for _, a := range plan.aggs {
