@@ -202,13 +202,16 @@ func (dc *dmlCompiler) runUpdateWhereFast(ctx context.Context, node *QueryNode) 
 }
 
 // executeFast runs the whole write as one statement and returns the response rows.
-func executeFast(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload []byte, state *WriteState, nextNodeID int, paramValues map[string]any, ec *encodeContext) (*WriteResult, error) {
+func executeFast(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload Node, state *WriteState, nextNodeID int, paramValues map[string]any, ec *encodeContext) (*WriteResult, error) {
 	t, err := ensureTempTables(ctx, conn, root.Relation)
 	if err != nil {
 		return nil, err
 	}
 	tables := map[*pg.Relation]*tempTable{root.Relation: t}
-	rows, err := denormalize(root, ids, payload, tables, 0, false, ec)
+	if payload == nil {
+		return nil, oops.Errorf("write: payload must be an array of root rows")
+	}
+	rows, err := denormalizeNode(root, ids, payload, tables, 0, false, ec)
 	if err != nil {
 		return nil, err
 	}

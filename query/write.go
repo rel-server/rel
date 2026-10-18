@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bytedance/sonic/ast"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rel-server/rel/errcode"
@@ -255,6 +256,29 @@ func ExecuteWriteStateParamsStats(ctx context.Context, conn Querier, root *Query
 // opts is a no-op : no extra statement, row-scan, or EXPLAIN wrapping runs,
 // per ## Availability's "flag off skips the work" rule.
 func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
+	node, err := jsonPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	return ExecuteWriteNode(ctx, conn, root, node, state, paramValues, opts)
+}
+
+// jsonPayload decodes a JSON payload ; blank text is no payload, a nil Node.
+func jsonPayload(payload []byte) (Node, error) {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	parsed, perr := ast.NewParser(string(trimmed)).Parse()
+	if perr != 0 {
+		return nil, oops.Wrapf(perr, "write: invalid payload JSON")
+	}
+	return sonicNode{&parsed}, nil
+}
+
+// ExecuteWriteNode is ExecuteWriteStateParamsOpts for a payload already decoded, from JSON or CBOR ; a
+// nil payload is none (what a "delete" takes). The Node is only read, never retained.
+func ExecuteWriteNode(ctx context.Context, conn Querier, root *QueryNode, payload Node, state *WriteState, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
 	ids, nextNodeID := assignNodeIDs(root, state.nextNodeID)
 	if _, ok := ids[root]; !ok {
 		return nil, oops.Code(errcode.WriteForbidden).Errorf("write: root node is readonly, nothing to write")
@@ -288,7 +312,10 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 	if err != nil {
 		return nil, err
 	}
-	rows, err := denormalize(root, ids, payload, tables, state.nextRowID, true, ec)
+	if payload == nil {
+		return nil, oops.Errorf("write: payload must be an array of root rows")
+	}
+	rows, err := denormalizeNode(root, ids, payload, tables, state.nextRowID, true, ec)
 	if err != nil {
 		return nil, err
 	}
@@ -430,19 +457,16 @@ func encodeContextFor(q Querier) *encodeContext {
 
 // patchAsPayload checks that an "update" root's data is one patch object and
 // wraps it as the one-row array denormalize expects.
-func patchAsPayload(payload []byte) ([]byte, error) {
-	trimmed := bytes.TrimSpace(payload)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
+func patchAsPayload(payload Node) (Node, error) {
+	if payload == nil || payload.Kind() != KindObject {
 		return nil, oops.Code(errcode.WriteForbidden).Errorf(`write: write_mode "update" takes "data" as a single patch object`)
 	}
-	return append(append([]byte{'['}, trimmed...), ']'), nil
+	return &synthArray{items: []Node{payload}}, nil
 }
 
 // executeDeleteWhere runs write_mode "delete" : no payload, no read-back, one statement.
-func executeDeleteWhere(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload []byte, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
-	switch string(bytes.TrimSpace(payload)) {
-	case "", "null", "[]":
-	default:
+func executeDeleteWhere(ctx context.Context, conn Querier, root *QueryNode, ids map[*QueryNode]int, payload Node, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
+	if !noData(payload) {
 		return nil, oops.Code(errcode.WriteForbidden).Errorf(`write: write_mode "delete" takes no data`)
 	}
 	dc := &dmlCompiler{
@@ -453,6 +477,18 @@ func executeDeleteWhere(ctx context.Context, conn Querier, root *QueryNode, ids 
 		return nil, err
 	}
 	return &WriteResult{NodeIDs: ids, Stats: dc.finalStats(), Sql: dc.finalSQL(), QueryPlan: dc.finalPlans()}, nil
+}
+
+// noData reports whether payload carries nothing : none, null, or an empty array.
+func noData(payload Node) bool {
+	if payload == nil || payload.Kind() == KindNull {
+		return true
+	}
+	if payload.Kind() == KindArray {
+		items, err := payload.ArrayItems()
+		return err == nil && len(items) == 0
+	}
+	return false
 }
 
 // loadRows queues one statement putting every table's batch of rows in, in the same batch

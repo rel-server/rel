@@ -45,13 +45,13 @@ type ParsedQuery struct {
 }
 
 // rawWriteQuery is query.ts's ComplexQuery ; exactly one of Query/WellKnown
-// is set. Data stays raw JSON, walked later by the writing algorithm ; nil
+// is set. Data stays the decoded document, JSON or CBOR, walked later by the writing algorithm ; nil
 // means a read (specs/complex-query.md ## Parsing), distinguished from an
-// explicit JSON "data": null by Data being a non-nil 4-byte "null" slice.
+// explicit "data": null by Data being a non-nil null Node.
 type rawWriteQuery struct {
 	Query     *rawRelation  // nil if WellKnown is set instead
 	WellKnown *rawWellKnown // nil if Query is set instead
-	Data      []byte
+	Data      Node
 
 	// Returns/Count/Stats/QueryPlan/Sql/Rollback are ComplexQuery's own
 	// response-shaping flags (specs/complex-query.md), decoded off the same
@@ -94,6 +94,12 @@ func ParseQuery(data []byte) (ParsedQuery, error) {
 		return ParsedQuery{}, oops.Wrapf(perr, "query: invalid query JSON")
 	}
 	return parseQueryNode(sonicNode{&root})
+}
+
+// ParseQueryNode decodes one top-level query.ts Query value from a document already decoded, JSON
+// (a sonic Node) or CBOR (NewCBORNode).
+func ParseQueryNode(n Node) (ParsedQuery, error) {
+	return parseQueryNode(n)
 }
 
 // boolField decodes n's key as a boolean, present reporting whether the key
@@ -158,11 +164,7 @@ func parseQueryNode(n Node) (ParsedQuery, error) {
 				rawWQ.Query = rel
 			}
 			if d, ok := n.ObjectGet("data"); ok {
-				raw, err := d.Raw()
-				if err != nil {
-					return ParsedQuery{}, oops.Wrapf(err, `query: "data"`)
-				}
-				rawWQ.Data = []byte(raw)
+				rawWQ.Data = d
 			}
 			if ret, ok := n.ObjectGet("returns"); ok {
 				s, err := ret.StrictString()

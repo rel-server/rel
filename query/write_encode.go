@@ -112,6 +112,14 @@ func kindName(k NodeKind) string {
 		return "array"
 	case KindObject:
 		return "object"
+	case KindBytes:
+		return "byte string"
+	case KindInstant:
+		return "date and time"
+	case KindDate:
+		return "date"
+	case KindUUID:
+		return "UUID"
 	}
 	return "invalid value"
 }
@@ -127,11 +135,15 @@ func isDateTimeType(typ string) bool {
 
 // errWrongKind reports a value of a kind the type does not accept : invalid_text_representation.
 func errWrongKind(typ string, n Node) error {
-	code, msg := "22P02", fmt.Sprintf("invalid input syntax for type %s: a %s value is not accepted", typ, kindName(n.Kind()))
+	what := kindName(n.Kind())
+	if u, ok := n.(interface{ unsupported() string }); ok && n.Kind() == KindInvalid {
+		what = u.unsupported()
+	}
+	code, msg := "22P02", fmt.Sprintf("invalid input syntax for type %s: a %s value is not accepted", typ, what)
 	if isDateTimeType(typ) {
 		code = "22007"
 	}
-	return oops.With("type", typ, "received", kindName(n.Kind())).Wrap(&pgconn.PgError{Severity: "ERROR", Code: code, Message: msg})
+	return oops.With("type", typ, "received", what).Wrap(&pgconn.PgError{Severity: "ERROR", Code: code, Message: msg})
 }
 
 func shorten(text string) string {
@@ -415,6 +427,13 @@ func hexVal(c byte) (byte, bool) {
 
 // encodeUUID reads the hyphenated form, 32 bare hex digits, or either in braces.
 func encodeUUID(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
+	if n.Kind() == KindUUID { // CBOR tag 37 : the 16 bytes
+		b, err := n.(bytesNode).StrictBytes()
+		if err != nil {
+			return nil, oops.Wrapf(err, "write: reading uuid")
+		}
+		return append(dst, b...), nil
+	}
 	if n.Kind() != KindString {
 		return nil, errWrongKind("uuid", n)
 	}
@@ -462,6 +481,13 @@ func encodeUUID(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 
 // encodeBytea reads the hex input form, "\x" followed by pairs of hex digits.
 func encodeBytea(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
+	if n.Kind() == KindBytes { // a CBOR byte string is the value itself
+		b, err := n.(bytesNode).StrictBytes()
+		if err != nil {
+			return nil, oops.Wrapf(err, "write: reading bytea")
+		}
+		return append(dst, b...), nil
+	}
 	if n.Kind() != KindString {
 		return nil, errWrongKind("bytea", n)
 	}
@@ -490,7 +516,7 @@ func encodeBytea(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 // ---- json / jsonb -------------------------------------------------------------------
 
 func encodeJSON(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
-	raw, err := n.Raw()
+	raw, err := nodeJSON(n)
 	if err != nil {
 		return nil, oops.Wrapf(err, "write: reading json")
 	}

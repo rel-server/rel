@@ -1,7 +1,9 @@
 package query
 
 import (
+	"encoding/hex"
 	"strings"
+	"time"
 
 	"github.com/rel-server/rel/pg"
 	"github.com/samber/oops"
@@ -240,11 +242,42 @@ func encodeScalarText(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 		}
 		return append(dst, s...), nil
 	case KindNumber, KindObject, KindArray:
+		if d, ok := n.(interface{ decimalText() (string, bool) }); ok && n.Kind() == KindNumber {
+			if text, ok := d.decimalText(); ok {
+				return append(dst, text...), nil
+			}
+		}
 		raw, err := n.Raw()
 		if err != nil {
 			return nil, oops.Wrapf(err, "write: reading value")
 		}
 		return append(dst, raw...), nil
+	case KindBytes: // a CBOR byte string, in the hex form bytea reads
+		b, err := n.(bytesNode).StrictBytes()
+		if err != nil {
+			return nil, oops.Wrapf(err, "write: reading byte string")
+		}
+		dst = append(dst, '\\', 'x')
+		return hex.AppendEncode(dst, b), nil
+	case KindUUID:
+		b, err := n.(bytesNode).StrictBytes()
+		if err != nil || len(b) != 16 {
+			return nil, oops.Wrapf(err, "write: reading uuid")
+		}
+		h := hex.EncodeToString(b)
+		return append(dst, h[:8]+"-"+h[8:12]+"-"+h[12:16]+"-"+h[16:20]+"-"+h[20:]...), nil
+	case KindInstant:
+		t, err := n.(instantNode).Instant()
+		if err != nil {
+			return nil, oops.Wrapf(err, "write: reading date and time")
+		}
+		return t.UTC().AppendFormat(dst, "2006-01-02T15:04:05.999999Z07:00"), nil
+	case KindDate:
+		d, err := n.(daysNode).Days()
+		if err != nil {
+			return nil, oops.Wrapf(err, "write: reading date")
+		}
+		return time.Unix(d*86400, 0).UTC().AppendFormat(dst, "2006-01-02"), nil
 	case KindBool:
 		b, err := n.StrictBool()
 		if err != nil {

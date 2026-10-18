@@ -23,9 +23,11 @@ require (
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
 	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
 	github.com/beevik/etree v1.7.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 

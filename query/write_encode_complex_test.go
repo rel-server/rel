@@ -33,11 +33,10 @@ func oracleValue(conn *pgxpool.Conn, col, value string) (string, error) {
 // ourValue encodes value for the column with the mode the encoders pick, loads it the way a temp
 // table column would (binary mode keeps the declared type, text mode loads text and casts it to the
 // type without modifiers), assigns it to a column of the declared type, and prints it as text.
-func ourValue(t *testing.T, conn *pgxpool.Conn, col *pg.Column, value string) (text string, binary bool, err error) {
+func ourValue(t *testing.T, conn *pgxpool.Conn, col *pg.Column, node Node) (text string, binary bool, err error) {
 	t.Helper()
 	ctx := context.Background()
 	enc, binary := columnEncoder(col.Type)
-	node := encNode(t, value)
 	field, err := enc(nil, node, &encodeContext{})
 	if err != nil {
 		return "", binary, err
@@ -69,7 +68,20 @@ func runColCases(t *testing.T, name string, wantBinary bool, cases []colCase) {
 		t.Fatalf("enc_t has no column %s", name)
 	}
 	for _, c := range cases {
-		ours, binary, ourErr := ourValue(t, conn, col, c.js)
+		for _, src := range encSources {
+			node, ok := src.node(t, c.js, col.DeclaredType)
+			if !ok {
+				continue
+			}
+			checkColCase(t, conn, name, wantBinary, col, c, node, src.name)
+		}
+	}
+}
+
+func checkColCase(t *testing.T, conn *pgxpool.Conn, name string, wantBinary bool, col *pg.Column, c colCase, node Node, src string) {
+	t.Helper()
+	{
+		ours, binary, ourErr := ourValue(t, conn, col, node)
 		if binary != wantBinary {
 			t.Errorf("%s: binary mode = %v, want %v", name, binary, wantBinary)
 			return
@@ -79,29 +91,29 @@ func runColCases(t *testing.T, name string, wantBinary bool, cases []colCase) {
 		case wantAccept:
 			switch {
 			case ourErr != nil:
-				t.Errorf("%s %s: rejected: %v (oracle reads %q, err %v)", name, c.js, ourErr, oracle, oracleErr)
+				t.Errorf("%s %s [%s]: rejected: %v (oracle reads %q, err %v)", name, c.js, src, ourErr, oracle, oracleErr)
 			case oracleErr != nil:
-				t.Errorf("%s %s: corpus error, the oracle rejects: %v", name, c.js, oracleErr)
+				t.Errorf("%s %s [%s]: corpus error, the oracle rejects: %v", name, c.js, src, oracleErr)
 			case ours != oracle:
-				t.Errorf("%s %s: reads back as %q, the oracle gives %q", name, c.js, ours, oracle)
+				t.Errorf("%s %s [%s]: reads back as %q, the oracle gives %q", name, c.js, src, ours, oracle)
 			}
 		case wantBad:
 			if ourErr == nil {
-				t.Errorf("%s %s: accepted what the oracle rejects (%v), reads back as %q", name, c.js, oracleErr, ours)
+				t.Errorf("%s %s [%s]: accepted what the oracle rejects (%v), reads back as %q", name, c.js, src, oracleErr, ours)
 			}
 			if oracleErr == nil {
-				t.Errorf("%s %s: corpus error, the oracle accepts it as %q (use rejected)", name, c.js, oracle)
+				t.Errorf("%s %s [%s]: corpus error, the oracle accepts it as %q (use rejected)", name, c.js, src, oracle)
 			}
 		case wantReject:
 			if ourErr == nil {
-				t.Errorf("%s %s: accepted, but this is on the documented rejection list", name, c.js)
+				t.Errorf("%s %s [%s]: accepted, but this is on the documented rejection list", name, c.js, src)
 			}
 			if oracleErr != nil {
-				t.Errorf("%s %s: corpus error, the oracle rejects it too (use bad): %v", name, c.js, oracleErr)
+				t.Errorf("%s %s [%s]: corpus error, the oracle rejects it too (use bad): %v", name, c.js, src, oracleErr)
 			}
 		case wantKind:
 			if ourErr == nil {
-				t.Errorf("%s %s: accepted a value of the wrong kind, reads back as %q", name, c.js, ours)
+				t.Errorf("%s %s [%s]: accepted a value of the wrong kind, reads back as %q", name, c.js, src, ours)
 			}
 		}
 	}

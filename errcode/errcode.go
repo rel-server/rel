@@ -55,6 +55,7 @@ const AnonymousDisabledMessage = "anonymous access is disabled"
 // Query compile errors (query-engine.md).
 const (
 	QueryMalformedJSON         Code = "QUERY_MALFORMED_JSON"
+	QueryMalformedCBOR         Code = "QUERY_MALFORMED_CBOR"
 	QueryInvalidExpression     Code = "QUERY_INVALID_EXPRESSION"
 	UnknownIdentifier          Code = "UNKNOWN_IDENTIFIER"
 	JoinMissingIndex           Code = "JOIN_MISSING_INDEX"

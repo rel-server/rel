@@ -9,7 +9,6 @@ package query
 import (
 	"slices"
 
-	"github.com/bytedance/sonic/ast"
 	"github.com/rel-server/rel/pg"
 	"github.com/samber/oops"
 )
@@ -142,6 +141,23 @@ func (s *synthObject) ObjectEach(fn func(string, Node) error) error {
 
 const errNotString = nodeError("value is not a string")
 
+// synthArray is an array Node assembled from nodes : an "update" root's patch as the one row it is loaded as.
+type synthArray struct{ items []Node }
+
+func (s *synthArray) Kind() NodeKind                  { return KindArray }
+func (s *synthArray) StrictString() (string, error)   { return "", errNotString }
+func (s *synthArray) StrictBool() (bool, error)       { return false, errNotString }
+func (s *synthArray) StrictInt64() (int64, error)     { return 0, errNotString }
+func (s *synthArray) StrictFloat64() (float64, error) { return 0, errNotString }
+func (s *synthArray) ArrayItems() ([]Node, error)     { return s.items, nil }
+func (s *synthArray) ObjectGet(string) (Node, bool)   { return nil, false }
+func (s *synthArray) ObjectEach(func(string, Node) error) error {
+	return errNotObject
+}
+func (s *synthArray) Raw() (string, error) {
+	return "", oops.Errorf("write: an array assembled from rows has no source text")
+}
+
 // writeRows is what denormalize produces : the batches to load, and what the write needs to know about them.
 type writeRows struct {
 	batches   map[*tempTable]*rowBatch
@@ -157,17 +173,9 @@ type writeRows struct {
 	rootRowID int32
 }
 
-// denormalize walks payload (JSON text) against root and builds the rows of every writable node ;
+// denormalizeNode walks payload against root and builds the rows of every writable node ;
 // startRowID continues row id numbering across calls. tables holds the temp table of each relation
 // written. general false builds fast rows, without metadata.
-func denormalize(root *QueryNode, ids map[*QueryNode]int, payload []byte, tables map[*pg.Relation]*tempTable, startRowID int, general bool, ec *encodeContext) (*writeRows, error) {
-	parsed, perr := ast.NewParser(string(payload)).Parse()
-	if perr != 0 {
-		return nil, oops.Wrapf(perr, "write: invalid payload JSON")
-	}
-	return denormalizeNode(root, ids, sonicNode{&parsed}, tables, startRowID, general, ec)
-}
-
 func denormalizeNode(root *QueryNode, ids map[*QueryNode]int, payload Node, tables map[*pg.Relation]*tempTable, startRowID int, general bool, ec *encodeContext) (*writeRows, error) {
 	if payload.Kind() != KindArray {
 		return nil, oops.Errorf("write: payload must be an array of root rows")

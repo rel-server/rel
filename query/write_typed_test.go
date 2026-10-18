@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/fxamacker/cbor/v2"
 )
 
 func rowByID(table []map[string]any, id int) map[string]any {
@@ -243,6 +245,61 @@ func TestWrite_NotAnObjectRow(t *testing.T) {
 	for _, payload := range []string{`[1]`, `["x"]`, `[[{"name": "n"}]]`, `[null]`} {
 		if _, err := ExecuteWrite(context.Background(), conn, node, []byte(payload)); err == nil {
 			t.Errorf("payload %s was accepted", payload)
+		}
+	}
+}
+
+// TestWrite_CBORPayload writes from a CBOR document in every mode that reads a payload, through both paths.
+func TestWrite_CBORPayload(t *testing.T) {
+	ctx := context.Background()
+	at := cbor.Tag{Number: 1, Content: int64(1700000000)}
+	rows := []any{
+		map[string]any{"id": int64(1), "at": at, "plain": "2026-10-18T14:30:00", "day": cbor.Tag{Number: 100, Content: int64(20000)}},
+		map[string]any{"id": int64(2), "at": "2026-10-18T14:30:00+02:00"},
+	}
+	node := mustResolveQuery(t, `{"relation": "tz_t", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
+	for _, noFast := range []bool{false, true} {
+		conn := acquireWriteConn(t)
+		if _, err := conn.Exec(ctx, "delete from tz_t"); err != nil {
+			t.Fatal(err)
+		}
+		res, err := ExecuteWriteNode(ctx, conn, node, cborOf(t, rows), &WriteState{}, nil, WriteOptions{NoFastPath: noFast})
+		if err != nil {
+			t.Fatalf("noFast=%v: %v", noFast, err)
+		}
+		if (res.Rows != nil) == noFast {
+			t.Errorf("noFast=%v : fast rows = %v", noFast, res.Rows != nil)
+		}
+		var stored string
+		if err := conn.QueryRow(ctx, `select string_agg(id || ' ' || coalesce(to_char(at at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS'), '-') || ' ' || coalesce(plain::text, '-') || ' ' || coalesce(day::text, '-'), ' ; ' order by id) from tz_t`).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		if want := "1 2023-11-14 22:13:20 2026-10-18 14:30:00 2024-10-04 ; 2 2026-10-18 12:30:00 - -"; stored != want {
+			t.Errorf("noFast=%v : stored %q, want %q", noFast, stored, want)
+		}
+	}
+
+	// an "update" root takes one patch object : a CBOR map
+	conn := acquireWriteConn(t)
+	patchNode := mustResolveQuery(t, `{"relation": "tz_t", "schema": "public", "select": ["*~"], "write_mode": "update", "where": ["=", ["col", "id"], 1]}`)
+	if _, err := conn.Exec(ctx, "delete from tz_t; insert into tz_t (id, plain) values (1, '2000-01-01')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExecuteWriteNode(ctx, conn, patchNode, cborOf(t, map[string]any{"day": cbor.Tag{Number: 100, Content: int64(0)}}), &WriteState{}, nil, WriteOptions{NoFastPath: true}); err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	var day, plain string
+	if err := conn.QueryRow(ctx, `select day::text, plain::text from tz_t where id = 1`).Scan(&day, &plain); err != nil || day != "1970-01-01" || plain != "2000-01-01 00:00:00" {
+		t.Errorf("after the patch : day %q plain %q (%v)", day, plain, err)
+	}
+	if _, err := ExecuteWriteNode(ctx, conn, patchNode, cborOf(t, []any{map[string]any{"day": "2000-01-01"}}), &WriteState{}, nil, WriteOptions{}); err == nil {
+		t.Error("a patch given as an array was accepted")
+	}
+
+	// rows that are not maps
+	for _, bad := range []any{[]any{int64(1)}, []any{[]byte{1}}, []any{nil}, map[string]any{"id": int64(1)}} {
+		if _, err := ExecuteWriteNode(ctx, conn, node, cborOf(t, bad), &WriteState{}, nil, WriteOptions{}); err == nil {
+			t.Errorf("payload %v was accepted", bad)
 		}
 	}
 }

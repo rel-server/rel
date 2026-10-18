@@ -130,74 +130,85 @@ func encTestConn(t *testing.T, zone string) (*pgxpool.Conn, *encodeContext) {
 	return conn, &encodeContext{Location: loc}
 }
 
-// runEncCases checks every entry against the encoder and Postgres.
+// runEncCases checks every entry against the encoder and Postgres, once per source : the JSON text as it is, and the
+// same value as CBOR (numbers that are not whole become exact tag 4 decimals), which must give the same answer.
 func runEncCases(t *testing.T, conn *pgxpool.Conn, ec *encodeContext, typeName string, enc fieldEncoder, cases []encCase) {
 	t.Helper()
 	oid := pgTypeOID(t, conn, typeName)
 	for _, c := range cases {
-		node := encNode(t, c.js)
-		field, encErr := enc(nil, node, ec)
-		if encErr == nil && field == nil {
-			field = []byte{} // an empty value, not a NULL
+		for _, src := range encSources {
+			node, ok := src.node(t, c.js, typeName)
+			if !ok {
+				continue
+			}
+			checkEncCase(t, conn, ec, typeName, oid, enc, c, node, src.name)
 		}
+	}
+}
 
-		if c.want == wantKind {
-			if encErr == nil {
-				t.Errorf("%s %s: accepted a value of the wrong kind", typeName, c.js)
-			}
-			continue
+func checkEncCase(t *testing.T, conn *pgxpool.Conn, ec *encodeContext, typeName string, oid uint32, enc fieldEncoder, c encCase, node Node, src string) {
+	t.Helper()
+	field, encErr := enc(nil, node, ec)
+	if encErr == nil && field == nil {
+		field = []byte{} // an empty value, not a NULL
+	}
+
+	if c.want == wantKind {
+		if encErr == nil {
+			t.Errorf("%s %s [%s]: accepted a value of the wrong kind", typeName, c.js, src)
 		}
-		pgVal, pgErr := pgParse(conn, typeName, c.pg)
+		return
+	}
+	pgVal, pgErr := pgParse(conn, typeName, c.pg)
 
-		switch c.want {
-		case wantAccept:
-			if encErr != nil {
-				t.Errorf("%s %s: rejected, want accepted (Postgres reads %q as %q): %v", typeName, c.js, c.pg, pgVal, encErr)
-				continue
+	switch c.want {
+	case wantAccept:
+		if encErr != nil {
+			t.Errorf("%s %s [%s]: rejected, want accepted (Postgres reads %q as %q): %v", typeName, c.js, src, c.pg, pgVal, encErr)
+			return
+		}
+		if pgErr != nil {
+			t.Errorf("%s %s [%s]: corpus error, Postgres rejects %q: %v", typeName, c.js, src, c.pg, pgErr)
+			return
+		}
+		got, err := pgRender(conn, oid, field)
+		if err != nil {
+			t.Errorf("%s %s [%s]: Postgres rejects the encoded bytes % x: %v", typeName, c.js, src, field, err)
+		} else if got != pgVal {
+			t.Errorf("%s %s [%s]: encoded value reads back as %q, Postgres reads the text as %q", typeName, c.js, src, got, pgVal)
+		}
+	case wantSame:
+		switch {
+		case pgErr != nil && encErr == nil:
+			t.Errorf("%s %s [%s]: accepted what Postgres rejects (%v)", typeName, c.js, src, pgErr)
+		case pgErr == nil && encErr != nil:
+			t.Errorf("%s %s [%s]: rejected, Postgres reads %q as %q: %v", typeName, c.js, src, c.pg, pgVal, encErr)
+		case pgErr == nil:
+			if got, err := pgRender(conn, oid, field); err != nil || got != pgVal {
+				t.Errorf("%s %s [%s]: encoded value reads back as %q (%v), Postgres reads the text as %q", typeName, c.js, src, got, err, pgVal)
 			}
-			if pgErr != nil {
-				t.Errorf("%s %s: corpus error, Postgres rejects %q: %v", typeName, c.js, c.pg, pgErr)
-				continue
-			}
-			got, err := pgRender(conn, oid, field)
-			if err != nil {
-				t.Errorf("%s %s: Postgres rejects the encoded bytes % x: %v", typeName, c.js, field, err)
-			} else if got != pgVal {
-				t.Errorf("%s %s: encoded value reads back as %q, Postgres reads the text as %q", typeName, c.js, got, pgVal)
-			}
-		case wantSame:
-			switch {
-			case pgErr != nil && encErr == nil:
-				t.Errorf("%s %s: accepted what Postgres rejects (%v)", typeName, c.js, pgErr)
-			case pgErr == nil && encErr != nil:
-				t.Errorf("%s %s: rejected, Postgres reads %q as %q: %v", typeName, c.js, c.pg, pgVal, encErr)
-			case pgErr == nil:
-				if got, err := pgRender(conn, oid, field); err != nil || got != pgVal {
-					t.Errorf("%s %s: encoded value reads back as %q (%v), Postgres reads the text as %q", typeName, c.js, got, err, pgVal)
-				}
-			}
-		case wantReject:
-			if encErr == nil {
-				t.Errorf("%s %s: accepted, but this is on the documented rejection list", typeName, c.js)
-			}
-			if pgErr != nil {
-				t.Errorf("%s %s: corpus error, Postgres rejects %q too (use bad): %v", typeName, c.js, c.pg, pgErr)
-			}
-		case wantBad:
-			if encErr == nil {
-				t.Errorf("%s %s: accepted what Postgres rejects (%v)", typeName, c.js, pgErr)
-			}
-			if pgErr == nil {
-				t.Errorf("%s %s: corpus error, Postgres accepts %q as %q (use rejected)", typeName, c.js, c.pg, pgVal)
-			}
-		case wantLate:
-			if encErr != nil {
-				t.Errorf("%s %s: rejected early, want passed to Postgres: %v", typeName, c.js, encErr)
-				continue
-			}
-			if _, err := pgRender(conn, oid, field); err == nil {
-				t.Errorf("%s %s: Postgres accepts the bytes, so this is not a late rejection", typeName, c.js)
-			}
+		}
+	case wantReject:
+		if encErr == nil {
+			t.Errorf("%s %s [%s]: accepted, but this is on the documented rejection list", typeName, c.js, src)
+		}
+		if pgErr != nil {
+			t.Errorf("%s %s [%s]: corpus error, Postgres rejects %q too (use bad): %v", typeName, c.js, src, c.pg, pgErr)
+		}
+	case wantBad:
+		if encErr == nil {
+			t.Errorf("%s %s [%s]: accepted what Postgres rejects (%v)", typeName, c.js, src, pgErr)
+		}
+		if pgErr == nil {
+			t.Errorf("%s %s [%s]: corpus error, Postgres accepts %q as %q (use rejected)", typeName, c.js, src, c.pg, pgVal)
+		}
+	case wantLate:
+		if encErr != nil {
+			t.Errorf("%s %s [%s]: rejected early, want passed to Postgres: %v", typeName, c.js, src, encErr)
+			return
+		}
+		if _, err := pgRender(conn, oid, field); err == nil {
+			t.Errorf("%s %s [%s]: Postgres accepts the bytes, so this is not a late rejection", typeName, c.js, src)
 		}
 	}
 }

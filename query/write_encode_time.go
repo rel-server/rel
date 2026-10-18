@@ -1,6 +1,7 @@
 package query
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -245,6 +246,17 @@ func nodeString(typ string, n Node) (string, error) {
 }
 
 func encodeDate(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
+	if n.Kind() == KindDate { // CBOR tag 100 : days since 1970-01-01
+		d, err := n.(daysNode).Days()
+		if err != nil {
+			return nil, oops.Wrapf(err, "write: reading date")
+		}
+		days := d - pgEpochUnixDays
+		if d < -1<<40 || d > 1<<40 || days < dateMinDays || days > dateMaxDays {
+			return nil, errOutOfRange("date", strconv.FormatInt(d, 10))
+		}
+		return appendInt32(dst, int32(days)), nil
+	}
 	s, err := nodeString("date", n)
 	if err != nil {
 		return nil, err
@@ -280,6 +292,21 @@ func encodeTimestamptz(dst []byte, n Node, ec *encodeContext) ([]byte, error) {
 func encodeTimestampText(dst []byte, n Node, typ string, ec *encodeContext) ([]byte, error) {
 	timestamptz := typ == "timestamptz"
 	loc := ec.location()
+	if timestamptz && n.Kind() == KindInstant { // CBOR tag 0 or 1 : an instant, no zone to place
+		t, err := n.(instantNode).Instant()
+		if err != nil {
+			return nil, oops.Wrapf(err, "write: reading timestamptz")
+		}
+		sec := t.Unix() - pgEpochUnixDays*86400
+		if sec < tsMinMicros/microsPerSecond-1 || sec > tsEndMicros/microsPerSecond+1 {
+			return nil, errOutOfRange(typ, t.UTC().Format(time.RFC3339))
+		}
+		micros := sec*microsPerSecond + int64((t.Nanosecond()+500)/1000) // rounded to the nearest microsecond
+		if micros < tsMinMicros || micros >= tsEndMicros {
+			return nil, errOutOfRange(typ, t.UTC().Format(time.RFC3339))
+		}
+		return appendInt64(dst, micros), nil
+	}
 	s, err := nodeString(typ, n)
 	if err != nil {
 		return nil, err

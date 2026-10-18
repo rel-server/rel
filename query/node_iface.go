@@ -1,6 +1,10 @@
 package query
 
-import "github.com/bytedance/sonic/ast"
+import (
+	"time"
+
+	"github.com/bytedance/sonic/ast"
+)
 
 // NodeKind is the JSON/CBOR value category a Node holds.
 type NodeKind int
@@ -13,7 +17,34 @@ const (
 	KindString
 	KindArray
 	KindObject
+
+	// The kinds below only a CBOR document can hold.
+	KindBytes   // a byte string
+	KindInstant // a date and time, tag 0 or 1
+	KindDate    // an epoch-based date, tag 100 (RFC 8943)
+	KindUUID    // a UUID, tag 37
 )
+
+// bytesNode is implemented by the nodes of kind KindBytes and KindUUID.
+type bytesNode interface{ StrictBytes() ([]byte, error) }
+
+// instantNode is implemented by the nodes of kind KindInstant.
+type instantNode interface{ Instant() (time.Time, error) }
+
+// daysNode is implemented by the nodes of kind KindDate : days since 1970-01-01.
+type daysNode interface{ Days() (int64, error) }
+
+// jsonTexter is implemented by a node whose Raw is not already JSON text of the value : it
+// returns the text of a value written to a json or jsonb column, refusing what JSON cannot hold.
+type jsonTexter interface{ jsonText() (string, error) }
+
+// nodeJSON returns n as the JSON text a json or jsonb column receives.
+func nodeJSON(n Node) (string, error) {
+	if j, ok := n.(jsonTexter); ok {
+		return j.jsonText()
+	}
+	return n.Raw()
+}
 
 // Node is the subset of a decoded document the query parser reads.
 type Node interface {

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"time"
 
@@ -36,7 +37,7 @@ import (
 type resolvedItem struct {
 	root    *query.QueryNode
 	isWrite bool
-	data    []byte
+	data    query.Node
 
 	// Non-nil only for a well-known item ; threaded into ResolveArgs so a
 	// $param slot resolves without a separate code path for ordinary items.
@@ -104,6 +105,28 @@ func relQueryBytes(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
+// isCBORRequest reports whether a POST body is CBOR (RFC 8949), by its Content-Type ; anything
+// else is JSON. A response is JSON either way : the two formats are chosen independently.
+func isCBORRequest(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mt == "application/cbor"
+}
+
+// parseRelBody decodes the request body into a query, from CBOR or JSON per its Content-Type.
+func parseRelBody(r *http.Request, body []byte) (query.ParsedQuery, error) {
+	if isCBORRequest(r) {
+		n, err := query.NewCBORNode(body)
+		if err != nil {
+			return query.ParsedQuery{}, err
+		}
+		return query.ParseQueryNode(n)
+	}
+	return query.ParseQuery(body)
+}
+
 // decodeGETQuery picks the wellknown vs relation/function GET grammar by
 // peeking at the "wellknown" key via the generic structural decoder first.
 func decodeGETQuery(raw string) ([]byte, error) {
@@ -165,7 +188,7 @@ func coerceQueryStringLeaves(v any) any {
 
 // resolveWellKnownItem resolves name via wkReg (well-known-queries.md
 // ## Execution Errors for the codes) ; data non-nil means a write.
-func resolveWellKnownItem(wkReg *wellknown.Registry, name string, paramsRaw []byte, data []byte) (resolvedItem, error) {
+func resolveWellKnownItem(wkReg *wellknown.Registry, name string, paramsRaw []byte, data query.Node) (resolvedItem, error) {
 	wk, ok := wkReg.Lookup(name)
 	if !ok {
 		return resolvedItem{}, oops.Code(errcode.WellKnownUnknownQuery).Errorf("well-known query %q is not registered", name)
@@ -220,9 +243,13 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	pq, err := query.ParseQuery(body)
+	pq, err := parseRelBody(r, body)
 	if err != nil {
-		writeError(ctx, w, badRequest(errcode.QueryMalformedJSON, err), cfg.Dev)
+		code := errcode.QueryMalformedJSON
+		if isCBORRequest(r) {
+			code = errcode.QueryMalformedCBOR
+		}
+		writeError(ctx, w, badRequest(code, err), cfg.Dev)
 		return
 	}
 
@@ -289,7 +316,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		// item.Write's, decides whether this is a write — a ComplexQuery
 		// with no "data" is a valid read.
 		isWrite := item.Write != nil && item.Write.Data != nil
-		var data []byte
+		var data query.Node
 		switch {
 		case item.Write != nil:
 			root, rerr = rctx.ResolveQuery(item.Write.Query)
@@ -410,7 +437,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			QueryPlan: item.queryPlan && cfg.Pg.Query.AllowQueryPlan,
 			Sql:       item.sql && cfg.Pg.Query.AllowSql,
 		}
-		result, err := query.ExecuteWriteStateParamsOpts(ctx, loggingQuerier{inner: conn}, item.root, item.data, state, item.paramValues, opts)
+		result, err := query.ExecuteWriteNode(ctx, loggingQuerier{inner: conn}, item.root, item.data, state, item.paramValues, opts)
 		if err != nil {
 			_, _ = conn.Exec(ctx, "rollback")
 			writeError(ctx, w, classifyWriteError(err, i), cfg.Dev)

@@ -17,7 +17,7 @@ func TestParseQuery_WriteQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}
-	if pq.Write == nil || pq.Write.Query.Relation != "movie" || len(pq.Write.Data) == 0 {
+	if pq.Write == nil || pq.Write.Query.Relation != "movie" || pq.Write.Data == nil || pq.Write.Data.Kind() != KindObject {
 		t.Fatalf("unexpected ParsedQuery: %#v", pq)
 	}
 }
@@ -48,7 +48,7 @@ func TestParseQuery_WellKnownWrite(t *testing.T) {
 	if pq.Write.WellKnown == nil || pq.Write.WellKnown.WellKnown != "my_query" || len(pq.Write.WellKnown.Params) == 0 {
 		t.Fatalf("expected Write.WellKnown to be populated, got %#v", pq.Write.WellKnown)
 	}
-	if len(pq.Write.Data) == 0 {
+	if pq.Write.Data == nil || pq.Write.Data.Kind() != KindObject {
 		t.Fatalf("expected Write.Data to be populated, got %#v", pq.Write)
 	}
 }
@@ -281,8 +281,8 @@ func TestParseQuery_ComplexQuery_ExplicitNullData_DiffersFromAbsent(t *testing.T
 	if pq.Write.Data == nil {
 		t.Fatalf("expected Data to be non-nil for an explicit JSON null")
 	}
-	if string(pq.Write.Data) != "null" {
-		t.Fatalf("expected Data to be the literal \"null\", got %q", pq.Write.Data)
+	if pq.Write.Data.Kind() != KindNull {
+		t.Fatalf("expected Data to be a null, got kind %d", pq.Write.Data.Kind())
 	}
 }
 
