@@ -193,3 +193,75 @@ func TestFastWrite_Eligibility(t *testing.T) {
 }
 
 var _ = (*pgxpool.Conn)(nil)
+
+// TestUpdate_AbsentColumnKeepsItsValue proves update-existing and merge-update only
+// change the columns a row supplies : an absent column keeps its current value, an
+// explicit null sets NULL. Both paths must agree.
+func TestUpdate_AbsentColumnKeepsItsValue(t *testing.T) {
+	cases := map[string]struct {
+		mode    string
+		payload string
+		want    map[string]any // columns of orders.id = 9301 afterwards
+	}{
+		"update-existing, one column supplied": {
+			mode: "update-existing", payload: `[{"id": 9301, "note": "changed"}]`,
+			want: map[string]any{"note": "changed", "flag": true, "total": 5.0},
+		},
+		"update-existing, explicit null sets NULL": {
+			mode: "update-existing", payload: `[{"id": 9301, "flag": null}]`,
+			want: map[string]any{"note": "orig", "flag": nil, "total": 5.0},
+		},
+		"update-existing, two rows with different supplied columns": {
+			mode: "update-existing", payload: `[{"id": 9301, "total": 7}, {"id": 9302, "note": "other"}]`,
+			want: map[string]any{"note": "orig", "flag": true, "total": 7.0},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			node := mustResolveQuery(t, `{"relation": "orders", "schema": "public", "select": ["*~"], "write_mode": "`+c.mode+`"}`)
+			_, _, generalTable, fastTable := runBothWays(t, []string{
+				`insert into orders (id, note, flag, total) values (9301, 'orig', true, 5), (9302, 'second', false, 1)`,
+			}, node, c.payload, "orders")
+			for label, table := range map[string][]map[string]any{"general": generalTable, "fast": fastTable} {
+				var got map[string]any
+				for _, r := range table {
+					if r["id"] == 9301.0 {
+						got = r
+					}
+				}
+				for col, want := range c.want {
+					if got[col] != want {
+						t.Errorf("%s path: orders.%s = %#v, want %#v (row %#v)", label, col, got[col], want, got)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestUpdate_AbsentCompositeLeafKeepsItsValue is the same rule for a composite's
+// sub-fields, which are separate columns to the writer (general path only : a
+// composite select is not fast-path eligible).
+func TestUpdate_AbsentCompositeLeafKeepsItsValue(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+	if _, err := conn.Exec(ctx, `insert into venue (id, name, home) values (9311, 'v', row('Main St', 'Old City'))`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = conn.Exec(context.Background(), `delete from venue where id = 9311`) })
+	node := mustResolveQuery(t, `{
+		"relation": "venue", "schema": "public",
+		"select": {"id": ["col", "id"], "street": [".", ["col", "home"], "street"], "city": [".", ["col", "home"], "city"]},
+		"write_mode": "update-existing"
+	}`)
+	if _, err := ExecuteWrite(ctx, conn, node, []byte(`[{"id": 9311, "city": "New City"}]`)); err != nil {
+		t.Fatal(err)
+	}
+	var street, city string
+	if err := conn.QueryRow(ctx, `select (home).street, (home).city from venue where id = 9311`).Scan(&street, &city); err != nil {
+		t.Fatal(err)
+	}
+	if street != "Main St" || city != "New City" {
+		t.Errorf("home = (%q, %q), want street kept and city changed", street, city)
+	}
+}

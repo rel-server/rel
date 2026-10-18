@@ -40,6 +40,14 @@ insert/upsert/merge; it defaults to the relation's primary key. `insert_columns`
 `update_columns` narrow which columns a write actually touches, beyond whatever `select`
 already made writable.
 
+## Columns a row leaves out
+
+A row only writes the columns it supplies. What a missing column means depends on the mode:
+
+- **`update-existing`, `merge-update`** — an update changes what it names. A column the row leaves out keeps its current value, and an explicit `null` sets it to `NULL`. The same holds for each field of a composite column.
+- **`insert`, `merge-new`** — a missing column takes its `DEFAULT`, or `NULL` if it has none. An explicit `null` in a `NOT NULL` column that has a default also takes the default.
+- **`upsert`, `merge`** — the row is prepared as a new row first, so a missing column is filled the way an insert would fill it (its `DEFAULT`, else `NULL`). If the row already exists, that prepared value then overwrites the stored one. To keep a column's current value, send the full row, or use `update-existing`.
+
 ## Where-driven writes: `update` and `delete`
 
 Every other mode finds the rows to touch from the payload. `update` and `delete` find them with

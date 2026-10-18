@@ -522,8 +522,10 @@ func incomingKeySource(node *QueryNode, col *pg.Column) (keyCol *pg.Column, ok b
 // ---- resolved CTE -------------------------------------------------------------------
 
 // writeResolvedCTE writes "resolved as (select ...)" (no leading "with"),
-// one row per _data row, per ### Insertion/Updates' three-way rule.
-func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, cols []ColumnPath) error {
+// one row per _data row, per ### Insertion/Updates' three-way rule. withData
+// also exposes the row's supplied JSON as "__data", for statements that must
+// tell an absent column from a supplied one (runUpdate).
+func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, cols []ColumnPath, withData bool) error {
 	nodeID := dc.ids[node]
 	relID := node.Relation.Identifier.EscapedString()
 
@@ -551,6 +553,9 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 	w.Write("select\n")
 	w.Indent()
 	w.Write("tmp.__row_id")
+	if withData {
+		w.Write(",\ntmp.data as __data")
+	}
 	for _, cp := range cols {
 		w.Write(",\n")
 		if err := dc.writeColumnCase(w, node, cp, outgoingAliases); err != nil {
@@ -648,6 +653,34 @@ func (dc *dmlCompiler) writeColumnCase(w *writer.SQLWriter, node *QueryNode, cp 
 	return nil
 }
 
+// writeUpdateValue writes the new value of cp in runUpdate's SET : the payload's
+// value when the row supplies the column, the row's current value when it does
+// not. A column filled from a parent/child key is always supplied.
+func (dc *dmlCompiler) writeUpdateValue(w *writer.SQLWriter, node *QueryNode, cp ColumnPath) {
+	if len(cp.Path) == 1 && isKeyLinked(node, cp.Path[0]) {
+		w.Write("resolved.")
+		w.Id(columnPathFlatName(cp))
+		return
+	}
+	w.Write("case when resolved.__data ? ")
+	w.Bind(columnPathFlatName(cp))
+	w.Write("::text then resolved.")
+	w.Id(columnPathFlatName(cp))
+	w.Write(" else ")
+	WriteQualifiedPath(w, "t", cp.Path)
+	w.Write(" end")
+}
+
+// isKeyLinked reports whether col gets its value from a parent's or an outgoing
+// child's recovered key rather than from the payload (see writeColumnCase).
+func isKeyLinked(node *QueryNode, col *pg.Column) bool {
+	if _, ok := incomingKeySource(node, col); ok {
+		return true
+	}
+	child, _ := outgoingKeySource(node, col)
+	return child != nil
+}
+
 // keysColumns is identityColumns(node) plus every column an incoming
 // child's JoinColumns needs — not necessarily the same set as on_conflict's target.
 func keysColumns(node *QueryNode) []*pg.Column {
@@ -727,7 +760,7 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	if err := dc.writeWith(w, node); err != nil {
 		return err
 	}
-	if err := dc.writeResolvedCTE(w, node, cols); err != nil {
+	if err := dc.writeResolvedCTE(w, node, cols, false); err != nil {
 		return err
 	}
 	w.Write(",\nins as (\n")
@@ -866,7 +899,7 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	if err := dc.writeWith(w, node); err != nil {
 		return err
 	}
-	if err := dc.writeResolvedCTE(w, node, dedupeColumnPaths(cols, wrapColumns(node, identCols))); err != nil {
+	if err := dc.writeResolvedCTE(w, node, dedupeColumnPaths(cols, wrapColumns(node, identCols)), true); err != nil {
 		return err
 	}
 	w.Write(",\ndml as (\n")
@@ -910,8 +943,8 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 				w.Write(", ")
 			}
 			writeTargetPath(w, cp)
-			w.Write(" = resolved.")
-			w.Id(columnPathFlatName(cp))
+			w.Write(" = ")
+			dc.writeUpdateValue(w, node, cp)
 		}
 		w.Write("\n")
 		w.Write("from resolved\n")
@@ -993,7 +1026,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	if err := dc.writeWith(w, node); err != nil {
 		return err
 	}
-	if err := dc.writeResolvedCTE(w, node, insertCols); err != nil {
+	if err := dc.writeResolvedCTE(w, node, insertCols, false); err != nil {
 		return err
 	}
 	w.Write(",\ndml as (\n")
