@@ -27,6 +27,14 @@ type Column struct {
 
 	PgTypeOid int
 
+	// DeclaredType is the column's type as Postgres' format_type prints it,
+	// modifiers included ("character varying(20)", "numeric(10,2)", a domain's
+	// own name) — what a temp table must repeat to behave like the column.
+	// Schema-qualified only where the introspecting session's search_path does
+	// not already see the type, so it resolves the same on a connection with
+	// the same search path.
+	DeclaredType string
+
 	// PgDomainIdentifier is set only when the column's declared type is a
 	// domain — information_schema.columns' own udt_name/udt_schema (and so
 	// PgTypeOid, resolved from them) name the domain's BASE type, not the

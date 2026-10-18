@@ -15,6 +15,8 @@
 package pg
 
 import (
+	"sync"
+
 	"github.com/jackc/pgx/v5"
 )
 
@@ -85,6 +87,10 @@ type Relation struct {
 	byOtherRelation    map[int][]*Constraint
 	indexCoverage      map[string]struct{}
 
+	// mask backs MaskSlots (info_mask.go) ; built on first use.
+	maskOnce sync.Once
+	mask     *maskLayout
+
 	PgRelId   int
 	PgTypeOid int
 }
@@ -141,6 +147,7 @@ SELECT json_agg(R) FROM (SELECT
 		'IsIdentity', is_identity = 'YES',
 		'IsGenerated', is_generated = 'ALWAYS',
 		'IsUpdatable', is_updatable = 'YES',
+		'DeclaredType', (SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a WHERE a.attrelid = pg_class.oid AND a.attnum = col.ordinal_position),
 		'PgTypeOid', (SELECT t.oid::INT FROM pg_type t WHERE t.typname = udt_name AND t.typnamespace = udt_schema::regnamespace),
 		'DomainIdentifier', CASE WHEN domain_schema IS NULL THEN NULL ELSE json_build_object(
 				'Schema', domain_schema,
@@ -189,6 +196,7 @@ SELECT
 		'IsIdentity', false,
 		'IsGenerated', false,
 		'IsUpdatable', false,
+		'DeclaredType', format_type(a.atttypid, a.atttypmod),
 		'PgTypeOid', a.atttypid::integer,
 		'DomainIdentifier', NULL
 	) ORDER BY a.attnum) AS "Columns"
@@ -223,6 +231,7 @@ SELECT
 		'IsIdentity', false,
 		'IsGenerated', false,
 		'IsUpdatable', false,
+		'DeclaredType', format_type(a.atttypid, a.atttypmod),
 		-- a domain-typed column reports its BASE type plus the domain separately, like information_schema does
 		'PgTypeOid', CASE WHEN t.typtype = 'd' THEN t.typbasetype::integer ELSE a.atttypid::integer END,
 		'DomainIdentifier', CASE WHEN t.typtype = 'd' THEN json_build_object(
