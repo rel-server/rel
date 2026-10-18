@@ -76,9 +76,25 @@ A JSON number for an integer type must be a plain integer: `1.0`, `1.5`, `1e3` a
 
 Each encoder is covered by a differential test against Postgres' own parser (`## Tests`). A string the encoder accepts must yield the value Postgres yields for the same text.
 
+### Rejected forms
+
+Postgres reads each of these, and the encoders reject them. The differential tests pin the list.
+
+| Type | Rejected |
+|---|---|
+| `text`, `varchar`, `bpchar`, `name`, enums | a number or a boolean (`42` is not accepted for a text column) |
+| integers | surrounding whitespace, `0x`/`0o`/`0b` prefixes, `_` separators |
+| `float4`, `float8`, `numeric` | surrounding whitespace, hexadecimal floats, `_` separators, `0x` prefixes |
+| `uuid` | other hyphen placements : Postgres reads a hyphen after any group of four hex digits (`a0ee-bc99-…`), while only the hyphenated 8-4-4-4-12 form and the bare 32 digits are read, each with optional braces |
+| `bytea` | the escape form (`abc`, `\000`), whitespace between hex pairs |
+| `date` | `DateStyle` forms (`10/11/2026`), `today` and the other special words, compact `20261018`, one-digit month or day, a time suffix, surrounding whitespace |
+| `timestamp`, `timestamptz` | more than 6 fractional digits, seconds `60`, a trailing `.` with no digits, the special words `now`, `today`, `epoch`, zone names and abbreviations in the string, `DateStyle` forms, compact `20261018T143000`, two spaces between date and time, surrounding whitespace, an offset with seconds (`+02:00:30`) |
+
+> **Why:** a number for a text column is the one deliberate narrowing of a write that works today (`jsonb_populate_record` turns `42` into `'42'`). The value forms are specified per type so a client sees an error naming the column instead of a silently coerced value.
+
 ### Date and time strings
 
-For `timestamp`, `timestamptz` and `date` the accepted text is ISO 8601 / RFC 3339: `YYYY-MM-DD`, then optionally `T` or a space and `hh:mm[:ss[.f]]`, then for `timestamptz` an optional `Z` or `±hh[:mm]`. Further rules:
+For `timestamp`, `timestamptz` and `date` the accepted text is ISO 8601 / RFC 3339: `YYYY-MM-DD`, then optionally `T` or a space and `hh:mm[:ss[.f]]`, then for `timestamptz` an optional `Z` or `±hh[:mm]` (`±hhmm` is read too), optionally after one space. Further rules:
 
 - Up to 6 fractional digits. More is an error.
 - `24:00:00` is the start of the next day. Seconds `60` are an error.
@@ -87,13 +103,16 @@ For `timestamp`, `timestamptz` and `date` the accepted text is ISO 8601 / RFC 33
 - A `timestamptz` without an offset is read in the connection's session `TimeZone`, taken from the `TimeZone` parameter the server reports for the connection (`pgconn.PgConn.ParameterStatus`). A zone name Go's `time.LoadLocation` cannot load is an error.
 - The year has 4 or more digits. A ` BC` suffix after the time or offset marks a year before 1 AD: calendar year Y BC is year 1 − Y of the proleptic Gregorian calendar. This is the form rel's own output uses (`0044-03-15T00:00:00+00:00 BC`).
 - `now`, `today`, `tomorrow`, `yesterday`, `epoch`, zone names or abbreviations inside the string, and `DateStyle`-dependent forms such as `10/11/2026` are errors.
-- Values outside Postgres' range (4713 BC to 294276 AD) are errors.
+- Values outside Postgres' range (4714-11-24 BC to 294276-12-31 AD for timestamps, to 5874897-12-31 AD for dates) are errors. For `timestamptz` the range applies to the instant, so the same text can be valid in one session zone and out of range in another.
+- A wall-clock reading skipped by a spring-forward gap gets the offset in force before the change, and a reading that occurs twice in a fall-back overlap gets the offset in force after it. This is Postgres' rule, implemented explicitly because Go's `time.Date` picks differently.
 
-> **Why:** the session `TimeZone` is not pinned anywhere in rel, so an offset-less `timestamptz` string means whatever the server or role default says today. Reading it from the connection keeps that meaning. Daylight-saving gaps and overlaps resolve the same way in Go and Postgres for the two cases tried (`2026-03-29 02:30` and `2026-10-25 02:30` in Europe/Paris); the tests repeat that check.
+> **Why:** the session `TimeZone` is not pinned anywhere in rel, so an offset-less `timestamptz` string means whatever the server or role default says today. Reading it from the connection keeps that meaning. About 2 million wall-clock readings around every clock change from 1900 to 2060, in 19 zones, were compared with Postgres, and the tests repeat that.
+
+> **Question:** an offset-less `timestamptz` in a non-UTC session zone depends on Go and the server having the same time zone database. They differ on this machine in three zones (a 1925 Dublin change, a 1979 Tehran change, a 2026 Casablanca change): near those changes the reading gets an instant an hour away from the one Postgres gives. Options: accept it as a documented limit (UTC sessions and any text with an offset are unaffected), embed Go's `time/tzdata` (still not the server's), or have Postgres read such values (a text-mode `timestamptz` column, giving up the integer path for CBOR tag 1). Not decided.
 
 ### Arrays
 
-A JSON or CBOR array encodes as a Postgres binary array whose element type comes from `Type.ElementType`. Nested arrays must be rectangular and become extra dimensions. An empty array has zero dimensions. A `null` element is a NULL element. Elements follow the scalar rules of their own type.
+A JSON or CBOR array encodes as a Postgres binary array whose element type comes from `Type.ElementType`. If the first element is itself an array, every element must be an array and they become extra dimensions, which must be rectangular. This holds whatever the element type, `json` and `jsonb` included, as `jsonb_populate_record` reads it. An empty array, or one whose first sub-arrays are all empty, has zero dimensions. A `null` element is a NULL element. Elements follow the scalar rules of their own type.
 
 A string given for an array column in binary mode (`"{1,2}"`) is an error.
 
@@ -105,7 +124,7 @@ A composite column is encoded from whichever of its paths the node's extractors 
 
 ### Column mode
 
-A column, array element or composite field is in **binary mode** when its type has an encoder. A composite or array column is in binary mode only when every type in its tree has an encoder. Every other column is in **text mode**: it is loaded as `text` and cast in the statement that reads it. The mode is fixed from introspection, not from the data.
+A column, array element or composite field is in **binary mode** when its type has an encoder. A composite or array column is in binary mode only when every type in its tree has an encoder. Every other column is in **text mode**: it is loaded as `text` and cast, without modifiers, in the statement that reads it (`## Type modifiers and domains`). The mode is fixed from introspection, not from the data.
 
 > **Why:** inside a binary record or array every field must be in that field type's binary format, so one field without an encoder (an `interval`, a range, a PostGIS `geometry`) forces its whole composite or array into text mode. Postgres then parses each field itself.
 
@@ -141,7 +160,11 @@ An extension type needs no registration. Introspection already lists it as a `pg
 
 ### Type modifiers and domains
 
-A temp column or row-type field carries the target column's full type including modifiers (`varchar(20)`, `numeric(10,2)`). Length, precision and domain constraints are therefore checked when the rows are loaded, not when they are inserted. The error code and message stay those Postgres reports.
+In binary mode a temp column or row-type field carries the target column's full declared type including modifiers (`varchar(20)`, `numeric(10,2)`, `Column.DeclaredType`). Length, precision and domain constraints are therefore checked when the rows are loaded, not when they are inserted. The error code and message stay those Postgres reports.
+
+In text mode the temp column is `text`, and the statement that reads it casts it to the column's type without modifiers (`::bit`, never `::bit(4)`). The `insert` or `update` then assigns the value to the column, which applies the modifiers with assignment semantics : a value that does not fit is an error, as it is today.
+
+> **Why:** an explicit cast to `bit(4)` or `varchar(5)` pads or truncates silently (`'101'` becomes `1010`), while assignment, like `jsonb_populate_record`, rejects it. The differential tests pin this.
 
 ## Temp row types
 
@@ -226,19 +249,73 @@ An encoding failure reports the node (path of join aliases), the row index in th
 
 ## Tests
 
-All tests are integration tests against a real Postgres (testcontainers, as in `query/write_test.go`) or plain Go tests for pure code. The existing write tests (`write_test.go`, `write_fast_test.go`, `server` write tests) stay and must pass unchanged, except where they read `_data`.
+All tests are integration tests against a real Postgres (testcontainers, as in `query/write_test.go`) or plain Go tests for pure code. Tests use Postgres' built-in types and the contrib extensions the official image ships (`citext`, `hstore`, `ltree`), never a third-party extension. The existing write tests (`write_test.go`, `write_fast_test.go`, `server` write tests) stay and must pass unchanged, except where they read `_data`.
 
-- **Presence layout**: tables with 1, 63, 64, 65, 128 and 129 slots; composite expansion order; lookup round trip; a table with more than 64 columns written end to end through both paths.
-- **Encoders, differential**: for each type, a corpus of accepted and rejected strings. Whatever an encoder accepts is checked against `select '<text>'::<type>` on Postgres and must give the same value. A corpus entry Postgres accepts but the encoder rejects must appear in the documented rejection list.
-- **Datetime**: session `TimeZone` set to `UTC`, `Europe/Paris` and an offset zone; daylight-saving gap and overlap; `infinity`; fractional digits; `24:00:00`; offset ignored by `timestamp`.
-- **Absent versus null**: each of insert, upsert, `update-existing`, `merge-update` with a column absent, `null`, and supplied; `NOT NULL` with default and explicit `null`; composite sub-field update with only one sub-field supplied; both paths compared.
-- **Text mode**: `interval`, `inet`, a range, a PostGIS `geometry` written from a GeoJSON object (SRID from the `crs` member) and from an EWKT string, and an `interval[]` with elements that need quoting.
-- **Composite values**: composite column whole and by sub-field, array of composites, a composite with an `interval` field (text mode) and a composite nested in an array in text mode, each compared against the same write through `_data` before it is removed.
-- **BC and large years**: a `timestamptz` with a `BC` suffix and a 5-digit year, round-tripped from rel's own output.
-- **Key flow**: three-level nested writes, an outgoing child, a table appearing at two nodes, a non-primary-key `on_conflict`, `merge-new` recovery.
+Every value-level test runs for each source (JSON, and CBOR once the CBOR adapter exists) and for each path (general and fast, where eligible), and compares both paths with each other.
+
+### Layout and masks
+
+- Tables with 1, 63, 64, 65, 128 and 129 slots; composite expansion order, including nested composites and a domain over a composite; lookup round trip; arrays not expanded.
+- A table with more than 64 columns written end to end through both paths, with bits set in every word.
+- The mask word count and bit positions stay identical across two introspections of the same schema.
+
+### Encoders
+
+- **Differential, per type**: for every type with an encoder (`int2`, `int4`, `int8`, `float4`, `float8`, `numeric`, `bool`, `text`, `varchar`, `bpchar`, `name`, `uuid`, `bytea`, `date`, `timestamp`, `timestamptz`, enums, `json`, `jsonb`) a corpus of accepted and rejected inputs. Whatever an encoder accepts is stored, read back and compared with `select '<text>'::<type>` on Postgres, and the two must be equal. A corpus entry Postgres accepts but the encoder rejects must appear in the documented rejection list of `## Column encoders`.
+- **Boundaries**: minimum and maximum of each integer type, one past each, `numeric` with 0, 1, 4, 5, 1000 digits, negative scale and exponent forms, `NaN`, `Infinity`; floats with subnormal values and `-0`; empty and 1 MB strings; strings with `\u0000` (rejected as Postgres rejects them), multi-byte characters and invalid UTF-8 (CBOR).
+- **Modifiers and domains**: `varchar(n)` overflow, `numeric(p,s)` rounding and overflow, `bpchar(n)` padding, a domain with a `CHECK`, a `NOT NULL` domain, a domain over an array; the error code matches the one an `insert` reports.
+- **Arrays**: empty, one-dimensional, two-dimensional rectangular, ragged (rejected), with `null` elements, of every encoder type, and an array given as a Postgres literal string (rejected in binary mode).
+- **Wrong kinds**: for each encoder, a value of every other JSON and CBOR kind (object, array, number, string, bool, null, byte string, tags) either accepted as documented or rejected with an error naming node, row, column, expected type and received kind.
+- **json and jsonb**: nested documents, large numbers kept exact, duplicate keys, a CBOR document with each rejected kind (byte string, tag, non-finite float, non-text key).
+
+### Date and time
+
+- Session `TimeZone` set to `UTC`, `Europe/Paris` and an offset zone; daylight-saving gap and overlap; `infinity` and `-infinity` for all three types.
+- Fractional digits 0 to 7 (7 rejected); `24:00:00` accepted, seconds `60` rejected; offset ignored by `timestamp`, honoured by `timestamptz`; each rejected form of `## Date and time strings`.
+- Range edges: 4713 BC, 294276 AD, one past each.
+- `BC` suffix and 5-digit years, round-tripped from rel's own output for each of the three types.
+- CBOR tag 0, tag 1 (integer and float seconds, with microsecond precision at several magnitudes), tag 100.
+
+### Absent versus null
+
+- Each of insert, upsert, `update-existing`, `merge-update` with a column absent, `null`, and supplied.
+- `NOT NULL` with default and explicit `null`; a column without default; a generated-by-default identity column.
+- Composite sub-field update with only one sub-field supplied, then with a sibling set to `null`.
+- Upsert whose row already exists, with an absent defaulted column (it is overwritten by the default, as documented).
+- Mixed rows in one payload, supplying different columns.
+- `insert_columns` and `update_columns` allowlists.
+
+### Text mode
+
+- Built-in types without an encoder: `interval`, `time`, `timetz`, `inet`, `cidr`, `macaddr`, `money`, `bit`, `varbit`, `int4range`, `tsrange`, a multirange, `point`, `box`, `tsvector`, `xml`, and a contrib extension type (`citext`, `hstore`, `ltree`).
+- For each, a corpus of strings, numbers, booleans, objects, arrays, and (for CBOR) integers, floats, bignums, byte strings and the supported tags. Each value is compared with what `jsonb_populate_record` does for the same JSON value: the same stored value, or both reject.
+- Strings sent as JSON strings and as CBOR text strings give the same stored value.
+- Text-mode arrays (`interval[]`, `inet[]`, `int4range[]`) with elements that need quoting: empty, `NULL`, braces, commas, quotes, backslashes, whitespace, multi-byte characters, `null` elements.
+- Text-mode composites: a composite with an `interval` field, a composite nested in an array, an array inside a composite, quoting of each special character at each nesting level.
+
+### Composite values
+
+- Composite column whole and by sub-field, composites nested in composites, array of composites, `null` composite, missing and extra keys.
+- Each case compared against the same write through `_data` before it is removed.
+
+### Key flow and structure
+
+- Three-level nested writes, an outgoing child, a table appearing at two nodes, a self-referencing table, a non-primary-key `on_conflict`, `merge-new` recovery, `merge` deleting absent children, a `GENERATED ALWAYS` identity.
+- A sequence of several write items sharing a connection and one `WriteState`; row ids stay unique across items.
+- `stats`, `sql` and `query_plan` output unchanged against the existing tests.
+
+### Connection and lifecycle
+
 - **Role switch**: a write under `SET LOCAL ROLE` to a role without access to the pool user's temp objects.
 - **Pool rebuild**: re-introspection after `alter table … add column`, then a write on a connection that had the old temp tables.
-- **Benchmarks**: `query/write_bench_test.go` extended to compare against the `_data` path at 1, 20, 1000 and 50000 rows, a benchmark of the encoders against pgx's `any` path, and a benchmark of the packed row types (flat composite, zipped `int8[]`, wrapper composite) at those sizes.
+- **Lazy creation**: the first write to a table on a connection creates its temp tables and later writes do not; a rolled-back request leaves usable temp tables behind.
+- **Column name clash**: a table with a column named `__rel_row_id`, and one named `__rel__mask0`.
+- **Wide tables**: a table near the 1600-column limit fails with a clear error, not a Postgres internal one.
+
+### Scale and performance
+
+- Payloads of 1, 20, 1000 and 50000 rows, and one of 1 million small rows, compared with the `_data` path for result and for time.
+- Benchmarks: `query/write_bench_test.go` extended to compare against the `_data` path at those sizes, a benchmark of the encoders against pgx's `any` path, and a benchmark of the packed row types (flat composite, zipped `int8[]`, wrapper composite).
 
 ## Docs
 

@@ -55,9 +55,11 @@ An array is read through `ArrayItems()` once per array, never per element : the 
 
 > **Why:** an `ArrayLen()`/`ArrayIndex(i)` pair measured 16 to 38 % slower to parse than the current parser, against 5 to 7 % for `ArrayItems()`. `ast.Node.ArrayUseNode()` allocates a new slice on every call, so an index-based loop converts the whole array once per element. Benchmark : `query/parse_bench_test.go`.
 
-> **Why:** `Raw()` exists because `"data"` and `"params"` in `node_parse.go` and `wellknown_parse.go` are forwarded as verbatim JSON text, not parsed.
+`rawWriteQuery.Data` and `rawWellKnown.Params` hold a `Node`, not bytes. `data` is encoded into Postgres values as `specs/typed-write-loading.md ## Value source` describes. `params` are converted at the point they are bound as SQL parameters.
 
-> **Question:** what does `Raw()` return on the CBOR adapter ? Options : (a) re-encode the CBOR subtree as JSON text (lossy for byte strings, tags and non-text keys) ; (b) reject CBOR bodies that carry `"data"`/`"params"`, which makes CBOR requests unable to write ; (c) change `rawWriteQuery.Data` and `rawWellKnown.Params` to hold a `Node` instead of bytes, and convert at the point where they are bound as SQL parameters. Recommendation : (c), since CBOR input should not be forced through JSON text.
+`Raw()` is used only for values Postgres receives as JSON text (`json`/`jsonb` columns, text-mode columns given a map or array, and parameters). On the CBOR adapter it follows the conversion rules of `specs/typed-write-loading.md ## json and jsonb columns`.
+
+> **Why:** CBOR input is not forced through JSON text, which would lose byte strings, tags and non-text keys and cost a conversion of every write payload.
 
 ### sonic adapter
 
