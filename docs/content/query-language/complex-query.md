@@ -21,6 +21,10 @@ interface ComplexQuery {
 }
 ```
 
+With `Accept: application/cbor` the same envelope is a CBOR map, `result` holding the rows as described in
+[CBOR responses](index.md#cbor-responses) ; `stats`, `sql` and `query_plan` are converted from their JSON forms
+(so the numbers of a `query_plan` are decimal fractions).
+
 None of these flags change what `query` selects — they only add information alongside it, or
 change whether the selection itself is sent back at all.
 

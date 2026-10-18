@@ -101,78 +101,103 @@ A write's `"data"` stays a `Node`, never JSON text : the write path encodes it i
 
 ## 2. Query-engine response encoding
 
-This tier applies only when the client asks for CBOR (`Accept: application/cbor`). The existing JSON path (`row_to_json`/`json_agg` in `query/sql.go`, raw-byte passthrough in `server/response.go`'s `streamRows`) is unchanged and used for every other request.
+Applies when the request `Accept`s CBOR (`## HTTP negotiation`). The JSON path (`row_to_json`/`json_agg` in `query/sql.go`, raw bytes passed through by `server/response.go`'s `streamRows`) is unchanged and serves every other request. Implemented in `query/sql.go` (`OutputFormat`, `FormatCBOR`), `query/result_cbor.go` (`ResultEncoder`) and `cborenc/`.
 
 ### SQL generation
 
-For a CBOR-requesting query, replace `row_to_json(alias)` with `row(alias)` and `coalesce(json_agg(row_to_json(sub)), '[]'::json)` with `array_agg(row(sub))` in `wrapNodeAsValue` and `compileEmbedField` (`query/sql.go`). Everything else about `CompileSelect`'s shape — the LATERAL-sharing plan, `compileShapeAsJsonObject` (`query/sql_expr.go`) for key/shape objects, `countMode` — is unaffected ; only the two wrapping expressions differ, selected by which wire format the request asked for.
+`CompileSelectFormat(root, FormatCBOR)` (and the `...ForDataNodeFormat` variant a write's read-back uses) builds the same statement shape as `CompileSelect`, with two wrapping expressions changed : a node's row is the record `alias` itself instead of `row_to_json(alias)`, and a to-many embed is `array_agg(sub)` (empty : `'{}'`) instead of `json_agg`. The one result column is a record per row.
 
-> 📜 **ADR**: row/array_agg instead of a CBOR-producing SQL function. Postgres has no `row_to_cbor` builtin. Postgres's own binary wire encoding for a composite value (`ROW(...)`, including the anonymous `record` pseudo-type) is self-describing per field — each field carries its own type OID inline — and array binary encoding is self-describing per element the same way. That removes the need for row_to_json's JSON-text intermediate entirely.
+A column whose type has no native CBOR form (`nativeCBORType` : the scalars of the type mapping below, enums, domains, and arrays and composites made only of those) is selected as `to_jsonb(col)` instead, and carried as JSON inside the record, then transcoded by `cborenc.AppendJSON`. The range, geometric, network, interval, money and other such types are in this group, so for these a CBOR response says what the JSON one does.
+
+> 📜 **ADR**: records and arrays instead of a CBOR-producing SQL function. Postgres has no `row_to_cbor`, but its binary format for a record is self-describing per field (each field carries its type OID) and so is an array's per element, so nothing needs a JSON intermediate.
 
 ### Binary extraction
 
-Execute the compiled statement requesting binary result format for the composite/array column, using pgx's low-level API (`pgx.Rows.RawValues()` + `FieldDescriptions()`) instead of `rows.Scan(&raw)` — `streamRows`'s current single `Scan` into `[]byte` only works for the JSON path, where the column is already `json`/`jsonb` text.
+The statement is run with binary result format (`pgx.QueryResultFormats{pgx.BinaryFormatCode}` as the first argument), and rows are read with `RawValues()` and `FieldDescriptions()`, not `Scan`. A write's read-back, rows kept aside for a rolled-back write, and the fast path's own `RETURNING` rows are all binary records, read by the same encoder (`query.RecordOID`).
 
 ### Decoding a field
 
-Walk the composite/array binary payload recursively :
+`ResultEncoder.AppendValue(dst, oid, data)` walks the binary payload :
 
-- Composite : read field count, then per field `(type OID, length, bytes)` in order.
-- Array : read dimensions/element OID/null bitmap, then per element `(length, bytes)`.
-- A length of `-1` is SQL `NULL` → CBOR `null`.
+- Record : field count, then per field `(type OID, length, bytes)`. Field names come from the query's shape (`planFor`, which follows `selectFieldsFor` and the embeds), by position. A record of a named composite type takes its names from introspection (`db.TypeMapByOid`) ; an anonymous one without a plan is `f1`, `f2`...
+- Array : dimensions, element OID, then per element `(length, bytes)`. Multi-dimensional arrays become nested arrays.
+- A length of `-1` is `null`.
+- A truncated or inconsistent payload is an error, never a panic (tested with every prefix).
+- Anything else is a leaf, converted by the table below. A type that is unknown, or has no CBOR form, is an error that says so.
 
-Field **names** come from the query's own compiled `Shape` (`query/sql_expr.go`), not from Postgres — `ROW(...)` results are positional. Match binary field position to `Shape`'s field order 1:1.
-
-Decode each leaf's bytes via `pgtype.Map`'s existing per-OID codec (`jackc/pgx/v5/pgtype` already registers a codec for every built-in type — no `LoadType`/`RegisterType` call needed for these), then encode the resulting Go value as CBOR per the type mapping below.
+No decoding library is involved : the leaves are read straight from the wire bytes and appended with `cborenc`.
 
 ### Type mapping
 
-| Postgres type | Go value (`pgtype.Map`) | CBOR encoding |
-|---|---|---|
-| `int2`/`int4`/`int8` | `int64` | CBOR integer (major type 0/1) |
-| `numeric` | `pgtype.Numeric` | tag 4 (decimal fraction: `[exponent, mantissa]`) ; mantissa as a CBOR bignum (tag 2/3) if it exceeds 64 bits |
-| `timestamptz` | `time.Time` | tag 1 (epoch-based date/time), as a CBOR double (fractional seconds since epoch) |
-| `timestamp` | `time.Time` (UTC-labeled wall clock) | see the open question below |
-| `date` | `time.Time` | tag 100 (RFC 8943 epoch-based date : integer days since 1970-01-01) |
-| `uuid` | `[16]byte` | tag 37 (binary UUID) |
-| `bytea` | `[]byte` | plain CBOR byte string (major type 2), no tag |
-| `bool` | `bool` | CBOR true/false |
-| `text`/`varchar`/... | `string` | CBOR text string (major type 3) |
-| everything else | `pgtype.Map`'s default Go value | nearest CBOR equivalent by Go kind |
+| Postgres type | CBOR |
+|---|---|
+| `int2`, `int4`, `int8`, `oid` | integer |
+| `float4` | single-precision float (exactly the stored value) |
+| `float8` | double-precision float |
+| `numeric` | tag 4 `[exponent, mantissa]`, keeping the display scale (`1.50` → `[-2, 150]`) ; mantissa a bignum (tag 2/3) beyond 64 bits. `NaN`, `Infinity`, `-Infinity` are floats, which a decimal fraction cannot hold. |
+| `timestamptz` | tag 1 : integer seconds, or a double of seconds when it has a fraction. `infinity`/`-infinity` are the text strings. |
+| `timestamp` | untagged text, ISO 8601 without offset (`2026-10-18T14:30:00.123456`) ; `infinity`/`-infinity` as text. |
+| `date` | tag 100 (days since 1970-01-01) ; `infinity`/`-infinity` as text. |
+| `uuid` | tag 37 over the 16 bytes |
+| `bytea` | byte string, untagged |
+| `bool` | true/false |
+| `text`, `varchar`, `bpchar`, `name`, `"char"`, enums | text string |
+| `json`, `jsonb` | the JSON value as CBOR (maps, arrays, text, tag 4 numbers as in `## 3`) |
+| arrays | arrays, `null` elements kept |
+| composites, records | maps |
+| domains | their base type |
+| `void` | `null` |
 
-> 📜 **ADR**: `date` uses tag 100 (integer days) instead of tag 1004 (string) because it is compact and needs no parsing. The TypeScript decoder must convert tag 100 to the representation its client types expect (the TypeScript client currently types `date` as a plain string).
+> 📜 **ADR**: `timestamp` is untagged text because it is a wall-clock reading, not an instant : tag 1 would let a client mistake it for one and shift it by its own zone. Both types also keep microseconds as text or as a double, which a JavaScript `Date` (milliseconds) could not. `date` uses tag 100 for compactness ; the TypeScript decoder converts it to the representation its types expect (a plain string today).
 
-> 💬 You ask how a JavaScript client can decode `timestamp` afterwards, and how Postgres stores `timestamptz` and `timestamp`.
+> 📜 **ADR**: `infinity` values are text because tag 1 and tag 100 cannot hold them, and `null` would lose the difference from a missing value. They are the strings Postgres prints.
 
-> 🤖 Postgres stores both types as the same 8-byte integer : microseconds since 2000-01-01 00:00:00. The difference is the meaning. `timestamptz` is a UTC instant ; the session time zone only applies on input and output. `timestamp` is a wall-clock reading with no zone, and Postgres never converts it. pgx decodes `timestamp` into a `time.Time` whose location is UTC, so the Go value looks like an instant but is not one.
-> If `timestamp` is sent as tag 1, a JavaScript `Date` shows the correct wall-clock digits only if the client reads it with `getUTC*` methods. Any code that uses local-time methods, or `toISOString()` and then compares it with real instants, silently shifts the value. Nothing in the encoded bytes tells the decoder that the value is not an instant. Also, a JavaScript `Date` keeps milliseconds only, so the microseconds Postgres stores are lost for both types.
-> Recommendation : encode `timestamp` as a plain CBOR text string in ISO 8601 form without offset (`2026-10-18T14:30:00.123456`). This keeps microseconds, matches how the TypeScript client already types `timestamp` (plain string), and cannot be mistaken for an instant. Only `timestamptz` gets tag 1.
+Differences from what the earlier draft of this section said : nested arrays and maps have **definite** lengths (each is known when it is written, since the binary payload states its count), and `float4` is a single, not widened.
 
-> ❓ **Question**: Do you accept encoding `timestamp` as an untagged ISO 8601 text string without offset, and `timestamptz` as tag 1 ? Also decide the encoding of the Postgres values `infinity`/`-infinity` for `timestamp`, `timestamptz` and `date` (pgx returns an infinity modifier instead of a `time.Time`) : tag 1 cannot represent them. Options : CBOR `null`, or the text strings `"infinity"`/`"-infinity"` (as Postgres prints them).
+The JSON-vs-CBOR equivalence is tested by differential tests (`query/result_cbor_test.go`) : for scalars, arrays, composites, JSON, numeric edge cases, the date and time extremes, and compiled queries (nested joins, aggregates, scalar roots), the CBOR is compared with Postgres' own `to_jsonb` of the same value.
 
 ### Streaming and framing
 
-Encode CBOR indefinite-length arrays/maps (major type 4/5 header byte, items, `0xff` break) for the top-level row stream and for every nested array/object produced during decoding, never definite-length. This mirrors the existing hand-rolled `"["`/`","`/`"]"` JSON framing in `streamRows` one level down, and avoids buffering a sub-structure to learn its item count before writing its header.
+The top-level rows of a response are an **indefinite-length array** (`0x9f` ... `0xff`), written as rows arrive, exactly as the JSON path streams `[`...`]` ; an empty result is the definite empty array `0x80`. A failure before the first row is still a clean JSON error response ; after it, the body is truncated (no break byte), the same as truncated JSON. Memory per row is the row's, as in the JSON path.
 
-Per-row memory cost stays O(nesting depth), matching the JSON path's constant-memory guarantee — no full-row Go value is built before encoding starts.
+A request with several items answers a definite array of one answer per item. A response with `count`, `stats`, `sql`, `query_plan` or `returns` is a definite map, `result` last. `count`, `offset` and `limit` are integers. `stats`, `sql` and `query_plan` are small and are converted from their JSON (`query_plan` is Postgres' `EXPLAIN (FORMAT JSON)` output, so its numbers are tag 4).
+
+A scalar function root answers its value itself, in the type mapping above (`null` when the function returned no row).
 
 ## 3. Declared-route response encoding
 
-A route function's returned `jsonb` (`docs/content/http/requests-responses.md` ## Function prototype) carries no compile-time `Shape` — it is whatever JSON the function computed. CBOR output for this surface is a token-level JSON→CBOR transcode, not the native path above :
+Implemented in `route/encode.go` (`negotiateBody`) and `route/handler.go`.
 
-- Read the returned JSON with a streaming tokenizer that exposes the exact text of each number token (`encoding/json.Decoder.UseNumber()`, or sonic's equivalent), never through `float64`.
-- Encode each token to the matching CBOR token as it is read — no intermediate tree.
-- A number token without `.`, `e` or `E` that fits `int64`/`uint64` → CBOR integer.
-- A number token without `.`, `e` or `E` that does not fit → CBOR bignum (tag 2/3), parsed from the token's exact digit text.
-- A number token with `.`, `e` or `E` → tag 4 (decimal fraction) `[exponent, mantissa]`, computed from the token's exact digit text : mantissa = all digits without the decimal point (signed), exponent = the exponent part minus the count of digits after the decimal point. The mantissa is a CBOR bignum (tag 2/3) if it exceeds 64 bits. No `float64` conversion occurs, so the trailing scale is kept (`1.50` → `[-2, 150]`).
-- A string token is always encoded as a plain CBOR text string. No date/UUID tagging — there is no per-field type information available to justify it here.
+### Functions returning `json`/`jsonb`, or content declared `application/json`
 
-> 📜 **ADR**: Every `jsonb` number is a Postgres `numeric` internally, so tag 4 for fractional tokens is the type-correct, lossless choice, and it matches the `numeric` row in section 2. The TypeScript decoder decides how to represent tag 4 values (for example as a decimal library type or as a `number`).
+The body is converted as a whole, in memory, with `cborenc.AppendJSON` : one pass over the text that reads the exact text of each number (never through `float64`) and writes CBOR directly, with no intermediate tree.
+
+- An integer token that fits `int64`/`uint64` → CBOR integer ; one that does not → bignum (tag 2/3).
+- A token with `.`, `e` or `E` → tag 4 `[exponent, mantissa]` from its digits, so `1.50` → `[-2, 150]` and the scale survives.
+- A string is a text string. No date or UUID tagging : there is no type information to justify it.
+- Nested arrays and maps are definite length. An exponent beyond `int64` is refused.
+
+The conversion only runs when the effective `Content-Type` is `application/json`, so `text`, `bytea` and mimetype-domain returns are never touched, and a template's output stays what the template says. A body that cannot be converted is sent as JSON, with a warning in the log. `Vary: Accept` is set on every response whose media type depends on it.
+
+### Functions returning any type
+
+A route function may return any type that has a value, not only `text`, `json`, `jsonb`, `bytea` and mimetype domains (`anyValueType` ; `void`, `record`, polymorphic and other pseudo-types remain unsupported, and `setof` returns do not apply). Such a value is sent as `application/json` or, when CBOR is accepted, `application/cbor` :
+
+- JSON : `coalesce(to_jsonb(fn(...)), 'null')`.
+- CBOR, for a type with a native form (`nativeCBORType`) : the call is made with binary result format and the value goes through `ResultEncoder`, so a `timestamptz` is a tag 1, a `numeric` a tag 4, a `bytea` a byte string, a composite a map with its columns' types. No JSON is involved.
+- CBOR, any other type (`interval`, `inet`...), or a route with a `template` : the JSON form, converted as above.
+
+The same applies to the second `OUT` column of a full-control function, **except** that its content always takes the JSON-then-convert path, because the envelope column and the content are read from one `select` and the envelope is JSON text.
+
+> 📜 **ADR**: a function's content keeps one shape on the wire (a `numeric` is tag 4 whether it came from a query or from a function returning `numeric`), which is why returning the typed value is better than building `jsonb` by hand, where numbers lose their column types.
 
 ## HTTP negotiation
 
 - Request body format : `Content-Type` header, `application/json` (default) or `application/cbor`.
-- Response format : `Accept` header, `application/json` (default) or `application/cbor`.
+- Response format : `Accept` header (`cborenc.Accepts`). CBOR is answered when `application/cbor` is acceptable and ranks above `application/json` by quality, then by specificity (an exact type beats a range) ; a range alone (`*/*`, none, or `application/*`) means JSON. On a tie of quality and specificity JSON wins, except that a named `application/cbor` beats `*/*`. `q=0` refuses a type.
 - The two are independent — a CBOR request body does not imply a CBOR response, and vice versa.
+- `Vary: Accept` is sent on `/rel` responses, and on route responses whose type depends on it.
+- **Errors are always JSON**, whichever format was accepted, since a client that asked for CBOR can read the error status and code from either, and a stream that fails midway has no clean place for one.
+- `GET /rel` also negotiates its response.
 
-> ⌚ **Deferred**: The TypeScript client (`tsgen/`) needs its own CBOR encode/decode to use this from a browser/Node client. This includes the JS-side CBOR library, and the JS representation of tag 1, tag 4 and tag 100 values. It needs its own pass once the Go side lands.
+> ⌚ **Deferred**: The TypeScript client (`tsgen/`) needs its own CBOR encode/decode to use this from a browser/Node client. This includes the JS-side CBOR library, and the JS representation of tag 1, tag 4, tag 37 and tag 100 values.

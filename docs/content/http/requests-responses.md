@@ -60,7 +60,11 @@ Returning a single type replies `200` with a mimetype resolved structurally: `te
 `text/plain`, `json`/`jsonb` → `application/json`, `bytea` → `application/octet-stream`, and a
 domain whose name contains `/` (over `bytea` or `text`) → that name as `Content-Type` — see
 [Static files ## Returning binary or text content
-directly](static-files.md#returning-binary-or-text-content-directly).
+directly](static-files.md#returning-binary-or-text-content-directly). Any other type that has a value
+(`integer`, `numeric`, `timestamptz`, an array, an enum, a composite type...) is also allowed : it replies
+`application/json`, being its `to_jsonb` form, or CBOR as described in [Response format](#response-format). Only
+`void`, `record`, the polymorphic types and `setof` returns are refused. The `content` column of a full-control
+function may have any such type too.
 
 For control over the response itself — status, cookies, `jwt`, a template, deferring to a
 static file — declare two trailing `OUT` columns instead: `..., OUT resp JSON/JSONB, OUT
@@ -93,6 +97,25 @@ comment on function hotel.checkin(jsonb, text) is 'route:: path: "/hotel/booking
 falls back to its own default (`status` defaults to `200`, no cookies/`jwt`/`template` are
 touched). `content` is the second `OUT` column, sent as the body the same way a plain-return
 function's value would be — here `application/json`, since it's `jsonb`.
+
+## Response format
+
+A body whose `Content-Type` is `application/json` is answered as `application/cbor` when the request's `Accept`
+prefers it (`Accept: application/cbor`; `*/*` and no header stay JSON). The route's `Vary: Accept` header says so.
+
+- A function returning `json`/`jsonb` : the JSON is converted as it is, number by number from its text : an integer
+  is a CBOR integer (a bignum when large), a number with a fraction or exponent is a decimal fraction (tag 4) that
+  keeps its digits, `1.50` being `[-2, 150]`. Strings stay strings : the JSON holds no information to type them
+  by.
+- A function returning any other type (`timestamptz`, `numeric`, `bytea`, a composite...) : the value itself is
+  encoded with the types of its columns, as a [query result](../query-language/index.md#cbor-responses) is. A
+  type with no CBOR form (`interval`, `inet`...) gives what its JSON would. Returning the typed value is both
+  cheaper and richer than building a `jsonb` by hand.
+- A full-control function : `status`, headers and cookies are as usual and only the content is converted. Its content
+  is converted from JSON even when it has a native type.
+- `text`, `bytea` and mimetype-domain returns, templates, `static_file` and errors are never converted.
+
+A JSON body that cannot be converted (a number with an exponent beyond 64 bits) is sent as JSON.
 
 ## `HttpRequest`
 

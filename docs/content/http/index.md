@@ -92,7 +92,9 @@ Returning a single type replies `200` with a mimetype resolved structurally, sam
 `text` → `text/plain`, `json`/`jsonb` → `application/json`, `bytea` → `application/octet-stream`,
 and a domain whose name contains `/` (over `bytea` or `text`) → that name as `Content-Type` —
 see [Static files ## Returning binary or text content
-directly](static-files.md#returning-binary-or-text-content-directly).
+directly](static-files.md#returning-binary-or-text-content-directly). Any other type that has a value (`integer`,
+`timestamptz`, `numeric[]`, a composite type...) is accepted too and replies `application/json`, or
+`application/cbor` in the value's own types when the request [accepts it](requests-responses.md#response-format).
 
 For control over the response itself — status, cookies, `jwt`, a template, deferring to a
 static file — declare two trailing `OUT` columns instead: `..., OUT resp JSON/JSONB, OUT
