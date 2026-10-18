@@ -55,9 +55,23 @@ Unlike every other Postgres type this client re-types client-side, no accessor/p
 
 ## Write side
 
-Not yet explored.
+A GeoJSON object written to a `geometry` column works without an explicit `ST_GeomFromGeoJSON()` in the generated SQL. Verified on PostGIS 3.4 through `jsonb_populate_record`, the mechanism the write path uses today :
 
-> **Question:** does `jsonb_build_object`'s own reverse direction (accepting a GeoJSON-shaped `jsonb` value as `INSERT`/`UPDATE` input for a `geometry` column) work the same automatic way the read side does, or does writing need an explicit `ST_GeomFromGeoJSON()` in the generated SQL ? Needs the same kind of empirical check the read side just got, not assumed.
+| Payload value | Column | Result |
+|---|---|---|
+| GeoJSON object with the `crs` member the read side produces | `geometry(Point,4326)` | stored, SRID 4326 taken from `crs` |
+| GeoJSON object without `crs` | `geometry` | stored, SRID 0 |
+| GeoJSON object without `crs` | `geometry(Point,4326)` | stored, SRID 4326 (the column's type modifier applies it) |
+| EWKT string, `"SRID=4326;POINT(1 2)"` | `geometry(Point,4326)` | stored, SRID 4326 |
+| GeoJSON object | `geography` | error : `parse error - invalid geometry` |
+
+> **Why:** `jsonb_populate_record` passes the JSON text of an object to the target type's input function, and `geometry`'s input function reads GeoJSON text while `geography`'s does not. The `crs` member is the one the read side emits, so a value read from rel and written back keeps its SRID.
+
+`geography` columns take the text forms their input function reads (WKT, EWKT, hex EWKB) as a plain string. A GeoJSON object for a `geography` column is rejected by Postgres' input function, so the write fails with its message.
+
+> **Why:** `geometry` and `geography` are base types without a binary encoder in rel, so they are written in text mode (`specs/typed-write-loading.md ## Text mode`), which accepts exactly what `json_to_record`, `jsonb_to_record`, `jsonb_to_recordset` and `jsonb_populate_record` accept for a type. All four reject a GeoJSON object for `geography` and accept one for `geometry`. No rule special-cases PostGIS.
+
+A client that needs to write a `geography` column from GeoJSON sends a WKT or EWKT string, or writes through a route function that calls `ST_GeomFromGeoJSON()`.
 
 ## Multi-geometry / other PostGIS types
 
