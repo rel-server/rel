@@ -43,6 +43,9 @@ type Profile struct {
 	ResetPerRun bool
 }
 
+// WriteWarmupOps is how many operations each client of a write measurement does before the timed ones.
+const WriteWarmupOps = 3
+
 // Profiles are selectable with -profile.
 var Profiles = map[string]Profile{
 	// quick : indicative numbers in under two minutes for the four servers
@@ -224,6 +227,13 @@ func measure(ctx context.Context, c *Client, env *Env, impl Impl, srv Server, p 
 	}
 	var runs []Level
 	for range p.Repeats {
+		// A write run is a few dozen operations, so the first ones on each connection (a server opening it, preparing
+		// its statements, rel creating its temp tables) would be a large part of it : each client first does a few
+		// operations that are not timed. They change the data like any other, so the state check counts them.
+		warmed := 0
+		if after != nil {
+			warmed = int(runWindow(ctx, c, env, impl, &nextN, clients, 0, clients*WriteWarmupOps).Ops)
+		}
 		var smp *Sampler
 		if p.Sample {
 			smp = StartSampler(srv)
@@ -234,7 +244,7 @@ func measure(ctx context.Context, c *Client, env *Env, impl Impl, srv Server, p 
 			lvl.Resources = smp.Stop()
 		}
 		if after != nil {
-			if err := after(int(r.Ops)); err != nil {
+			if err := after(int(r.Ops) + warmed); err != nil {
 				lvl.CheckError = err.Error()
 			}
 		}
@@ -259,7 +269,7 @@ func measureWrite(ctx context.Context, cfg Config, size string, srv Server, sc S
 			return Level{}, err
 		}
 		if sc.Prepare != nil {
-			if err := sc.Prepare(ctx, db, cfg.Profile.WriteOps); err != nil {
+			if err := sc.Prepare(ctx, db, cfg.Profile.WriteOps+clients*WriteWarmupOps); err != nil {
 				db.Close()
 				return Level{}, err
 			}
@@ -407,7 +417,7 @@ func measureWriteInPlace(ctx context.Context, cfg Config, srv Server, sc Scenari
 	}
 	defer db.Close()
 	if sc.Prepare != nil {
-		if err := sc.Prepare(ctx, db, cfg.Profile.WriteOps); err != nil {
+		if err := sc.Prepare(ctx, db, cfg.Profile.WriteOps+cfg.Profile.WriteClients[0]*WriteWarmupOps); err != nil {
 			return Level{}, err
 		}
 		fresh, err := LoadEnv(ctx, db, env.Size)

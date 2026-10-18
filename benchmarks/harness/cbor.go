@@ -40,8 +40,11 @@ func (s Server) Service() string {
 }
 
 // NewServerClient is NewClient for the server srv, which may need to speak a different format.
-func NewServerClient(srv Server) *Client {
-	c := NewClient(URL(srv))
+func NewServerClient(srv Server) *Client { return NewClientFor(URL(srv), srv) }
+
+// NewClientFor is NewServerClient for a server listening at base.
+func NewClientFor(base string, srv Server) *Client {
+	c := NewClient(base)
 	c.cbor = srv == RelCBOR
 	return c
 }
