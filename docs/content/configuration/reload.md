@@ -71,7 +71,10 @@ If `reload.cmd` exits non-zero or exceeds `reload.timeout`, rel skips reintrospe
 for that reload — but still rebuilds the well-known query registry and [Jet
 template](../http/requests-responses.md#rendering-html-with-a-template) cache, against the
 previous, still-loaded schema, so a well-known-query or template change on disk still takes
-effect even when the migration step itself failed. A reintrospection, `/route` registry, or mux
+effect even when the migration step itself failed. A successful reintrospection also closes the
+database connections the pool holds, idle ones at once and busy ones as they are released (requests are
+drained first, so none is running) : writes keep per-connection scratch tables shaped like the tables they
+write, which must not outlive a schema change. A reintrospection, `/route` registry, or mux
 build failure past that point leaves the previous schema, registry, and templates running
 untouched — the same "log and continue" behavior throughout.
 

@@ -108,8 +108,9 @@ For `timestamp`, `timestamptz` and `date` the accepted text is ISO 8601 / RFC 33
 
 > **Why:** the session `TimeZone` is not pinned anywhere in rel, so an offset-less `timestamptz` string means whatever the server or role default says today. Reading it from the connection keeps that meaning. About 2 million wall-clock readings around every clock change from 1900 to 2060, in 19 zones, were compared with Postgres, and the tests repeat that.
 
-> **Question:** an offset-less `timestamptz` in a non-UTC session zone depends on Go and the server having the same time zone database. They differ on this machine in three zones (a 1925 Dublin change, a 1979 Tehran change, a 2026 Casablanca change): near those changes the reading gets an instant an hour away from the one Postgres gives. Options: accept it as a documented limit (UTC sessions and any text with an offset are unaffected), embed Go's `time/tzdata` (still not the server's), or have Postgres read such values (a text-mode `timestamptz` column, giving up the integer path for CBOR tag 1). Not decided.
->> I don't want useless roundtrips with the database. I think the problem is small enough that we can just document the limitation and use go only for that.
+A `timestamptz` without an offset in a non-UTC session zone depends on Go and the server having the same time zone database. Where they differ, the reading near a clock change they disagree on gets an instant an hour away from the one Postgres gives. UTC sessions and any text with an offset are unaffected. This is a documented limit of the write path (`docs/content/query-language/writing.md ## Value forms by column type`).
+
+> **Why:** the alternative is to have Postgres read such values, which needs a round trip or a text-mode `timestamptz` column, and gives up the integer path for CBOR tag 1. Three zones differ on a development machine (a 1925 Dublin change, a 1979 Tehran change, a 2026 Casablanca change).
 
 ### Arrays
 
@@ -173,12 +174,10 @@ For each destination table, two temp tables exist per connection. They are used 
 
 | Temp table | Columns | Used by |
 |---|---|---|
-| `pg_temp.__rel_w_<oid>_<layout>` | the metadata columns, the table's columns, the mask words | general path |
-| `pg_temp.__rel_f_<oid>_<layout>` | the table's columns, the mask words | fast path |
+| `pg_temp.__rel_w_<oid>` | the metadata columns, the table's columns, the mask words | general path |
+| `pg_temp.__rel_f_<oid>` | the table's columns, the mask words | fast path |
 
-`<oid>` is the destination table's relation OID. `<layout>` is 8 hex digits hashing the metadata prefix, the number of mask words, and each column's name and temp column type.
-
-> **Why:** the pool survives a re-introspection (`docs/content/migrations.md ## Reloading`), so a connection can hold temp tables built for a table's old columns. A table whose layout changed gets different names, hence new temp tables ; the old ones stay unused until the connection closes.
+`<oid>` is the destination table's relation OID.
 
 ### Columns
 
@@ -202,7 +201,7 @@ An insert or upsert writes the keys it generated back into the same row's column
 
 - A connection creates the two temp tables of a destination table lazily, the first time a write on that connection touches it, in one pipelined batch together with the OID lookup of both row types and their array types, and a grant to `public`. The batch runs before the request's transaction begins.
 - After that batch, the connection's pgx type map gets a codec registered for each array type OID. The codec accepts the `rawBinary` parameter type and writes its bytes unchanged in binary format.
-- A temp table exists as long as its connection. A schema change gives the table new temp tables (`## Temp row types`), so none is ever read against columns it was not built for.
+- A temp table exists as long as its connection. A reload resets the pool (`pg.ReIntrospect`) once the schema is read, while no request is running, so a connection never outlives the schema its temp tables were built for. The pool keeps its identity ; only its connections are closed.
 - The grant to `public` lets the role switched to by `SET LOCAL ROLE` read and write the tables. It is checked by a test that writes under a role with no privileges of its own.
 - `PrepareWrite` creates the tables and registers the types. `server/rel.go` calls it before beginning a request's transaction, for every write item ; `ExecuteWrite` calls it too, which is enough for a caller holding no transaction. Called inside a transaction for a table that is not yet prepared, it fails.
 - Transaction-level connection poolers in front of Postgres are unsupported.
@@ -232,7 +231,7 @@ The phases of `query/write.go` keep their order. What changes in the SQL:
 - **Load**: `## Loading`.
 - **`resolved` CTE** (`writeResolvedCTE`): reads the node's rows from its temp table, with typed columns. Text-mode columns are cast. Default, update-keeps and key-linkage rules are as in `## Use in SQL`.
 - **Key write-back**: `## Generated keys`. `recoverKeys` (`merge-new`'s do-nothing branch) matches the supplied identity columns of the temp row against the target table, typed, and only writes rows whose key columns differ from the existing row's.
-- **`runDelete`**: keeps the rows of the node that have a non-null identity in their temp row. A `deleteonly` node keeps nothing. The rows to scope by are the parent's key values, read as `= any (array(select …))`.
+- **`runDelete`**: keeps the rows of the node that have a non-null identity in their temp row : those inserted or matched, and for a `deleteonly` node, which writes nothing, the identities its payload names. The rows to scope by are the parent's key values, read as `= any (array(select …))`.
 - **`runUpdateWhere`** (`update` with a patch): the patch is one row in the table's general temp table, and the columns it names are the set bits of that row's mask. The rows it updates are recorded as new rows of the same table, with fresh row ids.
 - **Read-back** (`CompileSelectForDataNode`): scopes the root relation to the rows of its own temp table where `parent_id` is null and `node_id` is the root's, matched on the identity columns.
 - **Removed**: `DataTableDDL`, `DataTableDDLPerTransaction`, `loadData`, and the jsonb output of `denormalize`.
@@ -335,7 +334,7 @@ Every value-level test runs for each source (JSON, and CBOR once the CBOR adapte
 ### Connection and lifecycle
 
 - **Role switch**: a write under `SET LOCAL ROLE` to a role without access to the pool user's temp objects.
-- **Schema change**: re-introspection after `alter table … add column`, then a write on a connection that had the old temp tables.
+- **Schema change**: re-introspection after `alter table … add column` resets the pool, and a write on a fresh connection uses the new columns.
 - **Lazy creation**: the first write to a table on a connection creates its temp tables and later writes do not; a rolled-back request leaves usable temp tables behind; creating them inside a transaction is refused.
 - **Test hook**: tests create the general tables `on commit preserve rows` (`keepRowsAtCommit`) because they commit every statement and read the rows back ; `server` tests run with the real `delete rows` tables and check that no row survives a request, committed, rolled back or rejected.
 - **Column name clash**: a table with a column named `__rel_row_id`, and one named `__rel__mask0`.
