@@ -48,6 +48,40 @@ A row only writes the columns it supplies. What a missing column means depends o
 - **`insert`, `merge-new`** — a missing column takes its `DEFAULT`, or `NULL` if it has none. An explicit `null` in a `NOT NULL` column that has a default also takes the default.
 - **`upsert`, `merge`** — the row is prepared as a new row first, so a missing column is filled the way an insert would fill it (its `DEFAULT`, else `NULL`). If the row already exists, that prepared value then overwrites the stored one. To keep a column's current value, send the full row, or use `update-existing`.
 
+## Value forms by column type
+
+rel reads each value of a payload itself and hands Postgres its binary form, so what a column accepts is
+defined per type. Anything Postgres can read as text but that is not listed here as accepted is refused with an error naming
+the column ; the error is the one Postgres would give for the same value (`PG_INVALID_TEXT_REPRESENTATION` for a value
+that does not read as the type).
+
+| Column type | Accepted |
+|---|---|
+| `int2`, `int4`, `int8` | a whole number, or a string of optional sign and digits. `1.0`, `1.5` and `1e3` are refused. |
+| `float4`, `float8` | a number, or a string in Postgres' float syntax, including `NaN`, `Infinity`, `-Infinity`. |
+| `numeric` | a number (its digits are kept exactly, `1.50` stays `1.50`), or a numeric string including `NaN` and `Infinity`. |
+| `bool` | `true`, `false`, `0`, `1`, or a string Postgres reads as a boolean (`"t"`, `"yes"`, `"on"`, …). |
+| `text`, `varchar`, `char(n)`, `name`, enums | a string. A number or a boolean is refused. |
+| `uuid` | a string : hyphenated, 32 hex digits, or either in braces, in any case. |
+| `bytea` | a string in `\x` hex form. |
+| `date` | `"2026-10-18"`, `"infinity"`, `"-infinity"`. |
+| `timestamp`, `timestamptz` | an ISO 8601 string (`"2026-10-18T14:30:00.123456+02:00"`, a space for the `T`, `Z`, `±hh[:mm]`), `"infinity"`, `"-infinity"`. |
+| `json`, `jsonb` | any JSON value. A JSON `null` is a SQL `NULL`. |
+| arrays | a JSON array. Nested arrays are extra dimensions, and must be rectangular. A `null` element is a NULL element. |
+| composite types | a JSON object. A missing key is `NULL` and an unknown key is ignored. |
+| any other type (`interval`, `inet`, ranges, `money`, geometric types, extension types such as `citext`, `hstore` or PostGIS' `geometry`) | the text Postgres reads for the type, as a string ; a number or a boolean is passed as its text. A JSON object or array is passed as its JSON text, which is how a GeoJSON object reaches a `geometry` column. |
+
+For `timestamp` and `timestamptz`:
+
+- At most 6 fractional digits, and `24:00:00` is the start of the next day.
+- The year has four or more digits, and a ` BC` suffix marks a year before 1 AD, which is the form rel's own output uses.
+- A `timestamptz` without an offset is read in the connection's session time zone. If that zone is one rel cannot load, such a value is refused and an offset is needed.
+- A `timestamp` ignores an offset, as Postgres does.
+- `now`, `today`, `epoch`, time zone names inside the string, and `DateStyle` forms such as `10/11/2026` are refused.
+
+Lengths, precision and domain constraints are checked by Postgres : a string too long for a `varchar(20)`, or a number that does not fit
+a `numeric(6,2)`, is an error, and a value that is merely more precise is rounded as it would be by an `insert`.
+
 ## Where-driven writes: `update` and `delete`
 
 Every other mode finds the rows to touch from the payload. `update` and `delete` find them with

@@ -109,6 +109,7 @@ For `timestamp`, `timestamptz` and `date` the accepted text is ISO 8601 / RFC 33
 > **Why:** the session `TimeZone` is not pinned anywhere in rel, so an offset-less `timestamptz` string means whatever the server or role default says today. Reading it from the connection keeps that meaning. About 2 million wall-clock readings around every clock change from 1900 to 2060, in 19 zones, were compared with Postgres, and the tests repeat that.
 
 > **Question:** an offset-less `timestamptz` in a non-UTC session zone depends on Go and the server having the same time zone database. They differ on this machine in three zones (a 1925 Dublin change, a 1979 Tehran change, a 2026 Casablanca change): near those changes the reading gets an instant an hour away from the one Postgres gives. Options: accept it as a documented limit (UTC sessions and any text with an offset are unaffected), embed Go's `time/tzdata` (still not the server's), or have Postgres read such values (a text-mode `timestamptz` column, giving up the integer path for CBOR tag 1). Not decided.
+>> I don't want useless roundtrips with the database. I think the problem is small enough that we can just document the limitation and use go only for that.
 
 ### Arrays
 
@@ -172,10 +173,12 @@ For each destination table, two temp tables exist per connection. They are used 
 
 | Temp table | Columns | Used by |
 |---|---|---|
-| `pg_temp.__rel_w_<oid>` | the metadata columns, the table's columns, the mask words | general path |
-| `pg_temp.__rel_f_<oid>` | the table's columns, the mask words | fast path |
+| `pg_temp.__rel_w_<oid>_<layout>` | the metadata columns, the table's columns, the mask words | general path |
+| `pg_temp.__rel_f_<oid>_<layout>` | the table's columns, the mask words | fast path |
 
-`<oid>` is the destination table's relation OID.
+`<oid>` is the destination table's relation OID. `<layout>` is 8 hex digits hashing the metadata prefix, the number of mask words, and each column's name and temp column type.
+
+> **Why:** the pool survives a re-introspection (`docs/content/migrations.md ## Reloading`), so a connection can hold temp tables built for a table's old columns. A table whose layout changed gets different names, hence new temp tables ; the old ones stay unused until the connection closes.
 
 ### Columns
 
@@ -183,7 +186,7 @@ For each destination table, two temp tables exist per connection. They are used 
 - The metadata columns are `<prefix>row_id int`, `<prefix>node_id int`, `<prefix>parent_id int`, and the mask words `<prefix>mask0`, `<prefix>mask1`, … as `bigint`.
 - `<prefix>` is `__rel_`. If any column of the table starts with the prefix, the prefix gets one more `_` until none does.
 - There are no indexes. Parent and child lookups by `row_id` are joins over the request's own rows.
-- `__rel_w_<oid>` is created `on commit delete rows`. `__rel_f_<oid>` never receives rows.
+- The general table is created `on commit delete rows`. The fast table never receives rows.
 
 ### Row ids
 
@@ -199,36 +202,51 @@ An insert or upsert writes the keys it generated back into the same row's column
 
 - A connection creates the two temp tables of a destination table lazily, the first time a write on that connection touches it, in one pipelined batch together with the OID lookup of both row types and their array types, and a grant to `public`. The batch runs before the request's transaction begins.
 - After that batch, the connection's pgx type map gets a codec registered for each array type OID. The codec accepts the `rawBinary` parameter type and writes its bytes unchanged in binary format.
-- A temp table exists as long as its connection. Rel rebuilds the pool before it re-introspects the database, so a temp table never outlives the schema it was built from.
-- The grant mirrors the one `server/rel.go` gives `_data` today, so the role switched to by `SET LOCAL ROLE` can read and write the tables.
-- Transaction-level connection poolers in front of Postgres are unsupported, as they are for `_data` today.
+- A temp table exists as long as its connection. A schema change gives the table new temp tables (`## Temp row types`), so none is ever read against columns it was not built for.
+- The grant to `public` lets the role switched to by `SET LOCAL ROLE` read and write the tables. It is checked by a test that writes under a role with no privileges of its own.
+- `PrepareWrite` creates the tables and registers the types. `server/rel.go` calls it before beginning a request's transaction, for every write item ; `ExecuteWrite` calls it too, which is enough for a caller holding no transaction. Called inside a transaction for a table that is not yet prepared, it fails.
+- Transaction-level connection poolers in front of Postgres are unsupported.
 
-> **Why:** creating a temp table is a catalog write that waits for a WAL flush (`server/rel.go` notes this for `_data`). Lazy creation moves that cost to the first write per table per connection. Creating the tables of every writable relation at connection setup would cost two catalog entries per relation per connection, a few hundred for a database like the test fixture.
+> **Why:** creating a temp table is a catalog write that waits for a WAL flush. Lazy creation moves that cost to the first write per table per connection. Creating the tables of every writable relation at connection setup would cost two catalog entries per relation per connection, a few hundred for a database like the test fixture.
 
 ## Loading
 
-Rows reach Postgres as one binary array parameter per temp table, in the same statement batch as the statements that read them:
+Rows reach Postgres as one binary array parameter per temp table. A single statement loads every table of the request, by data-modifying CTEs, in the same statement batch as the statements that read them:
 
 ```sql
-insert into pg_temp.__rel_w_16401 select * from unnest($1::pg_temp.__rel_w_16401[])
+with l0 as (insert into pg_temp.__rel_w_16401_1a2b3c4d select * from unnest($1::pg_temp.__rel_w_16401_1a2b3c4d[])),
+     l1 as (insert into pg_temp.__rel_w_16412_5e6f7a8b select * from unnest($2::pg_temp.__rel_w_16412_5e6f7a8b[]))
+select 1
 ```
 
-The parameter is a `rawBinary` value: a Postgres binary array of composites, built in one buffer. The array header carries the row type's OID. Each element is a record with one field per column of the temp table, unsupplied columns as NULL.
+Each parameter is a `rawBinary` value: a Postgres binary array of composites, built in one buffer. The array header carries the row type's OID. Each element is a record with one field per column of the temp table, unsupplied columns as NULL. A batch holding no row is not sent.
 
-> **Why:** `COPY` cannot travel in a `pgx.Batch`, which is why `loadData` already inserts instead. A single flat composite with the mask words as fields ran within noise of sending no flags at all (41 columns, 50000 rows: 378 ms against 379 ms). Zipping a second `int8[]` array of masks cost 5 to 10 % more, and nesting the table's own row type inside a wrapper composite cost 33 to 43 % more.
+> **Why:** one statement instead of one per table : a request writing three tables sends one statement fewer than twice, and the per-statement overhead is about 0.1 ms.
+
+> **Why:** `COPY` cannot travel in a `pgx.Batch`, which is why the rows are inserted instead. A single flat composite with the mask words as fields ran within noise of sending no flags at all (41 columns, 50000 rows: 378 ms against 379 ms). Zipping a second `int8[]` array of masks cost 5 to 10 % more, and nesting the table's own row type inside a wrapper composite cost 33 to 43 % more.
 
 ## General path
 
 The phases of `query/write.go` keep their order. What changes in the SQL:
 
-- **Load**: one `insert … unnest` per temp table, replacing `loadData`'s `jsonb_to_recordset`.
-- **`resolved` CTE** (`writeResolvedCTE`): reads the node's rows from its temp table by `node_id`, with typed columns, in place of `jsonb_populate_record(null::rel, tmp.data)`. Text-mode columns are cast. Default, update-keeps and key-linkage rules are as in `## Use in SQL`.
-- **Key write-back**: `## Generated keys`. `recoverKeys` (`merge-new`'s do-nothing branch) matches the supplied identity columns of the temp row against the target table, typed.
-- **`runUpdateWhere`** (`update` with a patch): the patch is one row in the table's general temp table. The rows it updates are recorded as new rows of the same table, with fresh row ids.
-- **Read-back** (`CompileSelectForDataNode`): scopes the root relation to the rows of its own temp table where `parent_id` is null and `node_id` is the root's, matched on the identity columns, in place of the `_data` join.
-- **`DataTableDDL`, `DataTableDDLPerTransaction`, `dataTables` and `denormalize`'s jsonb output** are removed.
+- **Load**: `## Loading`.
+- **`resolved` CTE** (`writeResolvedCTE`): reads the node's rows from its temp table, with typed columns. Text-mode columns are cast. Default, update-keeps and key-linkage rules are as in `## Use in SQL`.
+- **Key write-back**: `## Generated keys`. `recoverKeys` (`merge-new`'s do-nothing branch) matches the supplied identity columns of the temp row against the target table, typed, and only writes rows whose key columns differ from the existing row's.
+- **`runDelete`**: keeps the rows of the node that have a non-null identity in their temp row. A `deleteonly` node keeps nothing. The rows to scope by are the parent's key values, read as `= any (array(select …))`.
+- **`runUpdateWhere`** (`update` with a patch): the patch is one row in the table's general temp table, and the columns it names are the set bits of that row's mask. The rows it updates are recorded as new rows of the same table, with fresh row ids.
+- **Read-back** (`CompileSelectForDataNode`): scopes the root relation to the rows of its own temp table where `parent_id` is null and `node_id` is the root's, matched on the identity columns.
+- **Removed**: `DataTableDDL`, `DataTableDDLPerTransaction`, `loadData`, and the jsonb output of `denormalize`.
 
 `stats.submitted` counts the rows loaded for a node, as it does now.
+
+### Statements and the planner
+
+The planner has no statistics on a temp table and, with none, takes `node_id = N` to keep 0.5 % of the rows and a one-row table to fill a page (about 900 narrow rows). Two rules keep its plans sane:
+
+- A statement leaves out the `node_id = N` filter when every row loaded so far in that table belongs to the node (`WriteState` tracks the node ids per table). The filter made the planner expect 5 rows in a table of 1000, and join two such tables with a nested loop of a million comparisons.
+- The delete's parent scope is an array subquery, not `in (select …)`. With 900 assumed probes the planner scanned the whole target table ; it assumes a handful for an array and keeps the index.
+
+> **Why:** measured on `query/write_bench_test.go` against the `_data` path, with the target tables analyzed as autovacuum would have them : flat insert −11 %, 100 rows per call −26 %, 1000 rows per call −27 %, one to ten rows unchanged, a three-level chain +8 %. Without the two rules the 1000-row case was 31 % slower, and a mixed outgoing and incoming write 15 times slower.
 
 ## Fast path
 
@@ -245,7 +263,17 @@ Where `runInsert` orders by `__row_id` today to keep `RETURNING` in payload orde
 
 ## Errors
 
-An encoding failure reports the node (path of join aliases), the row index in the payload, the column, the expected Postgres type and the received kind (`string`, `number`, `byte string`, …), with the `errcode` the current writes use for a bad payload. No encoding failure reaches Postgres.
+An encoding failure is a `*pgconn.PgError` carrying the SQLSTATE Postgres raises for the same value, so it classifies and reaches the client as it always has (`pgerr.Classify`). Its message follows Postgres' own wording, and its column, table and schema fields name where the value was bound.
+
+| Failure | SQLSTATE |
+|---|---|
+| a value that does not read as the type, or of a kind the type does not take | `22P02` (`22007` for a date or time) |
+| a number or date out of the type's range | `22003` (`22008` for a date or time) |
+| a string holding NUL | `22021` |
+| an offset-less `timestamptz` while the session zone is unknown to Go | `22007`, naming the zone |
+| a row of the payload that is not an object | an error with no SQLSTATE, as other payload shape errors |
+
+Lengths, precision and domain constraints are checked by Postgres when the rows load (`## Type modifiers and domains`), with its own SQLSTATE.
 
 ## Tests
 
@@ -307,8 +335,9 @@ Every value-level test runs for each source (JSON, and CBOR once the CBOR adapte
 ### Connection and lifecycle
 
 - **Role switch**: a write under `SET LOCAL ROLE` to a role without access to the pool user's temp objects.
-- **Pool rebuild**: re-introspection after `alter table … add column`, then a write on a connection that had the old temp tables.
-- **Lazy creation**: the first write to a table on a connection creates its temp tables and later writes do not; a rolled-back request leaves usable temp tables behind.
+- **Schema change**: re-introspection after `alter table … add column`, then a write on a connection that had the old temp tables.
+- **Lazy creation**: the first write to a table on a connection creates its temp tables and later writes do not; a rolled-back request leaves usable temp tables behind; creating them inside a transaction is refused.
+- **Test hook**: tests create the general tables `on commit preserve rows` (`keepRowsAtCommit`) because they commit every statement and read the rows back ; `server` tests run with the real `delete rows` tables and check that no row survives a request, committed, rolled back or rejected.
 - **Column name clash**: a table with a column named `__rel_row_id`, and one named `__rel__mask0`.
 - **Wide tables**: a table near the 1600-column limit fails with a clear error, not a Postgres internal one.
 
