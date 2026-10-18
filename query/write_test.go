@@ -560,6 +560,64 @@ func TestExecuteWriteStateParamsStats_Upsert(t *testing.T) {
 	}
 }
 
+// TestExecuteWrite_DeleteOnlyKeepsWhatThePayloadNames : deleteonly removes the rows the payload does not
+// mention, and writes nothing, so the rows it does mention stay as they are.
+func TestExecuteWrite_DeleteOnlyKeepsWhatThePayloadNames(t *testing.T) {
+	conn := acquireWriteConn(t)
+	ctx := context.Background()
+
+	var directorID, keepID, goneA, goneB int
+	if err := conn.QueryRow(ctx, `insert into director (name) values ('Delete Only Director') returning id`).Scan(&directorID); err != nil {
+		t.Fatal(err)
+	}
+	for title, dest := range map[string]*int{"Keep Me": &keepID, "Gone A": &goneA, "Gone B": &goneB} {
+		if err := conn.QueryRow(ctx, `insert into movie (director_id, title) values ($1, $2) returning id`, directorID, title).Scan(dest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// another director's movie is out of the join's scope and must stay
+	var otherID int
+	if err := conn.QueryRow(ctx, `insert into movie (director_id, title) select id, 'Elsewhere' from director where id <> $1 limit 1 returning id`, directorID).Scan(&otherID); err != nil {
+		if _, err := conn.Exec(ctx, `insert into director (name) values ('Other Director')`); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRow(ctx, `insert into movie (director_id, title) select id, 'Elsewhere' from director where id <> $1 limit 1 returning id`, directorID).Scan(&otherID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	node := mustResolveQuery(t, fmt.Sprintf(`{
+		"relation": "director", "schema": "public",
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
+		"where": ["=", ["col", "id"], %d],
+		"write_mode": "update-existing",
+		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"], "write_mode": "deleteonly"}}
+	}`, directorID))
+	// the payload names one movie, with a title that deleteonly must not write
+	payload := fmt.Appendf(nil, `[{"id": %d, "name": "Delete Only Director", "movies": [{"id": %d, "title": "Not Written"}]}]`, directorID, keepID)
+	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
+		t.Fatalf("ExecuteWrite: %v", err)
+	}
+
+	rows, err := conn.Query(ctx, `select id, title from movie where id = any ($1) order by id`, []int{keepID, goneA, goneB, otherID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[int]string{}
+	for rows.Next() {
+		var id int
+		var title string
+		if err := rows.Scan(&id, &title); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = title
+	}
+	if len(got) != 2 || got[keepID] != "Keep Me" || got[otherID] != "Elsewhere" {
+		t.Errorf("want only the named movie (untouched) and the other director's movie, got %v", got)
+	}
+}
+
 // TestExecuteWriteStateParamsStats_Delete proves a delete-bearing mode
 // reports its Deleted count.
 func TestExecuteWriteStateParamsStats_Delete(t *testing.T) {

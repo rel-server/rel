@@ -129,12 +129,18 @@ func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole
 // passed in for the returned DbInfos' own Pool field, rather than building
 // a new one : the caller (specs/migrations.md ## Reloading step 4) owns that
 // pool's lifecycle entirely ; this function never builds or closes one.
+//
+// It does reset the pool once the schema is read : every connection is closed, idle
+// ones at once and busy ones when they are released. A connection holds temp tables built
+// for the previous schema (the write path's, query/write_temp.go), and a fresh one holds none.
+// The caller must have no request running, which is what a reload's maintenance mode guarantees.
 func ReIntrospect(ctx context.Context, primaryURI string, pool *pgxpool.Pool, anonymousRole string) (*DbInfos, error) {
 	db, err := introspect(ctx, primaryURI, anonymousRole)
 	if err != nil {
 		return nil, err
 	}
 	db.Pool = pool
+	pool.Reset()
 	return db, nil
 }
 

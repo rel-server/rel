@@ -439,9 +439,9 @@ func TestLoad_UnderASwitchedRole(t *testing.T) {
 	})
 }
 
-// TestEnsureTempTables_SchemaChangeGetsNewTables : the pool survives a re-introspection, so a
-// connection may hold temp tables built for a table's old columns. A changed table must not reuse them.
-func TestEnsureTempTables_SchemaChangeGetsNewTables(t *testing.T) {
+// TestEnsureTempTables_SchemaChange : a reload resets the pool (pg.ReIntrospect), so a table whose
+// columns changed starts over on fresh connections, with no temp table built for its old columns.
+func TestEnsureTempTables_SchemaChange(t *testing.T) {
 	ctx := context.Background()
 	for _, q := range []string{`drop table if exists public.layout_change_t`, `create table public.layout_change_t (id int primary key)`} {
 		if _, err := testDb.Pool.Exec(ctx, q); err != nil {
@@ -450,12 +450,11 @@ func TestEnsureTempTables_SchemaChangeGetsNewTables(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = testDb.Pool.Exec(context.Background(), `drop table if exists public.layout_change_t`) })
 
-	relOf := func() *pg.Relation {
-		infos, err := pg.NewInfos(testDbURI)
+	reintrospect := func() *pg.Relation {
+		infos, err := pg.ReIntrospect(ctx, testDbURI, testDb.Pool, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(infos.Pool.Close)
 		r := infos.ResolveRelation("public", "layout_change_t")
 		if r == nil {
 			t.Fatal("layout_change_t was not introspected")
@@ -463,25 +462,30 @@ func TestEnsureTempTables_SchemaChangeGetsNewTables(t *testing.T) {
 		return r
 	}
 	conn := tempTestConn(t)
-	before, err := ensureTempTables(ctx, conn, relOf())
+	before, err := ensureTempTables(ctx, conn, reintrospect())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(before.cols) != 1 {
+		t.Fatalf("columns = %d", len(before.cols))
 	}
 
 	if _, err := testDb.Pool.Exec(ctx, `alter table public.layout_change_t add column extra varchar(4)`); err != nil {
 		t.Fatal(err)
 	}
-	after, err := ensureTempTables(ctx, conn, relOf())
+	rel := reintrospect() // resets the pool : the connection above is closed when released
+	conn.Release()
+	conn = tempTestConn(t)
+	after, err := ensureTempTables(ctx, conn, rel)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.general.name == before.general.name || after.general.arrayOID == before.general.arrayOID {
-		t.Fatalf("the changed table reuses the old temp table %s", before.general.name)
+	if len(after.cols) != 2 {
+		t.Fatalf("columns = %d", len(after.cols))
 	}
 
-	vals := []Node{encNode(t, `1`), encNode(t, `"abc"`)}
 	b := after.newBatch(true, 1)
-	if err := b.addRow(rowMeta{RowID: 1, NodeID: 1}, vals, make([]int64, after.maskWords), nil); err != nil {
+	if err := b.addRow(rowMeta{RowID: 1, NodeID: 1}, []Node{encNode(t, `1`), encNode(t, `"abc"`)}, make([]int64, after.maskWords), nil); err != nil {
 		t.Fatal(err)
 	}
 	inTx(t, conn, func() {

@@ -9,7 +9,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -86,26 +85,12 @@ func newTempTable(rel *pg.Relation) (*tempTable, error) {
 		}
 		t.cols = append(t.cols, tc)
 	}
-	// The layout is part of the name : a table whose columns changed gets new temp tables, and the ones
-	// built for its old shape stay unused until the connection closes.
-	sig := t.layoutSignature()
-	t.general.name = fmt.Sprintf("__rel_w_%d_%s", rel.PgRelId, sig)
-	t.fast.name = fmt.Sprintf("__rel_f_%d_%s", rel.PgRelId, sig)
+	t.general.name = fmt.Sprintf("__rel_w_%d", rel.PgRelId)
+	t.fast.name = fmt.Sprintf("__rel_f_%d", rel.PgRelId)
 	for _, tt := range []*tempType{&t.general, &t.fast} {
 		tt.typeNames = [2]string{"rel_" + tt.name, "_rel_" + tt.name}
 	}
 	return t, nil
-}
-
-// layoutSignature hashes what decides the shape of the temp tables : the metadata prefix, each
-// column's name and type, and the number of mask words.
-func (t *tempTable) layoutSignature() string {
-	h := fnv.New64a()
-	fmt.Fprintf(h, "%s|%d", t.prefix, t.maskWords)
-	for _, c := range t.cols {
-		fmt.Fprintf(h, "|%s %s", c.name, c.decl)
-	}
-	return fmt.Sprintf("%08x", h.Sum64()&0xffffffff)
 }
 
 func quoteIdent(name string) string { return pgx.Identifier{name}.Sanitize() }

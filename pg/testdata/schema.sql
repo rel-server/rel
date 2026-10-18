@@ -443,3 +443,7 @@ create table defaults_t (
 	d text default 'x',
 	home addr_t
 );
+
+-- One table at two nodes of a write (query/write_multinode_test.go) : a tree whose rows reference their parent row.
+create table tree_t (id serial primary key, parent_id int references tree_t (id), name text not null);
+create index idx_tree_parent on tree_t (parent_id);

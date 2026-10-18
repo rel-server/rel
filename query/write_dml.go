@@ -1428,7 +1428,7 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 	}
 	// The rows to keep are this node's rows that have an identity : an inserted row got its keys written
 	// back, a matched one recovered them, a supplied identity names an existing row. A deleteonly node writes
-	// nothing and keeps nothing.
+	// nothing, so what it keeps is the identities its payload names.
 	w.Write(") not in (select ")
 	for i, col := range identCols {
 		if i > 0 {
@@ -1442,9 +1442,6 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 	keep := dc.nodeCond(node, "w")
 	for _, col := range identCols {
 		keep = append(keep, tt.rawColRef("w", col)+" is not null")
-	}
-	if node.WriteMode == DELETE_ONLY {
-		keep = append(keep, "false")
 	}
 	writeWhere(w, keep)
 	w.Write(")")
