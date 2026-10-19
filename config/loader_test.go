@@ -951,3 +951,73 @@ func TestLevenshtein(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_InlineConfig_PrecedenceAndFormats(t *testing.T) {
+	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
+	p := writeFile(t, t.TempDir(), "rel.toml", "[pg]\nhost = \"file-host\"\nport = 1111\n")
+
+	// Inline beats the explicitly named file; the file's other keys survive.
+	t.Setenv("REL_CONFIG__TOML", "[pg]\nhost = \"inline-host\"\ndatabase = \"inline-db\"\n")
+	cfg, err := Load([]string{"--config=" + p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Pg.Host != "inline-host" || cfg.Pg.Database != "inline-db" || cfg.Pg.Port != 1111 {
+		t.Fatalf("expected inline over file with file port kept, got %+v", cfg.Pg)
+	}
+
+	// Individual env vars and flags beat inline.
+	t.Setenv("REL_PG__HOST", "env-host")
+	cfg, err = Load([]string{"--config=" + p})
+	if err != nil || cfg.Pg.Host != "env-host" {
+		t.Fatalf("expected env over inline, got %v, %+v", err, cfg.Pg)
+	}
+	cfg, err = Load([]string{"--pg.host=flag-host"})
+	if err != nil || cfg.Pg.Host != "flag-host" {
+		t.Fatalf("expected flag over env, got %v, %+v", err, cfg.Pg)
+	}
+
+	// YAML and HUML.
+	os.Unsetenv("REL_PG__HOST") // t.Setenv above restores it at cleanup
+	t.Setenv("REL_CONFIG__TOML", "")
+	t.Setenv("REL_CONFIG__YAML", "pg:\n  host: yaml-host\n")
+	if cfg, err = Load(nil); err != nil || cfg.Pg.Host != "yaml-host" {
+		t.Fatalf("yaml: %v, %+v", err, cfg.Pg)
+	}
+	t.Setenv("REL_CONFIG__YAML", "")
+	t.Setenv("REL_CONFIG__HUML", "pg::\n  host: \"huml-host\"\n")
+	if cfg, err = Load(nil); err != nil || cfg.Pg.Host != "huml-host" {
+		t.Fatalf("huml: %v, %+v", err, cfg.Pg)
+	}
+}
+
+func TestLoad_InlineConfig_TwoFormatsIsFatal(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("REL_CONFIG__TOML", "a = 1")
+	t.Setenv("REL_CONFIG__YAML", "a: 1")
+	_, err := Load(nil)
+	if err == nil || !strings.Contains(err.Error(), "REL_CONFIG__TOML") || !strings.Contains(err.Error(), "REL_CONFIG__YAML") {
+		t.Fatalf("expected an error naming both variables, got %v", err)
+	}
+}
+
+func TestLoad_InlineConfig_ParseErrorDoesNotEchoValue(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("REL_CONFIG__TOML", "[pg\npassword = \"s3cret-value\"")
+	_, err := Load(nil)
+	if err == nil || strings.Contains(err.Error(), "s3cret-value") || !strings.Contains(err.Error(), "REL_CONFIG__TOML") {
+		t.Fatalf("expected a redacted error naming the variable, got %v", err)
+	}
+}
+
+func TestLoad_InlineConfig_VarsAreNotReportedAsUnusedKeys(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("REL_CONFIG__TOML", "[pg]\nhost = \"h\"\n")
+	k := koanf.New(".")
+	if err := loadInlineConfig(k); err != nil {
+		t.Fatal(err)
+	}
+	if k.Exists("config") {
+		t.Errorf("inline document must not leave a config.* key in the tree: %v", k.All())
+	}
+}

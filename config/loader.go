@@ -32,7 +32,8 @@ import (
 // filename set, tried at each of the three search locations.
 var configFileNames = []string{"rel.toml", "rel.yaml", "rel.yml", "rel.huml"}
 
-// Load builds a *Config from a config file (if any), REL_ environment
+// Load builds a *Config from a config file (if any), an inline config
+// document (REL_CONFIG__TOML/YAML/HUML), REL_ environment
 // variables, and CLI-style args (dotted "--key=value"/"--key value" pairs),
 // later sources overriding earlier ones, per ## Sources and precedence.
 // args is normally os.Args[1:] ; passed explicitly so callers/tests don't
@@ -61,11 +62,18 @@ func Load(args []string) (*Config, error) {
 		}
 	}
 
+	if err := loadInlineConfig(k); err != nil {
+		return nil, err
+	}
+
 	if err := k.Load(env.Provider(".", env.Opt{
 		Prefix: "REL_",
 		TransformFunc: func(k, v string) (string, any) {
 			key := strings.ToLower(strings.TrimPrefix(k, "REL_"))
 			key = strings.ReplaceAll(key, "__", ".")
+			if _, isInline := inlineConfigVars[k]; isInline || key == "config" {
+				return "", nil // consumed by loadInlineConfig / resolveConfigFilePath, not settings
+			}
 			return key, v
 		},
 	}), nil); err != nil {
@@ -167,18 +175,68 @@ func discoveryRoots() []string {
 	return roots
 }
 
+// inlineConfigVars maps each environment variable that can carry a whole
+// config document to the extension whose parser reads it.
+var inlineConfigVars = map[string]string{
+	"REL_CONFIG__TOML": ".toml",
+	"REL_CONFIG__YAML": ".yaml",
+	"REL_CONFIG__HUML": ".huml",
+}
+
+// loadInlineConfig merges the document held in REL_CONFIG__TOML,
+// REL_CONFIG__YAML or REL_CONFIG__HUML into k, on top of any config file
+// and below individual REL_ variables and flags. Setting more than one is
+// an error.
+func loadInlineConfig(k *koanf.Koanf) error {
+	var name string
+	for v := range inlineConfigVars {
+		if os.Getenv(v) == "" {
+			continue
+		}
+		if name != "" {
+			a, b := min(name, v), max(name, v)
+			err := fmt.Errorf("config: both %s and %s are set, pick one", a, b)
+			slog.Default().Error(err.Error())
+			return err
+		}
+		name = v
+	}
+	if name == "" {
+		return nil
+	}
+	parser, _ := parserForExt(inlineConfigVars[name])
+	// Parse errors can echo a fragment of a value, so only the variable name is reported.
+	m, err := parser.Unmarshal([]byte(os.Getenv(name)))
+	if err == nil {
+		err = k.Load(confmap.Provider(m, "."), nil)
+	}
+	if err != nil {
+		slog.Default().Error("config: loading inline config: parse error", "var", name)
+		return fmt.Errorf("config: %s: parse error", name)
+	}
+	return nil
+}
+
 // parserFor picks the koanf.Parser for path's extension.
 func parserFor(path string) (koanf.Parser, error) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".toml":
-		return toml.Parser(), nil
-	case ".yaml", ".yml":
-		return yaml.Parser(), nil
-	case ".huml":
-		return huml.Parser(), nil
-	default:
+	p, ok := parserForExt(strings.ToLower(filepath.Ext(path)))
+	if !ok {
 		return nil, fmt.Errorf("config: %s: unrecognized extension (want .toml/.yaml/.yml/.huml)", path)
 	}
+	return p, nil
+}
+
+// parserForExt maps a lowercase file extension, dot included, to its parser.
+func parserForExt(ext string) (koanf.Parser, bool) {
+	switch ext {
+	case ".toml":
+		return toml.Parser(), true
+	case ".yaml", ".yml":
+		return yaml.Parser(), true
+	case ".huml":
+		return huml.Parser(), true
+	}
+	return nil, false
 }
 
 // parseFlags is ## Sources and precedence's highest-precedence source ;

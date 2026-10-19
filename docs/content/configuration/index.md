@@ -54,6 +54,29 @@ same directory, say) is a fatal error — rel never picks one silently. Finding 
 step isn't an error either; rel runs on environment variables, flags, and built-in defaults
 alone, which is enough to start it (see [Getting started](../getting-started/index.md)).
 
+## Inline config in an environment variable
+
+The whole config document can also be passed as the value of `REL_CONFIG__TOML`, `REL_CONFIG__YAML` or `REL_CONFIG__HUML`, which is handy when a container has no file to mount:
+
+```yaml
+services:
+  rel:
+    environment:
+      REL_CONFIG__TOML: |
+        [typescript]
+        helper_path = ""
+
+        [http]
+        port = 8080
+```
+
+- The inline document is more specific than a config file and less specific than individual `REL_` variables and flags. It is merged on top of the file (discovered or named with `--config` / `REL_CONFIG`); keys the inline document doesn't set keep the file's value.
+- Setting more than one of the three variables is a fatal error.
+- A parse error names the variable but never echoes any of the document, as with files.
+- Relative paths inside the document (`typescript.helper_path`, `http.static.path`, ...) are relative to the working directory, exactly as in a file.
+- In a Compose file, write `$$` for a literal `$`, since Compose substitutes `${...}` itself. `env_file:` doesn't handle multi-line values reliably; use `environment:`.
+- Environment variables show up in `docker inspect` and `/proc/<pid>/environ`. Keep secrets out of the document and use `$FILE$` references to mounted files or Docker secrets instead.
+
 ## Secrets and generated values
 
 Any single config value, from any of the three sources, can point at a file instead of being

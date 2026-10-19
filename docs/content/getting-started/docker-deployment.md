@@ -124,6 +124,20 @@ build artifact — a redeploy rolls forward and back by changing one tag, and th
 during an incident. The compose file above deploys this way: `image: your-registry/your-app`,
 not `rel-server/rel` directly, and no `/wellknown`/`/static`/`/template` volumes at all.
 
+## Passing the config file as one variable
+
+Instead of mounting a config file, put the whole document in `REL_CONFIG__TOML` (or `REL_CONFIG__YAML` / `REL_CONFIG__HUML`) with a YAML `|` block:
+
+```yaml
+    environment:
+      REL_CONFIG__TOML: |
+        [typescript]
+        helper_path = ""
+      REL_PG__URI: postgres://hotel:${DB_PASSWORD}@db:5432/hotel
+```
+
+Individual `REL_` variables, like `REL_PG__URI` above, override the same key in the document. Use `$$` for a literal `$` inside the block, and `environment:` rather than `env_file:`. Details and precedence: [Inline config in an environment variable](../configuration/index.md#inline-config-in-an-environment-variable).
+
 ## Combining baked-in static assets with writable uploads
 
 `http.static.path` accepts several colon-separated directories and serves them as one merged
