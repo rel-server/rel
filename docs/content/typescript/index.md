@@ -684,9 +684,13 @@ With `cbor`, objects that share their keys are written once and then referred to
 ([the wire format](../query-language/index.md#structures)): about half the bytes for rows, and decoding about three times
 faster in `cbor-x`.
 
-- **Responses** ask for them through the codec's `accept`, `application/cbor; structures=1`. `cbor-x` reads them by building
-  a reader per layout with `new Function`, which a strict Content-Security-Policy (no `'unsafe-eval'`) or a runtime without
-  `eval` refuses. There, assign `Querier.prototype.codec.accept = "application/cbor"` to have plain maps.
+- **Responses** ask for them through the codec's `accept`, `application/cbor; structures=1`; assign
+  `Querier.prototype.codec.accept = "application/cbor"` to have plain maps instead. `cbor-x` reads a layout fastest by
+  compiling a reader for it with `new Function`. Under a Content-Security-Policy without `'unsafe-eval'` (or in a runtime
+  that forbids it) it tries once when it loads, catches the refusal and reads structures without compiling them, which is
+  still about 2.7 times faster than maps (measured in Node with `--disallow-code-generation-from-strings`). The one
+  attempt is still reported to the policy as a violation (a console error, and a report if the policy has a
+  `report-uri`). To avoid it, make your bundler resolve `cbor-x` to `cbor-x/index-no-eval`, the build that never tries.
 - **Requests** use them unless `sendStructures` is `false`. It is a property of `Querier`, like `baseUrl` and `codec`:
   `Querier.prototype.sendStructures = false` for every query, or `myQuery.sendStructures = false` for one (a query built from
   it, with `join()` and the like, starts from the prototype's value again). Objects that never share their keys, such as a

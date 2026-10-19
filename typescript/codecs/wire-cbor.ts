@@ -74,9 +74,10 @@ function forServer(v: unknown): unknown {
 
 Querier.prototype.codec = {
   contentType: "application/cbor",
-  // Responses use structures too. cbor-x reads them by compiling a reader per layout with `new Function`, which a
-  // strict Content-Security-Policy (no 'unsafe-eval') or a runtime without eval refuses : assign "application/cbor"
-  // here to have plain maps in responses.
+  // Responses use structures too. cbor-x reads them fastest by compiling a reader per layout with `new Function`; where
+  // that is refused (a Content-Security-Policy without 'unsafe-eval') it notices at load, once, and reads them without
+  // compiling, still faster than maps. That one refusal is reported to the policy, though : import `cbor-x/index-no-eval`
+  // instead of `cbor-x` to avoid it. docs/content/typescript/index.md ### Structures.
   accept: "application/cbor; structures=1",
   binary: true,
   encode(value, opts) {
