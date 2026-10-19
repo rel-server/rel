@@ -28,6 +28,16 @@ test-ts:
     cd typescript && bun install --frozen-lockfile
     go test ./test/tsclient -count=1 -v
 
+# The TypeScript codecs side by side (typescript/presets/bench.ts) on a response of 20 rows, a page. Needs docker and bun.
+bench-codecs-small:
+    cd typescript && bun install --frozen-lockfile
+    BENCH_ROWS=20 TSCLIENT_BENCH=1 go test ./test/tsclient -count=1 -v -run TestTypeScriptClient | grep BENCH
+
+# The same on a response of 2000 rows.
+bench-codecs-medium:
+    cd typescript && bun install --frozen-lockfile
+    BENCH_ROWS=2000 TSCLIENT_BENCH=1 go test ./test/tsclient -count=1 -v -run TestTypeScriptClient | grep BENCH
+
 # Launch the rel server against the dev database (just test-db-up first). Uses
 # pg.uri alone — REL_PG__QUERY__USER/PASSWORD are unset (there's only one
 # role in this dev fixture) ; a real deployment would set those separately,

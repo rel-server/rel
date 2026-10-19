@@ -125,8 +125,12 @@ export const pgWireCasts = {
     }
     return s
   },
-  timestamp(value: Temporal.PlainDateTime | Temporal.Instant | string): unknown {
-    return typeof value === "string" ? value : value.toString()
+  timestamp(value: Temporal.PlainDateTime | Temporal.Instant | Date | string): unknown {
+    return typeof value === "string"
+      ? value
+      : value instanceof Date
+        ? value.toISOString()
+        : value.toString()
   },
   date(value: Temporal.PlainDate | string): unknown {
     return typeof value === "string" ? value : value.toString()
@@ -146,7 +150,7 @@ export function asTimestamptz(value: Date | Temporal.Instant | string): Timestam
 }
 
 /** What a `Timestamp` is read and written as : a wall clock by default, an instant when `PgWire["timestamp"]` says. */
-export type TimestampValue = Timestamp extends string ? Temporal.PlainDateTime : Temporal.Instant
+export type TimestampValue = PgWireType<"timestamp", Temporal.PlainDateTime>
 
 /**
  Round-tripping a Temporal.PlainDateTime back to a Timestamp is lossless and unambiguous — PlainDateTime never
@@ -401,9 +405,7 @@ export function timestampAccessor<Col extends string>(column: Col) {
       get(this: Record<Col, Timestamp>): TimestampValue {
         const v: unknown = this[column]
         // a wall clock out of text ; an instant (PgWire["timestamp"] retyped by the codec) is already the value
-        return (
-          v instanceof Temporal.Instant ? v : Temporal.PlainDateTime.from(v as string)
-        ) as TimestampValue
+        return (typeof v === "string" ? Temporal.PlainDateTime.from(v) : v) as TimestampValue
       },
       set(this: Record<Col, Timestamp>, value: TimestampValue | string) {
         this[column] = asTimestamp(value)
@@ -420,7 +422,7 @@ export function dateAccessor<Col extends string>(column: Col) {
     [`${column}_as_date`]: {
       get(this: Record<Col, PgDate>): Temporal.PlainDate {
         const v: unknown = this[column]
-        return v instanceof Temporal.PlainDate ? v : Temporal.PlainDate.from(v as string)
+        return (typeof v === "string" ? Temporal.PlainDate.from(v) : v) as Temporal.PlainDate
       },
       set(this: Record<Col, PgDate>, value: Temporal.PlainDate | string) {
         this[column] = asPgDate(value)

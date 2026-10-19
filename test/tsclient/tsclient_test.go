@@ -3,6 +3,8 @@
 // (boot.BuildMux) on a local port, and the database.ts that server generates for it. Then it typechecks the
 // tests against that generated file (tsc) and runs them (bun test) with REL_URL pointing at the server.
 //
+// TSCLIENT_BENCH=1 also runs the codec benchmarks, and shows their results with -v.
+//
 // Skipped when bun isn't installed, so `go test ./...` still works without it.
 package tsclient
 
@@ -130,5 +132,14 @@ func TestTypeScriptClient(t *testing.T) {
 		preset := filepath.Base(filepath.Dir(tsconfig))
 		run(bun, "x", "tsc", "--noEmit", "-p", "presets/"+preset+"/tsconfig.json")
 		run(bun, "test", "./presets/"+preset)
+	}
+
+	// Opt-in : the codecs' costs side by side (typescript/presets/bench.ts), each in a process of its own.
+	if os.Getenv("TSCLIENT_BENCH") != "" {
+		run(bun, "tests/codec.bench.ts")
+		for _, tsconfig := range presets {
+			preset := filepath.Base(filepath.Dir(tsconfig))
+			run(bun, filepath.Join("presets", preset, preset+".bench.ts"))
+		}
 	}
 }

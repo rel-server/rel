@@ -624,6 +624,7 @@ yields the same values as the preset.)
 | none (default) | | JSON text. `Int8` and `PgNumeric` are `number`, so anything beyond 2^53 (or about 15 significant digits for a decimal) is silently rounded by `JSON.parse`. Dates, times and `bytea` are strings. |
 | `presets/json-bigint/json-bigint.ts` | `lossless-json` | `int8` is `number \| bigint`: a safe integer is a number, a larger one a bigint. A `bigint` can be sent. |
 | `presets/cbor/cbor.ts` | `cbor-x`, `Temporal` | CBOR both ways, see [below](#cbor). |
+| `presets/cbor-date/cbor-date.ts` | `cbor-x` | The same without `Temporal`: an instant is a `Date`, a `date` stays text. |
 
 Without a bigint-aware codec, passing a `bigint` in a query or a payload throws a `TypeError`, since the browser's
 `JSON.stringify` cannot write one.
@@ -634,8 +635,8 @@ Without a bigint-aware codec, passing a `bigint` in a query or a payload throws 
 |---|---|---|---|
 | `int8` | `number` | `bigint`, `number \| bigint` | `asInt8` |
 | `numeric` | `number` | a decimal class | `asNumeric` |
-| `timestamptz` | `string` | `Temporal.Instant` | `asTimestamptz` |
-| `timestamp` | `string` | `Temporal.Instant` | `asTimestamp` |
+| `timestamptz` | `string` | `Temporal.Instant`, `Date` | `asTimestamptz` |
+| `timestamp` | `string` | `Temporal.Instant`, `Date` | `asTimestamp` |
 | `date` | `string` | `Temporal.PlainDate` | `asPgDate` |
 | `bytea` | `string` (`\x…` hex) | `Uint8Array` | the `bytea` entry of `pgWireCasts` |
 
@@ -679,12 +680,18 @@ using [`cbor-x`](https://github.com/kriszyp/cbor-x). A value then keeps its colu
 | `bytea` | `Uint8Array` |
 | `uuid` | `string` (hyphenated) |
 | `int2`, `int4`, `int8` | `number`; a value of 2^32 or more is a `bigint` (`cbor-x` reads every 8-byte integer that way), so `int8` is `number \| bigint` |
-| `numeric` | `number` (an exact decimal needs a tag 4 extension of your own and `PgWire["numeric"]` set to its class) |
+| `numeric` | `number`: `cbor-x` reads tag 4 as `Number(mantissa + "e" + exponent)`, so the digits beyond what a double holds (about 15 to 17) are rounded and the display scale is lost (`1.50` reads `1.5`), as with JSON. `NaN` and the infinities are floats and read as such. An exact decimal needs a tag 4 extension of your own (which replaces the built-in one) and `PgWire["numeric"]` set to its class |
 | `interval`, ranges, `inet`, `money`... | the same string as JSON |
 
 The preset is about 100 lines: three tag extensions (1, 100, 37), the encoder options, and a rewrite of what `cbor-x`
 writes differently from `JSON.stringify` (an `undefined` object member is dropped, and a whole number of 2^32 or more is
 sent as an integer, which an `int8` column needs). It needs a runtime with `Temporal`, or a polyfill loaded before it.
+
+`cbor-date` is the same file for a runtime without `Temporal`, or to avoid the objects: `timestamptz` and `timestamp` are `Date`s
+(so only milliseconds are kept: the microseconds of a timestamp are lost on read), and `date` is the `YYYY-MM-DD` text JSON gives, since a `Date`
+cannot hold a calendar day without a time zone nor reach every year a `date` does (`5874897-12-31`, `0044-03-15 BC`). The `timestamptz` `_as_date` accessor
+still returns a `Temporal.Instant`, so using it needs `Temporal`. Decoding is not faster than with `cbor`: building the `Temporal` objects is a
+small part of the cost, `cbor-x` itself the rest.
 
 ## database.json
 
