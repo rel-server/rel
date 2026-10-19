@@ -49,9 +49,10 @@ const (
 
 // ResultEncoder turns the binary values of a query's result into CBOR.
 type ResultEncoder struct {
-	db   *pg.DbInfos
-	plan *recordPlan
-	ec   *encodeContext // the session time zone a timestamp is read in ; nil until BindSession, which means UTC
+	db      *pg.DbInfos
+	plan    *recordPlan
+	ec      *encodeContext  // the session time zone a timestamp is read in ; nil until BindSession, which means UTC
+	structs *StructureTable // nil writes every record as a map
 }
 
 // BindSession tells the encoder which connection's rows it will read : a timestamp is answered as the instant its
@@ -70,15 +71,45 @@ func (e *ResultEncoder) BindSession(q Querier) error {
 type recordPlan struct {
 	names    []string
 	children []*recordPlan // per field : the plan of the record, or array of records, it holds ; nil for any other
+	structID int           // the node's structure in a StructureTable ; -1 when records are written as maps
 }
 
-// NewResultEncoder prepares to encode the rows of the query rooted at root. db resolves the types the rows hold.
-func NewResultEncoder(db *pg.DbInfos, root *QueryNode) (*ResultEncoder, error) {
-	plan, err := planFor(root)
+// StructureTable gives the record layouts of one response their ids (specs/cbor.md ## Structures). It is shared by
+// the encoders of every item of the response, so an id means one list of names from the first byte to the last, and
+// it is written to by one goroutine at a time.
+type StructureTable struct {
+	ids     map[string]int // a list of names, by the id it was given
+	defined []bool         // per id : its definition has been written
+	names   [][]string
+}
+
+// NewStructureTable returns an empty table. Pass it to NewResultEncoder to have records written as structures.
+func NewStructureTable() *StructureTable { return &StructureTable{ids: map[string]int{}} }
+
+// idFor returns the id of a list of names, giving it the next one when it is new, or -1 once the ids run out.
+func (t *StructureTable) idFor(names []string) int {
+	key := strings.Join(names, "\x00")
+	if id, ok := t.ids[key]; ok {
+		return id
+	}
+	if len(t.names) >= cborenc.MaxStructures {
+		return -1
+	}
+	id := len(t.names)
+	t.ids[key] = id
+	t.names = append(t.names, names)
+	t.defined = append(t.defined, false)
+	return id
+}
+
+// NewResultEncoder prepares to encode the rows of the query rooted at root. db resolves the types the rows hold. A
+// non-nil structures makes it write the records of the query's nodes as structures, ids coming from that table.
+func NewResultEncoder(db *pg.DbInfos, root *QueryNode, structures *StructureTable) (*ResultEncoder, error) {
+	plan, err := planFor(root, structures)
 	if err != nil {
 		return nil, err
 	}
-	return &ResultEncoder{db: db, plan: plan}, nil
+	return &ResultEncoder{db: db, plan: plan, structs: structures}, nil
 }
 
 // NewValueEncoder is a ResultEncoder for lone values, as a function returns, rather than the rows of a query : a
@@ -88,8 +119,9 @@ func NewValueEncoder(db *pg.DbInfos) *ResultEncoder { return &ResultEncoder{db: 
 // NativeCBORType reports whether a value of type t is encoded by a ResultEncoder, rather than through its JSON form.
 func NativeCBORType(t *pg.Type) bool { return nativeCBORType(t) }
 
-// planFor builds the record plan of node, nil when node's value is not a record (a scalar select).
-func planFor(node *QueryNode) (*recordPlan, error) {
+// planFor builds the record plan of node, nil when node's value is not a record (a scalar select). Its nodes take
+// their structure ids from structures, when there is one.
+func planFor(node *QueryNode, structures *StructureTable) (*recordPlan, error) {
 	if !isShapeProducingSelect(node.Select) || (node.IsFunction() && !node.Function.ReturnsSet && node.Relation == nil) {
 		return nil, nil
 	}
@@ -97,14 +129,17 @@ func planFor(node *QueryNode) (*recordPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &recordPlan{names: make([]string, len(fields)), children: make([]*recordPlan, len(fields))}
+	p := &recordPlan{names: make([]string, len(fields)), children: make([]*recordPlan, len(fields)), structID: -1}
 	for i, f := range fields {
 		p.names[i] = f.key
 		if child := embedChildOf(f); child != nil {
-			if p.children[i], err = planFor(child); err != nil {
+			if p.children[i], err = planFor(child, structures); err != nil {
 				return nil, err
 			}
 		}
+	}
+	if structures != nil {
+		p.structID = structures.idFor(p.names)
 	}
 	return p, nil
 }
@@ -264,7 +299,16 @@ func (e *ResultEncoder) appendRecord(dst, d []byte, plan *recordPlan, rel *pg.Re
 	if plan != nil && len(plan.names) != n {
 		return dst, oops.Errorf("cbor result: a record has %d fields, its query selects %d", n, len(plan.names))
 	}
-	dst = cborenc.AppendMapHead(dst, n)
+	asStruct := plan != nil && plan.structID >= 0
+	switch {
+	case !asStruct:
+		dst = cborenc.AppendMapHead(dst, n)
+	case e.structs.defined[plan.structID]:
+		dst = cborenc.AppendStructureRef(dst, plan.structID, n)
+	default:
+		dst = cborenc.AppendStructureDef(dst, plan.structID, plan.names)
+		e.structs.defined[plan.structID] = true
+	}
 	for i := 0; i < n; i++ {
 		if len(d) < 8 {
 			return dst, errShort("a record")
@@ -283,7 +327,9 @@ func (e *ResultEncoder) appendRecord(dst, d []byte, plan *recordPlan, rel *pg.Re
 		default:
 			name = "f" + strconv.Itoa(i+1)
 		}
-		dst = cborenc.AppendText(dst, name)
+		if !asStruct {
+			dst = cborenc.AppendText(dst, name)
+		}
 
 		if size < 0 {
 			dst = cborenc.AppendNull(dst)

@@ -347,6 +347,14 @@ func TestGenerateDatabaseTS_TypeChecks_Wellknowns(t *testing.T) {
 
 func assertTypeChecks(t *testing.T, out string) {
 	t.Helper()
+	assertTypeChecksWithLib(t, out, `"ESNext", "dom"`)
+}
+
+// assertTypeChecksWithLib type-checks out with the given tsconfig `lib` entries. A file that imports a package
+// (cbor-x, lossless-json) resolves it through a node_modules symlink to typescript/node_modules (`bun install`
+// there once), and is skipped when that directory is missing.
+func assertTypeChecksWithLib(t *testing.T, out, lib string) {
+	t.Helper()
 	if _, err := exec.LookPath("tsc"); err != nil {
 		t.Skip("tsc not found in PATH ; skipping generated-output type-check")
 	}
@@ -357,6 +365,21 @@ func assertTypeChecks(t *testing.T, out string) {
 		t.Fatalf("writing generated database.ts: %v", err)
 	}
 
+	types := "[]"
+	if strings.Contains(out, "\nimport ") || strings.HasPrefix(out, "import ") || strings.Contains(out, " from \"cbor-x\"") || strings.Contains(out, " from \"lossless-json\"") {
+		modules, err := filepath.Abs("../typescript/node_modules")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(modules); err != nil {
+			t.Skip("typescript/node_modules is missing : run `bun install` in typescript/")
+		}
+		if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
+			t.Fatal(err)
+		}
+		types = `["bun"]` // cbor-x's declarations use Buffer
+	}
+
 	tsconfig := `{
   "compilerOptions": {
     "target": "es2022",
@@ -364,8 +387,8 @@ func assertTypeChecks(t *testing.T, out string) {
     "moduleResolution": "bundler",
     "noEmit": true,
     "strict": true,
-    "lib": ["ESNext", "dom"],
-    "types": []
+    "lib": [` + lib + `],
+    "types": ` + types + `
   },
   "include": ["database.ts"]
 }`

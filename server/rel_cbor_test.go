@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/query"
 )
 
 func cborBody(t *testing.T, v any) []byte {
@@ -293,4 +295,104 @@ func TestRelHandler_AcceptCBOR_WriteFastPathAndWellKnown(t *testing.T) {
 	if rows := decodeCBOR[[]map[string]any](t, rec.Body.Bytes()); len(rows) != 1 || rows[0]["name"] != "Accept Fast B" {
 		t.Errorf("well-known rows = %x", rec.Body.Bytes())
 	}
+}
+
+// A response asked to use structures reads as the plain CBOR one, says so in its Content-Type, and defines each layout
+// once across the items of a multi-item request.
+func TestRelHandler_AcceptCBORStructures(t *testing.T) {
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) select 'Structures Director ' || g from generate_series(1, 5) g`); err != nil {
+		t.Fatal(err)
+	}
+	one := `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["like", ["col", "name"], "Structures Director%"], "order_by": [["col", "name"]]}`
+	other := `{"relation": "movie", "schema": "public", "select": ["*~"], "where": ["=", ["col", "id"], -1]}`
+	multi := "[" + one + "," + other + "," + one + "]"
+
+	for name, body := range map[string]string{"one item": one, "three items": multi} {
+		plain := postAccepting(t, testHandler, body, "application/cbor")
+		structs := postAccepting(t, testHandler, body, "application/cbor; structures=1")
+		if structs.Code != http.StatusOK || plain.Code != http.StatusOK {
+			t.Fatalf("%s: status %d / %d : %s", name, plain.Code, structs.Code, structs.Body.String())
+		}
+		if ct := plain.Header().Get("Content-Type"); ct != "application/cbor" {
+			t.Errorf("%s: plain Content-Type = %q", name, ct)
+		}
+		if ct := structs.Header().Get("Content-Type"); ct != "application/cbor; structures=1" {
+			t.Errorf("%s: structures Content-Type = %q", name, ct)
+		}
+		if got := structs.Header().Get("Vary"); got != "Accept" {
+			t.Errorf("%s: Vary = %q", name, got)
+		}
+		want, err := query.NewCBORNode(plain.Body.Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := query.NewCBORNode(structs.Body.Bytes())
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		a, _ := want.Raw()
+		b, err := got.Raw()
+		if err != nil || a != b {
+			t.Errorf("%s: plain %s\nstructures %s (%v)", name, a, b, err)
+		}
+		if n := bytes.Count(structs.Body.Bytes(), []byte{0xd9, 0xdf, 0xff}); n != 1 {
+			// one layout for the directors ; the empty movie result writes none
+			t.Errorf("%s: %d definitions, want 1", name, n)
+		}
+		if structs.Body.Len() >= plain.Body.Len() {
+			t.Errorf("%s: %d bytes with structures, %d without", name, structs.Body.Len(), plain.Body.Len())
+		}
+	}
+
+	// a JSON client never sees the tags
+	if rec := postAccepting(t, testHandler, one, "application/json"); bytes.Contains(rec.Body.Bytes(), []byte{0xd9, 0xdf, 0xff}) || rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("JSON answer: %s %q", rec.Body.String(), rec.Header().Get("Content-Type"))
+	}
+
+	// a write's read-back uses them too
+	rec := postAccepting(t, testHandler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Structures Fast A"}, {"name": "Structures Fast B"}]}`, "application/cbor; structures=1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("write: %d %s", rec.Code, rec.Body.String())
+	}
+	n, err := query.NewCBORNode(rec.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items, err := n.ArrayItems(); err != nil || len(items) != 2 {
+		t.Errorf("write read-back: %d rows, %v", len(items), err)
+	}
+}
+
+// A request body written with structures (what cbor-x writes) is a query like any other.
+func TestRelHandler_StructuresInRequestBody(t *testing.T) {
+	// a write whose envelope, query and rows are records, the second row a reference
+	body := structuresBody(t, "Structures Request A", "Structures Request B")
+	rec := postCBOR(t, body, "application/cbor")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d : %s", rec.Code, rec.Body.String())
+	}
+	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+	if len(rows) != 2 || rows[0]["name"] != "Structures Request A" || rows[1]["name"] != "Structures Request B" {
+		t.Errorf("rows = %s", rec.Body.String())
+	}
+}
+
+// structuresBody is a write of two directors, as cbor-x writes it with records on.
+func structuresBody(t *testing.T, a, b string) []byte {
+	t.Helper()
+	var buf []byte
+	buf = cborenc.AppendStructureDef(buf, 0, []string{"query", "data"})
+	buf = cborenc.AppendStructureDef(buf, 1, []string{"relation", "schema", "select", "write_mode"})
+	buf = cborenc.AppendText(buf, "director")
+	buf = cborenc.AppendText(buf, "public")
+	buf = cborenc.AppendArrayHead(buf, 1)
+	buf = cborenc.AppendText(buf, "*~")
+	buf = cborenc.AppendText(buf, "insert")
+	buf = cborenc.AppendArrayHead(buf, 2)
+	buf = cborenc.AppendStructureDef(buf, 2, []string{"name"})
+	buf = cborenc.AppendText(buf, a)
+	buf = cborenc.AppendStructureRef(buf, 2, 1)
+	buf = cborenc.AppendText(buf, b)
+	return buf
 }

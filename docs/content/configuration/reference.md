@@ -46,6 +46,7 @@ the binary itself, if you want it without leaving a terminal.
 | `http.upload.max_size` | `REL_HTTP__UPLOAD__MAX_SIZE` | = `http.max_body_size` | Hard cap on a `stream_upload` route's streamed payload — separate from `http.max_body_size` since this path streams to disk instead of buffering in memory. See [File uploads](../http/uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
 | `http.templates.path` | `REL_HTTP__TEMPLATES__PATH` | `/template` | Directory Jet templates are loaded from, for a route's or middleware's own `template`, and (merged with `http.static.path`) for a static `.jet` render. See [Requests and responses](../http/requests-responses.md#rendering-html-with-a-template) and [Static files](../http/static-files.md). |
 | `http.typescript.enable` | `REL_HTTP__TYPESCRIPT__ENABLE` | `false` (`true` in dev) | Serve `GET /rel/database.ts`. See [TypeScript client](../typescript/index.md). |
+| `http.typescript.codec` | `REL_HTTP__TYPESCRIPT__CODEC` | `json` | Comma-separated codec options the generated `database.ts` is built with (`json`\|`cbor`, `date`\|`temporal`, `bigint`), for the endpoint, `typescript.helper_path` and `--typescript-out`; `GET /rel/database.ts?codec=…` replaces it for that request. See [Codecs](../typescript/index.md#codecs). |
 | `http.typescript.schemas` | `REL_HTTP__TYPESCRIPT__SCHEMAS` | every schema but `pg_catalog` | Comma-separated whitelist of schemas `GET /rel/database.ts` may export; intersected with that request's own `?schemas=` param. |
 
 ## Route declaration and gating

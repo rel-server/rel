@@ -149,10 +149,25 @@ func agree(t *testing.T, name string, data []byte) (accepted bool) {
 		t.Errorf("%s % x: read, the reference refuses it (%v)", name, data, wantErr)
 		return true
 	}
+	if usesStructureTags(data) && containsInvalid(want) && !containsInvalid(got) {
+		// the reference reads the tags of structures as unknown tags ; TestCBORNode_ReadsWhatCborXWrites is their oracle
+		return true
+	}
 	if d := compareNodes("$", got, want); d != "" {
 		t.Errorf("%s % x: %s", name, data, d)
 	}
 	return true
+}
+
+// usesStructureTags reports whether data may hold a structure's tag (specs/cbor.md ## Structures) : a two-byte tag
+// of 0xdfff or from 0xe000 up.
+func usesStructureTags(data []byte) bool {
+	for i := 0; i+2 < len(data); i++ {
+		if data[i] == 0xd9 && data[i+1] >= 0xdf {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCBORDecoder_AllHalfFloats(t *testing.T) {

@@ -5,7 +5,7 @@ client-side value from one, without losing type safety or requiring a runtime de
 (tsgen/embed.go), so the generated schema section and every other section can reference these names directly.
 */
 
-// ---- Temporal-backed branded types ----
+// ---- Branded date and time types ----
 
 export type Timestamptz = PgWireType<"timestamptz", string> & { readonly __pg: "timestamptz" }
 export type Timestamp = PgWireType<"timestamp", string> & { readonly __pg: "timestamp" }
@@ -17,28 +17,12 @@ export type Interval = string & { readonly __pg: "interval" }
 // ---- Types whose JS value depends on the codec : typed by what the codec in use yields ----
 
 /**
- What the JS values of the Postgres types that a codec (`Querier.prototype.codec`) may hand over as something other
- than the JSON default actually are. It is empty on purpose, so client code can say what its codec produces, by
- declaration merging in a file of its own, once per project (presets/ has one per codec, runtime and type halves
- together) :
-
-     declare module "./database" {
-       interface PgWire {
-         int8: bigint                     // a codec that reads every big integer as a bigint
-         numeric: LosslessNumber
-         timestamptz: Temporal.Instant    // CBOR : tag 1 ; timestamp, an instant in the server's zone, likewise
-         date: Temporal.PlainDate         // CBOR : tag 100
-         bytea: Uint8Array                // CBOR : a byte string
-       }
-     }
-
- Without it `Int8` and `PgNumeric` are `number`, which is what the browser's JSON.parse gives (and silently
- rounds anything beyond 2^53 or about 15 significant digits), and the date and time types and `bytea` are the
- strings JSON carries them as. The members cannot be redeclared with another type afterwards, which is why the
- defaults live in the types below and not here. The values the write-side casts build must match what a member
- says : see `pgWireCasts`.
+ What the JS values of the Postgres types that the codec in use may hand over as something other than the JSON
+ default actually are. It is empty here : the generated file adds the members of the codec options it was built
+ with (`?codec=` of docs/content/typescript/index.md ## Codecs) in an `interface PgWire` of its own, at the end of
+ the file. The values the write-side casts build must match what a member says : see `pgWireCasts`.
  */
-// biome-ignore lint/suspicious/noEmptyInterface: filled in by client code through declaration merging
+// biome-ignore lint/suspicious/noEmptyInterface: filled in by the generated file's codec block
 export interface PgWire {}
 
 /** The JS type a wire member of `PgWire` stands for : its augmented type, or `Default`. */
@@ -46,7 +30,7 @@ export type PgWireType<K extends string, Default> = PgWire extends { [P in K]: i
   ? T
   : Default
 
-/** `bytea` : the `\x…` hex text JSON gives, or whatever `PgWire["bytea"]` says (a `Uint8Array` with the CBOR preset). */
+/** `bytea` : the `\x…` hex text JSON gives, or whatever `PgWire["bytea"]` says (a `Uint8Array` with the `cbor` codec). */
 export type Bytea = PgWireType<"bytea", string>
 export type Money = string & { readonly __pg: "money" }
 export type Int8 = PgWireType<"int8", number> & { readonly __pg: "int8" }
@@ -106,63 +90,24 @@ export type PgLsn = string & { readonly __pg: "pg_lsn" }
 // ---- Write-side casts ----
 
 /**
- How a write-side cast builds the wire type of a `PgWire` member from the values client code hands over. The
- defaults build the strings JSON carries ; a codec preset that retypes a member in `PgWire` replaces the matching
- entry, so the type and the value stay one decision (presets/ does both in one file). Each entry returns what the
- member's type says, which the compiler cannot check across that boundary.
+ How a write-side cast builds the wire value of a date or time type (or of `bytea`) from what client code hands
+ over. The time and wire chunks of the generated file fill it in (`codecs/time-*.ts`, `codecs/cbor-*.ts`), so the
+ cast and the codec that writes the value stay one decision. A cast is the place to override how a value is
+ turned into what the codec writes.
  */
-export const pgWireCasts = {
-  /** Requires an offset : Postgres would otherwise silently reinterpret the text in the session's own time zone. */
-  timestamptz(value: Date | Temporal.Instant | string): unknown {
-    const s =
-      typeof value === "string"
-        ? value
-        : value instanceof Date
-          ? value.toISOString()
-          : value.toString()
-    if (!/[Zz]$|[+-]\d{2}(:\d{2})?$/.test(s)) {
-      throw new Error(`asTimestamptz: "${s}" has no time zone offset`)
-    }
-    return s
-  },
-  timestamp(value: Temporal.PlainDateTime | Temporal.Instant | Date | string): unknown {
-    return typeof value === "string"
-      ? value
-      : value instanceof Date
-        ? value.toISOString()
-        : value.toString()
-  },
-  date(value: Temporal.PlainDate | string): unknown {
-    return typeof value === "string" ? value : value.toString()
-  },
+// biome-ignore lint/suspicious/noExplicitAny: each chunk narrows the argument its own cast takes
+export const pgWireCasts: Record<string, (value: any) => unknown> = {
   bytea(value: Uint8Array | string): unknown {
     return typeof value === "string" ? value : formatBytea(value)
   },
 }
 
-/**
- Brands a value as a `Timestamptz`, in the form `PgWire["timestamptz"]` says (an ISO string with an offset by
- default, which the cast checks since Postgres would otherwise read an offset-less string in the session's own
- time zone).
- */
-export function asTimestamptz(value: Date | Temporal.Instant | string): Timestamptz {
-  return pgWireCasts.timestamptz(value) as Timestamptz
-}
-
-/** What a `Timestamp` is read and written as : a wall clock by default, an instant when `PgWire["timestamp"]` says. */
-export type TimestampValue = PgWireType<"timestamp", Temporal.PlainDateTime>
-
-/**
- Round-tripping a Temporal.PlainDateTime back to a Timestamp is lossless and unambiguous — PlainDateTime never
- invented a time-zone assumption in the first place. When `PgWire["timestamp"]` is an instant (the server reads it in
- its own time zone), the value is an `Temporal.Instant` instead.
- */
-export function asTimestamp(value: TimestampValue | string): Timestamp {
-  return pgWireCasts.timestamp(value) as Timestamp
-}
-
-export function asPgDate(value: Temporal.PlainDate | string): PgDate {
-  return pgWireCasts.date(value) as PgDate
+/** Throws unless a timestamp text ends with a UTC offset : Postgres would read it in the session's own time zone. */
+export function requireOffset(text: string): string {
+  if (!/[Zz]$|[+-]\d{2}(:\d{2})?$/.test(text)) {
+    throw new Error(`asTimestamptz: "${text}" has no time zone offset`)
+  }
+  return text
 }
 
 export function asMoney(value: string): Money {
@@ -179,8 +124,8 @@ export function asNumeric(value: PgWireType<"numeric", number>): PgNumeric {
   return value as PgNumeric
 }
 
-export function asInterval(value: Temporal.Duration | string): Interval {
-  return (typeof value === "string" ? value : value.toString()) as Interval
+export function asInterval(value: string): Interval {
+  return value as Interval
 }
 
 // ---- Comparators ----
@@ -234,7 +179,7 @@ function unquoteBound(raw: string): string {
 // ---- Range<T> : one shared, immutable class ; each range kind is Range<T> for whichever T
 // its own accessor parses bounds into (Range<number> for Int4Range, Range<bigint> for Int8Range, Range<string>
 // for NumRange — the decimal text, not parsed further, so it stays exact — Range<Temporal.PlainDate|PlainDateTime|Instant>
-// for the temporal ranges). ----
+// for the temporal ranges, see codecs/time-temporal.ts). ----
 
 export class Range<T> {
   private constructor(
@@ -372,67 +317,8 @@ export class MultiRange<T> {
 // shapes.ts's ExtractDescriptor/IsWritable read a `proto` entry's `get`/`set` as REQUIRED members, so a
 // get-only vs. get+set distinction survives to the type level ; casting to `TypedPropertyDescriptor<T>` instead
 // would make every field optional-shaped, so neither check could tell writable apart from read-only at all.
-type GetSetDescriptor<T, S = T> = { get(): T; set(value: S): void; enumerable: true }
-type GetOnlyDescriptor<T> = { get(): T; enumerable: true }
-
-// The wire value of a date or time type is a string unless a codec made it a Temporal value (or a Date) : an
-// accessor converts what it is given and passes through what already is the richer value.
-function toInstant(v: unknown): Temporal.Instant {
-  if (v instanceof Temporal.Instant) return v
-  if (v instanceof Date) return Temporal.Instant.fromEpochMilliseconds(v.getTime())
-  return Temporal.Instant.from(v as string)
-}
-
-export function timestampTzAccessor<Col extends string>(column: Col) {
-  return {
-    [`${column}_as_date`]: {
-      get(this: Record<Col, Timestamptz>): Temporal.Instant {
-        return toInstant(this[column])
-      },
-      set(this: Record<Col, Timestamptz>, value: Date | Temporal.Instant | string) {
-        this[column] = asTimestamptz(value)
-      },
-      enumerable: true,
-    },
-  } as {
-    [K in `${Col}_as_date`]: GetSetDescriptor<Temporal.Instant, Date | Temporal.Instant | string>
-  }
-}
-
-export function timestampAccessor<Col extends string>(column: Col) {
-  return {
-    [`${column}_as_date`]: {
-      get(this: Record<Col, Timestamp>): TimestampValue {
-        const v: unknown = this[column]
-        // a wall clock out of text ; an instant (PgWire["timestamp"] retyped by the codec) is already the value
-        return (typeof v === "string" ? Temporal.PlainDateTime.from(v) : v) as TimestampValue
-      },
-      set(this: Record<Col, Timestamp>, value: TimestampValue | string) {
-        this[column] = asTimestamp(value)
-      },
-      enumerable: true,
-    },
-  } as {
-    [K in `${Col}_as_date`]: GetSetDescriptor<TimestampValue, TimestampValue | string>
-  }
-}
-
-export function dateAccessor<Col extends string>(column: Col) {
-  return {
-    [`${column}_as_date`]: {
-      get(this: Record<Col, PgDate>): Temporal.PlainDate {
-        const v: unknown = this[column]
-        return (typeof v === "string" ? Temporal.PlainDate.from(v) : v) as Temporal.PlainDate
-      },
-      set(this: Record<Col, PgDate>, value: Temporal.PlainDate | string) {
-        this[column] = asPgDate(value)
-      },
-      enumerable: true,
-    },
-  } as {
-    [K in `${Col}_as_date`]: GetSetDescriptor<Temporal.PlainDate, Temporal.PlainDate | string>
-  }
-}
+export type GetSetDescriptor<T, S = T> = { get(): T; set(value: S): void; enumerable: true }
+export type GetOnlyDescriptor<T> = { get(): T; enumerable: true }
 
 export function int8Accessor<Col extends string>(column: Col) {
   return {
@@ -449,75 +335,6 @@ export function int8Accessor<Col extends string>(column: Col) {
       enumerable: true,
     },
   } as { [K in `${Col}_as_bigint`]: GetSetDescriptor<bigint, bigint | number | string> }
-}
-
-// Assumes IntervalStyle = postgres (Postgres's own default) and throws on a string it doesn't recognize, rather
-// than silently misinterpreting a value produced under a different style. Sub-millisecond precision (a 4th+
-// fractional-second digit) is rounded to the nearest millisecond — Temporal.Duration's own millisecond field is
-// the finest granularity used here, not a fundamental limit of the format itself.
-function parseInterval(text: string): Temporal.Duration {
-  let years = 0
-  let months = 0
-  let days = 0
-  let hours = 0
-  let minutes = 0
-  let seconds = 0
-  let milliseconds = 0
-  let rest = text
-
-  const yearMatch = /(-?\d+)\s+years?/.exec(rest)
-  if (yearMatch) {
-    years = Number(yearMatch[1])
-    rest = rest.replace(yearMatch[0], "").trim()
-  }
-  const monMatch = /(-?\d+)\s+mons?/.exec(rest)
-  if (monMatch) {
-    months = Number(monMatch[1])
-    rest = rest.replace(monMatch[0], "").trim()
-  }
-  const dayMatch = /(-?\d+)\s+days?/.exec(rest)
-  if (dayMatch) {
-    days = Number(dayMatch[1])
-    rest = rest.replace(dayMatch[0], "").trim()
-  }
-
-  if (rest) {
-    const timeMatch = /^(-?)(\d+):(\d+):(\d+)(\.\d+)?$/.exec(rest)
-    if (!timeMatch) {
-      throw new Error(
-        `parseInterval: "${text}" doesn't match the expected 'postgres' IntervalStyle format`,
-      )
-    }
-    const sign = timeMatch[1] === "-" ? -1 : 1
-    hours = sign * Number(timeMatch[2])
-    minutes = sign * Number(timeMatch[3])
-    seconds = sign * Number(timeMatch[4])
-    if (timeMatch[5]) {
-      milliseconds = sign * Math.round(Number(timeMatch[5]) * 1000)
-    }
-  } else if (!yearMatch && !monMatch && !dayMatch) {
-    throw new Error(
-      `parseInterval: "${text}" doesn't match the expected 'postgres' IntervalStyle format`,
-    )
-  }
-
-  return Temporal.Duration.from({ years, months, days, hours, minutes, seconds, milliseconds })
-}
-
-export function intervalAccessor<Col extends string>(column: Col) {
-  return {
-    [`${column}_as_duration`]: {
-      get(this: Record<Col, Interval>): Temporal.Duration {
-        return parseInterval(this[column])
-      },
-      set(this: Record<Col, Interval>, value: Temporal.Duration | string) {
-        this[column] = asInterval(value)
-      },
-      enumerable: true,
-    },
-  } as {
-    [K in `${Col}_as_duration`]: GetSetDescriptor<Temporal.Duration, Temporal.Duration | string>
-  }
 }
 
 // ---- Range accessors ----
@@ -553,47 +370,6 @@ export function numRangeAccessor<Col extends string>(column: Col) {
       enumerable: true,
     },
   } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<string>> }
-}
-
-export function dateRangeAccessor<Col extends string>(column: Col) {
-  return {
-    [`${column}_as_range`]: {
-      get(this: Record<Col, DateRange>): Range<Temporal.PlainDate> {
-        return Range.parse(
-          this[column],
-          (s) => Temporal.PlainDate.from(s),
-          Temporal.PlainDate.compare,
-        )
-      },
-      enumerable: true,
-    },
-  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<Temporal.PlainDate>> }
-}
-
-export function tsRangeAccessor<Col extends string>(column: Col) {
-  return {
-    [`${column}_as_range`]: {
-      get(this: Record<Col, TsRange>): Range<Temporal.PlainDateTime> {
-        return Range.parse(
-          this[column],
-          (s) => Temporal.PlainDateTime.from(s),
-          Temporal.PlainDateTime.compare,
-        )
-      },
-      enumerable: true,
-    },
-  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<Temporal.PlainDateTime>> }
-}
-
-export function tstzRangeAccessor<Col extends string>(column: Col) {
-  return {
-    [`${column}_as_range`]: {
-      get(this: Record<Col, TstzRange>): Range<Temporal.Instant> {
-        return Range.parse(this[column], (s) => Temporal.Instant.from(s), Temporal.Instant.compare)
-      },
-      enumerable: true,
-    },
-  } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<Temporal.Instant>> }
 }
 
 // ---- Point accessor : the one geometric type prioritized for a real accessor, since it's the

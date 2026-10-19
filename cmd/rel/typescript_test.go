@@ -58,7 +58,7 @@ func TestRunTypeScriptExport(t *testing.T) {
 
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "database.ts")
-	if err := runTypeScriptExport(cfg, outPath); err != nil {
+	if err := runTypeScriptExport(cfg, outPath, ""); err != nil {
 		t.Fatalf("runTypeScriptExport: %v", err)
 	}
 
@@ -71,5 +71,23 @@ func TestRunTypeScriptExport(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "export class Querier") {
 		t.Errorf("generated database.ts missing Querier (section 1) ; got:\n%s", data)
+	}
+}
+
+func TestOneShotFlag(t *testing.T) {
+	for _, tc := range []struct {
+		args  []string
+		value string
+		ok    bool
+	}{
+		{[]string{"--typescript-codec=cbor,date"}, "cbor,date", true},
+		{[]string{"--pg.host", "x", "--typescript-codec", "temporal"}, "temporal", true},
+		{[]string{"--typescript-codec"}, "", true},
+		{[]string{"--typescript-out=-"}, "", false},
+	} {
+		value, ok := oneShotFlag(tc.args, "--typescript-codec")
+		if value != tc.value || ok != tc.ok {
+			t.Errorf("oneShotFlag(%v) = %q, %v ; want %q, %v", tc.args, value, ok, tc.value, tc.ok)
+		}
 	}
 }

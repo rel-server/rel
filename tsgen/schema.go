@@ -21,6 +21,9 @@ type Options struct {
 	Schemas []string
 
 	Blacklist config.Blacklist
+
+	// Codec is the codec options of the generated database.ts (ParseCodec) ; the zero value is plain JSON.
+	Codec Codec
 }
 
 func (o Options) schemaAllowed(schema string) bool {

@@ -1,11 +1,13 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/rel-server/rel/cborenc"
 	"math"
 	"math/big"
 	"strings"
@@ -341,14 +343,15 @@ func TestResultCBOR_RefusesTruncatedValues(t *testing.T) {
 	_ = math.Pi
 }
 
-// cborRowsOf runs the CBOR form of a compiled query and returns one node per row.
-func cborRowsOf(t *testing.T, root *QueryNode) []Node {
+// cborResponseOf runs the CBOR form of a compiled query and returns its rows as the indefinite array a response
+// streams, structures or maps according to st.
+func cborResponseOf(t *testing.T, root *QueryNode, st *StructureTable) []byte {
 	t.Helper()
 	w, err := CompileSelectFormat(root, FormatCBOR)
 	if err != nil {
 		t.Fatalf("CompileSelectFormat: %v", err)
 	}
-	enc, err := NewResultEncoder(testDb, root)
+	enc, err := NewResultEncoder(testDb, root, st)
 	if err != nil {
 		t.Fatalf("NewResultEncoder: %v", err)
 	}
@@ -358,27 +361,40 @@ func cborRowsOf(t *testing.T, root *QueryNode) []Node {
 		t.Fatalf("query: %v\nsql: %s", err, w.String())
 	}
 	defer rows.Close()
-	var out []Node
+	out := []byte{cborenc.IndefiniteArray}
 	for rows.Next() {
 		oid := rows.FieldDescriptions()[0].DataTypeOID
 		var cp []byte
 		if raw := rows.RawValues()[0]; raw != nil {
 			cp = append([]byte{}, raw...)
 		}
-		b, err := enc.AppendValue(nil, oid, cp)
-		if err != nil {
+		if out, err = enc.AppendValue(out, oid, cp); err != nil {
 			t.Fatalf("encode: %v\nsql: %s", err, w.String())
 		}
-		n, err := NewCBORNode(b)
-		if err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, n)
 	}
 	if rows.Err() != nil {
 		t.Fatalf("rows: %v\nsql: %s", rows.Err(), w.String())
 	}
-	return out
+	return append(out, cborenc.Break)
+}
+
+// cborRowsOf runs the CBOR form of a compiled query and returns one node per row.
+func cborRowsOf(t *testing.T, root *QueryNode) []Node {
+	t.Helper()
+	return rowsOfResponse(t, cborResponseOf(t, root, nil))
+}
+
+func rowsOfResponse(t *testing.T, doc []byte) []Node {
+	t.Helper()
+	n, err := NewCBORNode(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := n.ArrayItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return items
 }
 
 func jsonRowsOf(t *testing.T, root *QueryNode) []any {
@@ -483,5 +499,68 @@ func TestResultCBOR_BindSessionRefusesAnUnknownZone(t *testing.T) {
 	})
 	if err := (&ResultEncoder{db: testDb}).BindSession(conn); err == nil || !strings.Contains(err.Error(), "Asia/Tokyo") {
 		t.Errorf("BindSession err = %v, want one naming the zone", err)
+	}
+}
+
+// A response written with structures reads as the one written with maps, and is shorter once a shape repeats.
+func TestResultCBOR_StructuresMatchMaps(t *testing.T) {
+	ctx := context.Background()
+	var did int
+	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Structure Director') returning id`).Scan(&did); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into movie (director_id, title) select $1, 'Structure ' || g from generate_series(1, 20) g`, did); err != nil {
+		t.Fatal(err)
+	}
+	for name, q := range map[string]string{
+		"bare":    `{"relation": "movie", "schema": "public", "select": ["*~"], "where": ["=", ["col", "director_id"], %d]}`,
+		"to-many": `{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}}}}`,
+		"to-one":  `{"relation": "movie", "schema": "public", "select": {"title": ["col", "title"], "director": [".", "director"]}, "where": ["=", ["col", "director_id"], %d], "join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": {"name": ["col", "name"]}}}}`,
+		"scalar":  `{"relation": "movie", "schema": "public", "select": ["col", "title"], "where": ["=", ["col", "director_id"], %d]}`,
+		"none":    `{"relation": "movie", "schema": "public", "select": ["*~"], "where": ["=", ["col", "director_id"], -1]}`,
+	} {
+		root := mustResolveQuery(t, fmt.Sprintf(q, did))
+		maps := cborResponseOf(t, root, nil)
+		st := NewStructureTable()
+		structs := cborResponseOf(t, root, st)
+
+		want, got := rowsOfResponse(t, maps), rowsOfResponse(t, structs)
+		if len(want) != len(got) {
+			t.Errorf("%s: %d rows as maps, %d as structures", name, len(want), len(got))
+			continue
+		}
+		for i := range want {
+			a, _ := want[i].Raw()
+			b, err := got[i].Raw()
+			if err != nil {
+				t.Errorf("%s: row %d: %v", name, i, err)
+			} else if a != b {
+				t.Errorf("%s: row %d : maps give %s, structures give %s", name, i, a, b)
+			}
+		}
+		if len(want) > 1 && name != "scalar" {
+			if len(structs) >= len(maps) {
+				t.Errorf("%s: %d bytes as structures, %d as maps", name, len(structs), len(maps))
+			}
+			if !bytes.Contains(structs, []byte{0xd9, 0xdf, 0xff}) {
+				t.Errorf("%s: no structure definition in the response", name)
+			}
+		}
+	}
+}
+
+// Two items of one response share the table : a layout met in the first is a reference in the second, and the ids
+// of different layouts never collide.
+func TestResultCBOR_StructureTableIsSharedAcrossEncoders(t *testing.T) {
+	st := NewStructureTable()
+	a := mustResolveQuery(t, `{"relation": "movie", "schema": "public", "select": ["*~"], "where": ["=", ["col", "director_id"], -1]}`)
+	b := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "id"], -1]}`)
+	for _, root := range []*QueryNode{a, b, a} {
+		if _, err := NewResultEncoder(testDb, root, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(st.names) != 2 {
+		t.Errorf("%d layouts for two relations met three times", len(st.names))
 	}
 }

@@ -48,13 +48,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// A bad http.typescript.codec is a startup error, not a 400 on every request.
+	if _, err := tsgen.ParseCodec(cfg.Http.TypeScript.Codec); err != nil {
+		logger.Error("invalid http.typescript.codec", "error", err.Error())
+		os.Exit(1)
+	}
+
 	// --typescript-out is a one-shot action, not the server : introspects
 	// and writes database.ts, then exits — no reload.cmd, no route/
 	// well-known registries, no mux, no listener. See runTypeScriptExport's
 	// own doc comment for why reload.cmd is skipped here even though the
 	// server always runs it before introspecting.
 	if out, ok := typescriptOutFlag(os.Args[1:]); ok {
-		if err := runTypeScriptExport(cfg, out); err != nil {
+		codec, _ := oneShotFlag(os.Args[1:], "--typescript-codec")
+		if err := runTypeScriptExport(cfg, out, codec); err != nil {
 			logger.Error("typescript export failed", "error", err.Error())
 			os.Exit(1)
 		}
@@ -186,11 +193,16 @@ func main() {
 // no business living in config.Config or --help's Options table alongside
 // pg.*/http.*/etc. path == "-" means stdout.
 func typescriptOutFlag(args []string) (path string, ok bool) {
+	return oneShotFlag(args, "--typescript-out")
+}
+
+// oneShotFlag returns the value of the --name=value / --name value flag, and whether it is present.
+func oneShotFlag(args []string, name string) (value string, ok bool) {
 	for i, a := range args {
-		if strings.HasPrefix(a, "--typescript-out=") {
-			return a[len("--typescript-out="):], true
+		if strings.HasPrefix(a, name+"=") {
+			return a[len(name)+1:], true
 		}
-		if a == "--typescript-out" {
+		if a == name {
 			if i+1 < len(args) {
 				return args[i+1], true
 			}
@@ -210,7 +222,7 @@ func typescriptOutFlag(args []string) (path string, ok bool) {
 // well-known registry, unlike reload.cmd/route, does its own read-only
 // file I/O + validation against db — no side effects, so building it here
 // doesn't carry the same objection.
-func runTypeScriptExport(cfg *config.Config, out string) error {
+func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
 	primaryURI := resolveConnectionURI(cfg.Pg)
 
 	if err := pg.WaitReady(context.Background(), primaryURI, time.Duration(cfg.Pg.ConnectTimeout)*time.Second); err != nil {
@@ -228,9 +240,16 @@ func runTypeScriptExport(cfg *config.Config, out string) error {
 		return fmt.Errorf("building well-known query registry: %w", err)
 	}
 
+	// codecOverride is --typescript-codec : it replaces http.typescript.codec for this export.
+	codec, err := tsgen.ResolveCodec(cfg.Http.TypeScript.Codec, codecOverride)
+	if err != nil {
+		return err
+	}
+
 	generated := tsgen.GenerateDatabaseTS(db, tsgen.Options{
 		Schemas:   tsgen.ParseSchemaList(cfg.Http.TypeScript.Schemas),
 		Blacklist: cfg.Blacklist,
+		Codec:     codec,
 	}, wkReg)
 
 	if out == "-" {

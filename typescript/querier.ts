@@ -561,14 +561,24 @@ type OptionalWhenNoParams<P> = unknown extends P ? [params?: P] : [params: P]
 /**
  How requests are written and responses read : JSON text by default. `contentType` is sent as both `Content-Type` and
  `Accept` when set, so a codec for another format (CBOR : "application/cbor") needs nothing else ; left out, neither
- header is sent and the server answers JSON. `binary` says `decode` takes the response bytes rather than its text.
- Errors are always JSON text whatever was asked, so they never reach `decode`.
+ header is sent and the server answers JSON. `accept` is sent as `Accept` instead of `contentType` when the answer
+ is to be asked for differently from how the request is written. `binary` says `decode` takes the response bytes
+ rather than its text. Errors are always JSON text whatever was asked, so they never reach `decode`.
  */
 export interface Codec {
   contentType?: string
+  accept?: string
   binary?: boolean
-  encode(value: unknown): string | Uint8Array
+  encode(value: unknown, options?: EncodeOptions): string | Uint8Array
   decode(body: string | Uint8Array): unknown
+}
+
+/**
+ What a query tells its codec about how to write a request. A codec that has no use for an option ignores it.
+ */
+export interface EncodeOptions {
+  /** The query's `sendStructures` : whether objects that share their keys may be written once and referred to. */
+  structures?: boolean
 }
 
 /**
@@ -598,6 +608,14 @@ export class Querier<
   // implementation that keeps numbers beyond 2^53 exact (lossless-json, ...) or a CBOR one plugs in here, together
   // with the `PgWire` types it implies ; see docs/content/typescript/index.md ## Codecs.
   declare codec: Codec
+
+  // Whether a codec that can (CBOR) writes the objects of a request body that share their keys as structures : the
+  // names once, then the values. Declared here, assigned on the prototype like `codec` : `Querier.prototype.sendStructures`
+  // for every query, or `sendStructures` on one, which only governs that query ; a query built from it (join(), ...)
+  // starts from the prototype's again. Turn it off for a body whose objects rarely share their keys (a `jsonb` value used
+  // as a dictionary, say), where it costs encoding time and saves no bytes. Responses are not affected : see
+  // the codec's `accept`. docs/content/typescript/index.md ## Codecs.
+  declare sendStructures: boolean
 
   // Type-only handles, for `typeof someQuery.$row` / `typeof someQuery.$draft` (docs/content/typescript/index.md
   // ### Naming a row's type) : declared, never assigned, so they emit no code and read as `undefined` at runtime.
@@ -809,9 +827,9 @@ export class Querier<
     const res = await fetch(`${this.baseUrl.replace(/\/+$/, "")}/rel`, {
       credentials: "include",
       method: "POST",
-      body: codec.encode(query) as BodyInit,
+      body: codec.encode(query, { structures: this.sendStructures }) as BodyInit,
       headers: codec.contentType
-        ? { "Content-Type": codec.contentType, Accept: codec.contentType }
+        ? { "Content-Type": codec.contentType, Accept: codec.accept ?? codec.contentType }
         : undefined,
     })
     if (res.status >= 400) {
@@ -826,6 +844,9 @@ export class Querier<
 
 // "/" (this origin) unless changed : see the `baseUrl` declaration above.
 Querier.prototype.baseUrl = "/"
+
+// On unless changed : see the `sendStructures` declaration above.
+Querier.prototype.sendStructures = true
 
 // The browser's JSON unless changed : see the `codec` declaration above.
 Querier.prototype.codec = {

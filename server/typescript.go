@@ -32,7 +32,13 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 			return
 		}
 
-		out := tsgen.GenerateDatabaseTS(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist}, wkReg)
+		codec, err := tsgen.ResolveCodec(cfg.Http.TypeScript.Codec, r.URL.Query().Get("codec"))
+		if err != nil {
+			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
+			return
+		}
+
+		out := tsgen.GenerateDatabaseTS(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist, Codec: codec}, wkReg)
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(out))

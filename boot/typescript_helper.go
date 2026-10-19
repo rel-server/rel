@@ -24,9 +24,15 @@ func WriteTypeScriptHelperFile(db *pg.DbInfos, cfg *config.Config, wkReg *wellkn
 	if cfg.TypeScript.HelperPath == "" {
 		return
 	}
+	codec, err := tsgen.ParseCodec(cfg.Http.TypeScript.Codec)
+	if err != nil {
+		logger.Error("writing typescript.helper_path", "path", cfg.TypeScript.HelperPath, "error", err.Error())
+		return
+	}
 	out := tsgen.GenerateDatabaseTS(db, tsgen.Options{
 		Schemas:   tsgen.ParseSchemaList(cfg.Http.TypeScript.Schemas),
 		Blacklist: cfg.Blacklist,
+		Codec:     codec,
 	}, wkReg)
 	if err := os.WriteFile(cfg.TypeScript.HelperPath, []byte(out), 0o644); err != nil {
 		logger.Error("writing typescript.helper_path", "path", cfg.TypeScript.HelperPath, "error", err.Error())

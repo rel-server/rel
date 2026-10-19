@@ -1,8 +1,7 @@
-import "./cbor"
 import * as db from "./database"
-import { run } from "../bench"
+import { run } from "../../bench/bench"
 
-await run("cbor", db, (i) => ({
+await run("cbor-temporal", db, (i) => ({
   taken_tz: db.asTimestamptz(
     Temporal.Instant.fromEpochMilliseconds(1_700_000_000_000 + i * 60_000),
   ),

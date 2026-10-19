@@ -1,5 +1,4 @@
-// The CBOR preset against a real server : what comes back is typed as PgWire says, and what is written round-trips.
-import "./cbor"
+// The `cbor,temporal` codec against a real server : what comes back is typed as PgWire says, and what is written round-trips.
 import { describe, expect, spyOn, test } from "bun:test"
 import {
   Querier,
@@ -25,7 +24,7 @@ const raw = (v: unknown): unknown => v
 const samples = relation("hotel.codec_samples", { select: ["*~"] })
 type Row = Awaited<ReturnType<typeof samples.get>>[number]
 
-// the PgWire block of cbor.ts is what the column types say
+// the PgWire block of the generated file is what the column types say
 export type _TakenTz = Expect<Row["taken_tz"] extends Temporal.Instant | null ? true : false>
 export type _TakenAt = Expect<Row["taken_at"] extends Temporal.Instant | null ? true : false>
 export type _TakenOn = Expect<Row["taken_on"] extends Temporal.PlainDate | null ? true : false>
@@ -44,7 +43,7 @@ describe("the CBOR codec", () => {
       const init = spy.mock.calls[0]?.[1] as RequestInit
       expect(init.headers).toEqual({
         "Content-Type": "application/cbor",
-        Accept: "application/cbor",
+        Accept: "application/cbor; structures=1",
       })
       expect(init.body).toBeInstanceOf(Uint8Array)
     } finally {

@@ -225,6 +225,11 @@ type HttpTypeScript struct {
 	// (e.g. http.cors.allowed_origins) since config can't hold arrays.
 	// Intersected with the endpoint's own `schemas` query param, when given.
 	Schemas string
+	// Codec is http.typescript.codec, default "" (plain JSON) : a comma-separated list of codec options
+	// (`json`|`cbor`, `date`|`temporal`, `bigint`) the generated database.ts is built with, for the endpoint,
+	// typescript.helper_path and --typescript-out alike. The endpoint's own `codec` query param replaces it for
+	// one request. Validated by tsgen.ParseCodec, which this package cannot import.
+	Codec string
 }
 
 // HttpTemplates is http.templates.* — specs/http-content.md ##

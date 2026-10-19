@@ -2,6 +2,7 @@ package cborenc
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -429,5 +430,56 @@ func TestAccepts(t *testing.T) {
 		if got := Accepts(accept); got != want {
 			t.Errorf("Accepts(%q) = %v, want %v", accept, got, want)
 		}
+	}
+}
+
+func TestNegotiate(t *testing.T) {
+	for accept, want := range map[string]Format{
+		"":                                   JSON,
+		"application/cbor":                   CBOR,
+		"application/cbor; structures=1":     CBORStructures,
+		"application/cbor;structures=true":   CBORStructures,
+		"application/cbor; structures=0":     CBOR,
+		"application/cbor; structures=maybe": CBOR,
+		"application/cbor, application/cbor; structures=1":                         CBORStructures, // a tie goes to the parameter
+		"application/cbor;q=0.9, application/cbor; structures=1;q=0.5":             CBOR,
+		"application/cbor; structures=1;q=0.5, application/cbor;q=0.9":             CBOR,
+		"application/cbor; structures=1;q=0.9, application/cbor;q=0.5":             CBORStructures,
+		"application/cbor; structures=1, application/json":                         JSON, // a tie with JSON
+		"application/cbor; structures=1, application/json;q=0.9":                   CBORStructures,
+		"application/cbor; structures=1;q=0":                                       JSON,
+		"application/cbor; structures=1;q=0, application/cbor;q=0.5":               CBOR,
+		"application/cbor; structures=1, */*":                                      CBORStructures,
+		"*/*":                                                                      JSON,
+		"application/json;q=0, */*":                                                CBOR, // a wildcard never asks for the parameter
+		"application/cbor; structures=1;q=0.5, application/json;q=0.9":             JSON,
+		"application/cbor; structures=1;q=0.1, text/*;q=0.9, application/json;q=0": CBORStructures,
+	} {
+		if got := Negotiate(accept); got != want {
+			t.Errorf("Negotiate(%q) = %v, want %v", accept, got, want)
+		}
+	}
+}
+
+func TestFormatMediaType(t *testing.T) {
+	for f, want := range map[Format]string{JSON: "application/json", CBOR: "application/cbor", CBORStructures: "application/cbor; structures=1"} {
+		if got := f.MediaType(); got != want {
+			t.Errorf("Format(%d).MediaType() = %q, want %q", f, got, want)
+		}
+	}
+}
+
+func TestAppendStructure(t *testing.T) {
+	// the bytes cbor-x writes for [{id: 1, name: "aaa"}, {id: 2, name: "bbb"}]
+	want := "82" + "d9dfff84" + "19e000" + "82626964646e616d65" + "01" + "63616161" + "d9e00082" + "02" + "63626262"
+	out := []byte{0x82}
+	out = AppendStructureDef(out, 0, []string{"id", "name"})
+	out = AppendUint(out, 1)
+	out = AppendText(out, "aaa")
+	out = AppendStructureRef(out, 0, 2)
+	out = AppendUint(out, 2)
+	out = AppendText(out, "bbb")
+	if got := hex.EncodeToString(out); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
 	}
 }

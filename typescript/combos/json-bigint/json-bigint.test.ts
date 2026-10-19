@@ -1,5 +1,4 @@
-// The json-bigint preset against a real server : a bigint beyond 2^53 is read exactly and written as a bare number.
-import "./json-bigint"
+// The `json,bigint` codec against a real server : a bigint beyond 2^53 is read exactly and written as a bare number.
 import { describe, expect, test } from "bun:test"
 import { Querier, relation } from "./database"
 

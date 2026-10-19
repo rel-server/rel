@@ -28,6 +28,35 @@ func TestTypeScriptHandler_GET_ReturnsGeneratedDatabaseTS(t *testing.T) {
 	}
 }
 
+func TestTypeScriptHandler_CodecParam(t *testing.T) {
+	get := func(cfgCodec, query string) (int, string) {
+		cfg := *testCfg
+		cfg.Http.TypeScript.Codec = cfgCodec
+		rec := httptest.NewRecorder()
+		NewTypeScriptHandler(testDb, &cfg, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/rel/database.ts"+query, nil))
+		return rec.Code, rec.Body.String()
+	}
+
+	if code, body := get("", ""); code != http.StatusOK || !strings.Contains(body, "// Codec: json\n") || strings.Contains(body, "\nimport ") {
+		t.Errorf("default: %d, want plain json ; got:\n%.200s", code, body)
+	}
+	if code, body := get("", "?codec=cbor,temporal"); code != http.StatusOK || !strings.Contains(body, "// Codec: cbor,temporal,bigint\n") || !strings.Contains(body, `from "cbor-x"`) {
+		t.Errorf("?codec=cbor,temporal: %d ; got:\n%.200s", code, body)
+	}
+	// the configured value is the default, and the param replaces it rather than adding to it
+	if _, body := get("cbor", ""); !strings.Contains(body, "// Codec: cbor,date,bigint\n") {
+		t.Errorf("configured cbor: got:\n%.200s", body)
+	}
+	if _, body := get("cbor", "?codec=json"); !strings.Contains(body, "// Codec: json\n") {
+		t.Errorf("?codec=json over configured cbor: got:\n%.200s", body)
+	}
+	for _, bad := range []string{"?codec=msgpack", "?codec=json,cbor", "?codec=date,temporal"} {
+		if code, _ := get("", bad); code != http.StatusBadRequest {
+			t.Errorf("%s: expected 400, got %d", bad, code)
+		}
+	}
+}
+
 func TestTypeScriptHandler_PostNotAllowed(t *testing.T) {
 	handler := NewTypeScriptHandler(testDb, testCfg, nil)
 

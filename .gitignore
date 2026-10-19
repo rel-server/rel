@@ -12,4 +12,4 @@ jwt-secret
 # TypeScript client dev dependencies (typescript/package.json)
 node_modules/
 typescript/tests/generated/
-typescript/presets/*/database.ts
+typescript/combos/*/database.ts

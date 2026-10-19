@@ -1,11 +1,14 @@
 package query
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math"
 	"math/big"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -305,4 +308,129 @@ func mustGet(t *testing.T, n Node, key string) Node {
 		t.Fatalf("no key %s", key)
 	}
 	return v
+}
+
+// structureHex builds a document from hex pieces.
+func structureHex(t *testing.T, parts ...string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(strings.Join(parts, ""))
+	if err != nil {
+		t.Fatalf("bad hex: %v", err)
+	}
+	return b
+}
+
+func TestCBORNode_Structures(t *testing.T) {
+	const (
+		def0 = "d9dfff84" + "19e000" + "82626964646e616d65" // definition of id 0 : ["id", "name"], then 2 values
+		ref0 = "d9e00082"                                   // a reference to id 0, then 2 values
+	)
+	// what cbor-x writes for [{id: 1, name: "aaa"}, {id: 2, name: "bbb"}]
+	for name, c := range map[string]struct{ doc, want string }{
+		"a definition and a reference": {"82" + def0 + "01" + "63616161" + ref0 + "02" + "63626262",
+			`[{"id":1,"name":"aaa"},{"id":2,"name":"bbb"}]`},
+		"inside a map": {"a1" + "61" + "78" + def0 + "01" + "f6", `{"x":{"id":1,"name":null}}`},
+		"an indefinite array of rows": {"9f" + def0 + "01" + "f6" + ref0 + "02" + "f5" + "ff",
+			`[{"id":1,"name":null},{"id":2,"name":true}]`},
+		"a nested record": {"82" + "d9dfff83" + "19e000" + "81" + "61" + "61" + "d9dfff83" + "19e001" + "81" + "61" + "62" + "01" + "d9e00081" + "d9e00181" + "02",
+			`[{"a":{"b":1}},{"a":{"b":2}}]`},
+		// the id is defined again : each row reads with the definition in force when it was written
+		"a redefinition": {"82" + def0 + "01" + "f6" + "d9dfff84" + "19e000" + "82616161" + "62" + "f6" + "f5",
+			`[{"id":1,"name":null},{"a":null,"b":true}]`},
+		"no values": {"d9dfff82" + "19e000" + "80", `{}`},
+	} {
+		n, err := NewCBORNode(structureHex(t, c.doc))
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		got, err := n.Raw()
+		if err != nil {
+			t.Errorf("%s: Raw: %v", name, err)
+			continue
+		}
+		// the keys of an object are sorted by Raw
+		var a, b any
+		if json.Unmarshal([]byte(got), &a) != nil || json.Unmarshal([]byte(c.want), &b) != nil || !reflect.DeepEqual(a, b) {
+			t.Errorf("%s: got %s, want %s", name, got, c.want)
+		}
+	}
+}
+
+func TestCBORNode_StructureObjectAccess(t *testing.T) {
+	n, err := NewCBORNode(structureHex(t, "d9dfff84", "19e000", "82626964646e616d65", "07", "63616161"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Kind() != KindObject {
+		t.Fatalf("kind = %v", n.Kind())
+	}
+	id, ok := n.ObjectGet("id")
+	if !ok {
+		t.Fatal("no id")
+	}
+	if v, err := id.StrictInt64(); err != nil || v != 7 {
+		t.Errorf("id = %d, %v", v, err)
+	}
+	var keys []string
+	if err := n.ObjectEach(func(k string, _ Node) error { keys = append(keys, k); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(keys)
+	if !reflect.DeepEqual(keys, []string{"id", "name"}) {
+		t.Errorf("keys = %v", keys)
+	}
+}
+
+func TestCBORNode_RefusesBadStructures(t *testing.T) {
+	const defA = "d9dfff83" + "19e000" + "816161" + "01" // id 0 with the one name "a", and its value
+	for name, doc := range map[string]string{
+		"a reference to an id never defined": "d9e00082" + "01" + "02",
+		"a reference with too few values":    "82" + defA + "d9e00080",
+		"a reference with too many values":   "82" + defA + "d9e00082" + "01" + "02",
+		"a reference that is not an array":   "82" + defA + "d9e000a0",
+		"a definition with too few values":   "d9dfff83" + "19e000" + "826161" + "6162" + "01",
+		"a definition with too many values":  "d9dfff84" + "19e000" + "80" + "01" + "02",
+		"a definition that is not an array":  "d9dfff01",
+		"a definition of one item":           "d9dfff81" + "19e000",
+		"an id that is not an integer":       "d9dfff83" + "6130" + "816161" + "01",
+		"an id below the range":              "d9dfff83" + "19dfff" + "816161" + "01",
+		"an id past the range":               "d9dfff83" + "1a00010000" + "816161" + "01",
+		"names that are not an array":        "d9dfff83" + "19e000" + "6161" + "01",
+		"a name that is not text":            "d9dfff83" + "19e000" + "8101" + "01",
+		"names that repeat":                  "d9dfff84" + "19e000" + "826161" + "6161" + "01" + "02",
+		"an indefinite-length structure":     "d9dfff9f" + "19e000" + "80" + "ff",
+		"a structure nested too deep":        deepStructures(70),
+	} {
+		_, err := NewCBORNode(structureHex(t, doc))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// deepStructures is a record whose only value is a record, n levels down.
+func deepStructures(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		b.WriteString("d9dfff83" + "19e000" + "816161")
+	}
+	return b.String() + "01"
+}
+
+// Tags 0xdffe and 105 are the other record forms cbor-x reads and never writes with the options the TypeScript client uses : they are
+// unknown tags, which the parser keeps and a column refuses.
+func TestCBORNode_OtherRecordTagsAreUnknown(t *testing.T) {
+	for name, doc := range map[string]string{
+		"0xdffe": "d9dffe82" + "19e000" + "80",
+		"105":    "d8698319e000" + "80" + "80",
+	} {
+		n, err := NewCBORNode(structureHex(t, doc))
+		if err != nil {
+			continue // refused at parse time is as good
+		}
+		if n.Kind() != KindInvalid {
+			t.Errorf("tag %s: kind %v", name, n.Kind())
+		}
+	}
 }

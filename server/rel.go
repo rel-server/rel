@@ -221,7 +221,8 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	w = rec
 	w.Header().Add("Vary", "Accept") // the representation depends on it, errors included
 	format := query.FormatJSON
-	if cborenc.Accepts(r.Header.Get("Accept")) {
+	wire := cborenc.Negotiate(r.Header.Get("Accept"))
+	if wire != cborenc.JSON {
 		format = query.FormatCBOR
 	}
 	var role string
@@ -368,8 +369,13 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		resolved = append(resolved, ri)
 	}
 	if format == query.FormatCBOR {
+		// one table for the whole response : a structure id means one list of names in every item
+		var structures *query.StructureTable
+		if wire == cborenc.CBORStructures {
+			structures = query.NewStructureTable()
+		}
 		for i := range resolved {
-			enc, err := query.NewResultEncoder(db, resolved[i].root)
+			enc, err := query.NewResultEncoder(db, resolved[i].root, structures)
 			if err != nil {
 				writeError(ctx, w, serverError(errcode.Internal, fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 				return
@@ -602,7 +608,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	multi := len(resolved) > 1
 	if format == query.FormatCBOR {
-		w.Header().Set("Content-Type", cborenc.MediaType)
+		w.Header().Set("Content-Type", wire.MediaType())
 		if multi {
 			_, _ = w.Write(cborenc.AppendArrayHead(nil, len(resolved)))
 		}

@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/rel-server/rel/cborenc"
 	"github.com/samber/oops"
 )
 
@@ -83,8 +84,9 @@ type cborDoc struct {
 // ---- reading ------------------------------------------------------------------------
 
 type cborDecoder struct {
-	doc *cborDoc
-	pos int
+	doc     *cborDoc
+	pos     int
+	structs map[int][]int32 // the names of each structure defined so far, by id : indexes of their text nodes (specs/cbor.md ## Structures)
 }
 
 func (d *cborDecoder) remaining() int { return len(d.doc.data) - d.pos }
@@ -379,6 +381,9 @@ func (d *cborDecoder) tagItem(tag uint64, depth int) (int32, error) {
 	if depth >= cborMaxDepth {
 		return 0, fmt.Errorf("nested more than %d levels", cborMaxDepth)
 	}
+	if tag == cborenc.TagStructureDef || (tag >= cborenc.StructureTagBase && tag < cborenc.StructureTagBase+cborenc.MaxStructures) {
+		return d.structureItem(tag, depth)
+	}
 	c, err := d.item(depth + 1)
 	if err != nil {
 		return 0, err
@@ -449,6 +454,107 @@ func (d *cborDecoder) tagItem(tag uint64, depth int) (int32, error) {
 		return d.add(cnode{item: itDate, extra: content.extra}), nil
 	}
 	return bad()
+}
+
+// structureItem reads a structure's definition or reference (specs/cbor.md ## Structures) as the map it stands for :
+// its names are the text nodes of the definition, shared by every record that refers to it.
+func (d *cborDecoder) structureItem(tag uint64, depth int) (int32, error) {
+	bad := func(format string, args ...any) (int32, error) {
+		return 0, fmt.Errorf("tag %d: "+format, append([]any{tag}, args...)...)
+	}
+	// the tag and its array each count as a level, so the values sit two below the tag
+	if depth+1 >= cborMaxDepth {
+		return 0, fmt.Errorf("nested more than %d levels", cborMaxDepth)
+	}
+	major, _, n, indef, err := d.head()
+	if err != nil {
+		return 0, err
+	}
+	if major != 4 || indef {
+		return bad("a structure is a definite-length array")
+	}
+	if err := d.countFits(n, 1); err != nil {
+		return 0, err
+	}
+
+	var names []int32
+	if tag == cborenc.TagStructureDef {
+		if n < 2 {
+			return bad("a definition holds an id, the names and the values")
+		}
+		idTag, err := d.item(depth + 2)
+		if err != nil {
+			return 0, err
+		}
+		id := d.doc.nodes[idTag]
+		if id.item != itInt || int64(id.extra) < cborenc.StructureTagBase || int64(id.extra) >= cborenc.StructureTagBase+cborenc.MaxStructures {
+			return bad("the id of a definition is an integer from %d to %d", cborenc.StructureTagBase, cborenc.StructureTagBase+cborenc.MaxStructures-1)
+		}
+		if names, err = d.structureNames(tag, depth+2); err != nil {
+			return 0, err
+		}
+		if int(n) != len(names)+2 {
+			return bad("a definition of %d names is an array of %d items, not %d", len(names), len(names)+2, n)
+		}
+		if d.structs == nil {
+			d.structs = map[int][]int32{}
+		}
+		d.structs[int(id.extra)-cborenc.StructureTagBase] = names
+	} else {
+		var ok bool
+		if names, ok = d.structs[int(tag)-cborenc.StructureTagBase]; !ok {
+			return bad("a structure that was not defined")
+		}
+		if int(n) != len(names) {
+			return bad("a structure of %d names holds %d values", len(names), n)
+		}
+	}
+
+	start := len(d.doc.kids)
+	d.doc.kids = append(d.doc.kids, make([]int32, 2*len(names))...)
+	for i, k := range names {
+		v, err := d.item(depth + 2)
+		if err != nil {
+			return 0, err
+		}
+		d.doc.kids[start+2*i], d.doc.kids[start+2*i+1] = k, v
+	}
+	return d.add(cnode{item: itMap, a: start, b: len(names)}), nil
+}
+
+// structureNames reads the array of names of a definition : text strings, all different.
+func (d *cborDecoder) structureNames(tag uint64, depth int) ([]int32, error) {
+	major, _, n, indef, err := d.head()
+	if err != nil {
+		return nil, err
+	}
+	if major != 4 || indef {
+		return nil, fmt.Errorf("tag %d: the names of a definition are a definite-length array", tag)
+	}
+	if err := d.countFits(n, 1); err != nil {
+		return nil, err
+	}
+	names := make([]int32, n)
+	for i := range names {
+		k, err := d.item(depth + 1)
+		if err != nil {
+			return nil, err
+		}
+		if d.doc.nodes[k].item != itText {
+			return nil, fmt.Errorf("tag %d: a name that is not a text string", tag)
+		}
+		names[i] = k
+	}
+	// checked once here, not by every record that refers to the definition
+	seen := make(map[string]struct{}, len(names))
+	for _, k := range names {
+		name := string(d.doc.nodes[k].textBytes())
+		if _, dup := seen[name]; dup {
+			return nil, fmt.Errorf("tag %d: duplicate name %q", tag, name)
+		}
+		seen[name] = struct{}{}
+	}
+	return names, nil
 }
 
 func (d *cborDecoder) addText(item cborItem, text string, b int, extra uint64) int32 {

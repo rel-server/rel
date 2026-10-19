@@ -1,7 +1,6 @@
-import "./cbor-date"
 import * as db from "./database"
-import { run } from "../bench"
-import { plainRow } from "../bench-row"
+import { run } from "../../bench/bench"
+import { plainRow } from "../../bench/bench-row"
 
 await run("cbor-date", db, (i) => ({
   ...plainRow(i),

@@ -23,8 +23,17 @@ If you'd rather have your editor/LSP watch a real file on disk instead of re-cur
 `typescript.helper_path` has rel write `database.ts` straight to a path of your choosing, on
 startup and on every schema reload.
 
-The file has no `import`s and depends on nothing else in your project — copy it in, commit it
-if you like, and it just works.
+By default the file has no `import`s and depends on nothing else in your project — copy it in, commit it
+if you like, and it just works. `codec` picks other [codecs](#codecs) (CBOR, `Date` or `Temporal` for dates and times,
+exact 8-byte integers) and the file then imports the one package each needs:
+
+```sh
+curl 'http://localhost:8080/rel/database.ts?schemas=hotel&codec=cbor,temporal' > src/database.ts
+```
+
+`http.typescript.codec` sets the same list for every output (the endpoint, `typescript.helper_path` and
+`--typescript-out`); the `codec` param replaces it for one request, and so does `--typescript-codec` for
+`--typescript-out`.
 
 ### Where the server is
 
@@ -288,7 +297,8 @@ a `get`-only one read-only and a `get`/`set` pair assignable, the same as on a r
 A `proto` entry can also be a property descriptor (`{get, set, enumerable}`), not just a plain
 getter/method written inline — this is what lets a reusable helper compose accessors into
 `proto` via object spread. `database.ts` ships one such helper per [typed wire value](#typed-wire-values)
-worth converting client-side; see that section for the full list. Spreading one in adds its
+worth converting client-side (the date and time ones only with a `date` or `temporal` [codec](#codecs)); see that
+section for the full list. Spreading one in adds its
 member alongside anything else in `proto`:
 
 ```ts
@@ -302,7 +312,7 @@ const properties = await relation("hotel.properties", {
 }).get()
 
 properties[0].created_at            // Timestamptz — the raw column, untouched
-properties[0].created_at_as_date    // Temporal.Instant — derived, not stored
+properties[0].created_at_as_date    // Temporal.Instant with the `temporal` codec (a Date with `date`) — derived, not stored
 properties[0].created_at_as_date = Temporal.Now.instant() // writable, if the helper defines a setter
 ```
 
@@ -440,7 +450,8 @@ wire format is a plain JSON array of the same per-element string format.
 ### Reading a richer value
 
 A branded type's own accessor helper (imported from `database.ts`, spread into `proto`) converts
-it into a genuinely richer client-side value:
+it into a genuinely richer client-side value. The date and time helpers exist only when the file was generated with
+a `date` or `temporal` [codec](#codecs); the examples below use `temporal`:
 
 ```ts
 import { relation } from "./database"
@@ -455,12 +466,12 @@ const properties = await relation("hotel.properties", {
 
 | Source type | Accessor | Result |
 |---|---|---|
-| `Timestamptz` | `timestampTzAccessor` | `Temporal.Instant` |
-| `Timestamp` | `timestampAccessor` | `Temporal.PlainDateTime` (naive — no time zone assumed) |
-| `PgDate` | `dateAccessor` | `Temporal.PlainDate` |
-| `Interval` | `intervalAccessor` | `Temporal.Duration` |
+| `Timestamptz` | `timestampTzAccessor` (`date`, `temporal`) | `Temporal.Instant`, or a `Date` with `date` |
+| `Timestamp` | `timestampAccessor` (`date`, `temporal`) | `Temporal.PlainDateTime` (naive — no time zone assumed), or a `Date` with `date` (a wall clock is read as UTC) |
+| `PgDate` | `dateAccessor` (`temporal`) | `Temporal.PlainDate` |
+| `Interval` | `intervalAccessor` (`temporal`) | `Temporal.Duration` |
 | `Int8` | `int8Accessor` | `bigint`, via `BigInt()` — exact if the value you hold is exact (see [Codecs](#codecs)) |
-| `Int4Range`/`Int8Range`/`NumRange`/`DateRange`/`TsRange`/`TstzRange` | `int4RangeAccessor`/... | `Range<T>` (below), `T` matching the table above |
+| `Int4Range`/`Int8Range`/`NumRange`/`DateRange`/`TsRange`/`TstzRange` | `int4RangeAccessor`/... (the date and time ones with `temporal`) | `Range<T>` (below), `T` matching the table above |
 | `PgPoint` | `pointAccessor` | `{x: number, y: number}` |
 | `Money` | `moneyAccessor` | `bigint` (whole cents), via `..._as_cents` |
 | `bytea` (`Bytea`, a bare `string` of hex unless a [codec](#codecs) says otherwise) | `bytesAccessor` | `Uint8Array`, via `..._as_bytes` |
@@ -476,13 +487,12 @@ date" class for the former, and no native JS type represents an arbitrary-scale 
 latter. `compareNumeric` (also exported from `database.ts`) compares two `PgNumeric` values
 digit by digit, whatever type your [codec](#codecs) gives them.
 
-Every temporal accessor returns a [`Temporal`](https://tc39.es/proposal-temporal/docs/) value, not
-a `Date` — `Temporal`'s classes are immutable and genuinely distinct from one another (a
-`Temporal.PlainDateTime` cannot satisfy a `Temporal.Instant`-typed parameter, cast or no cast),
-which `Date` alone can't offer. `database.ts` references `Temporal` as a global, the same way it
-already references `Date`/`Promise`/`fetch` — until `Temporal` ships natively everywhere, your own
-project is responsible for installing a polyfill (`@js-temporal/polyfill`) if your target runtime
-doesn't have it yet.
+With the `temporal` codec the accessors return [`Temporal`](https://tc39.es/proposal-temporal/docs/) values —
+`Temporal`'s classes are immutable and genuinely distinct from one another (a `Temporal.PlainDateTime` cannot satisfy a
+`Temporal.Instant`-typed parameter, cast or no cast), which `Date` alone can't offer, and `Temporal.PlainDate` holds a
+calendar day that no `Date` can. The file then references `Temporal` as a global — until it ships natively everywhere,
+your own project is responsible for installing a polyfill (`@js-temporal/polyfill`) if your target runtime doesn't
+have it yet. Without `temporal` the file references no `Temporal` type at all.
 
 ### Writing one back
 
@@ -494,14 +504,14 @@ import { asTimestamptz } from "./database"
 
 await relation("hotel.properties", { select: { id: ["col", "id"], created_at: ["col", "created_at"] } }).write({
   id: 1,
-  created_at: asTimestamptz(new Date()), // or a Temporal.Instant, or a pre-formatted string
+  created_at: asTimestamptz(new Date()), // with the `date` or `temporal` codec ; `temporal` also takes a Temporal.Instant, any one a string with an offset
 })
 ```
 
 `asTimestamptz` throws if given a string with no time zone offset — Postgres would otherwise
 silently reinterpret it using the session's own time zone. `asMoney` and every range cast only
 brand the value, since nothing about their string shape is unsafe to skip validating. `asInt8`
-and `asNumeric` only brand a value that already has the type [`PgWire`](#what-pgwire-can-retype) says.
+and `asNumeric` only brand a value that already has the type the [codec](#codecs) gives it.
 
 ### Ranges
 
@@ -528,7 +538,7 @@ range.equals(other)   // boolean
 `intervalAccessor` returns a [`Temporal.Duration`](https://tc39.es/proposal-temporal/docs/duration.html),
 the natural counterpart for a span rather than a point in time. It assumes the session's
 `IntervalStyle` is `postgres` (Postgres's own default) and throws on a string in a different style.
-`asInterval` writes a `Temporal.Duration` or a string back — a `Temporal.Duration` is serialized
+`asInterval` brands a string; the accessor's setter also takes a `Temporal.Duration`, serialized
 via its own ISO 8601 `.toString()` (e.g. `"P1DT2H3M4S"`), which Postgres's interval parser accepts
 regardless of the session's output-side `IntervalStyle`.
 
@@ -588,8 +598,51 @@ you pass pick which overload's return type you get back.
 
 ## Codecs
 
-Every query writes its request and reads its response through `Querier.prototype.codec`, the browser's `JSON` unless you
-replace it. Replace it once, or per query like `baseUrl`:
+Three independent choices decide how values travel and what they are on the client. They are given as a comma-separated
+list of tokens, in any order, in `GET /rel/database.ts?codec=…`, in `http.typescript.codec` and in `--typescript-codec`
+(see [Fetching it](#fetching-it)):
+
+| Choice | Token | What it is |
+|---|---|---|
+| Wire format | `json` (default) | JSON text, the browser's `JSON`. |
+| | `cbor` | [CBOR](../query-language/index.md#cbor-responses) both ways, with [`cbor-x`](https://github.com/kriszyp/cbor-x) (`bun add cbor-x`). `bytea` is a `Uint8Array`, and `bigint` and a time type (`date` unless you give one) are implied. |
+| Dates and times | none (default) | Text, as JSON carries them: `Timestamptz`, `Timestamp` and `PgDate` are branded strings, and there are no date accessors. Nothing needs `Temporal`. |
+| | `date` | A `timestamptz` or `timestamp` is a JS `Date` (milliseconds: the microseconds of a timestamp are lost). A `date` stays the `YYYY-MM-DD` text, since a `Date` holds no calendar day without a time zone nor every year a `date` does (`5874897-12-31`, `0044-03-15 BC`). |
+| | `temporal` | `Temporal.Instant` for `timestamptz` and `timestamp`, `Temporal.PlainDate` for `date`, and the accessors for `interval` and the date and time ranges. Needs a runtime with `Temporal`, or a polyfill loaded before the first query. |
+| Big integers | none (default) | `Int8` is a `number`: `JSON.parse` silently rounds anything beyond 2^53. |
+| | `bigint` | `Int8` is `number \| bigint`: a safe integer is a number, a larger one a bigint, and a `bigint` can be sent. Over JSON it needs `lossless-json` (`bun add lossless-json`), which parses slower than `JSON.parse`: for large responses prefer `cbor`. |
+
+`json,temporal,bigint` and `cbor,temporal` are valid; `json,cbor`, `date,temporal`, a token twice and an unknown token
+are a `400` (a bad `http.typescript.codec` stops `rel` at startup). The generated file's header says which options built it
+(`// Codec: cbor,temporal,bigint`), and it has no `import` except for the package the options need, at its top.
+
+The types follow the options: `Int8`, `Timestamptz`, `Timestamp`, `PgDate` and `Bytea` are what the codec hands over, in reads and
+writes, and an id column over a `bigserial` follows. The file offers no supported way to change them from your own code: ask for another codec instead.
+
+What `cbor` gives a value (it keeps its column type instead of becoming a string):
+
+| Postgres type | JS value |
+|---|---|
+| `timestamptz` | `Date` or `Temporal.Instant` |
+| `timestamp` | `Date` or `Temporal.Instant`: the server answers the instant the wall clock stands for **in its own session time zone**, which the client cannot see. A column that holds another zone's wall clock reads as the wrong instant |
+| `date` | text, or `Temporal.PlainDate` |
+| `bytea` | `Uint8Array` |
+| `uuid` | `string` (hyphenated) |
+| `int2`, `int4`, `int8` | `number`; a value of 2^32 or more is a `bigint` (`cbor-x` reads every 8-byte integer that way), so `int8` is `number \| bigint`. Over JSON with `bigint` the line sits at 2^53 instead |
+| `numeric` | `number`: `cbor-x` reads tag 4 as `Number(mantissa + "e" + exponent)`, so the digits beyond what a double holds (about 15 to 17) are rounded and the display scale is lost (`1.50` reads `1.5`), as with JSON. `NaN` and the infinities are floats and read as such |
+| `interval`, ranges, `inet`, `money`... | the same string as JSON |
+
+A JSON codec reads *every* number the same way, whatever column it came from, so it cannot make `numeric` exact without
+changing the type of every `int4` and `float8` too. When a decimal must stay exact, ask for it as text in the query
+— `["::", ["col", "base_price"], "text"]` — and read it as a string.
+
+Without `bigint` or `cbor`, passing a `bigint` in a query or a payload throws a `TypeError`, since the browser's
+`JSON.stringify` cannot write one.
+
+### Changing how a value is read or written
+
+Every query writes its request and reads its response through `Querier.prototype.codec`; assign it once, or per query like
+`baseUrl` (a per-query codec must yield the same kinds of value the generated types say):
 
 ```ts
 Querier.prototype.codec = myCodec
@@ -603,8 +656,9 @@ A codec is an object of this shape:
 ```ts
 interface Codec {
   contentType?: string                              // sent as Content-Type and Accept ; left out, neither is sent
+  accept?: string                                   // sent as Accept instead of contentType
   binary?: boolean                                  // decode() takes the response bytes, not its text
-  encode(value: unknown): string | Uint8Array
+  encode(value: unknown, options?: { structures?: boolean }): string | Uint8Array
   decode(body: string | Uint8Array): unknown
 }
 ```
@@ -612,85 +666,39 @@ interface Codec {
 A failed request (status 400 or more) is always JSON text, whatever was asked, and never reaches `decode`: it becomes a
 `RelRequestError` whose `body` is that text.
 
-A codec changes what some values *are* at runtime, so the types have to follow. Two things go together: the codec, and a
-merge into `PgWire` saying what the codec yields. The repository keeps both halves in one file per codec, in
-`typescript/presets/`, tested against a real server. Copy the one you want next to your `database.ts`, fix its import path
-and `import` it once before the first query. A preset's `PgWire` block applies to the whole program: there is one choice per
-project, not one per query. (A `.codec` set on a single query changes only the runtime half; keep it to a codec that
-yields the same values as the preset.)
+Two tables are exported for finer changes, and are read each time they are used:
 
-| Preset | Needs | What changes |
-|---|---|---|
-| none (default) | | JSON text. `Int8` and `PgNumeric` are `number`, so anything beyond 2^53 (or about 15 significant digits for a decimal) is silently rounded by `JSON.parse`. Dates, times and `bytea` are strings. |
-| `presets/json-bigint/json-bigint.ts` | `lossless-json` | `int8` is `number \| bigint`: a safe integer is a number, a larger one a bigint. A `bigint` can be sent. |
-| `presets/cbor/cbor.ts` | `cbor-x`, `Temporal` | CBOR both ways, see [below](#cbor). |
-| `presets/cbor-date/cbor-date.ts` | `cbor-x` | The same without `Temporal`: an instant is a `Date`, a `date` stays text. |
-
-Without a bigint-aware codec, passing a `bigint` in a query or a payload throws a `TypeError`, since the browser's
-`JSON.stringify` cannot write one.
-
-### What `PgWire` can retype
-
-| Member | Default | A codec may say | Write-side cast |
-|---|---|---|---|
-| `int8` | `number` | `bigint`, `number \| bigint` | `asInt8` |
-| `numeric` | `number` | a decimal class | `asNumeric` |
-| `timestamptz` | `string` | `Temporal.Instant`, `Date` | `asTimestamptz` |
-| `timestamp` | `string` | `Temporal.Instant`, `Date` | `asTimestamp` |
-| `date` | `string` | `Temporal.PlainDate` | `asPgDate` |
-| `bytea` | `string` (`\x…` hex) | `Uint8Array` | the `bytea` entry of `pgWireCasts` |
-
-```ts
-// any file of your project that is a module
-declare module "./database" {
-  interface PgWire {
-    int8: number | bigint // a safe integer is a number, a larger one a bigint
-  }
-}
-```
-
-Every column of that type, in reads and writes, is typed that way from then on, and an id column over a `bigserial`
-follows. Use `bigint` alone if your codec reads every integer as one. The defaults live in the types, not in `PgWire`,
-which is empty on purpose: TypeScript cannot redeclare an existing member of an interface with another type (error
-`TS2717`), but it can add a missing one, so a member that is absent means "the default".
-
-The write-side casts build values at runtime, and must build what the member says. `pgWireCasts` (exported next to them)
-holds one function per member that a codec can retype; the default ones build the JSON strings, and a preset replaces the
-entries it retypes (`pgWireCasts.date = (v) => ...`), so the type and the value stay one decision.
+- `pgWireCasts` holds one function per type whose written form depends on the codec (`timestamptz`, `timestamp`, `date`,
+  `bytea`): the `as…` casts (`asTimestamptz`, …) call them.
+- With `cbor`, `cborTags` maps a CBOR tag number to `{Class, encode, decode}` (1 and 100 for dates and times, 37 for a uuid).
+  Replacing an entry changes what that tag becomes; `defineCborTag(tag, entry)` registers a new one with `cbor-x`, whose tag
+  registry is shared by the whole program.
 
 The accessors (`timestampTzAccessor`, `timestampAccessor`, `dateAccessor`, `bytesAccessor`, `int8Accessor`) accept whichever
-form the column has: they convert a string, and pass a value that already is a `Temporal` or `Uint8Array` through. Code
-written against the JSON default keeps compiling and running under a preset, with one exception: with `timestamp` as an
-`Instant` there is no wall clock to read, so `timestampAccessor`'s getter gives that `Instant`.
+form the column has: over JSON they convert a string, over CBOR they pass the value the tag decoded through. With
+`cbor,temporal`, `timestamp` is an instant, so there is no wall clock to read and `timestampAccessor`'s getter gives that `Instant`.
 
-A JSON codec reads *every* number the same way, whatever column it came from, so it cannot make `numeric` exact without
-changing the type of every `int4` and `float8` too. When a decimal must stay exact in JSON, ask for it as text in the query
-— `["::", ["col", "base_price"], "text"]` — and read it as a string.
+### Structures
 
-### CBOR
+With `cbor`, objects that share their keys are written once and then referred to, in both directions
+([the wire format](../query-language/index.md#structures)): about half the bytes for rows, and decoding about three times
+faster in `cbor-x`.
 
-The `cbor` preset sends `application/cbor` and asks for it ([the wire format](../query-language/index.md#cbor-responses)),
-using [`cbor-x`](https://github.com/kriszyp/cbor-x). A value then keeps its column type instead of becoming a string:
+- **Responses** ask for them through the codec's `accept`, `application/cbor; structures=1`. `cbor-x` reads them by building
+  a reader per layout with `new Function`, which a strict Content-Security-Policy (no `'unsafe-eval'`) or a runtime without
+  `eval` refuses. There, assign `Querier.prototype.codec.accept = "application/cbor"` to have plain maps.
+- **Requests** use them unless `sendStructures` is `false`. It is a property of `Querier`, like `baseUrl` and `codec`:
+  `Querier.prototype.sendStructures = false` for every query, or `myQuery.sendStructures = false` for one (a query built from
+  it, with `join()` and the like, starts from the prototype's value again). Objects that never share their keys, such as a
+  `jsonb` value used as a dictionary of ids, gain no bytes from them and take about 2.4 times as long to encode : turn it
+  off for a query that sends mostly those. Everything else is written correctly either way.
 
-| Postgres type | JS value |
-|---|---|
-| `timestamptz` | `Temporal.Instant` |
-| `timestamp` | `Temporal.Instant`: the server answers the instant the wall clock stands for **in its own session time zone**, which the client cannot see. A column that holds another zone's wall clock reads as the wrong instant |
-| `date` | `Temporal.PlainDate` |
-| `bytea` | `Uint8Array` |
-| `uuid` | `string` (hyphenated) |
-| `int2`, `int4`, `int8` | `number`; a value of 2^32 or more is a `bigint` (`cbor-x` reads every 8-byte integer that way), so `int8` is `number \| bigint` |
-| `numeric` | `number`: `cbor-x` reads tag 4 as `Number(mantissa + "e" + exponent)`, so the digits beyond what a double holds (about 15 to 17) are rounded and the display scale is lost (`1.50` reads `1.5`), as with JSON. `NaN` and the infinities are floats and read as such. An exact decimal needs a tag 4 extension of your own (which replaces the built-in one) and `PgWire["numeric"]` set to its class |
-| `interval`, ranges, `inet`, `money`... | the same string as JSON |
+Sharing a prototype (`draft()` rows, or a class) does not speed up the encoding : `cbor-x` compares the keys of every
+object whatever its prototype, and an object with a prototype of its own takes a slower path through its extensions.
 
-The preset is about 100 lines: three tag extensions (1, 100, 37), the encoder options, and a rewrite of what `cbor-x`
-writes differently from `JSON.stringify` (an `undefined` object member is dropped, and a whole number of 2^32 or more is
-sent as an integer, which an `int8` column needs). It needs a runtime with `Temporal`, or a polyfill loaded before it.
-
-`cbor-date` is the same file for a runtime without `Temporal`, or to avoid the objects: `timestamptz` and `timestamp` are `Date`s
-(so only milliseconds are kept: the microseconds of a timestamp are lost on read), and `date` is the `YYYY-MM-DD` text JSON gives, since a `Date`
-cannot hold a calendar day without a time zone nor reach every year a `date` does (`5874897-12-31`, `0044-03-15 BC`). The `timestamptz` `_as_date` accessor
-still returns a `Temporal.Instant`, so using it needs `Temporal`. Decoding is not faster than with `cbor`: building the `Temporal` objects is a
+The `cbor` code is about 100 lines: the tag entries, the encoder options, and a rewrite of what `cbor-x` writes differently
+from `JSON.stringify` (an `undefined` object member is dropped, and a whole number of 2^32 or more is sent as an integer,
+which an `int8` column needs). Decoding is not faster with `date` than with `temporal`: building the `Temporal` objects is a
 small part of the cost, `cbor-x` itself the rest.
 
 ## database.json

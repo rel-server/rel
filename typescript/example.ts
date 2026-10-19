@@ -13,13 +13,9 @@ import type {
   RootShapeFromFunctionMember,
 } from "./shapes"
 import type { Id, Int8, PgNumeric, PgPoint } from "./pg_values"
-import {
-  asNumeric,
-  bytesAccessor,
-  moneyAccessor,
-  pointAccessor,
-  timestampTzAccessor,
-} from "./pg_values"
+import { asNumeric, bytesAccessor, moneyAccessor, pointAccessor } from "./pg_values"
+// The `temporal` codec's accessor : example.ts shows its type-level use (docs/content/typescript/index.md ## Codecs).
+import { timestampTzAccessor } from "./codecs/time-temporal"
 
 // Ids are table-local (pg_values.ts's `Id`) : a bare literal isn't one, so a literal id is cast explicitly.
 const PROPERTY_1 = 1 as Id["hotel.properties.id"]

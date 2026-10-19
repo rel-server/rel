@@ -19,7 +19,7 @@ test:
 
 # typecheck and biome check
 check:
-    cd typescript && bunx tsc --noEmit && biome check
+    cd typescript && bunx tsc --noEmit && bunx tsc --noEmit -p codecs/tsconfig.json && biome check
 
 # The TypeScript client's own tests (typescript/tests) against a real rel server and database : go starts both,
 # generates database.ts from them, typechecks the tests against it and runs `bun test`. Needs docker and bun
@@ -28,7 +28,7 @@ test-ts:
     cd typescript && bun install --frozen-lockfile
     go test ./test/tsclient -count=1 -v
 
-# The TypeScript codecs side by side (typescript/presets/bench.ts) on a response of 20 rows, a page. Needs docker and bun.
+# The TypeScript codecs side by side (typescript/bench/bench.ts) on a response of 20 rows, a page. Needs docker and bun.
 bench-codecs-small:
     cd typescript && bun install --frozen-lockfile
     BENCH_ROWS=20 TSCLIENT_BENCH=1 go test ./test/tsclient -count=1 -v -run TestTypeScriptClient | grep BENCH

@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -80,36 +81,38 @@ func TestTypeScriptClient(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	// The client library as a user gets it : fetched from the running server.
-	res, err := http.Get(srv.URL + "/rel/database.ts")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /rel/database.ts: status %d", res.StatusCode)
-	}
-	generated := filepath.Join(tsDir, "tests", "generated")
-	if err := os.MkdirAll(generated, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	database, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(generated, "database.ts"), database, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Each preset (typescript/presets/<name>) is a program and a test process of its own : its PgWire
-	// augmentation is program-wide, and its codec is assigned on the Querier prototype of the process.
-	presets, err := filepath.Glob(filepath.Join(tsDir, "presets", "*", "tsconfig.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tsconfig := range presets {
-		if err := os.WriteFile(filepath.Join(filepath.Dir(tsconfig), "database.ts"), database, 0o644); err != nil {
+	// The client library as a user gets it : fetched from the running server. tests/ runs against the JSON file with
+	// Temporal accessors ; each typescript/combos/<codec> directory is a program and a test process of its own, for the
+	// codec its name spells (dashes for commas : `cbor-temporal` is `?codec=cbor,temporal`).
+	fetch := func(codec, dest string) {
+		t.Helper()
+		res, err := http.Get(srv.URL + "/rel/database.ts?codec=" + codec)
+		if err != nil {
 			t.Fatal(err)
 		}
+		defer res.Body.Close()
+		database, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("GET /rel/database.ts?codec=%s: status %d\n%s", codec, res.StatusCode, database)
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dest, database, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fetch("json,temporal", filepath.Join(tsDir, "tests", "generated", "database.ts"))
+	combos, err := filepath.Glob(filepath.Join(tsDir, "combos", "*", "tsconfig.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tsconfig := range combos {
+		dir := filepath.Dir(tsconfig)
+		fetch(strings.ReplaceAll(filepath.Base(dir), "-", ","), filepath.Join(dir, "database.ts"))
 	}
 
 	run := func(name string, args ...string) {
@@ -125,21 +128,23 @@ func TestTypeScriptClient(t *testing.T) {
 	}
 	// The tests are typechecked against the generated types too : that is half of what they exist to prove.
 	run(bun, "x", "tsc", "--noEmit", "-p", "tests/tsconfig.json")
-	// PgWire module augmentation is program-wide, so its check is a program of its own.
-	run(bun, "x", "tsc", "--noEmit", "-p", "tests/augment/tsconfig.json")
 	run(bun, "test", "./tests")
-	for _, tsconfig := range presets {
-		preset := filepath.Base(filepath.Dir(tsconfig))
-		run(bun, "x", "tsc", "--noEmit", "-p", "presets/"+preset+"/tsconfig.json")
-		run(bun, "test", "./presets/"+preset)
+	for _, tsconfig := range combos {
+		combo := filepath.Base(filepath.Dir(tsconfig))
+		run(bun, "x", "tsc", "--noEmit", "-p", "combos/"+combo+"/tsconfig.json")
+		run(bun, "test", "./combos/"+combo)
 	}
 
-	// Opt-in : the codecs' costs side by side (typescript/presets/bench.ts), each in a process of its own.
+	// Opt-in : the codecs' costs side by side (typescript/bench/bench.ts), each in a process of its own.
 	if os.Getenv("TSCLIENT_BENCH") != "" {
 		run(bun, "tests/codec.bench.ts")
-		for _, tsconfig := range presets {
-			preset := filepath.Base(filepath.Dir(tsconfig))
-			run(bun, filepath.Join("presets", preset, preset+".bench.ts"))
+		for _, tsconfig := range combos {
+			combo := filepath.Base(filepath.Dir(tsconfig))
+			bench := filepath.Join("combos", combo, combo+".bench.ts")
+			if _, err := os.Stat(filepath.Join(tsDir, bench)); err != nil {
+				continue // not every combination has a benchmark
+			}
+			run(bun, bench)
 		}
 	}
 }

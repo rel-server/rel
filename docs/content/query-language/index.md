@@ -13,7 +13,7 @@ request's `Content-Type` is `application/cbor`. The query is the same tree, with
 numbers, booleans and null in the places JSON has them, and a write's `data` can also carry the types CBOR has
 and JSON lacks ([value forms](writing.md#from-cbor)). Map keys must be text strings and appear once. A body that is not
 valid CBOR is refused with `QUERY_MALFORMED_CBOR`. The format of the request does not decide the format of the response :
-see [CBOR responses](#cbor-responses).
+see [CBOR responses](#cbor-responses). A body may also use [structures](#structures), which `cbor-x` writes by default.
 
 Examples throughout use the hotel-booking schema from [Getting started](../getting-started/index.md):
 `hotel.chains` → `hotel.properties` → `hotel.room_types` → `hotel.rooms`, and `hotel.guests` →
@@ -51,6 +51,25 @@ that values keep their column types instead of being squeezed into JSON's :
 
 Rows stream as they are read, like the JSON ones. If the query fails before the first row the answer is a JSON error ;
 after it, the body just stops.
+
+### Structures
+
+Rows of a query have the same field names from the first to the last. `Accept: application/cbor; structures=1` asks for
+each list of field names to be written once, in the first row that has it, and for the other rows to point at it : the
+response is about half the size for typical rows, and a client that understands them reads it about three times
+faster. The answer says `Content-Type: application/cbor; structures=1`. Without the parameter the rows are plain maps.
+
+The tags are the record extension of [`cbor-x`](https://github.com/kriszyp/cbor-x#record--object-structures), not a
+registered CBOR extension, so only a client that knows it can read them ; the TypeScript client asks for them by default.
+Only the rows of a query (and the rows of what it embeds) use them : `json` and `jsonb` values, `stats`, `sql` and
+`query_plan` stay plain maps, and so do route responses, which answer plain CBOR either way. When the header lists
+`application/cbor` with and without the parameter, the one with the higher `q` wins and the parameter wins a tie.
+
+A request body can use them whatever `Accept` says, with no parameter : the tags are read wherever a map is accepted.
+Definitions are read in order, a reference needs its definition before it, and an id defined again replaces the earlier
+one from there on. A definition whose names are not distinct text strings, a reference to an id never defined, and a
+reference whose number of values differs from its definition's are refused. The two other record forms `cbor-x` can
+read (tag `0xdffe` and tag 105) are not read.
 
 A [well-known query](well-known-queries.md) and a [route](../http/requests-responses.md#response-format) are negotiated
 the same way.

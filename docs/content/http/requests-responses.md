@@ -101,7 +101,7 @@ function's value would be — here `application/json`, since it's `jsonb`.
 ## Response format
 
 A body whose `Content-Type` is `application/json` is answered as `application/cbor` when the request's `Accept`
-prefers it (`Accept: application/cbor`; `*/*` and no header stay JSON). The route's `Vary: Accept` header says so.
+prefers it (`Accept: application/cbor`; `*/*` and no header stay JSON). The route's `Vary: Accept` header says so. A request for [structures](../query-language/index.md#structures) (`application/cbor; structures=1`) is answered with plain CBOR : a route's content has no fixed list of fields.
 
 - A function returning `json`/`jsonb` : the JSON is converted as it is, number by number from its text : an integer
   is a CBOR integer (a bignum when large), a number with a fraction or exponent is a decimal fraction (tag 4) that

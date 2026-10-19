@@ -86,6 +86,7 @@ Limits and rules of the reader:
 - Nesting of arrays, maps and tags is limited to 64 levels. A count in a header must be backed by the bytes that remain.
 - Text strings must be valid UTF-8, chunk by chunk for an indefinite-length string. Indefinite-length arrays, maps and strings are read.
 - Duplicate map keys are refused.
+- Structures (`## Structures`) are read as maps : the tags `0xdfff` and `0xe000` to `0xffff`, over the content that section describes, give a `KindObject` node.
 - Simple values other than `false`, `true`, `null` and `undefined` (read as null) are refused. Half, single and double floats are read.
 - Tag 0 over text that is not an RFC 3339 date and time, and tag 1 over a non-finite or out-of-range number, are refused.
 - A CBOR map key that is not a text string is an error (`errcode`-wrapped, not coerced to a string ; a byte string key is one), as is trailing bytes after the item, and anything that is not well-formed CBOR.
@@ -101,7 +102,53 @@ A write's `"data"` stays a `Node`, never JSON text : the write path encodes it i
 
 ## 2. Query-engine response encoding
 
-Applies when the request `Accept`s CBOR (`## HTTP negotiation`). The JSON path (`row_to_json`/`json_agg` in `query/sql.go`, raw bytes passed through by `server/response.go`'s `streamRows`) is unchanged and serves every other request. Implemented in `query/sql.go` (`OutputFormat`, `FormatCBOR`), `query/result_cbor.go` (`ResultEncoder`) and `cborenc/`.
+Applies when the request `Accept`s CBOR (`## Structures
+
+A structure is the list of field names of a record, written once and then referred to by a number : a row then costs its values and a small tag, not its values and its field names. rel writes them in the responses that ask for them (`## HTTP negotiation`) and reads them in every request. They are the record extension of `cbor-x` (`https://github.com/kriszyp/cbor-records`) and not a registered CBOR extension, so a generic CBOR decoder reads them as unknown tags.
+
+### Wire format
+
+- A definition is tag `0xdfff` over an array of N+2 items : the integer `0xe000 + id`, an array of the N field names (text strings), then the N values in the same order. A definition is also the record's first use.
+- A reference is tag `0xe000 + id` over an array of the N values.
+- Ids go from 0 to 8190 (tags `0xe000` to `0xfffe`).
+- A record decodes to the map of its field names and values. Nothing else in the document changes meaning.
+
+```
+9f                          indefinite array of rows
+  d9 dfff 84                  definition, 4 items :
+     19 e000                    id 0
+     82 62 6964 64 6e616d65     ["id", "name"]
+     01 63 616161               1, "aaa"
+  d9 e000 82 02 63 626262     reference to id 0 : 2, "bbb"
+ff
+```
+
+### Writing
+
+- A response asked to use structures writes every record that comes from a plan node as a structure : the rows of the root, of a to-one embed and of a to-many embed.
+- A structure is the list of a node's field names in order. Two nodes with the same list share one id.
+- Ids are given in the order of first use, from 0, across the whole response including every item of a multi-item request. A structure is defined at its first use and never redefined.
+- After 8191 structures, further field lists are written as maps.
+- Composite and anonymous records that are not a plan node, `json` and `jsonb` values, the envelope members (`stats`, `sql`, `query_plan`) and declared-route bodies (`## 3`) are maps.
+
+> **Why:** the field names of a plan node are fixed whatever the row, so one id per node is enough and no row-by-row comparison is needed. A `jsonb` value has arbitrary keys that rarely repeat, where a definition per object would cost more than the map.
+
+### Reading
+
+The request reader (`## CBOR adapter`) accepts both tags, anywhere a map is accepted, in every request.
+
+- A definition's id must be in range. An id used again replaces the earlier definition from that point on ; items already read keep theirs.
+- The N field names must be text strings and distinct. This is checked once per definition.
+- A reference must name a defined id, and its array must have exactly as many values as the definition has names.
+- The record is a `KindObject` node, read as the map its names and values give.
+- A tag and its array each count as a nesting level (limit in `## CBOR adapter`).
+- Anything else breaking these rules is refused with an error that names the tag. Tag `0xdffe` and tag 105, the other forms `cbor-x` can read, are refused as unknown tags.
+
+> **Why:** id 8191 is unused because `cbor-x` reads a tag as the structure numbered by its low 13 bits before it tests for a definition, and the definition tag `0xdfff` has the low bits of id 8191.
+
+> **Why:** `cbor-x` writes only the two forms above when records are on and `sequential` is off, so the other two never come from the TypeScript client.
+
+## HTTP negotiation`). The JSON path (`row_to_json`/`json_agg` in `query/sql.go`, raw bytes passed through by `server/response.go`'s `streamRows`) is unchanged and serves every other request. Implemented in `query/sql.go` (`OutputFormat`, `FormatCBOR`), `query/result_cbor.go` (`ResultEncoder`) and `cborenc/`.
 
 ### SQL generation
 
@@ -195,7 +242,9 @@ The same applies to the second `OUT` column of a full-control function, **except
 
 - Request body format : `Content-Type` header, `application/json` (default) or `application/cbor`.
 - Response format : `Accept` header (`cborenc.Accepts`). CBOR is answered when `application/cbor` is acceptable and ranks above `application/json` by quality, then by specificity (an exact type beats a range) ; a range alone (`*/*`, none, or `application/*`) means JSON. On a tie of quality and specificity JSON wins, except that a named `application/cbor` beats `*/*`. `q=0` refuses a type.
-- The two are independent — a CBOR request body does not imply a CBOR response, and vice versa.
+- The `structures` parameter of `application/cbor` (`Accept: application/cbor; structures=1`) asks for the response to use structures (`## Structures`). Without it the response is plain CBOR maps. `structures=1` and `structures=true` are accepted ; any other value is no parameter. The answer carries the same parameter in its `Content-Type`.
+- When the header lists `application/cbor` both with and without the parameter, the one with `q` highest wins, and the one with the parameter on a tie. Routes (`## 3`) answer plain CBOR to either.
+- The two are independent — a CBOR request body does not imply a CBOR response, and vice versa. A request body may use structures whatever `Accept` says.
 - `Vary: Accept` is sent on `/rel` responses, and on route responses whose type depends on it.
 - **Errors are always JSON**, whichever format was accepted, since a client that asked for CBOR can read the error status and code from either, and a stream that fails midway has no clean place for one.
 - `GET /rel` also negotiates its response.
@@ -204,6 +253,14 @@ The same applies to the second `OUT` column of a full-control function, **except
 
 The client reads and writes through `Querier.prototype.codec` (`typescript/querier.ts`), an object with `encode`, `decode`, and optionally `contentType` and `binary`. A codec with a `contentType` has it sent as both `Content-Type` and `Accept` ; without one, neither header is sent. A failed request is read as text and thrown as `RelRequestError`, never decoded.
 
-`typescript/presets/<name>/` holds one file per codec, copied by hand by the consumer : the codec, and the `PgWire` merge (`typescript/pg_values.ts`) that types the values it yields, in one file. The CBOR preset uses `cbor-x`, decodes tag 1 to `Temporal.Instant`, tag 100 to `Temporal.PlainDate` and tag 37 to a hyphenated string, and sends byte strings untagged. Each preset has its own `tsc` program and its own `bun test` process, run by `test/tsclient`.
+The served `database.ts` is built for a list of codec options (`?codec=`, `http.typescript.codec`, `--typescript-codec` ; `docs/content/typescript/index.md ## Codecs`). `tsgen/codec.go` maps the options to the chunks of `typescript/codecs/` appended to the file, and to the `PgWire` members (`typescript/pg_values.ts`) that type the values the codec yields, so the codec and its types are one decision.
 
-> 📜 **ADR**: Presets are not served with `database.ts` : they import third-party packages, which the served file never does.
+- A codec's `encode(value, options)` receives `{ structures }` from the query, and its optional `accept` is sent as `Accept` in place of `contentType`. `Querier.prototype.sendStructures` (default `true`) is the switch, and assigning `sendStructures` on one query overrides it for that query alone. It only governs request bodies : the `cbor` codec's `accept` is `application/cbor; structures=1`, and assigning `Querier.prototype.codec.accept = "application/cbor"` turns structures off in responses.
+- `wire-cbor.ts` uses `cbor-x`, decodes tag 37 to a hyphenated string, sends byte strings untagged, and keeps the tags in the exported `cborTags` table. It holds two encoders, one with `useRecords: true` (and never `sequential`, which would refer to structures defined by an earlier body) and one without, chosen by `options.structures`. The decoder reads structures with no option.
+- `cbor-time-date.ts` and `cbor-time-temporal.ts` fill tags 1 and 100 : a `Date` and the `YYYY-MM-DD` text, or a `Temporal.Instant` and a `Temporal.PlainDate`.
+- `cbor` implies `bigint` (`cbor-x` reads an 8-byte integer as a `bigint`) and `date`.
+- Every combination is type-checked by `tsgen` (`TestGenerateDatabaseTS_Codecs`) ; `typescript/combos/<codec>/` is a `tsc` program and a `bun test` process of its own per combination run against a real server, started by `test/tsclient`.
+
+> 📜 **ADR**: the chunks import their packages (`cbor-x`, `lossless-json`) and the generator hoists those imports to the top of the served file, only for the options asked for : the default file keeps no import. A consumer who wants no dependency asks for no codec option.
+
+> 📜 **ADR**: the `cbor` codec asks for structures in responses by default, because a response's shapes come from the query and are never degenerate, and sends them in requests by default, with `sendStructures` to turn that off for a body whose objects rarely share their keys (a dictionary-like `jsonb` value costs about 2.4 times the encoding time of maps, for no size gain).

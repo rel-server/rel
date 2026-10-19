@@ -1,12 +1,14 @@
-// A small benchmark of a codec against a real server, shared by the `*.bench.ts` of each preset (and tests/ for the
+// A small benchmark of a codec against a real server, shared by the `*.bench.ts` of each combos/ directory (and tests/ for the
 // default JSON). Run through `TSCLIENT_BENCH=1 go test -v -run TestTypeScriptClient ./test/tsclient`. Each codec is a
 // process of its own, as for the tests : the codec is assigned on the Querier prototype.
 //
 // It reports, per codec : the bytes of a BENCH_ROWS-row response and of a write of a quarter of that, what `codec.decode` / `codec.encode`
 // alone cost on those same bytes (the client's CPU), and the whole request (server and local network included).
 type Codec = {
+  contentType?: string
+  accept?: string
   binary?: boolean
-  encode(value: unknown): string | Uint8Array
+  encode(value: unknown, options?: { structures?: boolean }): string | Uint8Array
   decode(body: string | Uint8Array): unknown
 }
 type Rel = {
@@ -15,7 +17,7 @@ type Rel = {
   write(rows: never[]): Promise<unknown>
 }
 export type Db = {
-  Querier: { prototype: { codec: Codec; baseUrl: string } }
+  Querier: { prototype: { codec: Codec; baseUrl: string; sendStructures: boolean } }
   relation(name: string, options: object): Rel
 }
 
@@ -42,10 +44,29 @@ async function time(fn: () => unknown | Promise<unknown>, inner = 1): Promise<nu
 const size = (v: string | Uint8Array) =>
   typeof v === "string" ? new TextEncoder().encode(v).length : v.length
 
-// `row(i)` is a value for each column of hotel.codec_samples, typed the way this codec's PgWire says.
+// `row(i)` is a value for each column of hotel.codec_samples, typed the way this codec's PgWire says. A codec that can
+// use structures (`accept` set) is measured twice : with them, as it is by default, and as `<name>-maps` without,
+// in requests and in responses. The second runs in the same process, with the JIT already warm.
 export async function run(name: string, db: Db, row: (i: number) => Record<string, unknown>) {
   const proto = db.Querier.prototype
   proto.baseUrl = process.env.REL_URL as string
+  const codec = proto.codec
+  await measure(name, db, row)
+  if (codec.accept !== undefined) {
+    const { accept } = codec
+    proto.sendStructures = false
+    codec.accept = codec.contentType
+    try {
+      await measure(`${name}-maps`, db, row)
+    } finally {
+      proto.sendStructures = true
+      codec.accept = accept
+    }
+  }
+}
+
+async function measure(name: string, db: Db, row: (i: number) => Record<string, unknown>) {
+  const proto = db.Querier.prototype
   const codec = proto.codec
 
   // Capture what the codec sees on one request of each kind.
@@ -56,9 +77,9 @@ export async function run(name: string, db: Db, row: (i: number) => Record<strin
     decoded = body
     return decode(body)
   }
-  codec.encode = (value) => {
+  codec.encode = (value, options) => {
     encoded = value
-    return encode(value)
+    return encode(value, options)
   }
   const reads = () =>
     db
@@ -83,7 +104,7 @@ export async function run(name: string, db: Db, row: (i: number) => Record<strin
   const responseBody = decoded as string | Uint8Array
   await writes()
   const requestValue = encoded
-  const requestBody = encode(requestValue)
+  const requestBody = encode(requestValue, { structures: proto.sendStructures })
   codec.decode = decode
   codec.encode = encode
 
@@ -94,7 +115,7 @@ export async function run(name: string, db: Db, row: (i: number) => Record<strin
     "decode ms": await time(() => decode(responseBody), 5),
     "read ms": await time(reads),
     "write bytes": size(requestBody),
-    "encode ms": await time(() => encode(requestValue), 5),
+    "encode ms": await time(() => encode(requestValue, { structures: proto.sendStructures }), 5),
     "write ms": await time(writes),
   }
   console.log(`BENCH ${JSON.stringify(out)}`)

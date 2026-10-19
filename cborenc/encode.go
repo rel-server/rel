@@ -43,6 +43,36 @@ const (
 	TagEpochDate      = 100
 )
 
+// Structures (specs/cbor.md ## Structures) : the record extension of cbor-x. A definition is TagStructureDef over
+// [StructureTagBase + id, [names], values...] and a reference is StructureTagBase + id over [values...].
+const (
+	TagStructureDef  = 0xdfff
+	StructureTagBase = 0xe000
+	// MaxStructures is how many ids a document can use : tags StructureTagBase to 0xfffe. Id 8191 is left out because
+	// cbor-x looks a tag up as structure (tag & 0x1fff) before it tests for TagStructureDef, whose 0xdfff is 8191.
+	MaxStructures = 0x1fff
+)
+
+// AppendStructureDef appends the head of a record's first use : the definition tag, the array header, the id and the
+// names. The caller appends the len(names) values that follow.
+func AppendStructureDef(dst []byte, id int, names []string) []byte {
+	dst = AppendTag(dst, TagStructureDef)
+	dst = AppendArrayHead(dst, len(names)+2)
+	dst = AppendUint(dst, uint64(StructureTagBase+id))
+	dst = AppendArrayHead(dst, len(names))
+	for _, n := range names {
+		dst = AppendText(dst, n)
+	}
+	return dst
+}
+
+// AppendStructureRef appends the head of a later use of structure id : the tag and the array header. The caller
+// appends the n values that follow.
+func AppendStructureRef(dst []byte, id, n int) []byte {
+	dst = AppendTag(dst, uint64(StructureTagBase+id))
+	return AppendArrayHead(dst, n)
+}
+
 // AppendHead appends the initial byte(s) of an item of the given major type (0 to 7, unshifted)
 // whose argument is v, in the shortest form.
 func AppendHead(dst []byte, major byte, v uint64) []byte {
