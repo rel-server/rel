@@ -2572,10 +2572,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-pgwire-can-retype" class="md-nav__link">
+  <a href="#changing-how-a-value-is-read-or-written" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        What <code>PgWire</code> can retype
+        Changing how a value is read or written
       </span>
     </span>
   </a>
@@ -2583,10 +2583,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#cbor" class="md-nav__link">
+  <a href="#structures" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        CBOR
+        Structures
       </span>
     </span>
   </a>
@@ -3104,10 +3104,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-pgwire-can-retype" class="md-nav__link">
+  <a href="#changing-how-a-value-is-read-or-written" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        What <code>PgWire</code> can retype
+        Changing how a value is read or written
       </span>
     </span>
   </a>
@@ -3115,10 +3115,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#cbor" class="md-nav__link">
+  <a href="#structures" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        CBOR
+        Structures
       </span>
     </span>
   </a>
@@ -3255,35 +3255,41 @@ exported. The endpoint is off by default outside of dev mode; see
 If you'd rather have your editor/LSP watch a real file on disk instead of re-curling by hand,
 <code>typescript.helper_path</code> has rel write <code>database.ts</code> straight to a path of your choosing, on
 startup and on every schema reload.</p>
-<p>The file has no <code>import</code>s and depends on nothing else in your project — copy it in, commit it
-if you like, and it just works.</p>
+<p>By default the file has no <code>import</code>s and depends on nothing else in your project — copy it in, commit it
+if you like, and it just works. <code>codec</code> picks other <a href="#codecs">codecs</a> (CBOR, <code>Date</code> or <code>Temporal</code> for dates and times,
+exact 8-byte integers) and the file then imports the one package each needs:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span><span class="s1">'http://localhost:8080/rel/database.ts?schemas=hotel&amp;codec=cbor,temporal'</span><span class="w"> </span>&gt;<span class="w"> </span>src/database.ts
+</span></code></pre></div>
+<p><code>http.typescript.codec</code> sets the same list for every output (the endpoint, <code>typescript.helper_path</code> and
+<code>--typescript-out</code>); the <code>codec</code> param replaces it for one request, and so does <code>--typescript-codec</code> for
+<code>--typescript-out</code>.</p>
 <h3 id="where-the-server-is">Where the server is<a class="headerlink" href="#where-the-server-is" title="Permanent link">&para;</a></h3>
 <p>A query sends its request to <code>/rel</code> on the page's own origin. Outside a browser, or when the server
 lives elsewhere, set <code>baseUrl</code> (default <code>"/"</code>; a trailing slash is ignored). It is a property on
 <code>Querier</code>'s prototype, read each time a request is sent, so it can be set for every query or for one:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">Querier</span><span class="p">,</span><span class="w"> </span><span class="nx">relation</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">baseUrl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://rel.example.com"</span><span class="w"> </span><span class="c1">// every query that doesn't set its own</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="kd">const</span><span class="w"> </span><span class="nx">other</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">)</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nx">other</span><span class="p">.</span><span class="nx">baseUrl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://other.example.com"</span><span class="w"> </span><span class="c1">// just this one: two servers side by side</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">Querier</span><span class="p">,</span><span class="w"> </span><span class="nx">relation</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">baseUrl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://rel.example.com"</span><span class="w"> </span><span class="c1">// every query that doesn't set its own</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kd">const</span><span class="w"> </span><span class="nx">other</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">)</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nx">other</span><span class="p">.</span><span class="nx">baseUrl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://other.example.com"</span><span class="w"> </span><span class="c1">// just this one: two servers side by side</span>
 </span></code></pre></div>
 <p>A browser calling a server on another origin needs that server to allow it
 (<a href="../http/cors-csp/">CORS</a>); requests are sent with <code>credentials: "include"</code>.</p>
 <h2 id="building-a-query">Building a query<a class="headerlink" href="#building-a-query" title="Permanent link">&para;</a></h2>
 <p><code>database.ts</code> exports <code>relation()</code>, <code>func()</code>, and <code>wellknown()</code> — thin builders that return a
 <code>Querier</code>, typed against your actual schema:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">relation</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nx">where</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"&gt;="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">],</span><span class="w"> </span><span class="mf">4</span><span class="p">],</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">      </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"*"</span><span class="p">],</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="p">}),</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span><span class="w"> </span><span class="nx">star_rating</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">],</span><span class="w"> </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"rooms"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">relation</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nx">where</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"&gt;="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">],</span><span class="w"> </span><span class="mf">4</span><span class="p">],</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">      </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"*"</span><span class="p">],</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="p">}),</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">],</span><span class="w"> </span><span class="nx">star_rating</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"star_rating"</span><span class="p">],</span><span class="w"> </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"."</span><span class="p">,</span><span class="w"> </span><span class="s2">"rooms"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
 <p><code>properties</code> comes back typed as an array of exactly the shape you asked for — <code>id: number</code>,
 <code>name: string</code>, <code>rooms: Table__Hotel__Rooms[]</code> — not <code>any</code>. Get a column name wrong, or select
@@ -3297,25 +3303,25 @@ chain of internal type names that computed it.</p>
 object literal, with <code>shortcut</code> right on the join entry, and it's still checked against exactly
 the foreign keys reachable from the relation you're joining <em>from</em>, with autocomplete listing the
 valid shortcuts there:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">shortcut</span><span class="o">:</span><span class="w"> </span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"*"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">shortcut</span><span class="o">:</span><span class="w"> </span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"*"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
 <p>The scoping recurses the same way a nested join does through the callback form, below: a <code>join</code>
 nested inside a join entry is checked against <em>its own</em> target relation, not the root's, so the
 same type-checking applies at every depth without repeating a relation name anywhere:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">      </span><span class="nx">shortcut</span><span class="o">:</span><span class="w"> </span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">        </span><span class="nx">room_type</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">shortcut</span><span class="o">:</span><span class="w"> </span><span class="s2">"hotel.room_types&gt;id:room_type_id"</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">      </span><span class="p">},</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="p">},</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">      </span><span class="nx">shortcut</span><span class="o">:</span><span class="w"> </span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">      </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">        </span><span class="nx">room_type</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">shortcut</span><span class="o">:</span><span class="w"> </span><span class="s2">"hotel.room_types&gt;id:room_type_id"</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">      </span><span class="p">},</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
 <p>One thing the plain-object form doesn't give you: a <code>proto</code> (see below) on a <em>nested</em> join entry
 written this way doesn't get its methods' <code>this</code> typed against that entry's own row shape — use
@@ -3325,35 +3331,35 @@ since that's how TypeScript locates errors inside a plain object literal.</p>
 <p>A foreign key whose referencing columns aren't indexed can't be joined, from either side (the query
 engine rejects it). Such a shortcut is a type error that says why, instead of being absent from the
 suggestions:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Argument of type '"hotel.room_types&gt;id:room_type_id"' is not assignable to parameter of type
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>'"hotel.room_types&gt;id:room_type_id" &amp; { error: "hotel.rooms (room_type_id) has no index, so
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hotel.rooms and hotel.room_types can't be joined: add an index on those columns" }'
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>Argument of type '"hotel.room_types&gt;id:room_type_id"' is not assignable to parameter of type
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>'"hotel.room_types&gt;id:room_type_id" &amp; { error: "hotel.rooms (room_type_id) has no index, so
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>hotel.rooms and hotel.room_types can't be joined: add an index on those columns" }'
 </span></code></pre></div>
 <p><code>relation()</code>'s second argument can also be a callback, which is what you need for a nested join's
 <code>proto</code>, or when the alias/shortcut needs to be computed rather than written as a literal. The
 callback's <code>join</code> is scoped the same way: it only offers the foreign keys reachable from the
 relation it's called from, and the scoping recurses into nested joins automatically:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">      </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">        </span><span class="nx">room_type</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.room_types&gt;id:room_type_id"</span><span class="p">),</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">      </span><span class="p">},</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="p">})),</span>
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">      </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">        </span><span class="nx">room_type</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.room_types&gt;id:room_type_id"</span><span class="p">),</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">      </span><span class="p">},</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="p">})),</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
 <p>If you've already built a <code>relation()</code>/<code>func()</code> <code>Querier</code> for something you also want to embed
 as a join elsewhere, you can pass it straight to <code>join()</code> instead of retyping its <code>select</code>/<code>proto</code>:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">roomWithFeatures</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.rooms"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_number"</span><span class="p">],</span><span class="w"> </span><span class="nx">features</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"features"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="p">})</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="nx">roomWithFeatures</span><span class="p">),</span>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">roomWithFeatures</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.rooms"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"room_number"</span><span class="p">],</span><span class="w"> </span><span class="nx">features</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"features"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="p">})</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="nx">roomWithFeatures</span><span class="p">),</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
 <p><code>join()</code> still works out <code>on</code>/<code>schema</code>/<code>relation</code> from the shortcut regardless — a root
 <code>Querier</code> never carries those — it just reuses everything else from the <code>Querier</code> you pass in.</p>
@@ -3361,9 +3367,9 @@ as a join elsewhere, you can pass it straight to <code>join()</code> instead of 
 query, is a bare select-all (own columns plus every joined relation, the same default an omitted
 <code>select</code> already has server-side).</p>
 <p>Writing back uses the same <code>Querier</code>, with <code>.write()</code> instead of <code>.get()</code>:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="p">}).</span><span class="nx">write</span><span class="p">({</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="w"> </span><span class="p">})</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="p">}).</span><span class="nx">write</span><span class="p">({</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="w"> </span><span class="p">})</span>
 </span></code></pre></div>
 <p><code>write()</code>'s argument type is derived independently from <code>.get()</code>'s return type, because they
 can genuinely differ — a column marked <code>get</code> in your <code>select</code> is read-only and drops out of the
@@ -3401,20 +3407,20 @@ own registered definition rather than from what you pass to <code>relation()</co
 </table>
 <p>Both are a single row, not an array: <code>.get()</code> returns <code>(typeof query.$row)[]</code>. A row is
 assignable to a draft, so a function that edits rows can take a draft and be handed a fetched row.</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">relation</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="p">})</span>
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="kr">type</span><span class="w"> </span><span class="nx">Property</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$row</span><span class="w"> </span><span class="c1">// { id: number; name: string }</span>
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="kr">type</span><span class="w"> </span><span class="nx">PropertyDraft</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$draft</span>
-</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
-</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="kd">function</span><span class="w"> </span><span class="nx">printProperty</span><span class="p">(</span><span class="nx">p</span><span class="o">:</span><span class="w"> </span><span class="kt">Property</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">p</span><span class="p">.</span><span class="nx">name</span><span class="p">)</span>
-</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="p">}</span>
-</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>
-</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="kd">const</span><span class="w"> </span><span class="nx">all</span><span class="o">:</span><span class="w"> </span><span class="kt">Property</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">get</span><span class="p">()</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">relation</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"name"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">})</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="kr">type</span><span class="w"> </span><span class="nx">Property</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$row</span><span class="w"> </span><span class="c1">// { id: number; name: string }</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="kr">type</span><span class="w"> </span><span class="nx">PropertyDraft</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$draft</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="kd">function</span><span class="w"> </span><span class="nx">printProperty</span><span class="p">(</span><span class="nx">p</span><span class="o">:</span><span class="w"> </span><span class="kt">Property</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">p</span><span class="p">.</span><span class="nx">name</span><span class="p">)</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="p">}</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="kd">const</span><span class="w"> </span><span class="nx">all</span><span class="o">:</span><span class="w"> </span><span class="kt">Property</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
 <p><code>$row</code> and <code>$draft</code> only exist for <code>typeof</code>: they are declared, never assigned, so reading
 <code>properties.$row</code> at runtime gives <code>undefined</code>. They are flattened the same way <code>.get()</code> and
@@ -3422,10 +3428,10 @@ assignable to a draft, so a function that edits rows can take a draft and be han
 <p>A row that sits in a join is reached by indexing the root's type with the join's name. A to-many
 join is an array, so index it with <code>[number]</code>; a to-one join that can be <code>null</code> needs <code>NonNullable</code>
 around the indexed type:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1">// for a query that joins "rooms" (to-many) and "chain" (to-one, nullable)</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="kr">type</span><span class="w"> </span><span class="nx">Room</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$row</span><span class="p">)[</span><span class="s2">"rooms"</span><span class="p">][</span><span class="kt">number</span><span class="p">]</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="kr">type</span><span class="w"> </span><span class="nx">RoomDraft</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$draft</span><span class="p">)[</span><span class="s2">"rooms"</span><span class="p">][</span><span class="kt">number</span><span class="p">]</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="kr">type</span><span class="w"> </span><span class="nx">Chain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">NonNullable</span><span class="o">&lt;</span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$row</span><span class="p">)[</span><span class="s2">"chain"</span><span class="p">]</span><span class="o">&gt;</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1">// for a query that joins "rooms" (to-many) and "chain" (to-one, nullable)</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kr">type</span><span class="w"> </span><span class="nx">Room</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$row</span><span class="p">)[</span><span class="s2">"rooms"</span><span class="p">][</span><span class="kt">number</span><span class="p">]</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="kr">type</span><span class="w"> </span><span class="nx">RoomDraft</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$draft</span><span class="p">)[</span><span class="s2">"rooms"</span><span class="p">][</span><span class="kt">number</span><span class="p">]</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="kr">type</span><span class="w"> </span><span class="nx">Chain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">NonNullable</span><span class="o">&lt;</span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">$row</span><span class="p">)[</span><span class="s2">"chain"</span><span class="p">]</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <h2 id="attaching-behavior-to-rows">Attaching behavior to rows<a class="headerlink" href="#attaching-behavior-to-rows" title="Permanent link">&para;</a></h2>
 <p><code>relation()</code>/<code>func()</code>/<code>join()</code> all accept a <code>proto</code> field alongside <code>select</code>/<code>join</code>/<code>where</code>: a map
@@ -3433,19 +3439,19 @@ of getters, setters, methods, and property descriptors, typed against exactly th
 node produces. Once a node's rows come back, <code>proto</code> is turned into a real prototype object (once
 per query node, reused across every row it returns) and every row is given that prototype — its
 members appear on each row without being copied into the row's own JSON data:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">is_luxury</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mf">4</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="p">},</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="nx">describe</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="sb">`</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">name</span><span class="si">}</span><span class="sb"> (</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="s2">"unrated"</span><span class="si">}</span><span class="sb">)`</span>
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">    </span><span class="p">},</span>
-</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
-</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>
-</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">is_luxury</span><span class="w"> </span><span class="c1">// boolean, computed client-side, no extra column selected</span>
-</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">describe</span><span class="p">()</span><span class="w"> </span><span class="c1">// ordinary method, same `this`</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">is_luxury</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mf">4</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="nx">describe</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="sb">`</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">name</span><span class="si">}</span><span class="sb"> (</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="s2">"unrated"</span><span class="si">}</span><span class="sb">)`</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
+</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>
+</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">is_luxury</span><span class="w"> </span><span class="c1">// boolean, computed client-side, no extra column selected</span>
+</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">describe</span><span class="p">()</span><span class="w"> </span><span class="c1">// ordinary method, same `this`</span>
 </span></code></pre></div>
 <p>Annotate the return type on every getter/method whenever <code>proto</code> mixes the two (a <code>get</code> alongside
 a plain method, as above) — TypeScript's inference of <code>this</code> inside a mixed object literal like
@@ -3454,24 +3460,24 @@ getters, or entirely of plain methods, doesn't need the annotations, but mixing 
 silently degrades <code>this</code> to <code>any</code> throughout the whole object.</p>
 <p><code>this</code> inside <code>proto</code> is typed as the row's own computed shape — including any joined
 relation's own <code>proto</code>, so a parent's <code>proto</code> can read a nested join's decorated members too:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">      </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">        </span><span class="nx">get</span><span class="w"> </span><span class="nx">label</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">          </span><span class="k">return</span><span class="w"> </span><span class="sb">`Room </span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">room_number</span><span class="si">}</span><span class="sb">`</span>
-</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">        </span><span class="p">},</span>
-</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">      </span><span class="p">},</span>
-</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">    </span><span class="p">}),</span>
-</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">room_count</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">rooms</span><span class="p">.</span><span class="nx">length</span>
-</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">    </span><span class="p">},</span>
-</span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-12-16"><a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
-</span><span id="__span-12-17"><a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>
-</span><span id="__span-12-18"><a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">rooms</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">label</span><span class="w"> </span><span class="c1">// uses the join's own `proto`</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">join</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">      </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">        </span><span class="nx">get</span><span class="w"> </span><span class="nx">label</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">          </span><span class="k">return</span><span class="w"> </span><span class="sb">`Room </span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">room_number</span><span class="si">}</span><span class="sb">`</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">        </span><span class="p">},</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">      </span><span class="p">},</span>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">    </span><span class="p">}),</span>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">room_count</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">rooms</span><span class="p">.</span><span class="nx">length</span>
+</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-13-15"><a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-13-16"><a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a><span class="p">})).</span><span class="nx">get</span><span class="p">()</span>
+</span><span id="__span-13-17"><a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>
+</span><span id="__span-13-18"><a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">rooms</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">label</span><span class="w"> </span><span class="c1">// uses the join's own `proto`</span>
 </span></code></pre></div>
 <p><code>proto</code>'s members are not part of what <code>.write()</code> accepts or what you pass to <code>draft()</code> (below): a member
 is not a column, and nothing says which column a setter writes. The row <code>draft()</code> returns does carry them,
@@ -3479,20 +3485,21 @@ a <code>get</code>-only one read-only and a <code>get</code>/<code>set</code> pa
 <p>A <code>proto</code> entry can also be a property descriptor (<code>{get, set, enumerable}</code>), not just a plain
 getter/method written inline — this is what lets a reusable helper compose accessors into
 <code>proto</code> via object spread. <code>database.ts</code> ships one such helper per <a href="#typed-wire-values">typed wire value</a>
-worth converting client-side; see that section for the full list. Spreading one in adds its
+worth converting client-side (the date and time ones only with a <code>date</code> or <code>temporal</code> <a href="#codecs">codec</a>); see that
+section for the full list. Spreading one in adds its
 member alongside anything else in <code>proto</code>:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="p">...</span><span class="nx">timestampTzAccessor</span><span class="p">(</span><span class="s2">"created_at"</span><span class="p">),</span>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="nx">describe</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="sb">`</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">name</span><span class="si">}</span><span class="sb"> (</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">id</span><span class="si">}</span><span class="sb">)`</span>
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">    </span><span class="p">},</span>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">created_at</span><span class="w">            </span><span class="c1">// Timestamptz — the raw column, untouched</span>
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">created_at_as_date</span><span class="w">    </span><span class="c1">// Temporal.Instant — derived, not stored</span>
-</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">created_at_as_date</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Temporal</span><span class="p">.</span><span class="nx">Now</span><span class="p">.</span><span class="nx">instant</span><span class="p">()</span><span class="w"> </span><span class="c1">// writable, if the helper defines a setter</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">    </span><span class="p">...</span><span class="nx">timestampTzAccessor</span><span class="p">(</span><span class="s2">"created_at"</span><span class="p">),</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">    </span><span class="nx">describe</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="sb">`</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">name</span><span class="si">}</span><span class="sb"> (</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">id</span><span class="si">}</span><span class="sb">)`</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">created_at</span><span class="w">            </span><span class="c1">// Timestamptz — the raw column, untouched</span>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">created_at_as_date</span><span class="w">    </span><span class="c1">// Temporal.Instant with the `temporal` codec (a Date with `date`) — derived, not stored</span>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="nx">properties</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">created_at_as_date</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Temporal</span><span class="p">.</span><span class="nx">Now</span><span class="p">.</span><span class="nx">instant</span><span class="p">()</span><span class="w"> </span><span class="c1">// writable, if the helper defines a setter</span>
 </span></code></pre></div>
 <p>A helper's own suffix (<code>_as_date</code>, <code>_as_bigint</code>, <code>_as_range</code>, ...) says what it converts to, and
 whether the resulting member is writable depends on whether the helper defines a setter — a
@@ -3500,15 +3507,15 @@ range accessor, for instance, is read-only.</p>
 <h3 id="where-driven-writes">Where-driven writes<a class="headerlink" href="#where-driven-writes" title="Permanent link">&para;</a></h3>
 <p>A query with <code>write_mode: "update"</code> takes a single patch object instead of an array of rows, typed as a
 partial of the row; one with <code>write_mode: "delete"</code> takes no argument at all:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.room_types"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="nx">write_mode</span><span class="o">:</span><span class="w"> </span><span class="s2">"update"</span><span class="p">,</span>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span><span class="nx">where</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"property_id"</span><span class="p">],</span><span class="w"> </span><span class="mf">1</span><span class="p">],</span>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="p">}).</span><span class="nx">write</span><span class="p">({</span><span class="w"> </span><span class="nx">base_price</span><span class="o">:</span><span class="w"> </span><span class="s2">"99.00"</span><span class="w"> </span><span class="p">})</span>
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.room_types"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">  </span><span class="nx">write_mode</span><span class="o">:</span><span class="w"> </span><span class="s2">"delete"</span><span class="p">,</span>
-</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">  </span><span class="nx">where</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="mf">42</span><span class="p">],</span>
-</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="p">}).</span><span class="nx">write</span><span class="p">()</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.room_types"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nx">write_mode</span><span class="o">:</span><span class="w"> </span><span class="s2">"update"</span><span class="p">,</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span><span class="nx">where</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"property_id"</span><span class="p">],</span><span class="w"> </span><span class="mf">1</span><span class="p">],</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="p">}).</span><span class="nx">write</span><span class="p">({</span><span class="w"> </span><span class="nx">base_price</span><span class="o">:</span><span class="w"> </span><span class="s2">"99.00"</span><span class="w"> </span><span class="p">})</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.room_types"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">  </span><span class="nx">write_mode</span><span class="o">:</span><span class="w"> </span><span class="s2">"delete"</span><span class="p">,</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="w">  </span><span class="nx">where</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"="</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="mf">42</span><span class="p">],</span>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="p">}).</span><span class="nx">write</span><span class="p">()</span>
 </span></code></pre></div>
 <p>See <a href="../query-language/writing/#where-driven-writes-update-and-delete">Writing data back</a>.</p>
 <h3 id="building-a-new-row">Building a new row<a class="headerlink" href="#building-a-new-row" title="Permanent link">&para;</a></h3>
@@ -3516,25 +3523,25 @@ partial of the row; one with <code>write_mode: "delete"</code> takes no argument
 <em>draft</em>. A <code>Querier</code>'s <code>.draft()</code> method doesn't build or create anything itself — it typechecks a
 row you already built against this query's own write shape (every required column, and every join,
 present) and attaches the same <code>proto</code> accessors a row you <code>.get()</code> would have:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="p">...</span><span class="nx">timestampTzAccessor</span><span class="p">(</span><span class="s2">"created_at"</span><span class="p">),</span>
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"*~"</span><span class="p">]</span><span class="w"> </span><span class="p">}),</span>
-</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="p">})</span>
-</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>
-</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="kd">const</span><span class="w"> </span><span class="nx">row</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span>
-</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a><span class="w">  </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span>
-</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="w">  </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="s2">"101"</span><span class="p">,</span><span class="w"> </span><span class="nx">room_type_id</span><span class="o">:</span><span class="w"> </span><span class="kt">roomTypeId</span><span class="w"> </span><span class="p">}],</span><span class="w"> </span><span class="c1">// this join is to-many, so an array</span>
-</span><span id="__span-15-13"><a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a><span class="p">})</span>
-</span><span id="__span-15-14"><a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>
-</span><span id="__span-15-15"><a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a><span class="c1">// The returned row has the same accessors as one you fetched. Assigning goes through the setter, which</span>
-</span><span id="__span-15-16"><a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a><span class="c1">// writes the underlying column (`created_at`), so this is how a value gets set through an accessor.</span>
-</span><span id="__span-15-17"><a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a><span class="nx">row</span><span class="p">.</span><span class="nx">created_at_as_date</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Temporal</span><span class="p">.</span><span class="nx">Now</span><span class="p">.</span><span class="nx">instant</span><span class="p">()</span>
-</span><span id="__span-15-18"><a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a>
-</span><span id="__span-15-19"><a id="__codelineno-15-19" name="__codelineno-15-19" href="#__codelineno-15-19"></a><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">write</span><span class="p">([</span><span class="nx">row</span><span class="p">])</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">    </span><span class="p">...</span><span class="nx">timestampTzAccessor</span><span class="p">(</span><span class="s2">"created_at"</span><span class="p">),</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span><span class="nx">join</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">    </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="kt">join</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="s2">"hotel.rooms*id:property_id"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"*~"</span><span class="p">]</span><span class="w"> </span><span class="p">}),</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="p">})</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="kd">const</span><span class="w"> </span><span class="nx">row</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="w">  </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">  </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="s2">"101"</span><span class="p">,</span><span class="w"> </span><span class="nx">room_type_id</span><span class="o">:</span><span class="w"> </span><span class="kt">roomTypeId</span><span class="w"> </span><span class="p">}],</span><span class="w"> </span><span class="c1">// this join is to-many, so an array</span>
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="p">})</span>
+</span><span id="__span-16-14"><a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a>
+</span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="c1">// The returned row has the same accessors as one you fetched. Assigning goes through the setter, which</span>
+</span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="c1">// writes the underlying column (`created_at`), so this is how a value gets set through an accessor.</span>
+</span><span id="__span-16-17"><a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a><span class="nx">row</span><span class="p">.</span><span class="nx">created_at_as_date</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Temporal</span><span class="p">.</span><span class="nx">Now</span><span class="p">.</span><span class="nx">instant</span><span class="p">()</span>
+</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a>
+</span><span id="__span-16-19"><a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">write</span><span class="p">([</span><span class="nx">row</span><span class="p">])</span>
 </span></code></pre></div>
 <p>A to-many join's value must be an array ; a to-one join's must be a single nested row, itself
 matching that relation's own write shape — <code>draft()</code> checks this the
@@ -3544,11 +3551,11 @@ an array of rows at the root, same as always ; <code>.draft()</code> takes and r
 <p><code>.draft()</code> keeps what you actually passed. A column that is optional in the write shape (nullable,
 defaulted) stays optional on the returned row if you left it out, and becomes required if you
 supplied it:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">bare</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span><span class="w"> </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[]</span><span class="w"> </span><span class="p">})</span>
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="nx">bare</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="c1">// number | null | undefined — optional</span>
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="kd">const</span><span class="w"> </span><span class="nx">rated</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span><span class="w"> </span><span class="nx">star_rating</span><span class="o">:</span><span class="w"> </span><span class="kt">5</span><span class="p">,</span><span class="w"> </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[]</span><span class="w"> </span><span class="p">})</span>
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="nx">rated</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="c1">// number | null — required, still the column's own type (not the literal `5`)</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">bare</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span><span class="w"> </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[]</span><span class="w"> </span><span class="p">})</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="nx">bare</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="c1">// number | null | undefined — optional</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="kd">const</span><span class="w"> </span><span class="nx">rated</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span><span class="w"> </span><span class="nx">star_rating</span><span class="o">:</span><span class="w"> </span><span class="kt">5</span><span class="p">,</span><span class="w"> </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[]</span><span class="w"> </span><span class="p">})</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="nx">rated</span><span class="p">.</span><span class="nx">star_rating</span><span class="w"> </span><span class="c1">// number | null — required, still the column's own type (not the literal `5`)</span>
 </span></code></pre></div>
 <ul>
 <li>Joined rows are handled the same way: a to-one object, and each element of a to-many array. In an array, a key counts as supplied only if every element supplies it. An empty array supplies nothing, so its elements keep their write shape.</li>
@@ -3562,14 +3569,14 @@ supplied it:</p>
 <h3 id="building-a-nested-row">Building a nested row<a class="headerlink" href="#building-a-nested-row" title="Permanent link">&para;</a></h3>
 <p><code>.draftNested(path, data)</code> builds a draft for a row that sits inside the query's join tree,
 without building its parent. <code>path</code> lists the join names leading to it:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">room</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draftNested</span><span class="p">([</span><span class="s2">"rooms"</span><span class="p">],</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="s2">"101"</span><span class="p">,</span>
-</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span><span class="nx">room_type_id</span><span class="o">:</span><span class="w"> </span><span class="kt">roomTypeId</span><span class="p">,</span><span class="w"> </span><span class="c1">// no property_id: the parent supplies it</span>
-</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="p">})</span>
-</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>
-</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="kd">const</span><span class="w"> </span><span class="nx">parent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span><span class="w"> </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[]</span><span class="w"> </span><span class="p">})</span>
-</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="nx">parent</span><span class="p">.</span><span class="nx">rooms</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="nx">room</span><span class="p">)</span>
-</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">write</span><span class="p">([</span><span class="nx">parent</span><span class="p">])</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">room</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draftNested</span><span class="p">([</span><span class="s2">"rooms"</span><span class="p">],</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nx">room_number</span><span class="o">:</span><span class="w"> </span><span class="s2">"101"</span><span class="p">,</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">  </span><span class="nx">room_type_id</span><span class="o">:</span><span class="w"> </span><span class="kt">roomTypeId</span><span class="p">,</span><span class="w"> </span><span class="c1">// no property_id: the parent supplies it</span>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="p">})</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="kd">const</span><span class="w"> </span><span class="nx">parent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="p">,</span><span class="w"> </span><span class="nx">rooms</span><span class="o">:</span><span class="w"> </span><span class="p">[]</span><span class="w"> </span><span class="p">})</span>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="nx">parent</span><span class="p">.</span><span class="nx">rooms</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="nx">room</span><span class="p">)</span>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">write</span><span class="p">([</span><span class="nx">parent</span><span class="p">])</span>
 </span></code></pre></div>
 <p>A deeper join is a longer path: <code>draftNested(["rooms", "room_type"], {...})</code>. Only join names are
 accepted in <code>path</code>, not column names, and a name that is not a join of that level is a type error.</p>
@@ -3637,15 +3644,16 @@ even though both are strings at runtime.</p>
 wire format is a plain JSON array of the same per-element string format.</p>
 <h3 id="reading-a-richer-value">Reading a richer value<a class="headerlink" href="#reading-a-richer-value" title="Permanent link">&para;</a></h3>
 <p>A branded type's own accessor helper (imported from <code>database.ts</code>, spread into <code>proto</code>) converts
-it into a genuinely richer client-side value:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">relation</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">timestampTzAccessor</span><span class="p">,</span><span class="w"> </span><span class="nx">int8Accessor</span><span class="p">,</span><span class="w"> </span><span class="nx">tstzRangeAccessor</span><span class="p">,</span><span class="w"> </span><span class="nx">pointAccessor</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
-</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">    </span><span class="p">...</span><span class="nx">timestampTzAccessor</span><span class="p">(</span><span class="s2">"created_at"</span><span class="p">),</span><span class="w"> </span><span class="c1">// created_at_as_date : Temporal.Instant</span>
-</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
+it into a genuinely richer client-side value. The date and time helpers exist only when the file was generated with
+a <code>date</code> or <code>temporal</code> <a href="#codecs">codec</a>; the examples below use <code>temporal</code>:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">relation</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">timestampTzAccessor</span><span class="p">,</span><span class="w"> </span><span class="nx">int8Accessor</span><span class="p">,</span><span class="w"> </span><span class="nx">tstzRangeAccessor</span><span class="p">,</span><span class="w"> </span><span class="nx">pointAccessor</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">    </span><span class="p">...</span><span class="nx">timestampTzAccessor</span><span class="p">(</span><span class="s2">"created_at"</span><span class="p">),</span><span class="w"> </span><span class="c1">// created_at_as_date : Temporal.Instant</span>
+</span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="p">}).</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -3658,22 +3666,22 @@ it into a genuinely richer client-side value:</p>
 <tbody>
 <tr>
 <td><code>Timestamptz</code></td>
-<td><code>timestampTzAccessor</code></td>
-<td><code>Temporal.Instant</code></td>
+<td><code>timestampTzAccessor</code> (<code>date</code>, <code>temporal</code>)</td>
+<td><code>Temporal.Instant</code>, or a <code>Date</code> with <code>date</code></td>
 </tr>
 <tr>
 <td><code>Timestamp</code></td>
-<td><code>timestampAccessor</code></td>
-<td><code>Temporal.PlainDateTime</code> (naive — no time zone assumed)</td>
+<td><code>timestampAccessor</code> (<code>date</code>, <code>temporal</code>)</td>
+<td><code>Temporal.PlainDateTime</code> (naive — no time zone assumed), or a <code>Date</code> with <code>date</code> (a wall clock is read as UTC)</td>
 </tr>
 <tr>
 <td><code>PgDate</code></td>
-<td><code>dateAccessor</code></td>
+<td><code>dateAccessor</code> (<code>temporal</code>)</td>
 <td><code>Temporal.PlainDate</code></td>
 </tr>
 <tr>
 <td><code>Interval</code></td>
-<td><code>intervalAccessor</code></td>
+<td><code>intervalAccessor</code> (<code>temporal</code>)</td>
 <td><code>Temporal.Duration</code></td>
 </tr>
 <tr>
@@ -3683,7 +3691,7 @@ it into a genuinely richer client-side value:</p>
 </tr>
 <tr>
 <td><code>Int4Range</code>/<code>Int8Range</code>/<code>NumRange</code>/<code>DateRange</code>/<code>TsRange</code>/<code>TstzRange</code></td>
-<td><code>int4RangeAccessor</code>/...</td>
+<td><code>int4RangeAccessor</code>/... (the date and time ones with <code>temporal</code>)</td>
 <td><code>Range&lt;T&gt;</code> (below), <code>T</code> matching the table above</td>
 </tr>
 <tr>
@@ -3712,39 +3720,38 @@ decimal string, which Postgres's own <code>money</code> input parser accepts reg
 date" class for the former, and no native JS type represents an arbitrary-scale decimal for the
 latter. <code>compareNumeric</code> (also exported from <code>database.ts</code>) compares two <code>PgNumeric</code> values
 digit by digit, whatever type your <a href="#codecs">codec</a> gives them.</p>
-<p>Every temporal accessor returns a <a href="https://tc39.es/proposal-temporal/docs/"><code>Temporal</code></a> value, not
-a <code>Date</code> — <code>Temporal</code>'s classes are immutable and genuinely distinct from one another (a
-<code>Temporal.PlainDateTime</code> cannot satisfy a <code>Temporal.Instant</code>-typed parameter, cast or no cast),
-which <code>Date</code> alone can't offer. <code>database.ts</code> references <code>Temporal</code> as a global, the same way it
-already references <code>Date</code>/<code>Promise</code>/<code>fetch</code> — until <code>Temporal</code> ships natively everywhere, your own
-project is responsible for installing a polyfill (<code>@js-temporal/polyfill</code>) if your target runtime
-doesn't have it yet.</p>
+<p>With the <code>temporal</code> codec the accessors return <a href="https://tc39.es/proposal-temporal/docs/"><code>Temporal</code></a> values —
+<code>Temporal</code>'s classes are immutable and genuinely distinct from one another (a <code>Temporal.PlainDateTime</code> cannot satisfy a
+<code>Temporal.Instant</code>-typed parameter, cast or no cast), which <code>Date</code> alone can't offer, and <code>Temporal.PlainDate</code> holds a
+calendar day that no <code>Date</code> can. The file then references <code>Temporal</code> as a global — until it ships natively everywhere,
+your own project is responsible for installing a polyfill (<code>@js-temporal/polyfill</code>) if your target runtime doesn't
+have it yet. Without <code>temporal</code> the file references no <code>Temporal</code> type at all.</p>
 <h3 id="writing-one-back">Writing one back<a class="headerlink" href="#writing-one-back" title="Permanent link">&para;</a></h3>
 <p>Each branded type with a meaningful validity check has a matching <code>as&lt;Type&gt;</code> cast (<code>asTimestamptz</code>,
 <code>asInt8</code>, <code>asInterval</code>, ...), also exported from <code>database.ts</code>:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">asTimestamptz</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>
-</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">created_at</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"created_at"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}).</span><span class="nx">write</span><span class="p">({</span>
-</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="p">,</span>
-</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">  </span><span class="nx">created_at</span><span class="o">:</span><span class="w"> </span><span class="kt">asTimestamptz</span><span class="p">(</span><span class="ow">new</span><span class="w"> </span><span class="nb">Date</span><span class="p">()),</span><span class="w"> </span><span class="c1">// or a Temporal.Instant, or a pre-formatted string</span>
-</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="p">})</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">asTimestamptz</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="k">await</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">select</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"id"</span><span class="p">],</span><span class="w"> </span><span class="nx">created_at</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"col"</span><span class="p">,</span><span class="w"> </span><span class="s2">"created_at"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}).</span><span class="nx">write</span><span class="p">({</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="p">,</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="w">  </span><span class="nx">created_at</span><span class="o">:</span><span class="w"> </span><span class="kt">asTimestamptz</span><span class="p">(</span><span class="ow">new</span><span class="w"> </span><span class="nb">Date</span><span class="p">()),</span><span class="w"> </span><span class="c1">// with the `date` or `temporal` codec ; `temporal` also takes a Temporal.Instant, any one a string with an offset</span>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="p">})</span>
 </span></code></pre></div>
 <p><code>asTimestamptz</code> throws if given a string with no time zone offset — Postgres would otherwise
 silently reinterpret it using the session's own time zone. <code>asMoney</code> and every range cast only
 brand the value, since nothing about their string shape is unsafe to skip validating. <code>asInt8</code>
-and <code>asNumeric</code> only brand a value that already has the type <a href="#what-pgwire-can-retype"><code>PgWire</code></a> says.</p>
+and <code>asNumeric</code> only brand a value that already has the type the <a href="#codecs">codec</a> gives it.</p>
 <h3 id="ranges">Ranges<a class="headerlink" href="#ranges" title="Permanent link">&para;</a></h3>
 <p><code>Range&lt;T&gt;</code>, one immutable class shared by every range type (<code>Range&lt;number&gt;</code> for <code>Int4Range</code>,
 <code>Range&lt;bigint&gt;</code> for <code>Int8Range</code>, <code>Range&lt;string&gt;</code> (the decimal text) for <code>NumRange</code>,
 <code>Range&lt;Temporal.Instant&gt;</code> for <code>TstzRange</code>, and so on):</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nx">range</span><span class="p">.</span><span class="nx">lower</span><span class="w">           </span><span class="c1">// T | null — null means unbounded</span>
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="nx">range</span><span class="p">.</span><span class="nx">upper</span><span class="w">           </span><span class="c1">// T | null</span>
-</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="nx">range</span><span class="p">.</span><span class="nx">lowerInclusive</span><span class="w">  </span><span class="c1">// boolean</span>
-</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="nx">range</span><span class="p">.</span><span class="nx">upperInclusive</span><span class="w">  </span><span class="c1">// boolean</span>
-</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="nx">range</span><span class="p">.</span><span class="nx">isEmpty</span><span class="w">         </span><span class="c1">// boolean</span>
-</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="nx">range</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="nx">value</span><span class="p">)</span><span class="w"> </span><span class="c1">// boolean</span>
-</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="nx">range</span><span class="p">.</span><span class="nx">overlaps</span><span class="p">(</span><span class="nx">other</span><span class="p">)</span><span class="w"> </span><span class="c1">// boolean</span>
-</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="nx">range</span><span class="p">.</span><span class="nx">equals</span><span class="p">(</span><span class="nx">other</span><span class="p">)</span><span class="w">   </span><span class="c1">// boolean</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nx">range</span><span class="p">.</span><span class="nx">lower</span><span class="w">           </span><span class="c1">// T | null — null means unbounded</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="nx">range</span><span class="p">.</span><span class="nx">upper</span><span class="w">           </span><span class="c1">// T | null</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="nx">range</span><span class="p">.</span><span class="nx">lowerInclusive</span><span class="w">  </span><span class="c1">// boolean</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="nx">range</span><span class="p">.</span><span class="nx">upperInclusive</span><span class="w">  </span><span class="c1">// boolean</span>
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="nx">range</span><span class="p">.</span><span class="nx">isEmpty</span><span class="w">         </span><span class="c1">// boolean</span>
+</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="nx">range</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="nx">value</span><span class="p">)</span><span class="w"> </span><span class="c1">// boolean</span>
+</span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="nx">range</span><span class="p">.</span><span class="nx">overlaps</span><span class="p">(</span><span class="nx">other</span><span class="p">)</span><span class="w"> </span><span class="c1">// boolean</span>
+</span><span id="__span-21-8"><a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="nx">range</span><span class="p">.</span><span class="nx">equals</span><span class="p">(</span><span class="nx">other</span><span class="p">)</span><span class="w">   </span><span class="c1">// boolean</span>
 </span></code></pre></div>
 <p><code>MultiRange&lt;T&gt;</code> wraps zero or more <code>Range&lt;T&gt;</code> segments (<code>multirange.ranges</code>) and supports
 <code>contains(value)</code> the same way, checking every segment.</p>
@@ -3752,7 +3759,7 @@ and <code>asNumeric</code> only brand a value that already has the type <a href=
 <p><code>intervalAccessor</code> returns a <a href="https://tc39.es/proposal-temporal/docs/duration.html"><code>Temporal.Duration</code></a>,
 the natural counterpart for a span rather than a point in time. It assumes the session's
 <code>IntervalStyle</code> is <code>postgres</code> (Postgres's own default) and throws on a string in a different style.
-<code>asInterval</code> writes a <code>Temporal.Duration</code> or a string back — a <code>Temporal.Duration</code> is serialized
+<code>asInterval</code> brands a string; the accessor's setter also takes a <code>Temporal.Duration</code>, serialized
 via its own ISO 8601 <code>.toString()</code> (e.g. <code>"P1DT2H3M4S"</code>), which Postgres's interval parser accepts
 regardless of the session's output-side <code>IntervalStyle</code>.</p>
 <h3 id="table-local-id-types">Table-local id types<a class="headerlink" href="#table-local-id-types" title="Permanent link">&para;</a></h3>
@@ -3760,17 +3767,17 @@ regardless of the session's output-side <code>IntervalStyle</code>.</p>
 gets its own type, so an id from one table can't be passed where another table's id is expected. Every
 foreign key column that references one gets the same type as the column it references: a composite key is
 matched column by column, and a chain of foreign keys is followed to its end.</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">import</span><span class="w"> </span><span class="kr">type</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">Id</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>
-</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="kr">type</span><span class="w"> </span><span class="nx">PropertyId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Id</span><span class="p">[</span><span class="s2">"hotel.properties.id"</span><span class="p">]</span><span class="w"> </span><span class="c1">// number &amp; { readonly __id: "hotel.properties.id" }</span>
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>
-</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="kd">const</span><span class="w"> </span><span class="nx">room</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">await</span><span class="w"> </span><span class="nx">rooms</span><span class="p">.</span><span class="nx">get</span><span class="p">())[</span><span class="mf">0</span><span class="p">]</span>
-</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="nx">room</span><span class="p">.</span><span class="nx">property_id</span><span class="w"> </span><span class="c1">// PropertyId: it references hotel.properties (id)</span>
-</span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>
-</span><span id="__span-21-8"><a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="kd">const</span><span class="w"> </span><span class="nx">n</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">room</span><span class="p">.</span><span class="nx">property_id</span><span class="w"> </span><span class="c1">// fine: an id is still a number</span>
-</span><span id="__span-21-9"><a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="kd">const</span><span class="w"> </span><span class="nx">bad</span><span class="o">:</span><span class="w"> </span><span class="kt">PropertyId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="c1">// error: a plain number is not an id</span>
-</span><span id="__span-21-10"><a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="kd">const</span><span class="w"> </span><span class="nx">wrong</span><span class="o">:</span><span class="w"> </span><span class="kt">Id</span><span class="p">[</span><span class="s2">"hotel.room_types.id"</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">room</span><span class="p">.</span><span class="nx">property_id</span><span class="w"> </span><span class="c1">// error: another table's id</span>
-</span><span id="__span-21-11"><a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a><span class="kd">const</span><span class="w"> </span><span class="nx">literal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="nx">PropertyId</span><span class="w"> </span><span class="c1">// a literal id is cast explicitly</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">import</span><span class="w"> </span><span class="kr">type</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">Id</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="kr">type</span><span class="w"> </span><span class="nx">PropertyId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Id</span><span class="p">[</span><span class="s2">"hotel.properties.id"</span><span class="p">]</span><span class="w"> </span><span class="c1">// number &amp; { readonly __id: "hotel.properties.id" }</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="kd">const</span><span class="w"> </span><span class="nx">room</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">await</span><span class="w"> </span><span class="nx">rooms</span><span class="p">.</span><span class="nx">get</span><span class="p">())[</span><span class="mf">0</span><span class="p">]</span>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="nx">room</span><span class="p">.</span><span class="nx">property_id</span><span class="w"> </span><span class="c1">// PropertyId: it references hotel.properties (id)</span>
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="kd">const</span><span class="w"> </span><span class="nx">n</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">room</span><span class="p">.</span><span class="nx">property_id</span><span class="w"> </span><span class="c1">// fine: an id is still a number</span>
+</span><span id="__span-22-9"><a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="kd">const</span><span class="w"> </span><span class="nx">bad</span><span class="o">:</span><span class="w"> </span><span class="kt">PropertyId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="c1">// error: a plain number is not an id</span>
+</span><span id="__span-22-10"><a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="kd">const</span><span class="w"> </span><span class="nx">wrong</span><span class="o">:</span><span class="w"> </span><span class="kt">Id</span><span class="p">[</span><span class="s2">"hotel.room_types.id"</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">room</span><span class="p">.</span><span class="nx">property_id</span><span class="w"> </span><span class="c1">// error: another table's id</span>
+</span><span id="__span-22-11"><a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="kd">const</span><span class="w"> </span><span class="nx">literal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="nx">PropertyId</span><span class="w"> </span><span class="c1">// a literal id is cast explicitly</span>
 </span></code></pre></div>
 <ul>
 <li><code>Id</code> is keyed by the column's raw <code>schema.table.column</code>, so typing <code>Id["</code> suggests every id in the schema.</li>
@@ -3784,9 +3791,9 @@ matched column by column, and a chain of foreign keys is followed to its end.</p
 <h2 id="calling-a-function-directly">Calling a function directly<a class="headerlink" href="#calling-a-function-directly" title="Permanent link">&para;</a></h2>
 <p><code>func()</code> builds a <code>Querier</code> you can still shape with <code>select</code>/<code>join</code>/<code>where</code>, the same as <code>relation()</code>. When you
 just want to call a function and get its result back — no select, no join — use <code>call()</code> instead:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">call</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
-</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">call</span><span class="p">(</span><span class="s2">"hotel.rooms_available"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">property_id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="w"> </span><span class="p">})</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">call</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">call</span><span class="p">(</span><span class="s2">"hotel.rooms_available"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">property_id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="w"> </span><span class="p">})</span>
 </span></code></pre></div>
 <p><code>call()</code> takes the function's arguments — either the named object shown above or the equivalent positional
 tuple (<code>call("hotel.rooms_available", [1])</code>) — checked against exactly what the function declares, and resolves
@@ -3800,135 +3807,61 @@ you pass pick which overload's return type you get back.</p>
 <code>["$param", name]</code> placeholder, since a <code>func()</code> query is built once and can be reused with different
 <code>.get(params)</code>/<code>.write(params, data)</code> values, unlike <code>call()</code>, which runs immediately.</p>
 <h2 id="codecs">Codecs<a class="headerlink" href="#codecs" title="Permanent link">&para;</a></h2>
-<p>Every query writes its request and reads its response through <code>Querier.prototype.codec</code>, the browser's <code>JSON</code> unless you
-replace it. Replace it once, or per query like <code>baseUrl</code>:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span>
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
-</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ledger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.ledgers"</span><span class="p">)</span>
-</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="nx">ledger</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span><span class="w">   </span><span class="c1">// only this query</span>
-</span></code></pre></div>
-<p>A codec is an object of this shape:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Codec</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">  </span><span class="nx">contentType?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                              </span><span class="c1">// sent as Content-Type and Accept ; left out, neither is sent</span>
-</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">  </span><span class="nx">binary?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">                                  </span><span class="c1">// decode() takes the response bytes, not its text</span>
-</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="w">  </span><span class="nx">encode</span><span class="p">(</span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span>
-</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="w">  </span><span class="nx">decode</span><span class="p">(</span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span>
-</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="p">}</span>
-</span></code></pre></div>
-<p>A failed request (status 400 or more) is always JSON text, whatever was asked, and never reaches <code>decode</code>: it becomes a
-<code>RelRequestError</code> whose <code>body</code> is that text.</p>
-<p>A codec changes what some values <em>are</em> at runtime, so the types have to follow. Two things go together: the codec, and a
-merge into <code>PgWire</code> saying what the codec yields. The repository keeps both halves in one file per codec, in
-<code>typescript/presets/</code>, tested against a real server. Copy the one you want next to your <code>database.ts</code>, fix its import path
-and <code>import</code> it once before the first query. A preset's <code>PgWire</code> block applies to the whole program: there is one choice per
-project, not one per query. (A <code>.codec</code> set on a single query changes only the runtime half; keep it to a codec that
-yields the same values as the preset.)</p>
+<p>Three independent choices decide how values travel and what they are on the client. They are given as a comma-separated
+list of tokens, in any order, in <code>GET /rel/database.ts?codec=…</code>, in <code>http.typescript.codec</code> and in <code>--typescript-codec</code>
+(see <a href="#fetching-it">Fetching it</a>):</p>
 <table>
 <thead>
 <tr>
-<th>Preset</th>
-<th>Needs</th>
-<th>What changes</th>
+<th>Choice</th>
+<th>Token</th>
+<th>What it is</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>none (default)</td>
+<td>Wire format</td>
+<td><code>json</code> (default)</td>
+<td>JSON text, the browser's <code>JSON</code>.</td>
+</tr>
+<tr>
 <td></td>
-<td>JSON text. <code>Int8</code> and <code>PgNumeric</code> are <code>number</code>, so anything beyond 2^53 (or about 15 significant digits for a decimal) is silently rounded by <code>JSON.parse</code>. Dates, times and <code>bytea</code> are strings.</td>
+<td><code>cbor</code></td>
+<td><a href="../query-language/#cbor-responses">CBOR</a> both ways, with <a href="https://github.com/kriszyp/cbor-x"><code>cbor-x</code></a> (<code>bun add cbor-x</code>). <code>bytea</code> is a <code>Uint8Array</code>, and <code>bigint</code> and a time type (<code>date</code> unless you give one) are implied.</td>
 </tr>
 <tr>
-<td><code>presets/json-bigint/json-bigint.ts</code></td>
-<td><code>lossless-json</code></td>
-<td><code>int8</code> is <code>number \| bigint</code>: a safe integer is a number, a larger one a bigint. A <code>bigint</code> can be sent.</td>
+<td>Dates and times</td>
+<td>none (default)</td>
+<td>Text, as JSON carries them: <code>Timestamptz</code>, <code>Timestamp</code> and <code>PgDate</code> are branded strings, and there are no date accessors. Nothing needs <code>Temporal</code>.</td>
 </tr>
 <tr>
-<td><code>presets/cbor/cbor.ts</code></td>
-<td><code>cbor-x</code>, <code>Temporal</code></td>
-<td>CBOR both ways, see <a href="#cbor">below</a>.</td>
-</tr>
-<tr>
-<td><code>presets/cbor-date/cbor-date.ts</code></td>
-<td><code>cbor-x</code></td>
-<td>The same without <code>Temporal</code>: an instant is a <code>Date</code>, a <code>date</code> stays text.</td>
-</tr>
-</tbody>
-</table>
-<p>Without a bigint-aware codec, passing a <code>bigint</code> in a query or a payload throws a <code>TypeError</code>, since the browser's
-<code>JSON.stringify</code> cannot write one.</p>
-<h3 id="what-pgwire-can-retype">What <code>PgWire</code> can retype<a class="headerlink" href="#what-pgwire-can-retype" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Member</th>
-<th>Default</th>
-<th>A codec may say</th>
-<th>Write-side cast</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>int8</code></td>
-<td><code>number</code></td>
-<td><code>bigint</code>, <code>number \| bigint</code></td>
-<td><code>asInt8</code></td>
-</tr>
-<tr>
-<td><code>numeric</code></td>
-<td><code>number</code></td>
-<td>a decimal class</td>
-<td><code>asNumeric</code></td>
-</tr>
-<tr>
-<td><code>timestamptz</code></td>
-<td><code>string</code></td>
-<td><code>Temporal.Instant</code>, <code>Date</code></td>
-<td><code>asTimestamptz</code></td>
-</tr>
-<tr>
-<td><code>timestamp</code></td>
-<td><code>string</code></td>
-<td><code>Temporal.Instant</code>, <code>Date</code></td>
-<td><code>asTimestamp</code></td>
-</tr>
-<tr>
+<td></td>
 <td><code>date</code></td>
-<td><code>string</code></td>
-<td><code>Temporal.PlainDate</code></td>
-<td><code>asPgDate</code></td>
+<td>A <code>timestamptz</code> or <code>timestamp</code> is a JS <code>Date</code> (milliseconds: the microseconds of a timestamp are lost). A <code>date</code> stays the <code>YYYY-MM-DD</code> text, since a <code>Date</code> holds no calendar day without a time zone nor every year a <code>date</code> does (<code>5874897-12-31</code>, <code>0044-03-15 BC</code>).</td>
 </tr>
 <tr>
-<td><code>bytea</code></td>
-<td><code>string</code> (<code>\x…</code> hex)</td>
-<td><code>Uint8Array</code></td>
-<td>the <code>bytea</code> entry of <code>pgWireCasts</code></td>
+<td></td>
+<td><code>temporal</code></td>
+<td><code>Temporal.Instant</code> for <code>timestamptz</code> and <code>timestamp</code>, <code>Temporal.PlainDate</code> for <code>date</code>, and the accessors for <code>interval</code> and the date and time ranges. Needs a runtime with <code>Temporal</code>, or a polyfill loaded before the first query.</td>
+</tr>
+<tr>
+<td>Big integers</td>
+<td>none (default)</td>
+<td><code>Int8</code> is a <code>number</code>: <code>JSON.parse</code> silently rounds anything beyond 2^53.</td>
+</tr>
+<tr>
+<td></td>
+<td><code>bigint</code></td>
+<td><code>Int8</code> is <code>number \| bigint</code>: a safe integer is a number, a larger one a bigint, and a <code>bigint</code> can be sent. Over JSON it needs <code>lossless-json</code> (<code>bun add lossless-json</code>), which parses slower than <code>JSON.parse</code>: for large responses prefer <code>cbor</code>.</td>
 </tr>
 </tbody>
 </table>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1">// any file of your project that is a module</span>
-</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="kr">declare</span><span class="w"> </span><span class="nx">module</span><span class="w"> </span><span class="s2">"./database"</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">  </span><span class="kd">interface</span><span class="w"> </span><span class="nx">PgWire</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">    </span><span class="nx">int8</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">bigint</span><span class="w"> </span><span class="c1">// a safe integer is a number, a larger one a bigint</span>
-</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="p">}</span>
-</span></code></pre></div>
-<p>Every column of that type, in reads and writes, is typed that way from then on, and an id column over a <code>bigserial</code>
-follows. Use <code>bigint</code> alone if your codec reads every integer as one. The defaults live in the types, not in <code>PgWire</code>,
-which is empty on purpose: TypeScript cannot redeclare an existing member of an interface with another type (error
-<code>TS2717</code>), but it can add a missing one, so a member that is absent means "the default".</p>
-<p>The write-side casts build values at runtime, and must build what the member says. <code>pgWireCasts</code> (exported next to them)
-holds one function per member that a codec can retype; the default ones build the JSON strings, and a preset replaces the
-entries it retypes (<code>pgWireCasts.date = (v) =&gt; ...</code>), so the type and the value stay one decision.</p>
-<p>The accessors (<code>timestampTzAccessor</code>, <code>timestampAccessor</code>, <code>dateAccessor</code>, <code>bytesAccessor</code>, <code>int8Accessor</code>) accept whichever
-form the column has: they convert a string, and pass a value that already is a <code>Temporal</code> or <code>Uint8Array</code> through. Code
-written against the JSON default keeps compiling and running under a preset, with one exception: with <code>timestamp</code> as an
-<code>Instant</code> there is no wall clock to read, so <code>timestampAccessor</code>'s getter gives that <code>Instant</code>.</p>
-<p>A JSON codec reads <em>every</em> number the same way, whatever column it came from, so it cannot make <code>numeric</code> exact without
-changing the type of every <code>int4</code> and <code>float8</code> too. When a decimal must stay exact in JSON, ask for it as text in the query
-— <code>["::", ["col", "base_price"], "text"]</code> — and read it as a string.</p>
-<h3 id="cbor">CBOR<a class="headerlink" href="#cbor" title="Permanent link">&para;</a></h3>
-<p>The <code>cbor</code> preset sends <code>application/cbor</code> and asks for it (<a href="../query-language/#cbor-responses">the wire format</a>),
-using <a href="https://github.com/kriszyp/cbor-x"><code>cbor-x</code></a>. A value then keeps its column type instead of becoming a string:</p>
+<p><code>json,temporal,bigint</code> and <code>cbor,temporal</code> are valid; <code>json,cbor</code>, <code>date,temporal</code>, a token twice and an unknown token
+are a <code>400</code> (a bad <code>http.typescript.codec</code> stops <code>rel</code> at startup). The generated file's header says which options built it
+(<code>// Codec: cbor,temporal,bigint</code>), and it has no <code>import</code> except for the package the options need, at its top.</p>
+<p>The types follow the options: <code>Int8</code>, <code>Timestamptz</code>, <code>Timestamp</code>, <code>PgDate</code> and <code>Bytea</code> are what the codec hands over, in reads and
+writes, and an id column over a <code>bigserial</code> follows. The file offers no supported way to change them from your own code: ask for another codec instead.</p>
+<p>What <code>cbor</code> gives a value (it keeps its column type instead of becoming a string):</p>
 <table>
 <thead>
 <tr>
@@ -3939,15 +3872,15 @@ using <a href="https://github.com/kriszyp/cbor-x"><code>cbor-x</code></a>. A val
 <tbody>
 <tr>
 <td><code>timestamptz</code></td>
-<td><code>Temporal.Instant</code></td>
+<td><code>Date</code> or <code>Temporal.Instant</code></td>
 </tr>
 <tr>
 <td><code>timestamp</code></td>
-<td><code>Temporal.Instant</code>: the server answers the instant the wall clock stands for <strong>in its own session time zone</strong>, which the client cannot see. A column that holds another zone's wall clock reads as the wrong instant</td>
+<td><code>Date</code> or <code>Temporal.Instant</code>: the server answers the instant the wall clock stands for <strong>in its own session time zone</strong>, which the client cannot see. A column that holds another zone's wall clock reads as the wrong instant</td>
 </tr>
 <tr>
 <td><code>date</code></td>
-<td><code>Temporal.PlainDate</code></td>
+<td>text, or <code>Temporal.PlainDate</code></td>
 </tr>
 <tr>
 <td><code>bytea</code></td>
@@ -3959,11 +3892,11 @@ using <a href="https://github.com/kriszyp/cbor-x"><code>cbor-x</code></a>. A val
 </tr>
 <tr>
 <td><code>int2</code>, <code>int4</code>, <code>int8</code></td>
-<td><code>number</code>; a value of 2^32 or more is a <code>bigint</code> (<code>cbor-x</code> reads every 8-byte integer that way), so <code>int8</code> is <code>number \| bigint</code></td>
+<td><code>number</code>; a value of 2^32 or more is a <code>bigint</code> (<code>cbor-x</code> reads every 8-byte integer that way), so <code>int8</code> is <code>number \| bigint</code>. Over JSON with <code>bigint</code> the line sits at 2^53 instead</td>
 </tr>
 <tr>
 <td><code>numeric</code></td>
-<td><code>number</code>: <code>cbor-x</code> reads tag 4 as <code>Number(mantissa + "e" + exponent)</code>, so the digits beyond what a double holds (about 15 to 17) are rounded and the display scale is lost (<code>1.50</code> reads <code>1.5</code>), as with JSON. <code>NaN</code> and the infinities are floats and read as such. An exact decimal needs a tag 4 extension of your own (which replaces the built-in one) and <code>PgWire["numeric"]</code> set to its class</td>
+<td><code>number</code>: <code>cbor-x</code> reads tag 4 as <code>Number(mantissa + "e" + exponent)</code>, so the digits beyond what a double holds (about 15 to 17) are rounded and the display scale is lost (<code>1.50</code> reads <code>1.5</code>), as with JSON. <code>NaN</code> and the infinities are floats and read as such</td>
 </tr>
 <tr>
 <td><code>interval</code>, ranges, <code>inet</code>, <code>money</code>...</td>
@@ -3971,13 +3904,64 @@ using <a href="https://github.com/kriszyp/cbor-x"><code>cbor-x</code></a>. A val
 </tr>
 </tbody>
 </table>
-<p>The preset is about 100 lines: three tag extensions (1, 100, 37), the encoder options, and a rewrite of what <code>cbor-x</code>
-writes differently from <code>JSON.stringify</code> (an <code>undefined</code> object member is dropped, and a whole number of 2^32 or more is
-sent as an integer, which an <code>int8</code> column needs). It needs a runtime with <code>Temporal</code>, or a polyfill loaded before it.</p>
-<p><code>cbor-date</code> is the same file for a runtime without <code>Temporal</code>, or to avoid the objects: <code>timestamptz</code> and <code>timestamp</code> are <code>Date</code>s
-(so only milliseconds are kept: the microseconds of a timestamp are lost on read), and <code>date</code> is the <code>YYYY-MM-DD</code> text JSON gives, since a <code>Date</code>
-cannot hold a calendar day without a time zone nor reach every year a <code>date</code> does (<code>5874897-12-31</code>, <code>0044-03-15 BC</code>). The <code>timestamptz</code> <code>_as_date</code> accessor
-still returns a <code>Temporal.Instant</code>, so using it needs <code>Temporal</code>. Decoding is not faster than with <code>cbor</code>: building the <code>Temporal</code> objects is a
+<p>A JSON codec reads <em>every</em> number the same way, whatever column it came from, so it cannot make <code>numeric</code> exact without
+changing the type of every <code>int4</code> and <code>float8</code> too. When a decimal must stay exact, ask for it as text in the query
+— <code>["::", ["col", "base_price"], "text"]</code> — and read it as a string.</p>
+<p>Without <code>bigint</code> or <code>cbor</code>, passing a <code>bigint</code> in a query or a payload throws a <code>TypeError</code>, since the browser's
+<code>JSON.stringify</code> cannot write one.</p>
+<h3 id="changing-how-a-value-is-read-or-written">Changing how a value is read or written<a class="headerlink" href="#changing-how-a-value-is-read-or-written" title="Permanent link">&para;</a></h3>
+<p>Every query writes its request and reads its response through <code>Querier.prototype.codec</code>; assign it once, or per query like
+<code>baseUrl</code> (a per-query codec must yield the same kinds of value the generated types say):</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ledger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.ledgers"</span><span class="p">)</span>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="nx">ledger</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span><span class="w">   </span><span class="c1">// only this query</span>
+</span></code></pre></div>
+<p>A codec is an object of this shape:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Codec</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">  </span><span class="nx">contentType?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                              </span><span class="c1">// sent as Content-Type and Accept ; left out, neither is sent</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">  </span><span class="nx">accept?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                                   </span><span class="c1">// sent as Accept instead of contentType</span>
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">  </span><span class="nx">binary?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">                                  </span><span class="c1">// decode() takes the response bytes, not its text</span>
+</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">  </span><span class="nx">encode</span><span class="p">(</span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">,</span><span class="w"> </span><span class="nx">options</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">structures?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span>
+</span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="w">  </span><span class="nx">decode</span><span class="p">(</span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span>
+</span><span id="__span-25-7"><a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>A failed request (status 400 or more) is always JSON text, whatever was asked, and never reaches <code>decode</code>: it becomes a
+<code>RelRequestError</code> whose <code>body</code> is that text.</p>
+<p>Two tables are exported for finer changes, and are read each time they are used:</p>
+<ul>
+<li><code>pgWireCasts</code> holds one function per type whose written form depends on the codec (<code>timestamptz</code>, <code>timestamp</code>, <code>date</code>,
+  <code>bytea</code>): the <code>as…</code> casts (<code>asTimestamptz</code>, …) call them.</li>
+<li>With <code>cbor</code>, <code>cborTags</code> maps a CBOR tag number to <code>{Class, encode, decode}</code> (1 and 100 for dates and times, 37 for a uuid).
+  Replacing an entry changes what that tag becomes; <code>defineCborTag(tag, entry)</code> registers a new one with <code>cbor-x</code>, whose tag
+  registry is shared by the whole program.</li>
+</ul>
+<p>The accessors (<code>timestampTzAccessor</code>, <code>timestampAccessor</code>, <code>dateAccessor</code>, <code>bytesAccessor</code>, <code>int8Accessor</code>) accept whichever
+form the column has: over JSON they convert a string, over CBOR they pass the value the tag decoded through. With
+<code>cbor,temporal</code>, <code>timestamp</code> is an instant, so there is no wall clock to read and <code>timestampAccessor</code>'s getter gives that <code>Instant</code>.</p>
+<h3 id="structures">Structures<a class="headerlink" href="#structures" title="Permanent link">&para;</a></h3>
+<p>With <code>cbor</code>, objects that share their keys are written once and then referred to, in both directions
+(<a href="../query-language/#structures">the wire format</a>): about half the bytes for rows, and decoding about three times
+faster in <code>cbor-x</code>.</p>
+<ul>
+<li><strong>Responses</strong> ask for them through the codec's <code>accept</code>, <code>application/cbor; structures=1</code>; assign
+  <code>Querier.prototype.codec.accept = "application/cbor"</code> to have plain maps instead. <code>cbor-x</code> reads a layout fastest by
+  compiling a reader for it with <code>new Function</code>. Under a Content-Security-Policy without <code>'unsafe-eval'</code> (or in a runtime
+  that forbids it) it tries once when it loads, catches the refusal and reads structures without compiling them, which is
+  still about 2.7 times faster than maps (measured in Node with <code>--disallow-code-generation-from-strings</code>). The one
+  attempt is still reported to the policy as a violation (a console error, and a report if the policy has a
+  <code>report-uri</code>). To avoid it, make your bundler resolve <code>cbor-x</code> to <code>cbor-x/index-no-eval</code>, the build that never tries.</li>
+<li><strong>Requests</strong> use them unless <code>sendStructures</code> is <code>false</code>. It is a property of <code>Querier</code>, like <code>baseUrl</code> and <code>codec</code>:
+  <code>Querier.prototype.sendStructures = false</code> for every query, or <code>myQuery.sendStructures = false</code> for one (a query built from
+  it, with <code>join()</code> and the like, starts from the prototype's value again). Objects that never share their keys, such as a
+  <code>jsonb</code> value used as a dictionary of ids, gain no bytes from them and take about 2.4 times as long to encode : turn it
+  off for a query that sends mostly those. Everything else is written correctly either way.</li>
+</ul>
+<p>Sharing a prototype (<code>draft()</code> rows, or a class) does not speed up the encoding : <code>cbor-x</code> compares the keys of every
+object whatever its prototype, and an object with a prototype of its own takes a slower path through its extensions.</p>
+<p>The <code>cbor</code> code is about 100 lines: the tag entries, the encoder options, and a rewrite of what <code>cbor-x</code> writes differently
+from <code>JSON.stringify</code> (an <code>undefined</code> object member is dropped, and a whole number of 2^32 or more is sent as an integer,
+which an <code>int8</code> column needs). Decoding is not faster with <code>date</code> than with <code>temporal</code>: building the <code>Temporal</code> objects is a
 small part of the cost, <code>cbor-x</code> itself the rest.</p>
 <h2 id="databasejson">database.json<a class="headerlink" href="#databasejson" title="Permanent link">&para;</a></h2>
 <p><code>GET /rel/database.json</code> serves the same introspected schema as plain JSON instead of TypeScript

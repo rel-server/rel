@@ -2984,7 +2984,7 @@ touched). <code>content</code> is the second <code>OUT</code> column, sent as th
 function's value would be — here <code>application/json</code>, since it's <code>jsonb</code>.</p>
 <h2 id="response-format">Response format<a class="headerlink" href="#response-format" title="Permanent link">&para;</a></h2>
 <p>A body whose <code>Content-Type</code> is <code>application/json</code> is answered as <code>application/cbor</code> when the request's <code>Accept</code>
-prefers it (<code>Accept: application/cbor</code>; <code>*/*</code> and no header stay JSON). The route's <code>Vary: Accept</code> header says so.</p>
+prefers it (<code>Accept: application/cbor</code>; <code>*/*</code> and no header stay JSON). The route's <code>Vary: Accept</code> header says so. A request for <a href="../../query-language/#structures">structures</a> (<code>application/cbor; structures=1</code>) is answered with plain CBOR : a route's content has no fixed list of fields.</p>
 <ul>
 <li>A function returning <code>json</code>/<code>jsonb</code> : the JSON is converted as it is, number by number from its text : an integer
   is a CBOR integer (a bignum when large), a number with a fraction or exponent is a decimal fraction (tag 4) that

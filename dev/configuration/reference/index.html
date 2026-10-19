@@ -3213,6 +3213,12 @@ the binary itself, if you want it without leaving a terminal.</p>
 <td>Serve <code>GET /rel/database.ts</code>. See <a href="../../typescript/">TypeScript client</a>.</td>
 </tr>
 <tr>
+<td><code>http.typescript.codec</code></td>
+<td><code>REL_HTTP__TYPESCRIPT__CODEC</code></td>
+<td><code>json</code></td>
+<td>Comma-separated codec options the generated <code>database.ts</code> is built with (<code>json</code>|<code>cbor</code>, <code>date</code>|<code>temporal</code>, <code>bigint</code>), for the endpoint, <code>typescript.helper_path</code> and <code>--typescript-out</code>; <code>GET /rel/database.ts?codec=…</code> replaces it for that request. See <a href="../../typescript/#codecs">Codecs</a>.</td>
+</tr>
+<tr>
 <td><code>http.typescript.schemas</code></td>
 <td><code>REL_HTTP__TYPESCRIPT__SCHEMAS</code></td>
 <td>every schema but <code>pg_catalog</code></td>
