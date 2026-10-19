@@ -2514,6 +2514,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#inline-config-in-an-environment-variable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Inline config in an environment variable
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#secrets-and-generated-values" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2730,6 +2741,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#inline-config-in-an-environment-variable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Inline config in an environment variable
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#secrets-and-generated-values" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2917,11 +2939,31 @@ or malformed file at that path is a fatal, startup-terminating error.</p>
 same directory, say) is a fatal error — rel never picks one silently. Finding no file at any
 step isn't an error either; rel runs on environment variables, flags, and built-in defaults
 alone, which is enough to start it (see <a href="../getting-started/">Getting started</a>).</p>
+<h2 id="inline-config-in-an-environment-variable">Inline config in an environment variable<a class="headerlink" href="#inline-config-in-an-environment-variable" title="Permanent link">&para;</a></h2>
+<p>The whole config document can also be passed as the value of <code>REL_CONFIG__TOML</code>, <code>REL_CONFIG__YAML</code> or <code>REL_CONFIG__HUML</code>, which is handy when a container has no file to mount:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">services</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">rel</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">      </span><span class="nt">REL_CONFIG__TOML</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">        </span><span class="no">[typescript]</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">        </span><span class="no">helper_path = ""</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">        </span><span class="no">[http]</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">        </span><span class="no">port = 8080</span>
+</span></code></pre></div>
+<ul>
+<li>The inline document is more specific than a config file and less specific than individual <code>REL_</code> variables and flags. It is merged on top of the file (discovered or named with <code>--config</code> / <code>REL_CONFIG</code>); keys the inline document doesn't set keep the file's value.</li>
+<li>Setting more than one of the three variables is a fatal error.</li>
+<li>A parse error names the variable but never echoes any of the document, as with files.</li>
+<li>Relative paths inside the document (<code>typescript.helper_path</code>, <code>http.static.path</code>, ...) are relative to the working directory, exactly as in a file.</li>
+<li>In a Compose file, write <code>$$</code> for a literal <code>$</code>, since Compose substitutes <code>${...}</code> itself. <code>env_file:</code> doesn't handle multi-line values reliably; use <code>environment:</code>.</li>
+<li>Environment variables show up in <code>docker inspect</code> and <code>/proc/&lt;pid&gt;/environ</code>. Keep secrets out of the document and use <code>$FILE$</code> references to mounted files or Docker secrets instead.</li>
+</ul>
 <h2 id="secrets-and-generated-values">Secrets and generated values<a class="headerlink" href="#secrets-and-generated-values" title="Permanent link">&para;</a></h2>
 <p>Any single config value, from any of the three sources, can point at a file instead of being
 written literally:</p>
-<div class="language-toml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">[jwt]</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"$FILE$/secrets/jwt-secret:./jwt-secret$GEN$32"</span>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">[jwt]</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"$FILE$/secrets/jwt-secret:./jwt-secret$GEN$32"</span>
 </span></code></pre></div>
 <ul>
 <li><code>$FILE$/path</code> — read the value from that file (exactly one trailing newline trimmed;
@@ -2951,7 +2993,7 @@ rel reads any of it, so this applies uniformly regardless of source — that loo
 configuration but that nothing in rel ever actually reads (a typo, a setting that got renamed,
 a stray var left behind from a previous version) logs one <code>WARN</code> line at startup rather than
 being silently ignored:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>WARN config: key set but never read by rel — check for a typo or a stale/renamed setting  key=http.cros.allowed_origins env=REL_HTTP__CROS__ALLOWED_ORIGINS did_you_mean=http.cors.allowed_origins did_you_mean_env=REL_HTTP__CORS__ALLOWED_ORIGINS
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>WARN config: key set but never read by rel — check for a typo or a stale/renamed setting  key=http.cros.allowed_origins env=REL_HTTP__CROS__ALLOWED_ORIGINS did_you_mean=http.cors.allowed_origins did_you_mean_env=REL_HTTP__CORS__ALLOWED_ORIGINS
 </span></code></pre></div>
 <p><code>did_you_mean</code> only appears when something else rel actually reads is close enough to be worth
 suggesting — no match, no field, rather than a misleading guess. This is non-fatal: rel starts

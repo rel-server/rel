@@ -2902,8 +2902,8 @@ including one the query engine can't efficiently join — rather than <code>data
 already-collapsed TypeScript types.</p>
 <p>It's wired up exactly like <code>database.ts</code>: gated behind <code>http.typescript.enable</code>, GET only, and
 filtered by the same <code>schemas</code> query param (intersected with the configured
-<code>http.typescript.schemas</code> whitelist — a <code>schemas</code> value outside the whitelist is a 400, not a
-silent drop) and <code>http.typescript.blacklist</code>. See
+<code>typescript.schemas</code> whitelist — a <code>schemas</code> value outside the whitelist is a 400, not a
+silent drop) and <code>blacklist.*</code>. See
 <a href="../../configuration/reference/">Configuration reference</a> for both settings. The response is
 <code>Content-Type: application/json; charset=utf-8</code>, and every object key is <code>snake_case</code>.</p>
 <p>The <code>schemas</code> whitelist and the blacklist both decide which relations/functions are exported as

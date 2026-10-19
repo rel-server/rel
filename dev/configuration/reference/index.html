@@ -3212,18 +3212,6 @@ the binary itself, if you want it without leaving a terminal.</p>
 <td><code>false</code> (<code>true</code> in dev)</td>
 <td>Serve <code>GET /rel/database.ts</code>. See <a href="../../typescript/">TypeScript client</a>.</td>
 </tr>
-<tr>
-<td><code>http.typescript.codec</code></td>
-<td><code>REL_HTTP__TYPESCRIPT__CODEC</code></td>
-<td><code>json</code></td>
-<td>Comma-separated codec options the generated <code>database.ts</code> is built with (<code>json</code>|<code>cbor</code>, <code>date</code>|<code>temporal</code>, <code>bigint</code>), for the endpoint, <code>typescript.helper_path</code> and <code>--typescript-out</code>; <code>GET /rel/database.ts?codec=…</code> replaces it for that request. See <a href="../../typescript/#codecs">Codecs</a>.</td>
-</tr>
-<tr>
-<td><code>http.typescript.schemas</code></td>
-<td><code>REL_HTTP__TYPESCRIPT__SCHEMAS</code></td>
-<td>every schema but <code>pg_catalog</code></td>
-<td>Comma-separated whitelist of schemas <code>GET /rel/database.ts</code> may export; intersected with that request's own <code>?schemas=</code> param.</td>
-</tr>
 </tbody>
 </table>
 <h2 id="route-declaration-and-gating">Route declaration and gating<a class="headerlink" href="#route-declaration-and-gating" title="Permanent link">&para;</a></h2>
@@ -3624,6 +3612,18 @@ contract, worked examples); this is the exhaustive key list.</p>
 <td><code>REL_TYPESCRIPT__HELPER_PATH</code></td>
 <td>disabled</td>
 <td>Filesystem path rel (re)writes <code>database.ts</code>'s content to directly, at startup and on every <code>SIGUSR1</code> reload — for an editor/LSP watching a real file on disk. See <a href="../../typescript/">TypeScript client</a>.</td>
+</tr>
+<tr>
+<td><code>typescript.codec</code></td>
+<td><code>REL_TYPESCRIPT__CODEC</code></td>
+<td><code>json</code></td>
+<td>Comma-separated codec options the generated <code>database.ts</code> is built with (<code>json</code>|<code>cbor</code>, <code>date</code>|<code>temporal</code>, <code>bigint</code>), for the endpoint, <code>typescript.helper_path</code> and <code>--typescript-out</code>; <code>GET /rel/database.ts?codec=…</code> replaces it for that request. See <a href="../../typescript/#codecs">Codecs</a>.</td>
+</tr>
+<tr>
+<td><code>typescript.schemas</code></td>
+<td><code>REL_TYPESCRIPT__SCHEMAS</code></td>
+<td>every schema but <code>pg_catalog</code></td>
+<td>Comma-separated whitelist of schemas <code>GET /rel/database.ts</code> may export; intersected with that request's own <code>?schemas=</code> param.</td>
 </tr>
 </tbody>
 </table>

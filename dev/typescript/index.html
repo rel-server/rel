@@ -3251,7 +3251,7 @@ described in <a href="../query-language/">The query language</a>.</p>
 </span></code></pre></div>
 <p><code>schemas</code> restricts which schemas get included — omit it and every schema but <code>pg_catalog</code> is
 exported. The endpoint is off by default outside of dev mode; see
-<a href="../configuration/reference/">Configuration reference</a> for <code>http.typescript.enable</code> and <code>http.typescript.schemas</code>.
+<a href="../configuration/reference/">Configuration reference</a> for <code>http.typescript.enable</code> and <code>typescript.schemas</code>.
 If you'd rather have your editor/LSP watch a real file on disk instead of re-curling by hand,
 <code>typescript.helper_path</code> has rel write <code>database.ts</code> straight to a path of your choosing, on
 startup and on every schema reload.</p>
@@ -3260,7 +3260,7 @@ if you like, and it just works. <code>codec</code> picks other <a href="#codecs"
 exact 8-byte integers) and the file then imports the one package each needs:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span><span class="s1">'http://localhost:8080/rel/database.ts?schemas=hotel&amp;codec=cbor,temporal'</span><span class="w"> </span>&gt;<span class="w"> </span>src/database.ts
 </span></code></pre></div>
-<p><code>http.typescript.codec</code> sets the same list for every output (the endpoint, <code>typescript.helper_path</code> and
+<p><code>typescript.codec</code> sets the same list for every output (the endpoint, <code>typescript.helper_path</code> and
 <code>--typescript-out</code>); the <code>codec</code> param replaces it for one request, and so does <code>--typescript-codec</code> for
 <code>--typescript-out</code>.</p>
 <h3 id="where-the-server-is">Where the server is<a class="headerlink" href="#where-the-server-is" title="Permanent link">&para;</a></h3>
@@ -3808,7 +3808,7 @@ you pass pick which overload's return type you get back.</p>
 <code>.get(params)</code>/<code>.write(params, data)</code> values, unlike <code>call()</code>, which runs immediately.</p>
 <h2 id="codecs">Codecs<a class="headerlink" href="#codecs" title="Permanent link">&para;</a></h2>
 <p>Three independent choices decide how values travel and what they are on the client. They are given as a comma-separated
-list of tokens, in any order, in <code>GET /rel/database.ts?codec=…</code>, in <code>http.typescript.codec</code> and in <code>--typescript-codec</code>
+list of tokens, in any order, in the <code>codec</code> GET parameter of <code>GET /rel/database.ts</code>, in <code>typescript.codec</code> and in <code>--typescript-codec</code>
 (see <a href="#fetching-it">Fetching it</a>):</p>
 <table>
 <thead>
@@ -3857,7 +3857,7 @@ list of tokens, in any order, in <code>GET /rel/database.ts?codec=…</code>, in
 </tbody>
 </table>
 <p><code>json,temporal,bigint</code> and <code>cbor,temporal</code> are valid; <code>json,cbor</code>, <code>date,temporal</code>, a token twice and an unknown token
-are a <code>400</code> (a bad <code>http.typescript.codec</code> stops <code>rel</code> at startup). The generated file's header says which options built it
+are a <code>400</code> (a bad <code>typescript.codec</code> stops <code>rel</code> at startup). The generated file's header says which options built it
 (<code>// Codec: cbor,temporal,bigint</code>), and it has no <code>import</code> except for the package the options need, at its top.</p>
 <p>The types follow the options: <code>Int8</code>, <code>Timestamptz</code>, <code>Timestamp</code>, <code>PgDate</code> and <code>Bytea</code> are what the codec hands over, in reads and
 writes, and an id column over a <code>bigserial</code> follows. The file offers no supported way to change them from your own code: ask for another codec instead.</p>

@@ -765,6 +765,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#passing-the-config-file-as-one-variable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Passing the config file as one variable
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#combining-baked-in-static-assets-with-writable-uploads" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2697,6 +2708,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#passing-the-config-file-as-one-variable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Passing the config file as one variable
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#combining-baked-in-static-assets-with-writable-uploads" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2919,6 +2941,15 @@ build artifact — a redeploy rolls forward and back by changing one tag, and th
 "did the host's bind-mounted files actually match the image that's running" question to answer
 during an incident. The compose file above deploys this way: <code>image: your-registry/your-app</code>,
 not <code>rel-server/rel</code> directly, and no <code>/wellknown</code>/<code>/static</code>/<code>/template</code> volumes at all.</p>
+<h2 id="passing-the-config-file-as-one-variable">Passing the config file as one variable<a class="headerlink" href="#passing-the-config-file-as-one-variable" title="Permanent link">&para;</a></h2>
+<p>Instead of mounting a config file, put the whole document in <code>REL_CONFIG__TOML</code> (or <code>REL_CONFIG__YAML</code> / <code>REL_CONFIG__HUML</code>) with a YAML <code>|</code> block:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">      </span><span class="nt">REL_CONFIG__TOML</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">        </span><span class="no">[typescript]</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">        </span><span class="no">helper_path = ""</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">      </span><span class="nt">REL_PG__URI</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgres://hotel:${DB_PASSWORD}@db:5432/hotel</span>
+</span></code></pre></div>
+<p>Individual <code>REL_</code> variables, like <code>REL_PG__URI</code> above, override the same key in the document. Use <code>$$</code> for a literal <code>$</code> inside the block, and <code>environment:</code> rather than <code>env_file:</code>. Details and precedence: <a href="../../configuration/#inline-config-in-an-environment-variable">Inline config in an environment variable</a>.</p>
 <h2 id="combining-baked-in-static-assets-with-writable-uploads">Combining baked-in static assets with writable uploads<a class="headerlink" href="#combining-baked-in-static-assets-with-writable-uploads" title="Permanent link">&para;</a></h2>
 <p><code>http.static.path</code> accepts several colon-separated directories and serves them as one merged
 <code>/static/*</code> tree (see <a href="../../http/static-files/">Static files</a>); a <a href="../../http/uploads/">file
@@ -2926,15 +2957,15 @@ upload</a> landing on disk without routing through Postgres always writes
 under <code>http.upload.dir</code>, a subpath of the <em>first</em> listed directory specifically. Point that
 subpath at a volume mounted under your baked-in assets to combine the two, without disturbing
 the search-list order:</p>
-<div class="language-dockerfile highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c"># in your app's Dockerfile</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">COPY</span><span class="w"> </span>static<span class="w"> </span>/static/assets
+<div class="language-dockerfile highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c"># in your app's Dockerfile</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">COPY</span><span class="w"> </span>static<span class="w"> </span>/static/assets
 </span></code></pre></div>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># in your compose file</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">environment</span><span class="p">:</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">REL_HTTP__STATIC__PATH</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/static/assets</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">REL_HTTP__UPLOAD__DIR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">uploads</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nt">volumes</span><span class="p">:</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rel_uploads:/static/assets/uploads</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># in your compose file</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nt">environment</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">REL_HTTP__STATIC__PATH</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/static/assets</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">REL_HTTP__UPLOAD__DIR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">uploads</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nt">volumes</span><span class="p">:</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rel_uploads:/static/assets/uploads</span>
 </span></code></pre></div>
 <p>Uploads land under <code>/static/assets/uploads</code>, on a volume that survives a redeploy, still served
 as ordinary static content alongside the rest of <code>/static/assets</code> — whatever version of your
