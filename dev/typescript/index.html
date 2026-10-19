@@ -2560,22 +2560,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#big-numbers" class="md-nav__link">
+  <a href="#codecs" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Big numbers
+        Codecs
       </span>
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Big numbers">
+    <nav class="md-nav" aria-label="Codecs">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#reading-with-a-json-implementation-that-keeps-the-digits" class="md-nav__link">
+  <a href="#what-pgwire-can-retype" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Reading with a JSON implementation that keeps the digits
+        What <code>PgWire</code> can retype
       </span>
     </span>
   </a>
@@ -2583,10 +2583,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#telling-the-types-what-the-json-implementation-gives" class="md-nav__link">
+  <a href="#cbor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Telling the types what the JSON implementation gives
+        CBOR
       </span>
     </span>
   </a>
@@ -3092,22 +3092,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#big-numbers" class="md-nav__link">
+  <a href="#codecs" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Big numbers
+        Codecs
       </span>
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Big numbers">
+    <nav class="md-nav" aria-label="Codecs">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#reading-with-a-json-implementation-that-keeps-the-digits" class="md-nav__link">
+  <a href="#what-pgwire-can-retype" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Reading with a JSON implementation that keeps the digits
+        What <code>PgWire</code> can retype
       </span>
     </span>
   </a>
@@ -3115,10 +3115,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#telling-the-types-what-the-json-implementation-gives" class="md-nav__link">
+  <a href="#cbor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Telling the types what the JSON implementation gives
+        CBOR
       </span>
     </span>
   </a>
@@ -3583,7 +3583,7 @@ accepted in <code>path</code>, not column names, and a name that is not a join o
 <h2 id="typed-wire-values">Typed wire values<a class="headerlink" href="#typed-wire-values" title="Permanent link">&para;</a></h2>
 <p>Every column comes back typed as the JS type its wire value actually has, not the type its
 Postgres type name might suggest. (<code>int8</code> and <code>numeric</code> are the exception that proves the rule: they
-are bare JSON numbers, and <a href="#big-numbers">Big numbers</a> says how to type and read them.) A <code>timestamptz</code> column doesn't come back as <code>number</code> or <code>Date</code>;
+are bare JSON numbers, and <a href="#codecs">Codecs</a> says how to type and read them.) A <code>timestamptz</code> column doesn't come back as <code>number</code> or <code>Date</code>;
 it comes back as a distinct branded string type (<code>Timestamptz</code>), because the value on the wire is
 a string, and giving it a <code>Date</code>-shaped type would let you call <code>.getFullYear()</code> on something that
 has no such method at runtime. This applies to every Postgres type this section covers.</p>
@@ -3679,7 +3679,7 @@ it into a genuinely richer client-side value:</p>
 <tr>
 <td><code>Int8</code></td>
 <td><code>int8Accessor</code></td>
-<td><code>bigint</code>, via <code>BigInt()</code> — exact if the value you hold is exact (see <a href="#big-numbers">Big numbers</a>)</td>
+<td><code>bigint</code>, via <code>BigInt()</code> — exact if the value you hold is exact (see <a href="#codecs">Codecs</a>)</td>
 </tr>
 <tr>
 <td><code>Int4Range</code>/<code>Int8Range</code>/<code>NumRange</code>/<code>DateRange</code>/<code>TsRange</code>/<code>TstzRange</code></td>
@@ -3697,7 +3697,7 @@ it into a genuinely richer client-side value:</p>
 <td><code>bigint</code> (whole cents), via <code>..._as_cents</code></td>
 </tr>
 <tr>
-<td><code>bytea</code> (a bare <code>string</code>, no brand)</td>
+<td><code>bytea</code> (<code>Bytea</code>, a bare <code>string</code> of hex unless a <a href="#codecs">codec</a> says otherwise)</td>
 <td><code>bytesAccessor</code></td>
 <td><code>Uint8Array</code>, via <code>..._as_bytes</code></td>
 </tr>
@@ -3711,7 +3711,7 @@ decimal string, which Postgres's own <code>money</code> input parser accepts reg
 <p><code>PgTimetz</code> and <code>numeric</code> have no accessor: <code>Temporal</code> has no "time of day with a UTC offset, no
 date" class for the former, and no native JS type represents an arbitrary-scale decimal for the
 latter. <code>compareNumeric</code> (also exported from <code>database.ts</code>) compares two <code>PgNumeric</code> values
-digit by digit, whatever type your <a href="#big-numbers">JSON implementation</a> gives them.</p>
+digit by digit, whatever type your <a href="#codecs">codec</a> gives them.</p>
 <p>Every temporal accessor returns a <a href="https://tc39.es/proposal-temporal/docs/"><code>Temporal</code></a> value, not
 a <code>Date</code> — <code>Temporal</code>'s classes are immutable and genuinely distinct from one another (a
 <code>Temporal.PlainDateTime</code> cannot satisfy a <code>Temporal.Instant</code>-typed parameter, cast or no cast),
@@ -3732,7 +3732,7 @@ doesn't have it yet.</p>
 <p><code>asTimestamptz</code> throws if given a string with no time zone offset — Postgres would otherwise
 silently reinterpret it using the session's own time zone. <code>asMoney</code> and every range cast only
 brand the value, since nothing about their string shape is unsafe to skip validating. <code>asInt8</code>
-and <code>asNumeric</code> only brand a value that already has the type <a href="#big-numbers"><code>PgWire</code></a> says.</p>
+and <code>asNumeric</code> only brand a value that already has the type <a href="#what-pgwire-can-retype"><code>PgWire</code></a> says.</p>
 <h3 id="ranges">Ranges<a class="headerlink" href="#ranges" title="Permanent link">&para;</a></h3>
 <p><code>Range&lt;T&gt;</code>, one immutable class shared by every range type (<code>Range&lt;number&gt;</code> for <code>Int4Range</code>,
 <code>Range&lt;bigint&gt;</code> for <code>Int8Range</code>, <code>Range&lt;string&gt;</code> (the decimal text) for <code>NumRange</code>,
@@ -3799,64 +3799,186 @@ you pass pick which overload's return type you get back.</p>
 <p><code>func()</code>'s own <code>arguments</code> field is checked the same way, with one difference: each argument may also be a
 <code>["$param", name]</code> placeholder, since a <code>func()</code> query is built once and can be reused with different
 <code>.get(params)</code>/<code>.write(params, data)</code> values, unlike <code>call()</code>, which runs immediately.</p>
-<h2 id="big-numbers">Big numbers<a class="headerlink" href="#big-numbers" title="Permanent link">&para;</a></h2>
-<p><code>int8</code> and <code>numeric</code> columns come back as bare JSON numbers, with every digit Postgres has —
-<code>9007199254740993</code>, <code>12345678901234567890.123456789</code>. That is what Postgres itself writes, and what
-PostgREST sends. The loss happens on your side: the browser's <code>JSON.parse</code> turns every number into
-a double, so anything beyond 2^53 (or about 15 significant digits for a decimal) is silently rounded.</p>
-<p>Most values are far smaller than that and need nothing. When yours are not, there are two knobs,
-and both work like <code>baseUrl</code>: set them once, or per query.</p>
-<h3 id="reading-with-a-json-implementation-that-keeps-the-digits">Reading with a JSON implementation that keeps the digits<a class="headerlink" href="#reading-with-a-json-implementation-that-keeps-the-digits" title="Permanent link">&para;</a></h3>
-<p>Every query reads responses and writes requests through <code>Querier.prototype.json</code>, the browser's
-<code>JSON</code> unless you replace it. Anything with <code>parse(text)</code> and <code>stringify(value)</code> fits, which
-includes the libraries built for this:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">Querier</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="k">import</span><span class="w"> </span><span class="nx">JSONbig</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"json-bigint"</span>
-</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>
-</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="c1">// every integer that does not fit a double becomes a bigint ; a bigint is written back as a bare number</span>
-</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">json</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">JSONbig</span><span class="p">({</span><span class="w"> </span><span class="nx">useNativeBigInt</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="w"> </span><span class="p">})</span>
-</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>
-</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="c1">// or only for one query</span>
-</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ledger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.ledgers"</span><span class="p">)</span>
-</span><span id="__span-23-9"><a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a><span class="nx">ledger</span><span class="p">.</span><span class="nx">json</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">JSONbig</span><span class="p">({</span><span class="w"> </span><span class="nx">useNativeBigInt</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="w"> </span><span class="p">})</span>
+<h2 id="codecs">Codecs<a class="headerlink" href="#codecs" title="Permanent link">&para;</a></h2>
+<p>Every query writes its request and reads its response through <code>Querier.prototype.codec</code>, the browser's <code>JSON</code> unless you
+replace it. Replace it once, or per query like <code>baseUrl</code>:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ledger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.ledgers"</span><span class="p">)</span>
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="nx">ledger</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span><span class="w">   </span><span class="c1">// only this query</span>
 </span></code></pre></div>
-<p><a href="https://github.com/josdejong/lossless-json"><code>lossless-json</code></a> fits too, with its
-<code>parseNumberAndBigInt</code> number parser (safe integers stay numbers, larger ones become bigints):</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">parse</span><span class="p">,</span><span class="w"> </span><span class="nx">parseNumberAndBigInt</span><span class="p">,</span><span class="w"> </span><span class="nx">stringify</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"lossless-json"</span>
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>
-</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">json</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">parse</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">text</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">parse</span><span class="p">(</span><span class="nx">text</span><span class="p">,</span><span class="w"> </span><span class="kc">undefined</span><span class="p">,</span><span class="w"> </span><span class="nx">parseNumberAndBigInt</span><span class="p">),</span><span class="w"> </span><span class="nx">stringify</span><span class="w"> </span><span class="p">}</span>
+<p>A codec is an object of this shape:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Codec</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">  </span><span class="nx">contentType?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                              </span><span class="c1">// sent as Content-Type and Accept ; left out, neither is sent</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">  </span><span class="nx">binary?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">                                  </span><span class="c1">// decode() takes the response bytes, not its text</span>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="w">  </span><span class="nx">encode</span><span class="p">(</span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span>
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="w">  </span><span class="nx">decode</span><span class="p">(</span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span>
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>Nothing is added to <code>database.ts</code>: it stays a single file with no imports, and
-the default stays the fast native <code>JSON</code>. Without a bigint-aware implementation, passing a <code>bigint</code>
-in a query or a payload throws a <code>TypeError</code>, since the browser's <code>JSON.stringify</code> cannot write one.</p>
-<h3 id="telling-the-types-what-the-json-implementation-gives">Telling the types what the JSON implementation gives<a class="headerlink" href="#telling-the-types-what-the-json-implementation-gives" title="Permanent link">&para;</a></h3>
-<p>Whatever you plug in, the types default to <code>number</code> for <code>Int8</code> and <code>PgNumeric</code> (each still carries
-a brand, so one table's ids and another's cannot be mixed). To say that your implementation yields
-something else, merge into <code>PgWire</code> in a file of your own:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1">// wire.d.ts — any file of your project that is a module</span>
+<p>A failed request (status 400 or more) is always JSON text, whatever was asked, and never reaches <code>decode</code>: it becomes a
+<code>RelRequestError</code> whose <code>body</code> is that text.</p>
+<p>A codec changes what some values <em>are</em> at runtime, so the types have to follow. Two things go together: the codec, and a
+merge into <code>PgWire</code> saying what the codec yields. The repository keeps both halves in one file per codec, in
+<code>typescript/presets/</code>, tested against a real server. Copy the one you want next to your <code>database.ts</code>, fix its import path
+and <code>import</code> it once before the first query. A preset's <code>PgWire</code> block applies to the whole program: there is one choice per
+project, not one per query. (A <code>.codec</code> set on a single query changes only the runtime half; keep it to a codec that
+yields the same values as the preset.)</p>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th>Needs</th>
+<th>What changes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>none (default)</td>
+<td></td>
+<td>JSON text. <code>Int8</code> and <code>PgNumeric</code> are <code>number</code>, so anything beyond 2^53 (or about 15 significant digits for a decimal) is silently rounded by <code>JSON.parse</code>. Dates, times and <code>bytea</code> are strings.</td>
+</tr>
+<tr>
+<td><code>presets/json-bigint/json-bigint.ts</code></td>
+<td><code>lossless-json</code></td>
+<td><code>int8</code> is <code>number \| bigint</code>: a safe integer is a number, a larger one a bigint. A <code>bigint</code> can be sent.</td>
+</tr>
+<tr>
+<td><code>presets/cbor/cbor.ts</code></td>
+<td><code>cbor-x</code>, <code>Temporal</code></td>
+<td>CBOR both ways, see <a href="#cbor">below</a>.</td>
+</tr>
+<tr>
+<td><code>presets/cbor-date/cbor-date.ts</code></td>
+<td><code>cbor-x</code></td>
+<td>The same without <code>Temporal</code>: an instant is a <code>Date</code>, a <code>date</code> stays text.</td>
+</tr>
+</tbody>
+</table>
+<p>Without a bigint-aware codec, passing a <code>bigint</code> in a query or a payload throws a <code>TypeError</code>, since the browser's
+<code>JSON.stringify</code> cannot write one.</p>
+<h3 id="what-pgwire-can-retype">What <code>PgWire</code> can retype<a class="headerlink" href="#what-pgwire-can-retype" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th>Default</th>
+<th>A codec may say</th>
+<th>Write-side cast</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>int8</code></td>
+<td><code>number</code></td>
+<td><code>bigint</code>, <code>number \| bigint</code></td>
+<td><code>asInt8</code></td>
+</tr>
+<tr>
+<td><code>numeric</code></td>
+<td><code>number</code></td>
+<td>a decimal class</td>
+<td><code>asNumeric</code></td>
+</tr>
+<tr>
+<td><code>timestamptz</code></td>
+<td><code>string</code></td>
+<td><code>Temporal.Instant</code>, <code>Date</code></td>
+<td><code>asTimestamptz</code></td>
+</tr>
+<tr>
+<td><code>timestamp</code></td>
+<td><code>string</code></td>
+<td><code>Temporal.Instant</code>, <code>Date</code></td>
+<td><code>asTimestamp</code></td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td><code>string</code></td>
+<td><code>Temporal.PlainDate</code></td>
+<td><code>asPgDate</code></td>
+</tr>
+<tr>
+<td><code>bytea</code></td>
+<td><code>string</code> (<code>\x…</code> hex)</td>
+<td><code>Uint8Array</code></td>
+<td>the <code>bytea</code> entry of <code>pgWireCasts</code></td>
+</tr>
+</tbody>
+</table>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1">// any file of your project that is a module</span>
 </span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="kr">declare</span><span class="w"> </span><span class="nx">module</span><span class="w"> </span><span class="s2">"./database"</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">  </span><span class="kd">interface</span><span class="w"> </span><span class="nx">PgWire</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">    </span><span class="nx">int8</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">bigint</span><span class="w"> </span><span class="c1">// a safe integer is a number, a larger one a bigint</span>
 </span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">  </span><span class="p">}</span>
 </span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>Every column of that type, in reads and writes, is typed that way from then on, and an id column
-over a <code>bigserial</code> follows. Use <code>bigint</code> alone if your implementation parses every integer as one.
-Two things to know:</p>
-<ul>
-<li>The augmentation applies to the whole program: there is one choice per project, not one per query.</li>
-<li>The defaults live in the types, not in <code>PgWire</code>, which is empty on purpose. TypeScript cannot
-  redeclare an existing member of an interface with another type (error <code>TS2717</code>), but it can add
-  a missing one — so a member that is absent means "the default".</li>
-</ul>
-<p><code>int8Accessor</code> always gives a <code>bigint</code> (<code>row.id_as_bigint</code>), and stores a safe integer as a number
-and anything larger as a bigint.</p>
-<p>A JSON implementation reads <em>every</em> number the same way, whatever column it came from, so it cannot
-make <code>numeric</code> exact without changing the type of every <code>int4</code> and <code>float8</code> too. When a decimal
-must stay exact, ask for it as text in the query — <code>["::", ["col", "base_price"], "text"]</code> — and
-read it as a string.</p>
-<p><code>money</code>, intervals, timestamps, ranges and the rest are strings in JSON and stay strings: only types
-Postgres writes as JSON numbers are affected.</p>
+<p>Every column of that type, in reads and writes, is typed that way from then on, and an id column over a <code>bigserial</code>
+follows. Use <code>bigint</code> alone if your codec reads every integer as one. The defaults live in the types, not in <code>PgWire</code>,
+which is empty on purpose: TypeScript cannot redeclare an existing member of an interface with another type (error
+<code>TS2717</code>), but it can add a missing one, so a member that is absent means "the default".</p>
+<p>The write-side casts build values at runtime, and must build what the member says. <code>pgWireCasts</code> (exported next to them)
+holds one function per member that a codec can retype; the default ones build the JSON strings, and a preset replaces the
+entries it retypes (<code>pgWireCasts.date = (v) =&gt; ...</code>), so the type and the value stay one decision.</p>
+<p>The accessors (<code>timestampTzAccessor</code>, <code>timestampAccessor</code>, <code>dateAccessor</code>, <code>bytesAccessor</code>, <code>int8Accessor</code>) accept whichever
+form the column has: they convert a string, and pass a value that already is a <code>Temporal</code> or <code>Uint8Array</code> through. Code
+written against the JSON default keeps compiling and running under a preset, with one exception: with <code>timestamp</code> as an
+<code>Instant</code> there is no wall clock to read, so <code>timestampAccessor</code>'s getter gives that <code>Instant</code>.</p>
+<p>A JSON codec reads <em>every</em> number the same way, whatever column it came from, so it cannot make <code>numeric</code> exact without
+changing the type of every <code>int4</code> and <code>float8</code> too. When a decimal must stay exact in JSON, ask for it as text in the query
+— <code>["::", ["col", "base_price"], "text"]</code> — and read it as a string.</p>
+<h3 id="cbor">CBOR<a class="headerlink" href="#cbor" title="Permanent link">&para;</a></h3>
+<p>The <code>cbor</code> preset sends <code>application/cbor</code> and asks for it (<a href="../query-language/#cbor-responses">the wire format</a>),
+using <a href="https://github.com/kriszyp/cbor-x"><code>cbor-x</code></a>. A value then keeps its column type instead of becoming a string:</p>
+<table>
+<thead>
+<tr>
+<th>Postgres type</th>
+<th>JS value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>timestamptz</code></td>
+<td><code>Temporal.Instant</code></td>
+</tr>
+<tr>
+<td><code>timestamp</code></td>
+<td><code>Temporal.Instant</code>: the server answers the instant the wall clock stands for <strong>in its own session time zone</strong>, which the client cannot see. A column that holds another zone's wall clock reads as the wrong instant</td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td><code>Temporal.PlainDate</code></td>
+</tr>
+<tr>
+<td><code>bytea</code></td>
+<td><code>Uint8Array</code></td>
+</tr>
+<tr>
+<td><code>uuid</code></td>
+<td><code>string</code> (hyphenated)</td>
+</tr>
+<tr>
+<td><code>int2</code>, <code>int4</code>, <code>int8</code></td>
+<td><code>number</code>; a value of 2^32 or more is a <code>bigint</code> (<code>cbor-x</code> reads every 8-byte integer that way), so <code>int8</code> is <code>number \| bigint</code></td>
+</tr>
+<tr>
+<td><code>numeric</code></td>
+<td><code>number</code>: <code>cbor-x</code> reads tag 4 as <code>Number(mantissa + "e" + exponent)</code>, so the digits beyond what a double holds (about 15 to 17) are rounded and the display scale is lost (<code>1.50</code> reads <code>1.5</code>), as with JSON. <code>NaN</code> and the infinities are floats and read as such. An exact decimal needs a tag 4 extension of your own (which replaces the built-in one) and <code>PgWire["numeric"]</code> set to its class</td>
+</tr>
+<tr>
+<td><code>interval</code>, ranges, <code>inet</code>, <code>money</code>...</td>
+<td>the same string as JSON</td>
+</tr>
+</tbody>
+</table>
+<p>The preset is about 100 lines: three tag extensions (1, 100, 37), the encoder options, and a rewrite of what <code>cbor-x</code>
+writes differently from <code>JSON.stringify</code> (an <code>undefined</code> object member is dropped, and a whole number of 2^32 or more is
+sent as an integer, which an <code>int8</code> column needs). It needs a runtime with <code>Temporal</code>, or a polyfill loaded before it.</p>
+<p><code>cbor-date</code> is the same file for a runtime without <code>Temporal</code>, or to avoid the objects: <code>timestamptz</code> and <code>timestamp</code> are <code>Date</code>s
+(so only milliseconds are kept: the microseconds of a timestamp are lost on read), and <code>date</code> is the <code>YYYY-MM-DD</code> text JSON gives, since a <code>Date</code>
+cannot hold a calendar day without a time zone nor reach every year a <code>date</code> does (<code>5874897-12-31</code>, <code>0044-03-15 BC</code>). The <code>timestamptz</code> <code>_as_date</code> accessor
+still returns a <code>Temporal.Instant</code>, so using it needs <code>Temporal</code>. Decoding is not faster than with <code>cbor</code>: building the <code>Temporal</code> objects is a
+small part of the cost, <code>cbor-x</code> itself the rest.</p>
 <h2 id="databasejson">database.json<a class="headerlink" href="#databasejson" title="Permanent link">&para;</a></h2>
 <p><code>GET /rel/database.json</code> serves the same introspected schema as plain JSON instead of TypeScript
 types — for a non-TypeScript consumer, or for tooling built directly on the raw introspected

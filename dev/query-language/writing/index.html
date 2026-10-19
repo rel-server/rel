@@ -3110,7 +3110,7 @@ that does not read as the type).</p>
 </tr>
 <tr>
 <td><code>timestamp</code></td>
-<td>a text string only.</td>
+<td>a text string, or tag 1 / tag 0, read as the wall clock it shows in the connection's session time zone (the reverse of how a response writes it). A wall clock skipped by a clock change does not come back unchanged : <code>02:30</code> on the night a zone springs forward is read as <code>03:30</code>. If the session zone is one rel cannot load, an instant is refused.</td>
 </tr>
 <tr>
 <td><code>json</code>, <code>jsonb</code></td>

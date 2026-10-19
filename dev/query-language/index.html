@@ -2863,7 +2863,7 @@ that values keep their column types instead of being squeezed into JSON's :</p>
 </tr>
 <tr>
 <td><code>timestamp</code></td>
-<td>text, ISO 8601 without an offset (<code>2026-10-18T14:30:00.123456</code>) : it is a wall-clock reading, not an instant</td>
+<td>tag 1, like <code>timestamptz</code> : the instant its wall clock stands for in the connection's time zone, what <code>ts::timestamptz</code> gives. The client cannot tell which zone that was, and a <code>timestamp</code> holding another zone's wall clock reads as the wrong instant. A wall clock skipped by a clock change gets the offset in force before it, one that occurs twice the offset in force after it. A time zone rel cannot load refuses the request</td>
 </tr>
 <tr>
 <td><code>date</code></td>
@@ -2899,7 +2899,7 @@ that values keep their column types instead of being squeezed into JSON's :</p>
 </tr>
 <tr>
 <td>anything else (<code>interval</code>, <code>inet</code>, ranges, geometry...)</td>
-<td>what the JSON response gives for it</td>
+<td>what the JSON response gives for it (a <code>tsrange</code> keeps its wall-clock text, and so does a time inside a <code>jsonb</code>)</td>
 </tr>
 </tbody>
 </table>
