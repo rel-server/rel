@@ -15,7 +15,7 @@ import (
 type Options struct {
 	// Schemas is the already-resolved whitelist
 	// (docs/content/typescript-client.md ## Fetching it's `schemas` query
-	// param intersected with `http.typescript.schemas`, done by the caller) ;
+	// param intersected with `typescript.schemas`, done by the caller) ;
 	// empty means every schema found, minus
 	// pg_catalog and whatever Blacklist excludes.
 	Schemas []string

@@ -18,7 +18,7 @@ curl http://localhost:8080/rel/database.ts?schemas=hotel > src/database.ts
 
 `schemas` restricts which schemas get included — omit it and every schema but `pg_catalog` is
 exported. The endpoint is off by default outside of dev mode; see
-[Configuration reference](../configuration/reference.md) for `http.typescript.enable` and `http.typescript.schemas`.
+[Configuration reference](../configuration/reference.md) for `http.typescript.enable` and `typescript.schemas`.
 If you'd rather have your editor/LSP watch a real file on disk instead of re-curling by hand,
 `typescript.helper_path` has rel write `database.ts` straight to a path of your choosing, on
 startup and on every schema reload.
@@ -31,7 +31,7 @@ exact 8-byte integers) and the file then imports the one package each needs:
 curl 'http://localhost:8080/rel/database.ts?schemas=hotel&codec=cbor,temporal' > src/database.ts
 ```
 
-`http.typescript.codec` sets the same list for every output (the endpoint, `typescript.helper_path` and
+`typescript.codec` sets the same list for every output (the endpoint, `typescript.helper_path` and
 `--typescript-out`); the `codec` param replaces it for one request, and so does `--typescript-codec` for
 `--typescript-out`.
 
@@ -599,7 +599,7 @@ you pass pick which overload's return type you get back.
 ## Codecs
 
 Three independent choices decide how values travel and what they are on the client. They are given as a comma-separated
-list of tokens, in any order, in `GET /rel/database.ts?codec=…`, in `http.typescript.codec` and in `--typescript-codec`
+list of tokens, in any order, in the `codec` GET parameter of `GET /rel/database.ts`, in `typescript.codec` and in `--typescript-codec`
 (see [Fetching it](#fetching-it)):
 
 | Choice | Token | What it is |
@@ -613,7 +613,7 @@ list of tokens, in any order, in `GET /rel/database.ts?codec=…`, in `http.type
 | | `bigint` | `Int8` is `number \| bigint`: a safe integer is a number, a larger one a bigint, and a `bigint` can be sent. Over JSON it needs `lossless-json` (`bun add lossless-json`), which parses slower than `JSON.parse`: for large responses prefer `cbor`. |
 
 `json,temporal,bigint` and `cbor,temporal` are valid; `json,cbor`, `date,temporal`, a token twice and an unknown token
-are a `400` (a bad `http.typescript.codec` stops `rel` at startup). The generated file's header says which options built it
+are a `400` (a bad `typescript.codec` stops `rel` at startup). The generated file's header says which options built it
 (`// Codec: cbor,temporal,bigint`), and it has no `import` except for the package the options need, at its top.
 
 The types follow the options: `Int8`, `Timestamptz`, `Timestamp`, `PgDate` and `Bytea` are what the codec hands over, in reads and

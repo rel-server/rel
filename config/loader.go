@@ -581,8 +581,8 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// rule as specs/typescript.md ## Configuration states — a computed
 	// default, not a plain constant, so it's read after cfg.Dev above.
 	cfg.Http.TypeScript.Enable = root.GetBoolOrDefault("http.typescript.enable", cfg.Dev)
-	cfg.Http.TypeScript.Schemas = root.GetStringOrDefault("http.typescript.schemas", "")
-	cfg.Http.TypeScript.Codec = root.GetStringOrDefault("http.typescript.codec", "")
+	cfg.TypeScript.Schemas = root.GetStringOrDefault("typescript.schemas", "")
+	cfg.TypeScript.Codec = root.GetStringOrDefault("typescript.codec", "")
 
 	cfg.Http.Cors.AllowedOrigins = root.GetStringOrDefault("http.cors.allowed_origins", "")
 	cfg.Http.Cors.AllowedMethods = root.GetStringOrDefault("http.cors.allowed_methods", DefaultHttpCorsAllowedMethods)

@@ -53,6 +53,17 @@ type TypeScript struct {
 	// startup and on every SIGUSR1 reload (specs/typescript.md ## Reloading
 	// `helper_path`), on top of serving it over HTTP.
 	HelperPath string
+	// Schemas is typescript.schemas, default "" (every schema found,
+	// aside from pg_catalog) : a comma-separated whitelist of schemas that
+	// may be exported, matching every other comma-separated list convention
+	// (e.g. http.cors.allowed_origins) since config can't hold arrays.
+	// Intersected with the endpoint's own `schemas` query param, when given.
+	Schemas string
+	// Codec is typescript.codec, default "" (plain JSON) : a comma-separated list of codec options
+	// (`json`|`cbor`, `date`|`temporal`, `bigint`) the generated database.ts is built with, for the endpoint,
+	// typescript.helper_path and --typescript-out alike. The endpoint's own `codec` query param replaces it for
+	// one request. Validated by tsgen.ParseCodec, which this package cannot import.
+	Codec string
 }
 
 // Reload is specs/reload.md's reload.* namespace : the external command rel
@@ -213,23 +224,12 @@ type HttpUpload struct {
 	MaxSize int
 }
 
-// HttpTypeScript is http.typescript.* — specs/typescript.md ##
-// Configuration/## Endpoints : GET /rel/database.ts.
+// HttpTypeScript is http.typescript.* — only whether the endpoints are served ;
+// what they export is configured in typescript.* (TypeScript).
 type HttpTypeScript struct {
 	// Enable is http.typescript.enable, default false (true if Dev is
 	// enabled) : serves GET /rel/database.ts.
 	Enable bool
-	// Schemas is http.typescript.schemas, default "" (every schema found,
-	// aside from pg_catalog) : a comma-separated whitelist of schemas that
-	// may be exported, matching every other comma-separated list convention
-	// (e.g. http.cors.allowed_origins) since config can't hold arrays.
-	// Intersected with the endpoint's own `schemas` query param, when given.
-	Schemas string
-	// Codec is http.typescript.codec, default "" (plain JSON) : a comma-separated list of codec options
-	// (`json`|`cbor`, `date`|`temporal`, `bigint`) the generated database.ts is built with, for the endpoint,
-	// typescript.helper_path and --typescript-out alike. The endpoint's own `codec` query param replaces it for
-	// one request. Validated by tsgen.ParseCodec, which this package cannot import.
-	Codec string
 }
 
 // HttpTemplates is http.templates.* — specs/http-content.md ##

@@ -31,7 +31,7 @@ func TestTypeScriptHandler_GET_ReturnsGeneratedDatabaseTS(t *testing.T) {
 func TestTypeScriptHandler_CodecParam(t *testing.T) {
 	get := func(cfgCodec, query string) (int, string) {
 		cfg := *testCfg
-		cfg.Http.TypeScript.Codec = cfgCodec
+		cfg.TypeScript.Codec = cfgCodec
 		rec := httptest.NewRecorder()
 		NewTypeScriptHandler(testDb, &cfg, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/rel/database.ts"+query, nil))
 		return rec.Code, rec.Body.String()
@@ -71,7 +71,7 @@ func TestTypeScriptHandler_PostNotAllowed(t *testing.T) {
 
 func TestTypeScriptHandler_SchemasParamOutsideWhitelistIsRejected(t *testing.T) {
 	cfg := *testCfg
-	cfg.Http.TypeScript.Schemas = "public"
+	cfg.TypeScript.Schemas = "public"
 	handler := NewTypeScriptHandler(testDb, &cfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/rel/database.ts?schemas=nope", nil)
@@ -149,7 +149,7 @@ func TestDatabaseJSONHandler_PostNotAllowed(t *testing.T) {
 
 func TestDatabaseJSONHandler_SchemasParamOutsideWhitelistIsRejected(t *testing.T) {
 	cfg := *testCfg
-	cfg.Http.TypeScript.Schemas = "public"
+	cfg.TypeScript.Schemas = "public"
 	handler := NewDatabaseJSONHandler(testDb, &cfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/rel/database.json?schemas=nope", nil)

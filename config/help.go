@@ -75,8 +75,6 @@ var Options = []Option{
 	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served as the root-level static fallback for any path no declared route claims."},
 	{"http.templates.path", DefaultHttpTemplatesPath, "Filesystem directory Jet templates (a route's or middleware's own \"template\") are loaded from."},
 	{"http.typescript.enable", "false (true if dev)", "Serve GET /rel/database.ts (the introspected schema as TypeScript types plus a few query-building helpers) and GET /rel/database.json (the same introspected structure as plain JSON — specs/database-json.md)."},
-	{"http.typescript.codec", "(json)", "Comma-separated codec options of the generated database.ts : json|cbor, date|temporal, bigint. The endpoint's own ?codec= param replaces it for one request."},
-	{"http.typescript.schemas", "(every schema, aside from pg_catalog)", "Comma-separated whitelist of schemas GET /rel/database.ts and GET /rel/database.json may export ; intersected with either endpoint's own ?schemas= query param."},
 	{"http.cors.allowed_origins", "(empty — CORS closed)", "Comma-separated list of exact origins allowed to make cross-origin requests, or the literal \"*\"."},
 	{"http.cors.allowed_methods", DefaultHttpCorsAllowedMethods, "Methods a CORS preflight may approve."},
 	{"http.cors.allowed_headers", DefaultHttpCorsAllowedHeaders, "Request headers a CORS preflight may approve."},
@@ -121,6 +119,8 @@ var Options = []Option{
 
 	// ---- typescript.* ----
 	{"typescript.helper_path", "(disabled)", "Filesystem path rel (re)writes database.ts's content to directly, at startup and on every SIGUSR1 reload — for an editor/LSP watching a real file on disk, without a request round-trip."},
+	{"typescript.codec", "(json)", "Comma-separated codec options of the generated database.ts : json|cbor, date|temporal, bigint. The endpoint's own ?codec= param replaces it for one request."},
+	{"typescript.schemas", "(every schema, aside from pg_catalog)", "Comma-separated whitelist of schemas GET /rel/database.ts and GET /rel/database.json may export ; intersected with either endpoint's own ?schemas= query param."},
 }
 
 // sections groups Options for --help's rendering ; checked in order, first
@@ -169,9 +169,9 @@ Flags:
   -h, --help                   Show this help and exit.
   --typescript-out <path>      Introspect, write database.ts to <path> (or "-" for stdout), and exit —
                                 no reload.cmd, no /route or well-known registries, no HTTP listener. Honors
-                                pg.*/http.typescript.schemas/blacklist.* from the loaded configuration.
+                                pg.*/typescript.schemas/blacklist.* from the loaded configuration.
   --typescript-codec <list>    With --typescript-out, build database.ts with these codec options instead of
-                                http.typescript.codec (e.g. cbor,temporal).
+                                typescript.codec (e.g. cbor,temporal).
 
 Any config key documented below can ALSO be set as a command-line flag :
   --<key>=<value>   or   --<key> <value>

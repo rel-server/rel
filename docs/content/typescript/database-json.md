@@ -10,8 +10,8 @@ already-collapsed TypeScript types.
 
 It's wired up exactly like `database.ts`: gated behind `http.typescript.enable`, GET only, and
 filtered by the same `schemas` query param (intersected with the configured
-`http.typescript.schemas` whitelist — a `schemas` value outside the whitelist is a 400, not a
-silent drop) and `http.typescript.blacklist`. See
+`typescript.schemas` whitelist — a `schemas` value outside the whitelist is a 400, not a
+silent drop) and `blacklist.*`. See
 [Configuration reference](../configuration/reference.md) for both settings. The response is
 `Content-Type: application/json; charset=utf-8`, and every object key is `snake_case`.
 

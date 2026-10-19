@@ -26,13 +26,13 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 			return
 		}
 
-		schemas, err := resolveTypeScriptSchemas(cfg.Http.TypeScript.Schemas, r.URL.Query().Get("schemas"))
+		schemas, err := resolveTypeScriptSchemas(cfg.TypeScript.Schemas, r.URL.Query().Get("schemas"))
 		if err != nil {
 			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
 			return
 		}
 
-		codec, err := tsgen.ResolveCodec(cfg.Http.TypeScript.Codec, r.URL.Query().Get("codec"))
+		codec, err := tsgen.ResolveCodec(cfg.TypeScript.Codec, r.URL.Query().Get("codec"))
 		if err != nil {
 			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
 			return
@@ -58,7 +58,7 @@ func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown
 			return
 		}
 
-		schemas, err := resolveTypeScriptSchemas(cfg.Http.TypeScript.Schemas, r.URL.Query().Get("schemas"))
+		schemas, err := resolveTypeScriptSchemas(cfg.TypeScript.Schemas, r.URL.Query().Get("schemas"))
 		if err != nil {
 			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
 			return
@@ -76,7 +76,7 @@ func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown
 }
 
 // resolveTypeScriptSchemas is docs/content/typescript-client.md ## Fetching it's `schemas`
-// query param, intersected with http.typescript.schemas' own whitelist —
+// query param, intersected with typescript.schemas' own whitelist —
 // the redactor's own answer, during this feature's implementation, to how
 // the two combine : the param never widens past the configured whitelist ;
 // a name outside it is a 400, not a silent drop, so a typo/misconfiguration
@@ -99,7 +99,7 @@ func resolveTypeScriptSchemas(configured, param string) ([]string, error) {
 	out := make([]string, 0, len(paramList))
 	for _, s := range paramList {
 		if !allowed[s] {
-			return nil, fmt.Errorf("schemas=%q is not in the configured http.typescript.schemas whitelist", s)
+			return nil, fmt.Errorf("schemas=%q is not in the configured typescript.schemas whitelist", s)
 		}
 		out = append(out, s)
 	}

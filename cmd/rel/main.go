@@ -48,9 +48,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// A bad http.typescript.codec is a startup error, not a 400 on every request.
-	if _, err := tsgen.ParseCodec(cfg.Http.TypeScript.Codec); err != nil {
-		logger.Error("invalid http.typescript.codec", "error", err.Error())
+	// A bad typescript.codec is a startup error, not a 400 on every request.
+	if _, err := tsgen.ParseCodec(cfg.TypeScript.Codec); err != nil {
+		logger.Error("invalid typescript.codec", "error", err.Error())
 		os.Exit(1)
 	}
 
@@ -240,14 +240,14 @@ func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
 		return fmt.Errorf("building well-known query registry: %w", err)
 	}
 
-	// codecOverride is --typescript-codec : it replaces http.typescript.codec for this export.
-	codec, err := tsgen.ResolveCodec(cfg.Http.TypeScript.Codec, codecOverride)
+	// codecOverride is --typescript-codec : it replaces typescript.codec for this export.
+	codec, err := tsgen.ResolveCodec(cfg.TypeScript.Codec, codecOverride)
 	if err != nil {
 		return err
 	}
 
 	generated := tsgen.GenerateDatabaseTS(db, tsgen.Options{
-		Schemas:   tsgen.ParseSchemaList(cfg.Http.TypeScript.Schemas),
+		Schemas:   tsgen.ParseSchemaList(cfg.TypeScript.Schemas),
 		Blacklist: cfg.Blacklist,
 		Codec:     codec,
 	}, wkReg)

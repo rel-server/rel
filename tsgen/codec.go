@@ -18,7 +18,7 @@ type Codec struct {
 	BigInt bool
 }
 
-// ParseCodec reads the comma-separated list of tokens of `http.typescript.codec` or the `codec` query param :
+// ParseCodec reads the comma-separated list of tokens of `typescript.codec` or the `codec` query param :
 // `json`|`cbor`, `date`|`temporal` and `bigint`, in any order. Blank items are ignored ; "" is the zero Codec.
 // `cbor` implies `bigint`, and `date` when no time token is given. A token twice, two tokens of one group
 // (`json,cbor`) and an unknown token are errors.
@@ -125,7 +125,7 @@ func (c Codec) pgWireMembers() []string {
 }
 
 // ResolveCodec is the codec options of one generated file : the request's `codec` query param when it is not blank
-// (it replaces the configured value, it is not merged into it), otherwise the configured http.typescript.codec.
+// (it replaces the configured value, it is not merged into it), otherwise the configured typescript.codec.
 func ResolveCodec(configured, param string) (Codec, error) {
 	if strings.TrimSpace(param) != "" {
 		return ParseCodec(param)
