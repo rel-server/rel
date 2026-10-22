@@ -82,7 +82,7 @@ func main() {
 	// failed run is logged, startup continues regardless — same as a
 	// failure during a SIGUSR1 reload (boot/reload.go's Reload).
 	if _, err := reloadcmd.Run(context.Background(), cfg, logger); err != nil {
-		logger.Error("reload.cmd or dmut failed, continuing with the schema as it was before this attempt", "error", err.Error())
+		logger.Error("reload.cmd or dmut failed, continuing with the schema as it was before this attempt", reloadcmd.ErrorAttrs(err)...)
 	}
 
 	db, err := pg.NewInfosAdminQuery(primaryURI, primaryURI, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole)

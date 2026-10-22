@@ -41,8 +41,8 @@ github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK3
 github.com/cenkalti/backoff/v4 v4.3.0/go.mod h1:Y3VNntkOUPxTVeUxJ/G5vcM//AlwfmyYozVcomhLiZE=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
-github.com/ceymard/dmut/v2 v2.3.1 h1:zOOd74FRi7OVZR5B/SWwFGSDw7OLzD+DVzQiDA4N5RA=
-github.com/ceymard/dmut/v2 v2.3.1/go.mod h1:vBV2uTwpLJLHf6OO3Xymn0rwkVdqlQFh0hfPkP3WgBc=
+github.com/ceymard/dmut/v2 v2.3.2 h1:Tm1rhLM2zO6cSjrUX4ontK94KRQuTQ99VhoKUpaEvhQ=
+github.com/ceymard/dmut/v2 v2.3.2/go.mod h1:vBV2uTwpLJLHf6OO3Xymn0rwkVdqlQFh0hfPkP3WgBc=
 github.com/cloudwego/base64x v0.1.6 h1:t11wG9AECkCDk5fMSoxmufanudBtJ+/HemLstXDLI2M=
 github.com/cloudwego/base64x v0.1.6/go.mod h1:OFcloc187FXDaYHvrNIjxSe8ncn0OOM8gEHfghB2IPU=
 github.com/containerd/errdefs v1.0.0 h1:tg5yIfIlQIrxYtu9ajqY42W3lpS19XqdxRQeEwYG8PI=

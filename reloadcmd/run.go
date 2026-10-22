@@ -35,6 +35,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ceymard/dmut/v2/mutations"
 	"github.com/google/shlex"
 	"github.com/samber/oops"
 
@@ -54,6 +55,14 @@ func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran bool
 	dmutRan, dmutErr := runDmut(ctx, cfg, logger.With("module", "dmut"))
 	cmdRan, cmdErr := runCmd(ctx, cfg, logger.With("module", "reloadcmd"))
 	return dmutRan || cmdRan, errors.Join(dmutErr, cmdErr)
+}
+
+// ErrorAttrs returns err as slog key/value arguments for the call sites that
+// log a failure of Run. Besides "error", it carries the context dmut attaches
+// to a failing statement (mutation, file, namespace, statement_index, sql,
+// position, sqlstate, detail, hint), which err.Error() alone drops.
+func ErrorAttrs(err error) []any {
+	return mutations.ErrorAttrs(err)
 }
 
 // runCmd interpolates and runs cfg.Reload.Cmd. ran is false when it is empty.

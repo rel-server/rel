@@ -301,3 +301,26 @@ func TestRun_DmutFailureStillRunsReloadCmd(t *testing.T) {
 		t.Errorf("expected both failures joined, got %v", err)
 	}
 }
+
+// A failing statement must be identifiable from the logged attributes alone.
+func TestErrorAttrs_NamesTheFailingStatement(t *testing.T) {
+	cfg, _ := newTestDatabase(t)
+	dir := writeMutations(t, "app.yml", "__namespace: app\n\napp.broken:\n  core:\n    - create table broken (\n")
+	cfg.Dmut.Path = dir
+
+	_, err := Run(context.Background(), cfg, discardLogger())
+	if err == nil {
+		t.Fatal("expected a failure")
+	}
+	got := map[string]any{}
+	attrs := ErrorAttrs(err)
+	for i := 0; i+1 < len(attrs); i += 2 {
+		got[attrs[i].(string)] = attrs[i+1]
+	}
+	t.Logf("attrs: %v", got)
+	for _, k := range []string{"mutation", "sql", "sqlstate"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("missing %q in %v", k, got)
+		}
+	}
+}

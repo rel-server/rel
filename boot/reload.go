@@ -90,7 +90,7 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	db := oldDb
 
 	if _, err := reloadcmd.Run(ctx, rl.Cfg, slog.Default()); err != nil {
-		rl.Logger.Error("reload: reload.cmd or dmut failed, skipping schema reintrospection", "error", err.Error())
+		rl.Logger.Error("reload: reload.cmd or dmut failed, skipping schema reintrospection", reloadcmd.ErrorAttrs(err)...)
 	} else {
 		// Reintrospect, reusing the EXISTING request-serving pool
 		// (pg.ReIntrospect re-checks anonymous-role existence internally).

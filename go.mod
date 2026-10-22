@@ -6,7 +6,7 @@ require (
 	github.com/CloudyKit/jet/v6 v6.3.2
 	github.com/brianvoe/gofakeit/v7 v7.15.0
 	github.com/bytedance/sonic v1.15.3
-	github.com/ceymard/dmut/v2 v2.3.1
+	github.com/ceymard/dmut/v2 v2.3.2
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/crewjam/saml v0.5.1
 	github.com/go-chi/chi/v5 v5.3.2
