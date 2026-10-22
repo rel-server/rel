@@ -465,6 +465,8 @@
       
         
       
+        
+      
     
     
     
@@ -787,10 +789,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bundled-with-dmut" class="md-nav__link">
+  <a href="#migrations-with-dmut" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Bundled with dmut
+        Migrations with dmut
       </span>
     </span>
   </a>
@@ -2475,6 +2477,8 @@
       
         
       
+        
+      
     
     
     
@@ -2662,6 +2666,33 @@
   
 
             
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/dmut/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 12v1.5a4 4 0 0 1 4 4c0 .82-.25 1.58-.67 2.21l-1.09-1.09c.17-.34.26-.72.26-1.12A2.5 2.5 0 0 0 19 15v1.5l-2.25-2.25zm0 11v-1.5a4 4 0 0 1-4-4c0-.82.25-1.58.67-2.21l1.09 1.09c-.17.34-.26.72-.26 1.12A2.5 2.5 0 0 0 19 20v-1.5l2.25 2.25zM12 3c4.42 0 8 1.79 8 4s-3.58 4-8 4-8-1.79-8-4 3.58-4 8-4M4 9c0 2.21 3.58 4 8 4 1.11 0 2.17-.11 3.14-.32-.95.86-1.64 1.99-1.96 3.28L12 16c-4.42 0-8-1.79-8-4zm16 0v2h-.5l-.6.03c.7-.6 1.1-1.29 1.1-2.03M4 14c0 2.21 3.58 4 8 4l1-.03c.09 1.06.42 2.03.95 2.91L12 21c-4.42 0-8-1.79-8-4z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Migrations (dmut)
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
           </ul>
         </nav>
       
@@ -2730,10 +2761,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bundled-with-dmut" class="md-nav__link">
+  <a href="#migrations-with-dmut" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Bundled with dmut
+        Migrations with dmut
       </span>
     </span>
   </a>
@@ -2979,17 +3010,14 @@ all.</p>
 <code>ghcr.io/rel-server/rel</code> base image (tags it <code>&lt;version&gt;</code> and <code>latest</code>, <code>&lt;version&gt;</code> from <code>git
 describe</code>) and <code>just upload</code> pushes it — useful as the <code>FROM</code> your own app's image builds on
 top of, not something you deploy directly once you have app-specific assets to bake in.</p>
-<p><code>ghcr.io/rel-server/rel</code> and <code>ghcr.io/rel-server/rel-dmut</code> also publish a rolling <code>main</code> tag,
+<p><code>ghcr.io/rel-server/rel</code> also publishes a rolling <code>main</code> tag,
 rebuilt on every push to this repo's <code>main</code> branch, alongside the version-tagged releases —
 useful for tracking the latest unreleased build, not recommended for production.</p>
-<h2 id="bundled-with-dmut">Bundled with dmut<a class="headerlink" href="#bundled-with-dmut" title="Permanent link">&para;</a></h2>
-<p><code>ghcr.io/rel-server/rel-dmut</code> (built from <code>Dockerfile.dmut</code>) bundles <a href="https://github.com/ceymard/dmut">dmut</a>
-alongside rel in the same image and presets <code>reload.cmd</code> to run <code>dmut apply</code> against <code>/sql</code> on
-every reload — see <a href="../../configuration/reload/#using-dmut">Reload</a>. Build your own image <code>FROM
-ghcr.io/rel-server/rel-dmut</code> and <code>COPY</code> your migration files to <code>/sql</code> (or wherever
-<code>DMUT_MUTATIONS_PATH</code> points), the same way the base <code>rel</code> image expects <code>/wellknown</code>,
-<code>/static</code>, and <code>/template</code> to be baked in above. <code>just image-dmut</code>/<code>just upload-dmut</code> build and
-push it the same way <code>just image</code>/<code>just upload</code> do for the base image.</p>
+<h2 id="migrations-with-dmut">Migrations with dmut<a class="headerlink" href="#migrations-with-dmut" title="Permanent link">&para;</a></h2>
+<p>dmut is built into rel : <code>COPY</code> your mutation files into your image (say <code>/sql</code>) and set
+<code>REL_DMUT__PATH=/sql</code> — see <a href="../../configuration/dmut/">Migrations (dmut)</a>. The separate
+<code>ghcr.io/rel-server/rel-dmut</code> image no longer exists ; build from <code>ghcr.io/rel-server/rel</code>
+instead, and drop any <code>REL_RELOAD__CMD</code> that ran <code>/dmut apply</code>.</p>
 
 
 

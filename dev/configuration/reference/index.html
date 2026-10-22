@@ -465,6 +465,8 @@
       
         
       
+        
+      
     
     
     
@@ -2379,6 +2381,8 @@
       
         
       
+        
+      
     
     
     
@@ -2662,6 +2666,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#migrations-dmut" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Migrations (dmut)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#typescript-export" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2750,6 +2765,33 @@
     
   
   Reload
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dmut/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 12v1.5a4 4 0 0 1 4 4c0 .82-.25 1.58-.67 2.21l-1.09-1.09c.17-.34.26-.72.26-1.12A2.5 2.5 0 0 0 19 15v1.5l-2.25-2.25zm0 11v-1.5a4 4 0 0 1-4-4c0-.82.25-1.58.67-2.21l1.09 1.09c-.17.34-.26.72-.26 1.12A2.5 2.5 0 0 0 19 20v-1.5l2.25 2.25zM12 3c4.42 0 8 1.79 8 4s-3.58 4-8 4-8-1.79-8-4 3.58-4 8-4M4 9c0 2.21 3.58 4 8 4 1.11 0 2.17-.11 3.14-.32-.95.86-1.64 1.99-1.96 3.28L12 16c-4.42 0-8-1.79-8-4zm16 0v2h-.5l-.6.03c.7-.6 1.1-1.29 1.1-2.03M4 14c0 2.21 3.58 4 8 4l1-.03c.09 1.06.42 2.03.95 2.91L12 21c-4.42 0-8-1.79-8-4z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Migrations (dmut)
 
     
   </span>
@@ -2928,6 +2970,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#migrations-dmut" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Migrations (dmut)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#typescript-export" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2986,6 +3039,8 @@
       
         
           
+        
+      
         
       
         
@@ -3593,6 +3648,49 @@ contract, worked examples); this is the exhaustive key list.</p>
 <td><code>REL_RELOAD__DRAIN_TIMEOUT</code></td>
 <td><code>30</code> (seconds)</td>
 <td>How long a reload waits for in-flight requests to finish, before <code>reload.cmd</code> runs, before cancelling their contexts and proceeding anyway.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="migrations-dmut">Migrations (dmut)<a class="headerlink" href="#migrations-dmut" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Env var</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dmut.path</code></td>
+<td><code>REL_DMUT__PATH</code></td>
+<td>—</td>
+<td>Colon-separated list of directories <a href="https://github.com/ceymard/dmut">dmut</a> reads its mutations from, applied in-process before <code>reload.cmd</code> (startup and every <code>SIGUSR1</code>). Empty skips this step entirely. See <a href="../dmut/">Migrations (dmut)</a>.</td>
+</tr>
+<tr>
+<td><code>dmut.timeout</code></td>
+<td><code>REL_DMUT__TIMEOUT</code></td>
+<td><code>120</code> (seconds)</td>
+<td>The dmut run is cancelled and considered failed once this elapses.</td>
+</tr>
+<tr>
+<td><code>dmut.user</code></td>
+<td><code>REL_DMUT__USER</code></td>
+<td><code>pg.user</code></td>
+<td>Login dmut connects with, when it must differ from the one serving requests.</td>
+</tr>
+<tr>
+<td><code>dmut.password</code></td>
+<td><code>REL_DMUT__PASSWORD</code></td>
+<td><code>pg.password</code></td>
+<td>Password of <code>dmut.user</code>. Falls back to <code>pg.password</code> on its own when unset.</td>
+</tr>
+<tr>
+<td><code>dmut.mode</code></td>
+<td><code>REL_DMUT__MODE</code></td>
+<td><code>default</code></td>
+<td><code>default</code>, <code>simple</code> or <code>full</code>. See <a href="../dmut/#modes">Migrations (dmut)</a>.</td>
 </tr>
 </tbody>
 </table>

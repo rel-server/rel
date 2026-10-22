@@ -17,6 +17,8 @@
         <link rel="prev" href="../operations/">
       
       
+        <link rel="next" href="../dmut/">
+      
       
         
       
@@ -453,6 +455,8 @@
       
         
           
+        
+      
         
       
         
@@ -2377,6 +2381,8 @@
       
         
       
+        
+      
     
     
     
@@ -2642,10 +2648,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#using-dmut" class="md-nav__link">
+  <a href="#using-psql" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Using dmut
+        Using psql
       </span>
     </span>
   </a>
@@ -2656,6 +2662,33 @@
   
 </nav>
       
+    </li>
+  
+
+            
+              
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dmut/" class="md-nav__link">
+        
+  
+  
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 12v1.5a4 4 0 0 1 4 4c0 .82-.25 1.58-.67 2.21l-1.09-1.09c.17-.34.26-.72.26-1.12A2.5 2.5 0 0 0 19 15v1.5l-2.25-2.25zm0 11v-1.5a4 4 0 0 1-4-4c0-.82.25-1.58.67-2.21l1.09 1.09c-.17.34-.26.72-.26 1.12A2.5 2.5 0 0 0 19 20v-1.5l2.25 2.25zM12 3c4.42 0 8 1.79 8 4s-3.58 4-8 4-8-1.79-8-4 3.58-4 8-4M4 9c0 2.21 3.58 4 8 4 1.11 0 2.17-.11 3.14-.32-.95.86-1.64 1.99-1.96 3.28L12 16c-4.42 0-8-1.79-8-4zm16 0v2h-.5l-.6.03c.7-.6 1.1-1.29 1.1-2.03M4 14c0 2.21 3.58 4 8 4l1-.03c.09 1.06.42 2.03.95 2.91L12 21c-4.42 0-8-1.79-8-4z"/></svg>
+  
+  <span class="md-ellipsis">
+    
+  
+  Migrations (dmut)
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2728,10 +2761,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#using-dmut" class="md-nav__link">
+  <a href="#using-psql" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Using dmut
+        Using psql
       </span>
     </span>
   </a>
@@ -2796,6 +2829,8 @@
       
         
       
+        
+      
     
     
     
@@ -2833,9 +2868,10 @@
 
 
 <h1 id="reload">Reload<a class="headerlink" href="#reload" title="Permanent link">&para;</a></h1>
-<p>rel doesn't embed a migration tool. <code>reload.cmd</code> names whatever command you want run before
-every reload — a migration tool, a plain SQL script via <code>psql</code>, or nothing at all if you manage
-the schema some other way.</p>
+<p><code>reload.cmd</code> names whatever command you want run before every reload — a migration tool, a plain
+SQL script via <code>psql</code>, or nothing at all if you manage the schema some other way. For migrations
+written for <a href="https://github.com/ceymard/dmut">dmut</a>, rel has a built-in step that needs no
+command : see <a href="../dmut/">Migrations (dmut)</a>. It runs first, then <code>reload.cmd</code>.</p>
 <h2 id="when-it-runs">When it runs<a class="headerlink" href="#when-it-runs" title="Permanent link">&para;</a></h2>
 <p><code>reload.cmd</code> runs at every startup, before rel first introspects the schema, and again on every
 <code>SIGUSR1</code>:</p>
@@ -2858,13 +2894,13 @@ rules (so quote an argument that contains spaces). Before splitting,
   above) and substitutes the first one that resolves to a non-empty value. An unset name, or one
   that resolves to an empty string, is skipped in favor of the next candidate.</li>
 <li>The last segment is always a literal fallback, never resolved as a name — e.g. in
-  <code>{DMUT_USER:pg.user:user}</code>, <code>user</code> is used as-is if neither <code>DMUT_USER</code> nor <code>pg.user</code> resolve
+  <code>{MIGRATOR_USER:pg.user:user}</code>, <code>user</code> is used as-is if neither <code>MIGRATOR_USER</code> nor <code>pg.user</code> resolve
   to a non-empty value.</li>
 </ul>
 <p>A substituted value is inserted as raw text, not as a pre-quoted token — wrap it in quotes
 within <code>reload.cmd</code> if it may contain spaces:</p>
 <div class="language-toml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">[reload]</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">cmd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'dmut apply "{pg.uri}" /migrations'</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">cmd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'psql "{pg.uri}" -v ON_ERROR_STOP=1 -f /migrations/schema.sql'</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">120</span><span class="w">        </span><span class="c1"># seconds ; reload.cmd is aborted and considered failed past this</span>
 </span></code></pre></div>
 <p>A literal <code>{</code>/<code>}</code> anywhere in <code>reload.cmd</code> is always parsed as a placeholder attempt — there is
@@ -2881,7 +2917,7 @@ to it.</p>
 <p><code>reload.cmd</code>'s stdout and stderr are logged line by line, tagged <code>stream=stdout</code>/<code>stream=stderr</code>
 (alongside the usual <code>module</code> attribute). A line that parses as a JSON object has its own keys
 merged into the log record on top of that, for tools that support structured output.</p>
-<p>If <code>reload.cmd</code> exits non-zero or exceeds <code>reload.timeout</code>, rel skips reintrospecting the schema
+<p>If <code>reload.cmd</code> exits non-zero or exceeds <code>reload.timeout</code> — or the <a href="../dmut/">dmut step</a> fails — rel skips reintrospecting the schema
 for that reload — but still rebuilds the well-known query registry and <a href="../../http/requests-responses/#rendering-html-with-a-template">Jet
 template</a> cache, against the
 previous, still-loaded schema, so a well-known-query or template change on disk still takes
@@ -2891,21 +2927,15 @@ drained first, so none is running) : writes keep per-connection scratch tables s
 write, which must not outlive a schema change. A reintrospection, <code>/route</code> registry, or mux
 build failure past that point leaves the previous schema, registry, and templates running
 untouched — the same "log and continue" behavior throughout.</p>
-<h2 id="using-dmut">Using dmut<a class="headerlink" href="#using-dmut" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/ceymard/dmut">dmut</a> — a dependency-graph migration tool, not a sequential
-up/down list : each mutation file declares what it depends on, and changing one recursively
-downs and re-ups it and everything that depends on it — is well suited to this "runs on every
-reload" model, since a run against an already-applied schema is a cheap no-op. A typical setup:</p>
+<h2 id="using-psql">Using psql<a class="headerlink" href="#using-psql" title="Permanent link">&para;</a></h2>
+<p>A plain SQL script is enough when you don't need dependency tracking :</p>
 <div class="language-toml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">[reload]</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">cmd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'dmut apply "{pg.uri}" /migrations'</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">cmd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'psql "{pg.uri}" -v ON_ERROR_STOP=1 -f /migrations/schema.sql'</span>
 </span></code></pre></div>
-<p>This repo's own dev database uses it locally :</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>just<span class="w"> </span>test-db-migrate<span class="w">   </span><span class="c1"># dmut apply against the dev database</span>
+<p>This repo's own dev database does this locally :</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>just<span class="w"> </span>test-db-migrate<span class="w">   </span><span class="c1"># psql applying test/hotel/schema.sql to the dev database</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>just<span class="w"> </span>test-db-fresh<span class="w">     </span><span class="c1"># tear down, bring up Postgres, migrate, and seed in one shot</span>
 </span></code></pre></div>
-<p><code>ghcr.io/rel-server/rel-dmut</code> bundles dmut alongside rel in one image and presets <code>reload.cmd</code>
-to run it against <code>/sql</code> (override with <code>DMUT_MUTATIONS_PATH</code>) — see <a href="../../getting-started/docker-deployment/#bundled-with-dmut">Docker
-deployment</a>.</p>
 
 
 
@@ -2961,6 +2991,22 @@ deployment</a>.</p>
             </div>
           </a>
         
+        
+          
+          <a href="../dmut/" class="md-footer__link md-footer__link--next" aria-label="Next: Migrations (dmut)">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Migrations (dmut)
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
         
       </nav>
     
