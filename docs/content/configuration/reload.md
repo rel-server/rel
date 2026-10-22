@@ -4,9 +4,10 @@ icon: material/sync
 
 # Reload
 
-rel doesn't embed a migration tool. `reload.cmd` names whatever command you want run before
-every reload — a migration tool, a plain SQL script via `psql`, or nothing at all if you manage
-the schema some other way.
+`reload.cmd` names whatever command you want run before every reload — a migration tool, a plain
+SQL script via `psql`, or nothing at all if you manage the schema some other way. For migrations
+written for [dmut](https://github.com/ceymard/dmut), rel has a built-in step that needs no
+command : see [Migrations (dmut)](dmut.md). It runs first, then `reload.cmd`.
 
 ## When it runs
 
@@ -37,7 +38,7 @@ rules (so quote an argument that contains spaces). Before splitting,
   above) and substitutes the first one that resolves to a non-empty value. An unset name, or one
   that resolves to an empty string, is skipped in favor of the next candidate.
 - The last segment is always a literal fallback, never resolved as a name — e.g. in
-  `{DMUT_USER:pg.user:user}`, `user` is used as-is if neither `DMUT_USER` nor `pg.user` resolve
+  `{MIGRATOR_USER:pg.user:user}`, `user` is used as-is if neither `MIGRATOR_USER` nor `pg.user` resolve
   to a non-empty value.
 
 A substituted value is inserted as raw text, not as a pre-quoted token — wrap it in quotes
@@ -45,7 +46,7 @@ within `reload.cmd` if it may contain spaces:
 
 ```toml
 [reload]
-cmd = 'dmut apply "{pg.uri}" /migrations'
+cmd = 'psql "{pg.uri}" -v ON_ERROR_STOP=1 -f /migrations/schema.sql'
 timeout = 120        # seconds ; reload.cmd is aborted and considered failed past this
 ```
 
@@ -67,7 +68,7 @@ to it.
 (alongside the usual `module` attribute). A line that parses as a JSON object has its own keys
 merged into the log record on top of that, for tools that support structured output.
 
-If `reload.cmd` exits non-zero or exceeds `reload.timeout`, rel skips reintrospecting the schema
+If `reload.cmd` exits non-zero or exceeds `reload.timeout` — or the [dmut step](dmut.md) fails — rel skips reintrospecting the schema
 for that reload — but still rebuilds the well-known query registry and [Jet
 template](../http/requests-responses.md#rendering-html-with-a-template) cache, against the
 previous, still-loaded schema, so a well-known-query or template change on disk still takes
@@ -78,25 +79,18 @@ write, which must not outlive a schema change. A reintrospection, `/route` regis
 build failure past that point leaves the previous schema, registry, and templates running
 untouched — the same "log and continue" behavior throughout.
 
-## Using dmut
+## Using psql
 
-[dmut](https://github.com/ceymard/dmut) — a dependency-graph migration tool, not a sequential
-up/down list : each mutation file declares what it depends on, and changing one recursively
-downs and re-ups it and everything that depends on it — is well suited to this "runs on every
-reload" model, since a run against an already-applied schema is a cheap no-op. A typical setup:
+A plain SQL script is enough when you don't need dependency tracking :
 
 ```toml
 [reload]
-cmd = 'dmut apply "{pg.uri}" /migrations'
+cmd = 'psql "{pg.uri}" -v ON_ERROR_STOP=1 -f /migrations/schema.sql'
 ```
 
-This repo's own dev database uses it locally :
+This repo's own dev database does this locally :
 
 ```sh
-just test-db-migrate   # dmut apply against the dev database
+just test-db-migrate   # psql applying test/hotel/schema.sql to the dev database
 just test-db-fresh     # tear down, bring up Postgres, migrate, and seed in one shot
 ```
-
-`ghcr.io/rel-server/rel-dmut` bundles dmut alongside rel in one image and presets `reload.cmd`
-to run it against `/sql` (override with `DMUT_MUTATIONS_PATH`) — see [Docker
-deployment](../getting-started/docker-deployment.md#bundled-with-dmut).

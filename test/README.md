@@ -33,9 +33,8 @@ count up from 1 in insertion order). `test/seed` is the opposite: random data, f
 that server generates, typechecks `typescript/tests` against it and runs `bun test` (`just test-ts`).
 
 A single plain SQL script, applied via testcontainers' `postgres.WithInitScripts` — rel
-doesn't embed a migration tool itself (`specs/reload.md`), so this fixture only ever needed
-a schema to exist, not to exercise any particular tool's own migration mechanics. See "A
-dmut quirk found while writing this" below for how it was originally authored.
+doesn't need a migration tool for this, so this fixture only ever needed a schema to exist,
+not to exercise any particular tool's own migration mechanics.
 
 ## Running
 
@@ -109,20 +108,6 @@ rather than assuming one.
 `booking_stats` and `rooms_available` both have a parameter named the same as a column
 they filter on (`property_id`) — resolved by qualifying with the function's own name
 (`booking_stats.property_id`), the standard SQL/PL technique for this exact collision.
-
-## A dmut quirk found while writing this
-
-This schema was originally authored as a set of `github.com/ceymard/dmut/v2` migration
-files, one per table/function, before rel decoupled from dmut (`specs/reload.md`) and this
-fixture was converted to the flat `test/hotel/schema.sql` above. While it was still
-dmut-based, `dmut`'s auto-down for `CREATE FUNCTION` was found to incorrectly include
-`OUT`-mode parameters in the generated `DROP FUNCTION` signature — Postgres's actual
-function signature for `DROP` purposes only includes `IN`/`INOUT`/`VARIADIC` parameters.
-Verified directly (`dmut test` failed with `function ... does not exist` on `split_name`'s
-down step until this was worked around with an explicit `up`/`down` pair). Noted here as a
-still-relevant heads-up for anyone using dmut directly (e.g. via `reload.cmd`) — this is a
-bug in `dmut` itself (`github.com/ceymard/dmut/v2`, a separate repo), not something rel
-fixes or works around on your behalf.
 
 ## Fake data
 

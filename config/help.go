@@ -117,6 +117,13 @@ var Options = []Option{
 	{"reload.timeout", fmt.Sprint(DefaultReloadTimeout) + " (seconds)", "reload.cmd is aborted and considered failed once this elapses."},
 	{"reload.drain_timeout", fmt.Sprint(DefaultReloadDrainTimeout) + " (seconds)", "How long a reload waits for in-flight requests to finish, before reload.cmd runs, before cancelling their contexts and proceeding anyway."},
 
+	// ---- dmut.* ----
+	{"dmut.path", "", "Colon-separated list of directories dmut reads its mutations from, applied in-process before reload.cmd at startup and on every reload. Empty skips this step entirely."},
+	{"dmut.timeout", fmt.Sprint(DefaultDmutTimeout) + " (seconds)", "The dmut run is cancelled and considered failed once this elapses."},
+	{"dmut.user", "(pg.user)", "Login dmut connects with, when it must differ from the one serving requests."},
+	{"dmut.password", "(pg.password)", "Password of dmut.user ; falls back to pg.password on its own when unset."},
+	{"dmut.mode", DmutModeDefault, "default, simple (refuses any change to core that is not a pure append) or full (rebuilds dependants when a change fails without that)."},
+
 	// ---- typescript.* ----
 	{"typescript.helper_path", "(disabled)", "Filesystem path rel (re)writes database.ts's content to directly, at startup and on every SIGUSR1 reload — for an editor/LSP watching a real file on disk, without a request round-trip."},
 	{"typescript.codec", "(json)", "Comma-separated codec options of the generated database.ts : json|cbor, date|temporal, bigint. The endpoint's own ?codec= param replaces it for one request."},
@@ -134,6 +141,7 @@ var sections = []struct {
 	{"JWT sessions", "jwt."},
 	{"Logging", "logging."},
 	{"Reload", "reload."},
+	{"Migrations (dmut)", "dmut."},
 	{"TypeScript export", "typescript."},
 }
 

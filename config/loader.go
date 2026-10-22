@@ -694,6 +694,17 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Reload.Timeout = root.GetIntOrDefault("reload.timeout", DefaultReloadTimeout)
 	cfg.Reload.DrainTimeout = root.GetIntOrDefault("reload.drain_timeout", DefaultReloadDrainTimeout)
 
+	cfg.Dmut.Path = root.GetStringOrDefault("dmut.path", "")
+	cfg.Dmut.Timeout = root.GetIntOrDefault("dmut.timeout", DefaultDmutTimeout)
+	cfg.Dmut.User = root.GetStringOrDefault("dmut.user", "")
+	cfg.Dmut.Password = root.GetStringOrDefault("dmut.password", "")
+	cfg.Dmut.Mode = root.GetStringOrDefault("dmut.mode", DmutModeDefault)
+	switch cfg.Dmut.Mode {
+	case DmutModeDefault, DmutModeSimple, DmutModeFull:
+	default:
+		errs = append(errs, fmt.Errorf("config: dmut.mode: %q is not one of %q, %q, %q", cfg.Dmut.Mode, DmutModeDefault, DmutModeSimple, DmutModeFull))
+	}
+
 	def := DefaultBlacklist()
 	cfg.Blacklist.Functions = readBlacklist(root, "blacklist.functions", def.Functions)
 	cfg.Blacklist.Relations = readBlacklist(root, "blacklist.relations", def.Relations)

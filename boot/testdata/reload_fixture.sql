@@ -1,5 +1,5 @@
 -- Fixture applied by boot/reload_test.go's end-to-end reload test, via
--- reload.cmd (specs/reload.md) : a single new route function, proving a
+-- reload.cmd : a single new route function, proving a
 -- request against the schema a reload just created succeeds where it
 -- would have 404'd before.
 

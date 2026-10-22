@@ -124,7 +124,7 @@ func TestRun_InterpolatesConfigKeyAndEnvVar(t *testing.T) {
 // TestRun_PgURIOnly_PopulatesUserPasswordForInterpolation is a regression
 // test for the bug this fixes : previously, with only pg.uri set (no
 // pg.user/pg.password), cfg.Raw's "pg.user"/"pg.password" stayed "" and
-// specs/dmut.md's own {DMUT_USER:pg.user:user} chain fell through past the
+// docs/content/configuration/reload.md's own {DMUT_USER:pg.user:user} chain fell through past the
 // empty pg.user straight to the literal "user" fallback, instead of the
 // credentials actually embedded in pg.uri.
 func TestRun_PgURIOnly_PopulatesUserPasswordForInterpolation(t *testing.T) {

@@ -175,16 +175,13 @@ The compose file above assumes `your-registry/your-app:latest` is already sittin
 describe`) and `just upload` pushes it — useful as the `FROM` your own app's image builds on
 top of, not something you deploy directly once you have app-specific assets to bake in.
 
-`ghcr.io/rel-server/rel` and `ghcr.io/rel-server/rel-dmut` also publish a rolling `main` tag,
+`ghcr.io/rel-server/rel` also publishes a rolling `main` tag,
 rebuilt on every push to this repo's `main` branch, alongside the version-tagged releases —
 useful for tracking the latest unreleased build, not recommended for production.
 
-## Bundled with dmut
+## Migrations with dmut
 
-`ghcr.io/rel-server/rel-dmut` (built from `Dockerfile.dmut`) bundles [dmut](https://github.com/ceymard/dmut)
-alongside rel in the same image and presets `reload.cmd` to run `dmut apply` against `/sql` on
-every reload — see [Reload](../configuration/reload.md#using-dmut). Build your own image `FROM
-ghcr.io/rel-server/rel-dmut` and `COPY` your migration files to `/sql` (or wherever
-`DMUT_MUTATIONS_PATH` points), the same way the base `rel` image expects `/wellknown`,
-`/static`, and `/template` to be baked in above. `just image-dmut`/`just upload-dmut` build and
-push it the same way `just image`/`just upload` do for the base image.
+dmut is built into rel : `COPY` your mutation files into your image (say `/sql`) and set
+`REL_DMUT__PATH=/sql` — see [Migrations (dmut)](../configuration/dmut.md). The separate
+`ghcr.io/rel-server/rel-dmut` image no longer exists ; build from `ghcr.io/rel-server/rel`
+instead, and drop any `REL_RELOAD__CMD` that ran `/dmut apply`.

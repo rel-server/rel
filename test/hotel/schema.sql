@@ -3,7 +3,7 @@
 -- against something more demanding than a handful of flat tables. Applied
 -- directly via postgres.WithInitScripts, not through any migration tool —
 -- benchmarks/internal/inprocess/main_test.go only ever needed a schema to exist, not to
--- exercise a particular tool's own migration mechanics (specs/reload.md).
+-- exercise a particular tool's own migration mechanics.
 
 create schema hotel;
 create extension btree_gist;

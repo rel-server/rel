@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package reloadcmd runs reload.cmd (specs/reload.md), the single entry
-// point both cmd/rel's startup sequence and boot's reload sequence call in
-// place of the migration tool rel used to embed directly. This package does
+// Package reloadcmd runs the dmut step (dmut.go) then reload.cmd
+// (docs/content/configuration/reload.md), the single entry point both
+// cmd/rel's startup sequence and boot's reload sequence call. This package does
 // not decide the "log and continue" policy on failure itself — both call
 // sites apply that policy identically, in exactly one place each, rather
 // than duplicating it here.
@@ -41,11 +41,23 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// Run interpolates and runs cfg.Reload.Cmd, per specs/reload.md. ran is
-// false when cfg.Reload.Cmd is empty — nothing to run, not an error ; err is
-// non-nil when interpolation fails, the command line can't be parsed/
-// started, it exits non-zero, or cfg.Reload.Timeout elapses first.
+// Run performs the dmut step (dmut.go), then interpolates and runs
+// cfg.Reload.Cmd, per docs/content/configuration/reload.md. Both are always
+// attempted, and err joins both failures. logger must carry no "module"
+// attribute of its own : Run tags the dmut step "dmut" and reload.cmd
+// "reloadcmd". ran is false when both are unconfigured — nothing to run,
+// not an error ; err is
+// non-nil when the dmut run fails or times out, or when interpolation
+// fails, the command line can't be parsed/started, it exits non-zero, or
+// cfg.Reload.Timeout elapses first.
 func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran bool, err error) {
+	dmutRan, dmutErr := runDmut(ctx, cfg, logger.With("module", "dmut"))
+	cmdRan, cmdErr := runCmd(ctx, cfg, logger.With("module", "reloadcmd"))
+	return dmutRan || cmdRan, errors.Join(dmutErr, cmdErr)
+}
+
+// runCmd interpolates and runs cfg.Reload.Cmd. ran is false when it is empty.
+func runCmd(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran bool, err error) {
 	if cfg.Reload.Cmd == "" {
 		return false, nil
 	}
@@ -68,7 +80,7 @@ func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran bool
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)
-	// The full parent environment, unmodified — specs/reload.md : "this
+	// The full parent environment, unmodified — docs/content/configuration/reload.md : "this
 	// allows for Docker-style configuration mechanisms that rely on the
 	// ambient environment" — on top of whatever interpolate already
 	// substituted into the command line itself.
@@ -103,14 +115,14 @@ func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran bool
 	return true, nil
 }
 
-// placeholderRe matches specs/dmut.md's `{name}`/`{name:...:default}`
+// placeholderRe matches docs/content/configuration/reload.md's `{name}`/`{name:...:default}`
 // interpolation syntax : brace-delimited content, split into `:`-separated
 // segments by interpolate itself. Content may not contain "{" or "}".
 var placeholderRe = regexp.MustCompile(`\{([^{}]*)\}`)
 
 // interpolate resolves every `{name}`/`{name1:name2:...:default}` placeholder
 // in s against raw (a dotted configuration key, when a name contains ".") or
-// the process environment (otherwise), per specs/dmut.md. All but the last
+// the process environment (otherwise), per docs/content/configuration/reload.md. All but the last
 // `:`-separated segment are names tried in order ; the first that resolves
 // to a non-empty value wins. The last segment is always a literal default,
 // never resolved as a name. A single-segment placeholder (no default) whose
@@ -173,7 +185,7 @@ func toString(v any) string {
 }
 
 // logLines scans r line by line, tagging each with stream, merging a
-// JSON-object line's own keys on top when it parses as one — specs/reload.md :
+// JSON-object line's own keys on top when it parses as one — docs/content/configuration/reload.md :
 // "for commands that support structured output." No separate component tag :
 // the caller's module attr plus stream already identify these as reload.cmd's
 // subprocess output (Run's own status/error lines never carry stream).

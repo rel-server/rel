@@ -64,6 +64,10 @@ func Test() *Config {
 			Timeout:      DefaultReloadTimeout,
 			DrainTimeout: DefaultReloadDrainTimeout,
 		},
+		Dmut: Dmut{
+			Timeout: DefaultDmutTimeout,
+			Mode:    DmutModeDefault,
+		},
 		Blacklist: DefaultBlacklist(),
 	}
 }

@@ -13,6 +13,7 @@ type Config struct {
 	Http    Http
 	Jwt     Jwt
 	Reload  Reload
+	Dmut    Dmut
 
 	// Openid/Saml are specs/oauth-saml.md's openid.<name>.*/saml.* :
 	// the /auth/oidc/{name}/* and /auth/saml/{name}/* endpoints.
@@ -37,7 +38,7 @@ type Config struct {
 	Dev bool
 
 	// Raw is every dotted config key actually resolved at load time (loader.go's
-	// assemble()), for reload.cmd's `{name}` interpolation (specs/reload.md) —
+	// assemble()), for reload.cmd's `{name}` interpolation (docs/content/configuration/reload.md) —
 	// whatever was explicitly set via file/env/flag, plus pg.uri/pg.host/
 	// pg.port/pg.database/pg.user/pg.password specifically (always kept in
 	// sync, defaulted or not, since composing a database connection string
@@ -66,13 +67,13 @@ type TypeScript struct {
 	Codec string
 }
 
-// Reload is specs/reload.md's reload.* namespace : the external command rel
+// Reload is docs/content/configuration/reload.md's reload.* namespace : the external command rel
 // runs before every reload (SIGUSR1 or startup), decoupled from any
 // specific migration tool.
 type Reload struct {
 	// Cmd is reload.cmd, default "" : the command line rel runs before
 	// every reload. Empty skips this step entirely — no error, nothing to
-	// run. Interpolated ({name}/{name:default}, specs/reload.md), then
+	// run. Interpolated ({name}/{name:default}, docs/content/configuration/reload.md), then
 	// split with shell-style word-splitting/quoting rules only.
 	Cmd string
 	// Timeout is reload.timeout, default 120 (seconds) : Cmd is aborted
@@ -84,11 +85,41 @@ type Reload struct {
 	DrainTimeout int
 }
 
-// DefaultReloadTimeout/DefaultReloadDrainTimeout are specs/reload.md's own
+// DefaultReloadTimeout/DefaultReloadDrainTimeout are docs/content/configuration/reload.md's own
 // stated defaults.
 const (
 	DefaultReloadTimeout      = 120
 	DefaultReloadDrainTimeout = 30
+)
+
+// Dmut is dmut.* : the in-process dmut migration step (docs/content/configuration/dmut.md)
+// reloadcmd.Run performs just before reload.cmd, at startup and on every
+// SIGUSR1 reload.
+type Dmut struct {
+	// Path is dmut.path, default "" : a colon-separated list of directories
+	// (or files) dmut reads its mutations from. Empty skips the step
+	// entirely, no error.
+	Path string
+	// Timeout is dmut.timeout, default 120 (seconds) : the whole run is
+	// cancelled, and considered failed, once this elapses.
+	Timeout int
+	// User/Password are dmut.user/dmut.password, default "" : the login
+	// dmut connects with. Each one that is empty falls back, on its own,
+	// to Pg.User/Pg.Password.
+	User     string
+	Password string
+	// Mode is dmut.mode, default DmutModeDefault : DmutModeDefault,
+	// DmutModeSimple or DmutModeFull.
+	Mode string
+}
+
+// dmut.mode values, and dmut.timeout's default.
+const (
+	DmutModeDefault = "default"
+	DmutModeSimple  = "simple"
+	DmutModeFull    = "full"
+
+	DefaultDmutTimeout = 120
 )
 
 // Jwt is authentication.md ## Configuration : jwt.secret/cookie_name/
@@ -492,9 +523,7 @@ const (
 // request-serving connection. rel connects with Pg's own primary login for
 // introspection, reload.cmd, AND serving requests alike — there is no
 // separate, narrower-scoped login (`set role` is what actually restricts a
-// request's data access, not the connecting login's own privileges ; see
-// specs/reload.md's Impacts section for why a second login stopped being
-// necessary once reload.cmd replaced dmut).
+// request's data access, not the connecting login's own privileges).
 type PgQuery struct {
 	// AnonymousRole is pg.query.anonymous_role (default "~anonymous",
 	// docs/content/configuration/index.md ### Postgres connection) : the

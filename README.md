@@ -144,8 +144,8 @@ walkthrough, including nested and batched writes.
   predictably — see [Configuration](https://rel-server.github.io/rel/configuration/).
 - A small, non-root, scratch-based Docker image, and a realistic deployment recipe (Postgres,
   a reverse proxy, automatic TLS) — see [Docker deployment](https://rel-server.github.io/rel/getting-started/docker-deployment/).
-- One `reload.cmd` hook to run your own migration tool before every schema reload, decoupled
-  from any specific tool — see [Reload](https://rel-server.github.io/rel/configuration/reload/).
+- Built-in [dmut](https://rel-server.github.io/rel/configuration/dmut/) migrations applied before every schema reload,
+  plus a `reload.cmd` hook to run any other tool — see [Reload](https://rel-server.github.io/rel/configuration/reload/).
 
 ## Documentation
 

@@ -78,11 +78,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// reload.cmd runs BEFORE introspection, always (specs/reload.md) ; a
+	// reload.cmd runs BEFORE introspection, always (docs/content/configuration/reload.md) ; a
 	// failed run is logged, startup continues regardless — same as a
 	// failure during a SIGUSR1 reload (boot/reload.go's Reload).
-	if _, err := reloadcmd.Run(context.Background(), cfg, logger.With("module", "reloadcmd")); err != nil {
-		logger.Error("reload.cmd failed, continuing with the schema as it was before this attempt", "error", err.Error())
+	if _, err := reloadcmd.Run(context.Background(), cfg, logger); err != nil {
+		logger.Error("reload.cmd or dmut failed, continuing with the schema as it was before this attempt", "error", err.Error())
 	}
 
 	db, err := pg.NewInfosAdminQuery(primaryURI, primaryURI, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole)
@@ -216,7 +216,7 @@ func oneShotFlag(args []string, name string) (value string, ok bool) {
 // the well-known registry (Wellknowns generation needs it), generate,
 // write, done — no reload.cmd, no /route registry, no mux, no HTTP
 // listener. reload.cmd is deliberately skipped here, unlike the server's
-// own startup sequence (specs/reload.md) : running an arbitrary migration
+// own startup sequence (docs/content/configuration/reload.md) : running an arbitrary migration
 // command as a side effect of "print me the current types" would be a
 // surprising thing for a read-only inspection command to do. The
 // well-known registry, unlike reload.cmd/route, does its own read-only

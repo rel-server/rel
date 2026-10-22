@@ -153,6 +153,16 @@ dblink = "y"
 | `reload.timeout` | `REL_RELOAD__TIMEOUT` | `120` (seconds) | `reload.cmd` is aborted and considered failed once this elapses. |
 | `reload.drain_timeout` | `REL_RELOAD__DRAIN_TIMEOUT` | `30` (seconds) | How long a reload waits for in-flight requests to finish, before `reload.cmd` runs, before cancelling their contexts and proceeding anyway. |
 
+## Migrations (dmut)
+
+| Key | Env var | Default | What it does |
+|---|---|---|---|
+| `dmut.path` | `REL_DMUT__PATH` | — | Colon-separated list of directories [dmut](https://github.com/ceymard/dmut) reads its mutations from, applied in-process before `reload.cmd` (startup and every `SIGUSR1`). Empty skips this step entirely. See [Migrations (dmut)](dmut.md). |
+| `dmut.timeout` | `REL_DMUT__TIMEOUT` | `120` (seconds) | The dmut run is cancelled and considered failed once this elapses. |
+| `dmut.user` | `REL_DMUT__USER` | `pg.user` | Login dmut connects with, when it must differ from the one serving requests. |
+| `dmut.password` | `REL_DMUT__PASSWORD` | `pg.password` | Password of `dmut.user`. Falls back to `pg.password` on its own when unset. |
+| `dmut.mode` | `REL_DMUT__MODE` | `default` | `default`, `simple` or `full`. See [Migrations (dmut)](dmut.md#modes). |
+
 ## TypeScript export
 
 | Key | Env var | Default | What it does |

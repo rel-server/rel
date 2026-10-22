@@ -64,11 +64,11 @@ func (rl *Reloader) CurrentDbInfos() *pg.DbInfos {
 	return rl.db
 }
 
-// Reload runs specs/reload.md's reload sequence : begin maintenance, drain
+// Reload runs docs/content/configuration/reload.md's reload sequence : begin maintenance, drain
 // in-flight requests, run reload.cmd, reintrospect (skipped when reload.cmd
 // failed), rebuild /route + well-known + the TypeScript helper file, swap
 // in a fresh mux, resume serving. A reload.cmd failure skips reintrospection
-// specifically (specs/reload.md : "the introspection reload is not
+// specifically (docs/content/configuration/reload.md : "the introspection reload is not
 // performed, but wellknown and templates still get updated, rebuilt against
 // the previous, still-loaded schema") — everything downstream of it still
 // runs, against the OLD *pg.DbInfos. Any other step failing (reintrospection
@@ -89,8 +89,8 @@ func (rl *Reloader) Reload(ctx context.Context) {
 
 	db := oldDb
 
-	if _, err := reloadcmd.Run(ctx, rl.Cfg, rl.Logger); err != nil {
-		rl.Logger.Error("reload: reload.cmd failed, skipping schema reintrospection", "error", err.Error())
+	if _, err := reloadcmd.Run(ctx, rl.Cfg, slog.Default()); err != nil {
+		rl.Logger.Error("reload: reload.cmd or dmut failed, skipping schema reintrospection", "error", err.Error())
 	} else {
 		// Reintrospect, reusing the EXISTING request-serving pool
 		// (pg.ReIntrospect re-checks anonymous-role existence internally).

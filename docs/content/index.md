@@ -130,5 +130,5 @@ else. See [Feature list](#feature-list) below for the rest of what ships in that
   predictably — see [Configuration](configuration/index.md).
 - A small, non-root, scratch-based Docker image, and a realistic deployment recipe (Postgres,
   a reverse proxy, automatic TLS) — see [Docker deployment](getting-started/docker-deployment.md).
-- One `reload.cmd` hook to run your own migration tool before every schema reload, decoupled
-  from any specific tool — see [Reload](configuration/reload.md).
+- Built-in [dmut](configuration/dmut.md) migrations applied before every schema reload, plus a
+  `reload.cmd` hook to run any other tool — see [Reload](configuration/reload.md).

@@ -110,11 +110,10 @@ present regardless of mode.
 
 ## Migrations and schema reload
 
-rel doesn't embed a migration tool — `reload.cmd` names whatever command should run before
-every reload (startup, and every `SIGUSR1`), and rel reintrospects the schema after. See
-[Reload](reload.md) for the full detail : the command line/interpolation syntax, output
-logging, failure handling, and how to wire up [dmut](https://github.com/ceymard/dmut) (this
-repo's own dev database uses it, `just test-db-migrate`/`just test-db-fresh`).
+Before every reload (startup, and every `SIGUSR1`) rel applies the [dmut](https://github.com/ceymard/dmut)
+migrations found in `dmut.path`, then runs `reload.cmd` for anything else, and reintrospects the schema
+after. See [Migrations (dmut)](dmut.md) and [Reload](reload.md) for the detail : the login and modes, the command
+line/interpolation syntax, output logging and failure handling.
 
 To pick up a schema change on a running deployment without restarting the process, send it
 `SIGUSR1`:

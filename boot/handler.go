@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package boot houses the maintenance/reload mechanics that sit above
-// server+route, per specs/reload.md : a permanent, reload-aware
+// server+route, per docs/content/configuration/reload.md : a permanent, reload-aware
 // http.Handler wrapper (ReloadableHandler) that becomes http.Server.Handler
 // exactly once, at startup, and the orchestration (RunReload) tying
 // together reloadcmd.Run/pg.ReIntrospect/route.BuildRegistry/server.NewRelHandler/
@@ -118,7 +118,7 @@ func (h *ReloadableHandler) BeginMaintenance() {
 
 // Drain waits for every request that was already in flight when
 // BeginMaintenance was called to finish, up to timeout. Past that, it
-// cancels each still-running request's context (specs/reload.md) and then
+// cancels each still-running request's context (docs/content/configuration/reload.md) and then
 // waits for them to actually return : a cancelled context only asks
 // pgx/handlers to unwind, it doesn't force ServeHTTP to return
 // synchronously, and reload.cmd's own DDL needs those handlers to have

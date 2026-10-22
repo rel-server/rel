@@ -15,7 +15,7 @@ import (
 // startup (cmd/rel/main.go) and from Reload right after the route/
 // well-known registry rebuild — using the SAME db (freshly reintrospected,
 // or the previous one when reload.cmd/reintrospection didn't succeed —
-// specs/reload.md) AND the freshly rebuilt *wellknown.Registry Wellknowns
+// docs/content/configuration/reload.md) AND the freshly rebuilt *wellknown.Registry Wellknowns
 // generation needs. Never reached on a /route or well-known registry build
 // failure specifically, since Reload returns before this point then (the
 // file is left untouched, matching the spec's own "left untouched" wording

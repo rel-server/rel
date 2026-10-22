@@ -332,6 +332,12 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Reload.DrainTimeout != DefaultReloadDrainTimeout {
 		t.Errorf("expected default reload.drain_timeout=%d, got %d", DefaultReloadDrainTimeout, cfg.Reload.DrainTimeout)
 	}
+	if cfg.Dmut.Path != "" || cfg.Dmut.User != "" || cfg.Dmut.Password != "" {
+		t.Errorf("expected dmut.path/user/password empty by default, got %+v", cfg.Dmut)
+	}
+	if cfg.Dmut.Timeout != DefaultDmutTimeout || cfg.Dmut.Mode != DmutModeDefault {
+		t.Errorf("expected default dmut.timeout=%d and dmut.mode=%q, got %+v", DefaultDmutTimeout, DmutModeDefault, cfg.Dmut)
+	}
 	// Default blacklist must still be present when config doesn't touch it.
 	if !cfg.Blacklist.IsRelationBlacklisted("pg_catalog", "anything") {
 		t.Errorf("expected DefaultBlacklist to still apply")
@@ -520,6 +526,31 @@ func TestLoad_MalformedValueIsFatal_Env(t *testing.T) {
 	_, err := Load(nil)
 	if err == nil {
 		t.Fatalf("expected a malformed REL_HTTP__PORT to fail Load")
+	}
+}
+
+func TestLoad_Dmut(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("REL_DMUT__PATH", "/sql:/more")
+	t.Setenv("REL_DMUT__TIMEOUT", "7")
+	t.Setenv("REL_DMUT__USER", "migrator")
+	t.Setenv("REL_DMUT__PASSWORD", "secret")
+	t.Setenv("REL_DMUT__MODE", "simple")
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := Dmut{Path: "/sql:/more", Timeout: 7, User: "migrator", Password: "secret", Mode: DmutModeSimple}
+	if cfg.Dmut != want {
+		t.Errorf("got %+v, want %+v", cfg.Dmut, want)
+	}
+}
+
+func TestLoad_DmutInvalidMode(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("REL_DMUT__MODE", "reckless")
+	if _, err := Load(nil); err == nil || !strings.Contains(err.Error(), "dmut.mode") {
+		t.Fatalf("expected a dmut.mode error, got %v", err)
 	}
 }
 

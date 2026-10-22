@@ -18,13 +18,10 @@ permissions:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        package: [rel, rel-dmut]
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          package: ${{ matrix.package }}
+          package: rel
           delete-untagged: true
           older-than: 7 days
           token: ${{ secrets.GITHUB_TOKEN }}

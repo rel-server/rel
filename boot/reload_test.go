@@ -32,9 +32,27 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// TestReloader_Reload_EndToEnd applies a fixture migration via Reload and
-// confirms a request against the newly-migrated schema succeeds.
+// TestReloader_Reload_EndToEnd applies a fixture migration via reload.cmd
+// and confirms a request against the newly-migrated schema succeeds.
+// reload.cmd, not dmut : psql applying a plain SQL script proves the generic
+// reload.cmd exec path, not any particular migration tool's own mechanics.
 func TestReloader_Reload_EndToEnd(t *testing.T) {
+	reloadEndToEnd(t, func(cfg *config.Config, uri string) {
+		cfg.Reload.Cmd = fmt.Sprintf("psql %q -v ON_ERROR_STOP=1 -f testdata/reload_fixture.sql", uri)
+	})
+}
+
+// TestReloader_Reload_EndToEnd_Dmut is the same scenario with the migration
+// applied in-process by the dmut step (dmut.path) instead of reload.cmd.
+func TestReloader_Reload_EndToEnd_Dmut(t *testing.T) {
+	reloadEndToEnd(t, func(cfg *config.Config, uri string) {
+		cfg.Dmut.Path = "testdata/dmut"
+	})
+}
+
+// reloadEndToEnd starts Postgres, lets configure set up the migration step
+// that creates fn_created_by_migration, then reloads and checks the route.
+func reloadEndToEnd(t *testing.T, configure func(cfg *config.Config, uri string)) {
 	ctx := context.Background()
 
 	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
@@ -61,10 +79,8 @@ func TestReloader_Reload_EndToEnd(t *testing.T) {
 
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
-	// reload.cmd, not a dmut fixture (specs/reload.md) : psql applying a
-	// plain SQL script proves the generic reload.cmd exec path, not any
-	// particular migration tool's own mechanics.
-	cfg.Reload.Cmd = fmt.Sprintf("psql %q -v ON_ERROR_STOP=1 -f testdata/reload_fixture.sql", uri)
+	cfg.Pg.URI, cfg.Pg.User, cfg.Pg.Password = uri, "postgres", "postgres"
+	configure(cfg, uri)
 	cfg.Reload.Timeout = 30
 	cfg.Reload.DrainTimeout = 5
 
