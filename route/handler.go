@@ -15,6 +15,7 @@ import (
 	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/query"
@@ -64,7 +65,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	ctx := r.Context()
 
 	// Wraps w for the rest of this function so every downstream response
-	// helper (writePlainError, writeErrorForPgErr, write*Response, ...)
+	// helper (httperr.WritePlain, httperr.WritePostgres, write*Response, ...)
 	// keeps calling the ordinary http.ResponseWriter methods unchanged,
 	// while specs/logging.md ## Access logging's status/size fields get
 	// captured for free.
@@ -84,11 +85,11 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// Both anonymous checks run before the body is read or a connection
 	// acquired, so an unauthorized request never holds one.
 	if authErr != nil {
-		writeAuthError(ctx, w, authErr, cfg.Dev)
+		httperr.WritePlainError(ctx, w, reqauth.HTTPError(authErr), cfg.Dev)
 		return
 	}
 	if !sess.Verified && !route.AnonymousAuthorized {
-		writePlainError(w, http.StatusUnauthorized, errcode.AnonymousRouteForbidden, "anonymous access not permitted for this route")
+		httperr.WritePlain(w, http.StatusUnauthorized, errcode.AnonymousRouteForbidden, "anonymous access not permitted for this route")
 		return
 	}
 
@@ -118,10 +119,10 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	reqJSON, err := buildReq(nil)
 	if err != nil {
 		if bqe, ok := errors.AsType[*badQueryError](err); ok {
-			writePlainError(w, http.StatusBadRequest, errcode.QueryMalformedJSON, bqe.Error())
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.QueryMalformedJSON, bqe.Error())
 			return
 		}
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 		return
 	}
 	// Stashed for ## Templates' "Req" var — the exact JSON the route
@@ -138,7 +139,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// rejected.
 	tx, err := sess.Open(ctx, db.Pool)
 	if err != nil {
-		writeAuthError(ctx, w, err, cfg.Dev)
+		httperr.WritePlainError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
 		return
 	}
 	defer tx.Release()
@@ -153,7 +154,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	}
 	if handled {
 		if err := tx.Commit(ctx); err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 			return
 		}
 		return
@@ -167,7 +168,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	if mergedContext != nil {
 		reqJSON, err = buildReq(mergedContext)
 		if err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 			return
 		}
 		r = r.WithContext(withRequestJSON(ctx, reqJSON))
@@ -181,11 +182,11 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	if route.FullControl {
 		envelope, content, err := invokeFullControlRoute(ctx, tx, route, reqJSON, resolved, pathArgValues)
 		if err != nil {
-			writeErrorForPgErr(ctx, w, err, cfg.Dev)
+			httperr.WritePostgres(ctx, w, err, cfg.Dev)
 			return
 		}
 		if err := tx.Commit(ctx); err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 			return
 		}
 		writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, envelope, content, templates, staticSrv)
@@ -200,11 +201,11 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		raw, err = invokeSingleReturnRoute(ctx, tx, route, reqJSON, resolved, pathArgValues)
 	}
 	if err != nil {
-		writeErrorForPgErr(ctx, w, err, cfg.Dev)
+		httperr.WritePostgres(ctx, w, err, cfg.Dev)
 		return
 	}
 	if err := tx.Commit(ctx); err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
 	writeSingleReturnResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, raw, nativeCBOR, templates)

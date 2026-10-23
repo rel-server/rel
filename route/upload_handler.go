@@ -25,6 +25,7 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/reqauth"
@@ -70,7 +71,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	mt := mediaTypeOf(contentTypeHeader)
 	if mt == "application/json" || strings.HasSuffix(mt, "+json") ||
 		strings.HasPrefix(mt, "text/") || mt == "application/x-www-form-urlencoded" {
-		writePlainError(w, http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, "route accepts a single opaque upload, not a JSON/text/form body")
+		httperr.WritePlain(w, http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, "route accepts a single opaque upload, not a JSON/text/form body")
 		return
 	}
 
@@ -99,7 +100,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		p, perr := mr.NextPart()
 		if perr != nil {
 			if perr != io.EOF {
-				writePlainError(w, http.StatusBadRequest, errcode.MalformedMultipart, "malformed multipart body: "+perr.Error())
+				httperr.WritePlain(w, http.StatusBadRequest, errcode.MalformedMultipart, "malformed multipart body: "+perr.Error())
 				return
 			}
 			// Zero parts : no upload at all, same as no body.
@@ -121,7 +122,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	firstUpload, err := sonic.Marshal(requestUploadPayload{Part: partJSON})
 	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
 		return
 	}
 	// buildFirstReq re-derives the first call's request JSON for a given
@@ -131,7 +132,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	reqJSON1, err := buildFirstReq(nil)
 	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 		return
 	}
 	r = r.WithContext(withRequestJSON(ctx, reqJSON1))
@@ -144,7 +145,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// decides not to reject — see route/handler.go's identical note.
 	tx1, err := sess.Open(ctx, db.Pool)
 	if err != nil {
-		writeAuthError(ctx, w, err, cfg.Dev)
+		httperr.WritePlainError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
 		return
 	}
 
@@ -156,7 +157,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	if handled {
 		if cerr := tx1.Commit(ctx); cerr != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", cerr)
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", cerr)
 		}
 		tx1.Release()
 		return
@@ -166,7 +167,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		if err != nil {
 			_ = tx1.Rollback(ctx)
 			tx1.Release()
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 			return
 		}
 		r = r.WithContext(withRequestJSON(ctx, reqJSON1))
@@ -182,19 +183,19 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if err := frow.Scan(&firstEnvelope, &firstContent); err != nil {
 		_ = tx1.Rollback(ctx)
 		tx1.Release()
-		writeErrorForPgErr(ctx, w, err, cfg.Dev)
+		httperr.WritePostgres(ctx, w, err, cfg.Dev)
 		return
 	}
 	if err := tx1.Commit(ctx); err != nil {
 		tx1.Release()
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
 	tx1.Release()
 
 	var first firstCallEnvelope
 	if err := sonic.Unmarshal(firstEnvelope, &first); err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
 		return
 	}
 	upload := first.Upload
@@ -217,13 +218,13 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if hasUpload {
 		if upload.Path != nil && *upload.Path != "" {
 			if writeDir == "" {
-				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
+				httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
 					oops.With("path", *upload.Path).Errorf("upload route resolved a path but http.upload.dir is unset or no http.static.path directory is configured/exists"))
 				return
 			}
 			cleaned, ok := resolveUnderDir(writeDir, *upload.Path)
 			if !ok {
-				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
+				httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
 					oops.With("path", *upload.Path).Errorf("stream_upload's first call returned a path escaping http.upload.dir"))
 				return
 			}
@@ -235,13 +236,13 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			}
 			if overwrite == "disallow" {
 				if _, statErr := os.Stat(finalPath); statErr == nil {
-					writePlainError(w, http.StatusConflict, errcode.UploadConflict, "a file already exists at the resolved path")
+					httperr.WritePlain(w, http.StatusConflict, errcode.UploadConflict, "a file already exists at the resolved path")
 					return
 				}
 			}
 			if upload.Mkdir {
 				if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
-					writeServerError(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
+					httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
 						oops.With("path", finalPath).Wrapf(err, "upload mkdir"))
 					return
 				}
@@ -252,7 +253,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			// second call gets an accurate size.
 			tempPath = filepath.Join(writeDir, ".upload-"+randomToken())
 		} else {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error",
 				oops.Errorf("upload route has http.upload.dir unset or no http.static.path directory configured/exists to stage the discarded upload into"))
 			return
 		}
@@ -264,7 +265,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if hasUpload {
 		f, ferr := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if ferr != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
 				oops.With("path", tempPath).Wrapf(ferr, "creating temp upload file"))
 			return
 		}
@@ -289,19 +290,19 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 				if upload.MaxSize != nil && *upload.MaxSize < int64(cfg.Http.Upload.MaxSize) {
 					msg = "request body exceeds the upload size limit set by " + route.Function.Identifier.String()
 				}
-				writePlainError(w, http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, msg)
+				httperr.WritePlain(w, http.StatusRequestEntityTooLarge, errcode.BodyTooLarge, msg)
 				return
 			}
-			writePlainError(w, http.StatusBadRequest, errcode.MalformedBody, "reading upload body: "+cerr.Error())
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.MalformedBody, "reading upload body: "+cerr.Error())
 			return
 		}
 		if isMultipart {
 			_ = currentPart.Close()
 			if _, nerr := mr.NextPart(); nerr != io.EOF {
 				if nerr == nil {
-					writePlainError(w, http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, "route accepts exactly one upload part, request carried more than one")
+					httperr.WritePlain(w, http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, "route accepts exactly one upload part, request carried more than one")
 				} else {
-					writePlainError(w, http.StatusBadRequest, errcode.MalformedMultipart, "malformed multipart body: "+nerr.Error())
+					httperr.WritePlain(w, http.StatusBadRequest, errcode.MalformedMultipart, "malformed multipart body: "+nerr.Error())
 				}
 				return
 			}
@@ -324,12 +325,12 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	}
 	secondUpload, err := sonic.Marshal(secondUploadPayload)
 	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
 		return
 	}
 	reqJSON2, err := buildRelHttpRequest(r, json.RawMessage("null"), sess.Verified, sess.Claims, staticInfo, nil, nil, secondUpload, "")
 	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 		return
 	}
 	r = r.WithContext(withRequestJSON(ctx, reqJSON2))
@@ -338,7 +339,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// renew already ran before the first call and aren't repeated.
 	tx2, err := sess.Open(ctx, db.Pool)
 	if err != nil {
-		writeAuthError(ctx, w, err, cfg.Dev)
+		httperr.WritePlainError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
 		return
 	}
 	defer tx2.Release()
@@ -348,11 +349,11 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	if err := mrow.Scan(&secondEnvelope, &secondContent); err != nil {
 		_ = tx2.Rollback(ctx)
 		// No commit : the temp file is deleted by the deferred cleanup above.
-		writeErrorForPgErr(ctx, w, err, cfg.Dev)
+		httperr.WritePostgres(ctx, w, err, cfg.Dev)
 		return
 	}
 	if err := tx2.Commit(ctx); err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
 
@@ -360,7 +361,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// means the deferred cleanup deletes the temp file instead.
 	if hasUpload && finalPath != "" {
 		if err := swapUploadIntoPlace(rlog, tempPath, finalPath, overwrite); err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.UploadIOError, "internal error",
 				oops.With("temp", tempPath, "final", finalPath).Wrapf(err, "swapping upload into place"))
 			return
 		}

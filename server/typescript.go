@@ -10,6 +10,7 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/tsgen"
 	"github.com/rel-server/rel/wellknown"
@@ -22,19 +23,19 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")
-			writeError(r.Context(), w, methodNotAllowed(fmt.Errorf("/rel/database.ts only accepts GET")), cfg.Dev)
+			writeError(r.Context(), w, httperr.MethodNotAllowed(fmt.Errorf("/rel/database.ts only accepts GET")), cfg.Dev)
 			return
 		}
 
 		schemas, err := resolveTypeScriptSchemas(cfg.TypeScript.Schemas, r.URL.Query().Get("schemas"))
 		if err != nil {
-			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
+			writeError(r.Context(), w, httperr.BadRequest(errcode.Unclassified, err), cfg.Dev)
 			return
 		}
 
 		codec, err := tsgen.ResolveCodec(cfg.TypeScript.Codec, r.URL.Query().Get("codec"))
 		if err != nil {
-			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
+			writeError(r.Context(), w, httperr.BadRequest(errcode.Unclassified, err), cfg.Dev)
 			return
 		}
 
@@ -54,19 +55,19 @@ func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")
-			writeError(r.Context(), w, methodNotAllowed(fmt.Errorf("/rel/database.json only accepts GET")), cfg.Dev)
+			writeError(r.Context(), w, httperr.MethodNotAllowed(fmt.Errorf("/rel/database.json only accepts GET")), cfg.Dev)
 			return
 		}
 
 		schemas, err := resolveTypeScriptSchemas(cfg.TypeScript.Schemas, r.URL.Query().Get("schemas"))
 		if err != nil {
-			writeError(r.Context(), w, badRequest(errcode.Unclassified, err), cfg.Dev)
+			writeError(r.Context(), w, httperr.BadRequest(errcode.Unclassified, err), cfg.Dev)
 			return
 		}
 
 		out, err := tsgen.GenerateDatabaseJSON(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist}, wkReg)
 		if err != nil {
-			writeError(r.Context(), w, serverError(errcode.Internal, err), cfg.Dev)
+			writeError(r.Context(), w, httperr.Server(errcode.Internal, err), cfg.Dev)
 			return
 		}
 

@@ -11,10 +11,10 @@ import (
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
-	"github.com/rel-server/rel/pgerr"
 	"github.com/rel-server/rel/route"
 )
 
@@ -79,14 +79,14 @@ func resolveCallbackFunction(perEntry string, cfg *config.Config) string {
 func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, db *pg.DbInfos, templates *route.TemplateSet, functionName string, identity ssoIdentity, state any) {
 	if functionName == "" {
 		log.Error("sso: no callback function configured for this endpoint, and http.functions.sso_callback is also unset", "protocol", identity.Protocol, "name", identity.Name)
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "no SSO callback function configured")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.Internal, "no SSO callback function configured")
 		return
 	}
 
 	claims, _ := jwtpkg.VerifyRequest(cfg.Jwt, r)
 	payload, err := json.Marshal(ssoCallbackPayload{Jwt: claims, Identity: identity, State: state})
 	if err != nil {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "encoding SSO callback payload")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.Internal, "encoding SSO callback payload")
 		return
 	}
 
@@ -97,40 +97,9 @@ func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, 
 	// Only Verify is shared with the rest (above), for payload.jwt.
 	raw, err := dbauth.CallJSONBFunctionReturningJSON(r.Context(), db.Pool, functionName, payload)
 	if err != nil {
-		writeErrorForPgErr(w, err, cfg.Dev)
+		httperr.WritePostgres(r.Context(), w, err, cfg.Dev)
 		return
 	}
 
 	route.WriteRelHttpResponse(w, r, cfg, functionName, raw, templates)
-}
-
-// writePlainError/writeErrorForPgErr mirror route/requestbody.go's own
-// unexported helpers of the same name — deliberately duplicated rather
-// than exported across packages, same "different response envelope per
-// package" precedent route/encode.go's writePlainError doc comment
-// already sets against server/response.go's own JSON envelope.
-func writePlainError(w http.ResponseWriter, status int, code errcode.Code, message string) {
-	w.Header().Set(errcode.Header, string(code))
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte(message))
-}
-
-func writeErrorForPgErr(w http.ResponseWriter, err error, dev bool) {
-	status, code, tier, detail, ok := pgerr.Classify(err)
-	if !ok {
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
-		return
-	}
-	message := detail.Message
-	if pgerr.IsRSCode(code) {
-		writePlainError(w, status, code, message)
-		return
-	}
-	if !pgerr.AllowsDetail(tier, dev) {
-		message = pgerr.FallbackMessage(tier)
-	} else if tier == pgerr.TierConstraintViolation && detail.Detail != "" {
-		message = detail.Message + ": " + detail.Detail
-	}
-	writePlainError(w, status, code, message)
 }

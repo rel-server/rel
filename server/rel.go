@@ -19,9 +19,9 @@ import (
 	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
-	"github.com/rel-server/rel/pgerr"
 	"github.com/rel-server/rel/query"
 	"github.com/rel-server/rel/querystring"
 	"github.com/rel-server/rel/relexec"
@@ -39,7 +39,7 @@ func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET, POST")
-			writeError(r.Context(), w, methodNotAllowed(fmt.Errorf("/rel only accepts GET or POST")), cfg.Dev)
+			writeError(r.Context(), w, httperr.MethodNotAllowed(fmt.Errorf("/rel only accepts GET or POST")), cfg.Dev)
 			return
 		}
 		handleRel(w, r, db, cfg, wkReg)
@@ -167,13 +167,13 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// before reading the body or acquiring a connection when disabled.
 	sess, err := reqauth.Authenticate(cfg, db, r)
 	if err != nil {
-		writeError(ctx, w, authRequestError(err), cfg.Dev)
+		writeError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
 		return
 	}
 
 	body, err := relQueryBytes(r)
 	if err != nil {
-		writeError(ctx, w, badRequest(errcode.MalformedBody, err), cfg.Dev)
+		writeError(ctx, w, httperr.BadRequest(errcode.MalformedBody, err), cfg.Dev)
 		return
 	}
 
@@ -183,21 +183,21 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		if isCBORRequest(r) {
 			code = errcode.QueryMalformedCBOR
 		}
-		writeError(ctx, w, badRequest(code, err), cfg.Dev)
+		writeError(ctx, w, httperr.BadRequest(code, err), cfg.Dev)
 		return
 	}
 
 	// query-json.md ## Scope / ## Well-known queries on GET /rel : GET
 	// never decodes to a Sequence ; asserted explicitly, not just assumed.
 	if r.Method == http.MethodGet && pq.Sequence != nil {
-		writeError(ctx, w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
+		writeError(ctx, w, httperr.BadRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
 		return
 	}
 	// specs/complex-query.md ## rollback's GET rule : a ComplexQuery
 	// wrapper (data present or not) is GET-ineligible, only a bare
 	// RelationQuery/WellKnownQuery is convenience-served there.
 	if r.Method == http.MethodGet && pq.Write != nil {
-		writeError(ctx, w, badRequest(errcode.QueryComplexNotAllowedOnGet, fmt.Errorf("/rel GET accepts only a bare relation or well-known query, not a ComplexQuery wrapper")), cfg.Dev)
+		writeError(ctx, w, httperr.BadRequest(errcode.QueryComplexNotAllowedOnGet, fmt.Errorf("/rel GET accepts only a bare relation or well-known query, not a ComplexQuery wrapper")), cfg.Dev)
 		return
 	}
 
@@ -222,7 +222,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		writeError(ctx, w, serverError(errcode.DBUnavailable, fmt.Errorf("acquiring connection: %w", err)), cfg.Dev)
+		writeError(ctx, w, httperr.Server(errcode.DBUnavailable, fmt.Errorf("acquiring connection: %w", err)), cfg.Dev)
 		return
 	}
 	defer conn.Release()
@@ -272,38 +272,21 @@ func relexecPolicy(cfg *config.Config) relexec.Policy {
 	return relexec.Policy{Count: q.AllowCount, Stats: q.AllowStats, QueryPlan: q.AllowQueryPlan, SQL: q.AllowSql, Rollback: q.AllowRollback}
 }
 
-// authRequestError maps a reqauth failure the same way.
-func authRequestError(err error) *requestError {
-	e, ok := errors.AsType[*reqauth.Error](err)
-	if !ok {
-		return serverError(errcode.Internal, err)
-	}
-	if e.Postgres {
-		if status, code, tier, detail, ok := pgerr.Classify(e.Err); ok {
-			return pgClassified(status, code, tier, detail, e.Err)
-		}
-	}
-	if e.Status == http.StatusUnauthorized {
-		return unauthorized(e.Code, errors.New(e.Message))
-	}
-	return serverError(e.Code, e.Err)
-}
-
 // relexecRequestError maps a relexec failure to the response it deserves : a Postgres error is
 // classified (PG_*/RSxxx, never err.Error(), which can embed generated SQL), anything else is a 400
 // or a 500 by whose fault it is.
-func relexecRequestError(err error) *requestError {
+func relexecRequestError(err error) *httperr.Error {
 	e, ok := errors.AsType[*relexec.Error](err)
 	if !ok {
-		return serverError(errcode.Internal, err)
+		return httperr.Server(errcode.Internal, err)
 	}
 	if e.Postgres {
-		if status, code, tier, detail, ok := pgerr.Classify(e.Err); ok {
-			return pgClassified(status, code, tier, detail, e.Err)
+		if he, ok := httperr.FromPostgres(e.Err); ok {
+			return he
 		}
 	}
 	if e.Fault == relexec.ClientFault {
-		return badRequest(e.Code, e.Err)
+		return httperr.BadRequest(e.Code, e.Err)
 	}
-	return serverError(e.Code, e.Err)
+	return httperr.Server(e.Code, e.Err)
 }

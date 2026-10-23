@@ -15,6 +15,7 @@ import (
 	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/querystring"
@@ -201,7 +202,7 @@ type jwtAttrsPayload struct {
 func WriteRelHttpResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, raw []byte, templates *TemplateSet) {
 	var resp relHttpResponsePayload
 	if err := sonic.Unmarshal(raw, &resp); err != nil {
-		writeServerError(r.Context(), w, http.StatusInternalServerError, errcode.Internal, "decoding function response", err)
+		httperr.WriteServer(r.Context(), w, http.StatusInternalServerError, errcode.Internal, "decoding function response", err)
 		return
 	}
 	status := applyResponseSideEffects(w, r, cfg, functionIdent, resp)
@@ -316,7 +317,7 @@ func writeFullControlResponse(w http.ResponseWriter, r *http.Request, cfg *confi
 	// rather than a decode error.
 	if len(envelopeRaw) > 0 {
 		if err := sonic.Unmarshal(envelopeRaw, &resp); err != nil {
-			writeServerError(r.Context(), w, http.StatusInternalServerError, errcode.Internal, "decoding function response", err)
+			httperr.WriteServer(r.Context(), w, http.StatusInternalServerError, errcode.Internal, "decoding function response", err)
 			return
 		}
 	}

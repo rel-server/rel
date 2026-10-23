@@ -74,3 +74,12 @@ as $$
     'claims_setting', current_setting('rel.jwt.claims', true)
   ));
 $$;
+
+-- Test-only fixture : a callback that fails with an ordinary (unclassified) Postgres exception.
+create function auth.fails(payload jsonb) returns "RelHttpResponse"
+language plpgsql
+as $$
+begin
+  raise exception 'secret internal detail';
+end;
+$$;

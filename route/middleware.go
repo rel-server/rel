@@ -16,6 +16,7 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/reqauth"
 	"github.com/rel-server/rel/static"
@@ -115,13 +116,13 @@ func runMiddlewareChain(
 		if len(contextFields) > 0 {
 			reqCtx, err = sonic.Marshal(contextFields)
 			if err != nil {
-				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request context", err)
+				httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request context", err)
 				return true, nil, accumulated, err
 			}
 		}
 		reqJSON, err := buildReq(reqCtx)
 		if err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 			return true, nil, accumulated, err
 		}
 
@@ -132,7 +133,7 @@ func runMiddlewareChain(
 
 		envelope, content, callErr := invokeFullControlRoute(ctx, tx, mw, reqJSON, resolvedRequestBody{}, pathArgValues)
 		if callErr != nil {
-			writeErrorForPgErr(ctx, w, callErr, cfg.Dev)
+			httperr.WritePostgres(ctx, w, callErr, cfg.Dev)
 			return true, nil, accumulated, callErr
 		}
 
@@ -143,7 +144,7 @@ func runMiddlewareChain(
 		var resp relHttpResponsePayload
 		if len(envelope) > 0 {
 			if unmarshalErr := sonic.Unmarshal(envelope, &resp); unmarshalErr != nil {
-				writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "decoding middleware response", unmarshalErr)
+				httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "decoding middleware response", unmarshalErr)
 				return true, nil, accumulated, unmarshalErr
 			}
 		}
@@ -156,7 +157,7 @@ func runMiddlewareChain(
 		}
 
 		if err := mergeContext(contextFields, resp.Content); err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "merging middleware response into request.context", err)
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "merging middleware response into request.context", err)
 			return true, nil, accumulated, err
 		}
 	}
@@ -166,7 +167,7 @@ func runMiddlewareChain(
 	}
 	mergedContext, err = sonic.Marshal(contextFields)
 	if err != nil {
-		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request context", err)
+		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request context", err)
 		return true, nil, accumulated, err
 	}
 	return false, mergedContext, accumulated, nil
@@ -201,7 +202,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 		ctx := r.Context()
 		sess, err := reqauth.Authenticate(cfg, db, r)
 		if err != nil {
-			writeAuthError(ctx, w, err, cfg.Dev)
+			httperr.WritePlainError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
 			return
 		}
 
@@ -210,7 +211,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 		// never renewed even before middleware existed.
 		tx, err := sess.Open(ctx, db.Pool)
 		if err != nil {
-			writeAuthError(ctx, w, err, cfg.Dev)
+			httperr.WritePlainError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
 			return
 		}
 		defer tx.Release()
@@ -236,7 +237,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 			return
 		}
 		if err := tx.Commit(ctx); err != nil {
-			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
+			httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 			return
 		}
 		applyResponseSideEffects(w, r, cfg, "", accumulated)
