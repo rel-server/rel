@@ -14,7 +14,6 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rel-server/rel/cborenc"
@@ -143,13 +142,12 @@ func coerceQueryStringLeaves(v any) any {
 
 func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
 	ctx := r.Context()
-	start := time.Now()
 
 	// Wraps w for the rest of this function so every downstream response
 	// helper keeps calling the ordinary http.ResponseWriter methods
 	// unchanged, while specs/logging.md ## Access logging's status/size
 	// fields get captured for free.
-	rec := logging.NewResponseRecorder(w)
+	rec, logRequest := logging.StartAccessLog(w, r)
 	w = rec
 	w.Header().Add("Vary", "Accept") // the representation depends on it, errors included
 	wire := cborenc.Negotiate(r.Header.Get("Accept"))
@@ -158,14 +156,10 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	var anyWrite bool
 	var targets []string
 
-	// specs/logging.md ## Access logging : fires exactly once, from every
-	// return path (including an early rejection), since itemCount/anyWrite/
-	// targets not yet known at that point are simply the zero value.
+	// Fires exactly once, from every return path (including an early rejection), since
+	// itemCount/anyWrite/targets not yet known at that point are simply the zero value.
 	defer func() {
-		logging.FromContext(ctx).Info("request",
-			"method", r.Method, "path", r.URL.Path,
-			"status", rec.Status, "response_size", rec.Size, "duration", time.Since(start),
-			"verified", sess.Verified, "role", sess.Role, "claims", sess.Claims,
+		logRequest("verified", sess.Verified, "role", sess.Role, "claims", sess.Claims,
 			"item_count", itemCount, "write", anyWrite, "targets", targets)
 	}()
 
