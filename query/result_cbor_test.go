@@ -564,3 +564,27 @@ func TestResultCBOR_StructureTableIsSharedAcrossEncoders(t *testing.T) {
 		t.Errorf("%d layouts for two relations met three times", len(st.names))
 	}
 }
+
+// nativeCBORType (what the planner may read as CBOR) and appendValue (what actually encodes it) are two
+// lists kept in step by hand, for the speed of appendValue's switch. A type in the first and not the second
+// would fail every request that selects it, so every scalar type the first admits is handed to the second.
+func TestResultCBOR_EveryNativeScalarHasAnEncoder(t *testing.T) {
+	enc := NewValueEncoder(testDb)
+	checked := 0
+	for oid, typ := range testDb.TypeMapByOid {
+		if typ.Underlying() != typ || typ.IsEnum() || typ.IsArray() || typ.IsComposite() || !nativeCBORType(typ) {
+			continue
+		}
+		checked++
+		// Empty data: a real reader answers with a truncated-value (or version) error, never "no CBOR form".
+		_, err := enc.AppendValue(nil, uint32(oid), []byte{})
+		if err != nil && strings.Contains(err.Error(), "no CBOR form") {
+			t.Errorf("%s is admitted by nativeCBORType but appendValue has no branch for it: %v", typ.PgIdentifier.String(), err)
+		}
+	}
+	// pg_catalog's bool, bytea, char, name, int8, int2, int4, text, oid, json, float4, float8, bpchar, varchar,
+	// date, timestamp, timestamptz, numeric, uuid, jsonb.
+	if checked < 20 {
+		t.Errorf("only %d scalar types were checked : the introspection no longer lists the built-in types?", checked)
+	}
+}
