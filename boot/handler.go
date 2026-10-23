@@ -15,7 +15,7 @@
 // Package boot houses the maintenance/reload mechanics that sit above
 // server+route, per docs/content/configuration/reload.md : a permanent, reload-aware
 // http.Handler wrapper (ReloadableHandler) that becomes http.Server.Handler
-// exactly once, at startup, and the orchestration (RunReload) tying
+// exactly once, at startup, and the orchestration (Start and Reloader.Reload) tying
 // together reloadcmd.Run/pg.ReIntrospect/route.BuildRegistry/server.NewRelHandler/
 // route.NewHandler for both the startup path and every subsequent SIGUSR1.
 package boot

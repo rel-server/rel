@@ -22,8 +22,6 @@ import (
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
-	"github.com/rel-server/rel/reloadcmd"
-	"github.com/rel-server/rel/route"
 	"github.com/rel-server/rel/tsgen"
 	"github.com/rel-server/rel/wellknown"
 )
@@ -68,66 +66,18 @@ func main() {
 		return
 	}
 
-	// Introspection, reload.cmd, and the serving pool all use this same URI
-	// — see config.PgQuery's own doc comment.
-	primaryURI := resolveConnectionURI(cfg.Pg)
-
-	// Wait for Postgres first : reload.cmd (often a migration tool) needs it up too.
-	if err := pg.WaitReady(context.Background(), primaryURI, time.Duration(cfg.Pg.ConnectTimeout)*time.Second); err != nil {
-		logger.Error("connecting to postgres", "target", redactedTarget(primaryURI), "error", err.Error())
-		os.Exit(1)
-	}
-
-	// reload.cmd runs BEFORE introspection, always (docs/content/configuration/reload.md) ; a
-	// failed run is logged, startup continues regardless — same as a
-	// failure during a SIGUSR1 reload (boot/reload.go's Reload).
-	if _, err := reloadcmd.Run(context.Background(), cfg, logger); err != nil {
-		logger.Error("reload.cmd or dmut failed, continuing with the schema as it was before this attempt", reloadcmd.ErrorAttrs(err)...)
-	}
-
-	db, err := pg.NewInfosAdminQuery(primaryURI, primaryURI, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole)
-	if err != nil {
-		logger.Error("connecting to postgres", "target", redactedTarget(primaryURI), "error", err.Error())
-		os.Exit(1)
-	}
-	logger.Info("connected to postgres", "target", redactedTarget(primaryURI))
-	if cfg.Pg.Query.AnonymousRole != "" && !db.AnonymousRoleExists {
-		logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", cfg.Pg.Query.AnonymousRole))
-	}
-
-	routeRegistry, err := route.BuildRegistry(db, cfg)
-	if err != nil {
-		logger.Error("building /route registry", "error", err.Error())
-		os.Exit(1)
-	}
-	wellKnownRegistry, err := wellknown.BuildRegistry(db, cfg)
-	if err != nil {
-		logger.Error("building well-known query registry", "error", err.Error())
-		os.Exit(1)
-	}
-
-	// specs/typescript.md ## Reloading `helper_path` : also written once at
-	// startup, not only on every SIGUSR1 reload — after both registries
-	// build, since Wellknowns generation needs wellKnownRegistry.
-	boot.WriteTypeScriptHelperFile(db, cfg, wellKnownRegistry, logger.With("module", "boot"))
-
-	// boot/reload.go's Reload calls this same function on every SIGUSR1,
-	// so the two call sites can't drift on what the mux contains.
-	mux, err := boot.BuildMux(db, cfg, routeRegistry, wellKnownRegistry, logger.With("module", "boot"))
-	if err != nil {
-		logger.Error("building mux", "error", err.Error())
-		os.Exit(1)
-	}
-
-	// http.Server.Handler is this wrapper, permanently ; only its own
+	// http.Server.Handler is reloader.Wrapper, permanently ; only its own
 	// atomic.Pointer is swapped, by the reload sequence (specs/migrations.md ## Reloading).
-	wrapper := boot.NewReloadableHandler(mux)
-	reloader := boot.NewReloader(wrapper, db, primaryURI, cfg, logger.With("module", "boot"))
+	reloader, err := boot.Start(context.Background(), cfg, logger)
+	if err != nil {
+		logger.Error("starting", logging.Error(err)...)
+		os.Exit(1)
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Http.Host, cfg.Http.Port)
 	srv := &http.Server{
 		Addr:     addr,
-		Handler:  wrapper,
+		Handler:  reloader.Wrapper,
 		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
 
@@ -223,7 +173,7 @@ func oneShotFlag(args []string, name string) (value string, ok bool) {
 // file I/O + validation against db — no side effects, so building it here
 // doesn't carry the same objection.
 func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
-	primaryURI := resolveConnectionURI(cfg.Pg)
+	primaryURI := cfg.Pg.URI
 
 	if err := pg.WaitReady(context.Background(), primaryURI, time.Duration(cfg.Pg.ConnectTimeout)*time.Second); err != nil {
 		return fmt.Errorf("connecting to postgres: %w", err)

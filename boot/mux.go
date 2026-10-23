@@ -44,11 +44,9 @@ import (
 // route.NewStaticHandler generates and injects it itself rather than this
 // package mounting NonceMiddleware unconditionally on every static request. A well-known query is invoked through
 // /rel, not a separate route ; wkReg is handed to server.NewRelHandler
-// directly. Both cmd/rel/main.go (startup) and boot/reload.go's Reload
-// (every SIGUSR1) call this with a freshly built *route.Registry and
-// *wellknown.Registry — registry-building itself stays each call site's
-// own responsibility.
-func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) (http.Handler, error) {
+// directly. Build is its only caller outside tests, for startup and
+// every reload alike.
+func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) http.Handler {
 	staticSrv := static.New(cfg.Http)
 	var staticDirs []string
 	if staticSrv != nil {
@@ -93,5 +91,5 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 		logger.Debug("boot: no http.static.path directory found, static fallback is not mounted")
 	}
 
-	return logging.RequestMiddleware(websec.Middleware(cfg)(mux)), nil
+	return logging.RequestMiddleware(websec.Middleware(cfg)(mux))
 }

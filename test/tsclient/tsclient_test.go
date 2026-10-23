@@ -74,10 +74,7 @@ func TestTypeScriptClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mux, err := boot.BuildMux(db, cfg, reg, wkReg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mux := boot.BuildMux(db, cfg, reg, wkReg, nil)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
