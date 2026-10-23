@@ -46,9 +46,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// A bad typescript.codec is a startup error, not a 400 on every request.
-	if _, err := tsgen.ParseCodec(cfg.TypeScript.Codec); err != nil {
-		logger.Error("invalid typescript.codec", "error", err.Error())
+	// A bad typescript.* value is a startup error, not a failure on every request.
+	if _, err := tsgen.Resolve(cfg, tsgen.Overrides{}); err != nil {
+		logger.Error("invalid typescript configuration", "error", err.Error())
 		os.Exit(1)
 	}
 
@@ -191,16 +191,11 @@ func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
 	}
 
 	// codecOverride is --typescript-codec : it replaces typescript.codec for this export.
-	codec, err := tsgen.ResolveCodec(cfg.TypeScript.Codec, codecOverride)
+	opts, err := tsgen.Resolve(cfg, tsgen.Overrides{Codec: codecOverride})
 	if err != nil {
 		return err
 	}
-
-	generated := tsgen.GenerateDatabaseTS(db, tsgen.Options{
-		Schemas:   tsgen.ParseSchemaList(cfg.TypeScript.Schemas),
-		Blacklist: cfg.Blacklist,
-		Codec:     codec,
-	}, wkReg)
+	generated := tsgen.GenerateDatabaseTS(db, opts, wkReg)
 
 	if out == "-" {
 		_, err := os.Stdout.WriteString(generated)

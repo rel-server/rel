@@ -123,12 +123,3 @@ func (c Codec) pgWireMembers() []string {
 	}
 	return out
 }
-
-// ResolveCodec is the codec options of one generated file : the request's `codec` query param when it is not blank
-// (it replaces the configured value, it is not merged into it), otherwise the configured typescript.codec.
-func ResolveCodec(configured, param string) (Codec, error) {
-	if strings.TrimSpace(param) != "" {
-		return ParseCodec(param)
-	}
-	return ParseCodec(configured)
-}

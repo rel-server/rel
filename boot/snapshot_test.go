@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,5 +177,39 @@ func TestReload_MigrationFailureStillRebuilds(t *testing.T) {
 	}
 	if rec := get(reloader.Wrapper, "/hello"); rec.Code != http.StatusOK {
 		t.Errorf("expected the new snapshot to serve, got %d", rec.Code)
+	}
+}
+
+// The helper file is generated with the same typescript.* options as the HTTP endpoint : the
+// configured codec, and only the configured schemas.
+func TestStart_HelperFileHonoursTheTypeScriptConfiguration(t *testing.T) {
+	cfg, helper := snapshotConfig(t)
+	cfg.TypeScript.Codec = "cbor"
+	cfg.TypeScript.Schemas = "public"
+	reloader, err := Start(context.Background(), cfg, testLogger())
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	reloader.CurrentDbInfos().Pool.Close()
+	raw, err := os.ReadFile(helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "// Codec: cbor,date,bigint\n") || !strings.Contains(string(raw), "fn_hello") {
+		t.Errorf("expected the cbor codec and the public schema's function, got:\n%.400s", raw)
+	}
+
+	cfg.TypeScript.Schemas = "elsewhere"
+	reloader, err = Start(context.Background(), cfg, testLogger())
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	reloader.CurrentDbInfos().Pool.Close()
+	raw, err = os.ReadFile(helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "fn_hello") {
+		t.Error("a schema outside typescript.schemas must not be exported")
 	}
 }
