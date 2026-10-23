@@ -20,6 +20,7 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
@@ -164,14 +165,14 @@ func writeTemplateResponse(w http.ResponseWriter, r *http.Request, cfg *config.C
 	rlog := logging.FromContext(r.Context()).With("module", "route")
 	if templates == nil || templates.set == nil {
 		rlog.Error("route: no jet.Set available (http.templates.path unset and no static directory either)", "template", templateName)
-		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "template rendering unavailable")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.TemplateError, "template rendering unavailable")
 		return
 	}
 
 	tmpl, err := templates.set.GetTemplate(templateName)
 	if err != nil {
 		rlog.Error("route: loading template", "template", templateName, "error", err.Error())
-		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "loading template")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.TemplateError, "loading template")
 		return
 	}
 
@@ -186,7 +187,7 @@ func writeTemplateResponse(w http.ResponseWriter, r *http.Request, cfg *config.C
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, vars, nil); err != nil {
 		rlog.Error("route: executing template", "template", templateName, "error", err.Error())
-		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "executing template")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.TemplateError, "executing template")
 		return
 	}
 

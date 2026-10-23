@@ -28,6 +28,7 @@ import (
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/relexec"
@@ -204,3 +205,25 @@ func (e *Error) Error() string {
 	return e.Message + ": " + e.Err.Error()
 }
 func (e *Error) Unwrap() error { return e.Err }
+
+// HTTPError is the response err deserves : e.HTTP() for a *Error, a plain 500 for anything else.
+func HTTPError(err error) *httperr.Error {
+	if e, ok := errors.AsType[*Error](err); ok {
+		return e.HTTP()
+	}
+	return httperr.Server(errcode.Internal, err)
+}
+
+// HTTP is the response e deserves : a Postgres error is classified, a 4xx tells the client Message,
+// and any other 5xx tells it Message too but logs Err.
+func (e *Error) HTTP() *httperr.Error {
+	if e.Postgres {
+		if he, ok := httperr.FromPostgres(e.Err); ok {
+			return he
+		}
+	}
+	if e.Status < http.StatusInternalServerError {
+		return &httperr.Error{Status: e.Status, Code: e.Code, Err: errors.New(e.Message)}
+	}
+	return &httperr.Error{Status: e.Status, Code: e.Code, Err: e.Err, Public: e.Message}
+}

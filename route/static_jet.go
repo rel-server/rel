@@ -18,6 +18,7 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
@@ -99,7 +100,7 @@ func renderStaticJet(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 	}
 	if templates == nil || templates.set == nil {
 		rlog.Error("route: static .jet candidate but no jet.Set available", "path", jc.AbsPath)
-		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "template rendering unavailable")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.TemplateError, "template rendering unavailable")
 		return
 	}
 
@@ -107,7 +108,7 @@ func renderStaticJet(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 	tmpl, err := templates.set.GetTemplate(name)
 	if err != nil {
 		rlog.Error("route: loading static template", "template", name, "error", err.Error())
-		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "loading template")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.TemplateError, "loading template")
 		return
 	}
 
@@ -115,7 +116,7 @@ func renderStaticJet(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 	nonce, nerr := websec.NewNonce()
 	if nerr != nil {
 		rlog.Error("route: generating nonce", "error", nerr.Error())
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
 	ctx := websec.WithNonce(r.Context(), nonce)
@@ -127,7 +128,7 @@ func renderStaticJet(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 	reqPayload, rerr := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, nil, nil, nil, nil, "")
 	if rerr != nil {
 		rlog.Error("route: building Req", "error", rerr.Error())
-		writePlainError(w, http.StatusInternalServerError, errcode.Internal, "internal error")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.Internal, "internal error")
 		return
 	}
 	var reqAny any
@@ -141,7 +142,7 @@ func renderStaticJet(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, vars, nil); err != nil {
 		rlog.Error("route: executing static template", "template", name, "error", err.Error())
-		writePlainError(w, http.StatusInternalServerError, errcode.TemplateError, "executing template")
+		httperr.WritePlain(w, http.StatusInternalServerError, errcode.TemplateError, "executing template")
 		return
 	}
 

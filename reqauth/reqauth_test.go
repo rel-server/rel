@@ -3,12 +3,14 @@ package reqauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -309,5 +311,29 @@ func TestRelexecBegin_FailureIsARelexecError(t *testing.T) {
 	}
 	if !strings.Contains(e.Err.Error(), "no role configured") {
 		t.Errorf("message = %q", e.Err)
+	}
+}
+
+func TestError_HTTP(t *testing.T) {
+	pgCause := fmt.Errorf("applying role: %w", &pgconn.PgError{Code: "42501", Message: "permission denied to set role"})
+
+	he := (&Error{Status: 500, Code: errcode.Internal, Message: "applying role", Err: pgCause, Postgres: true}).HTTP()
+	if he.Status != 403 || he.Code != "PG_PERMISSION_DENIED" || he.Detail == nil {
+		t.Errorf("a Postgres cause is classified, got %d %s", he.Status, he.Code)
+	}
+
+	he = (&Error{Status: 401, Code: errcode.AnonymousDisabled, Message: "anonymous access is disabled"}).HTTP()
+	if he.Status != 401 || he.PlainText(false) != "anonymous access is disabled" {
+		t.Errorf("a 4xx tells the client its message, got %d %q", he.Status, he.PlainText(false))
+	}
+
+	cause := errors.New("secret path")
+	he = (&Error{Status: 500, Code: errcode.Internal, Message: "applying role", Err: cause}).HTTP()
+	if he.Err != cause || he.PlainText(true) != "applying role" {
+		t.Errorf("a 5xx keeps its cause for the logs and shows its message, got %q", he.PlainText(true))
+	}
+
+	if got := HTTPError(errors.New("not ours")); got.Status != 500 || got.Code != errcode.Internal {
+		t.Errorf("a foreign error is a 500, got %d %s", got.Status, got.Code)
 	}
 }

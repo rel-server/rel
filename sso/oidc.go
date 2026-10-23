@@ -19,6 +19,7 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/route"
 )
@@ -165,30 +166,30 @@ func mountOidc(router chi.Router, db *pg.DbInfos, cfg *config.Config, templates 
 func oidcLoginHandler(e *oidcEndpoint, redirectURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !e.ensureReady(r.Context(), redirectURL) {
-			writePlainError(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this OIDC provider's discovery has not succeeded yet — try again shortly")
+			httperr.WritePlain(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this OIDC provider's discovery has not succeeded yet — try again shortly")
 			return
 		}
 		oauthCfg, _, _ := e.snapshot()
 
 		loginState, err := decodeLoginState(r.URL.RawQuery)
 		if err != nil {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoBadRequest, "decoding login state")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoBadRequest, "decoding login state")
 			return
 		}
 		encodedState, err := encodeStateForTransit(loginState)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "encoding login state")
+			httperr.WritePlain(w, http.StatusInternalServerError, errcode.SsoInternal, "encoding login state")
 			return
 		}
 
 		csrfToken, err := randomHex(16)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "generating state")
+			httperr.WritePlain(w, http.StatusInternalServerError, errcode.SsoInternal, "generating state")
 			return
 		}
 		nonce, err := randomHex(16)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "generating nonce")
+			httperr.WritePlain(w, http.StatusInternalServerError, errcode.SsoInternal, "generating nonce")
 			return
 		}
 
@@ -218,14 +219,14 @@ func oidcCallbackHandler(e *oidcEndpoint, db *pg.DbInfos, cfg *config.Config, te
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, provider, verifier := e.snapshot()
 		if provider == nil || verifier == nil {
-			writePlainError(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this OIDC provider's discovery has not succeeded yet")
+			httperr.WritePlain(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this OIDC provider's discovery has not succeeded yet")
 			return
 		}
 		oauthCfg, _, _ := e.snapshot()
 
 		cookie, err := r.Cookie(oidcStateCookiePrefix + e.name)
 		if err != nil {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoBadState, "missing state cookie")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoBadState, "missing state cookie")
 			return
 		}
 		http.SetCookie(w, &http.Cookie{Name: oidcStateCookiePrefix + e.name, Value: "", Path: callbackPath(e.name), MaxAge: -1})
@@ -237,18 +238,18 @@ func oidcCallbackHandler(e *oidcEndpoint, db *pg.DbInfos, cfg *config.Config, te
 		// "no app state was ever appended," same as before this feature existed.
 		gotCsrf, encodedAppState, _ := strings.Cut(r.URL.Query().Get("state"), ".")
 		if !ok || gotCsrf != wantCsrf {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoBadState, "state mismatch")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoBadState, "state mismatch")
 			return
 		}
 		loginState, err := decodeStateFromTransit(encodedAppState)
 		if err != nil {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoBadState, "decoding returned state")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoBadState, "decoding returned state")
 			return
 		}
 
 		code := r.URL.Query().Get("code")
 		if code == "" {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoBadRequest, "missing code")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoBadRequest, "missing code")
 			return
 		}
 
@@ -257,35 +258,35 @@ func oidcCallbackHandler(e *oidcEndpoint, db *pg.DbInfos, cfg *config.Config, te
 
 		token, err := oauthCfg.Exchange(ctx, code)
 		if err != nil {
-			writePlainError(w, http.StatusBadGateway, errcode.SsoTokenExchangeFailed, "exchanging authorization code")
+			httperr.WritePlain(w, http.StatusBadGateway, errcode.SsoTokenExchangeFailed, "exchanging authorization code")
 			return
 		}
 
 		rawIDToken, ok := token.Extra("id_token").(string)
 		if !ok {
-			writePlainError(w, http.StatusBadGateway, errcode.SsoNoIdToken, "token response had no id_token")
+			httperr.WritePlain(w, http.StatusBadGateway, errcode.SsoNoIdToken, "token response had no id_token")
 			return
 		}
 		idToken, err := verifier.Verify(ctx, rawIDToken)
 		if err != nil {
-			writePlainError(w, http.StatusBadGateway, errcode.SsoInvalidIdToken, "verifying id_token")
+			httperr.WritePlain(w, http.StatusBadGateway, errcode.SsoInvalidIdToken, "verifying id_token")
 			return
 		}
 		if idToken.Nonce != wantNonce {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoBadNonce, "nonce mismatch")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoBadNonce, "nonce mismatch")
 			return
 		}
 
 		claims := map[string]any{}
 		if err := idToken.Claims(&claims); err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "decoding id_token claims")
+			httperr.WritePlain(w, http.StatusInternalServerError, errcode.SsoInternal, "decoding id_token claims")
 			return
 		}
 
 		if e.cfg.FetchUserinfo {
 			userInfo, err := provider.UserInfo(ctx, oauthCfg.TokenSource(ctx, token))
 			if err != nil {
-				writePlainError(w, http.StatusBadGateway, errcode.SsoUserinfoFailed, "fetching userinfo")
+				httperr.WritePlain(w, http.StatusBadGateway, errcode.SsoUserinfoFailed, "fetching userinfo")
 				return
 			}
 			var uiClaims map[string]any

@@ -21,6 +21,7 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/route"
 )
@@ -174,22 +175,22 @@ func resolveSamlKeyPair(name string, p config.SamlProvider, cfg *config.Config, 
 func samlLoginHandler(e *samlEndpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !e.ensureReady(r.Context()) {
-			writePlainError(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this SAML IdP's metadata has not resolved yet — try again shortly")
+			httperr.WritePlain(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this SAML IdP's metadata has not resolved yet — try again shortly")
 			return
 		}
 		loginState, err := decodeLoginState(r.URL.RawQuery)
 		if err != nil {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoBadRequest, "decoding login state")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoBadRequest, "decoding login state")
 			return
 		}
 		relayState, err := encodeRelayState(loginState)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "encoding login state")
+			httperr.WritePlain(w, http.StatusInternalServerError, errcode.SsoInternal, "encoding login state")
 			return
 		}
 		redirectURL, err := e.sp.MakeRedirectAuthenticationRequest(relayState)
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "building SAML AuthnRequest")
+			httperr.WritePlain(w, http.StatusInternalServerError, errcode.SsoInternal, "building SAML AuthnRequest")
 			return
 		}
 		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
@@ -205,16 +206,16 @@ func samlLoginHandler(e *samlEndpoint) http.HandlerFunc {
 func samlAcsHandler(e *samlEndpoint, db *pg.DbInfos, cfg *config.Config, templates *route.TemplateSet) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !e.ensureReady(r.Context()) {
-			writePlainError(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this SAML IdP's metadata has not resolved yet")
+			httperr.WritePlain(w, http.StatusServiceUnavailable, errcode.SsoNotReady, "this SAML IdP's metadata has not resolved yet")
 			return
 		}
 		if err := r.ParseForm(); err != nil {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoBadRequest, "parsing SAML response form")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoBadRequest, "parsing SAML response form")
 			return
 		}
 		assertion, err := e.sp.ParseResponse(r, nil)
 		if err != nil {
-			writePlainError(w, http.StatusBadRequest, errcode.SsoSamlInvalidResponse, "invalid SAML response")
+			httperr.WritePlain(w, http.StatusBadRequest, errcode.SsoSamlInvalidResponse, "invalid SAML response")
 			return
 		}
 
@@ -259,7 +260,7 @@ func samlMetadataHandler(e *samlEndpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		buf, err := xml.MarshalIndent(e.sp.Metadata(), "", "  ")
 		if err != nil {
-			writePlainError(w, http.StatusInternalServerError, errcode.SsoInternal, "encoding SP metadata")
+			httperr.WritePlain(w, http.StatusInternalServerError, errcode.SsoInternal, "encoding SP metadata")
 			return
 		}
 		w.Header().Set("Content-Type", "application/samlmetadata+xml")

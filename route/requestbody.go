@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 )
 
 // requestPart is specs/route.md ## Request bodies' RequestPart : parts_
@@ -71,14 +72,14 @@ func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64, configKe
 // *badBodyError is always 400, anything else is a generic 500.
 func writeRequestBodyError(ctx context.Context, w http.ResponseWriter, err error) {
 	if rbe, ok := errors.AsType[*requestBodyError](err); ok {
-		writePlainError(w, rbe.status, rbe.code, rbe.message)
+		httperr.WritePlain(w, rbe.status, rbe.code, rbe.message)
 		return
 	}
 	if bbe, ok := errors.AsType[*badBodyError](err); ok {
-		writePlainError(w, http.StatusBadRequest, errcode.MalformedBody, bbe.Error())
+		httperr.WritePlain(w, http.StatusBadRequest, errcode.MalformedBody, bbe.Error())
 		return
 	}
-	writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "reading request body", err)
+	httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "reading request body", err)
 }
 
 // resolvedRequestBody is everything handleRoute needs to build

@@ -12,7 +12,7 @@ import (
 	"net/http"
 
 	"github.com/rel-server/rel/errcode"
-	"github.com/rel-server/rel/logging"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/pgerr"
 	"github.com/samber/oops"
 )
@@ -27,80 +27,24 @@ type errorResponse struct {
 	Stacktrace []string      `json:"stacktrace,omitempty"`
 }
 
-// requestError carries what writeError needs : status, code, and — for a
-// classified *pgconn.PgError — the tier/Detail deciding what's safe to show.
-type requestError struct {
-	status   int
-	code     errcode.Code
-	err      error
-	pgTier   pgerr.Tier
-	pgDetail *pgerr.Detail
-}
-
-func (e *requestError) Error() string { return e.err.Error() }
-func (e *requestError) Unwrap() error { return e.err }
-
-// badRequest/serverError : 400 for a problem with the query/data itself,
-// 500 for everything else (error-handling.md ## Error codes).
-func badRequest(code errcode.Code, err error) *requestError {
-	return &requestError{status: http.StatusBadRequest, code: code, err: err}
-}
-func serverError(code errcode.Code, err error) *requestError {
-	return &requestError{status: http.StatusInternalServerError, code: code, err: err}
-}
-
-// unauthorized is authentication.md "## Roles ## Anonymous role existence" :
-// 401 when anonymous access is disabled outright.
-func unauthorized(code errcode.Code, err error) *requestError {
-	return &requestError{status: http.StatusUnauthorized, code: code, err: err}
-}
-
-// methodNotAllowed is 405 ; the caller sets the Allow header itself before
-// calling writeError, since requestError carries no header-writing hook.
-func methodNotAllowed(err error) *requestError {
-	return &requestError{status: http.StatusMethodNotAllowed, code: errcode.MethodNotAllowed, err: err}
-}
-
-// pgClassified is the one constructor that populates pgTier/pgDetail, for
-// a Postgres execution error needing ## Postgres error detail's tiering.
-func pgClassified(status int, code errcode.Code, tier pgerr.Tier, detail *pgerr.Detail, err error) *requestError {
-	return &requestError{status: status, code: code, err: err, pgTier: tier, pgDetail: detail}
-}
-
 // writeError writes err as the RelErrorResponse envelope (error-handling.md) ;
 // only clean if nothing has been written to w yet, invalid JSON otherwise.
 // Takes ctx solely to log a server-side (5xx) failure in full — specs/
 // logging.md ## Error logging — independently of what dev/tier let the
-// client itself see.
+// client itself see. An err that is not an *httperr.Error is a 500.
 func writeError(ctx context.Context, w http.ResponseWriter, err error, dev bool) {
-	status := http.StatusInternalServerError
-	code := errcode.Internal
-	var pgTier pgerr.Tier
-	var pgDetail *pgerr.Detail
-
-	if reqErr, ok := errors.AsType[*requestError](err); ok {
-		status = reqErr.status
-		code = reqErr.code
-		pgTier = reqErr.pgTier
-		pgDetail = reqErr.pgDetail
+	e, ok := errors.AsType[*httperr.Error](err)
+	if !ok {
+		e = httperr.Server(errcode.Internal, err)
 	}
+	e.Log(ctx)
 
-	if status >= 500 {
-		logAttrs := append([]any{"code", code, "status", status}, logging.Error(err)...)
-		if pgDetail != nil {
-			logAttrs = append(logAttrs, "pg_error", pgDetail)
-		}
-		logging.FromContext(ctx).Error("request failed", logAttrs...)
-	}
-
-	resp := errorResponse{Status: "error", Code: code}
+	resp := errorResponse{Status: "error", Code: e.Code}
 
 	switch {
-	case pgDetail != nil:
-		// Never err.Error() : the wrapped chain can embed rel's own
-		// generated SQL (query/write_dml.go), regardless of tier.
-		resp.Error, resp.PgError = pgResponseText(code, pgTier, pgDetail, dev)
-	case status >= 500:
+	case e.Detail != nil:
+		resp.Error, resp.PgError = e.JSONText(dev)
+	case e.Status >= 500:
 		// Safe-by-default, full detail only under dev : a wrapped chain
 		// can embed a file path or connection detail.
 		if dev {
@@ -114,38 +58,16 @@ func writeError(ctx context.Context, w http.ResponseWriter, err error, dev bool)
 		resp.Error = err.Error()
 	}
 
-	if status >= 500 && dev {
+	if e.Status >= 500 && dev {
 		if oopsErr, ok := oops.AsOops(err); ok {
 			resp.Stacktrace = formatStackFrames(oopsErr)
 		}
 	}
 
-	w.Header().Set(errcode.Header, string(code))
+	w.Header().Set(errcode.Header, string(e.Code))
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
+	w.WriteHeader(e.Status)
 	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// pgResponseText builds (error, pg_error) per ## Postgres error detail's
-// three tiers.
-func pgResponseText(code errcode.Code, tier pgerr.Tier, detail *pgerr.Detail, dev bool) (errorText string, pgError *pgerr.Detail) {
-	if pgerr.IsRSCode(code) {
-		// The raised message is the safe, author-chosen text — always shown.
-		return detail.Message, nil
-	}
-	if !pgerr.AllowsDetail(tier, dev) {
-		return pgerr.FallbackMessage(tier), nil
-	}
-	if tier == pgerr.TierConstraintViolation {
-		// A short headline ; pgError (the full Detail) carries the specifics.
-		return "a database constraint was violated", detail
-	}
-	if tier == pgerr.TierRequestInvalid {
-		return detail.Message, detail
-	}
-	// TierPermissionDenied/TierUnclassified with AllowsDetail true — only
-	// reachable under dev.
-	return detail.Message, detail
 }
 
 // formatStackFrames renders oopsErr's frames as ## Stack traces'

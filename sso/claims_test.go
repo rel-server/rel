@@ -1,7 +1,9 @@
 package sso
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -102,5 +104,29 @@ func TestInvokeCallback_RunsAsTheConnectionRoleWithNoClaimsSetting(t *testing.T)
 	}
 	if got.CurrentUser != "postgres" || got.ClaimsSetting != "" {
 		t.Errorf("callback ran as %q with claims setting %q, want the connection role and none", got.CurrentUser, got.ClaimsSetting)
+	}
+}
+
+// A callback function that fails inside Postgres is a server fault : it is logged in full, like
+// every other 5xx, while the client only gets the redacted text.
+func TestInvokeCallback_PostgresServerFaultIsLogged(t *testing.T) {
+	original := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(original) })
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/test/callback", nil)
+	rec := httptest.NewRecorder()
+	invokeCallback(rec, req, testCfg, testDb, nil, "auth.fails", ssoIdentity{Protocol: "oidc", Name: "test"}, nil)
+
+	if rec.Code != http.StatusInternalServerError || rec.Body.String() != "internal error" {
+		t.Fatalf("expected a redacted 500, got %d %q", rec.Code, rec.Body.String())
+	}
+	var line map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(bytes.SplitN(buf.Bytes(), []byte("\n"), 2)[0]), &line); err != nil {
+		t.Fatalf("expected a log line, got %q: %v", buf.String(), err)
+	}
+	if line["msg"] != "request failed" || line["pg_error"] == nil {
+		t.Errorf("expected a \"request failed\" line carrying pg_error, got %#v", line)
 	}
 }

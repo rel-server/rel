@@ -2,7 +2,7 @@
 // PG_* family and ## Postgres error detail's tiered field allow-list —
 // additive to rscode.go's RSxxx handling, not a replacement : RSStatus
 // keeps its existing signature and its three existing call sites
-// (route/response.go, static/static.go, server's check_session path)
+// (httperr, static/static.go, server's check_session path)
 // untouched. Classify is the new, broader entry point for a write/read
 // execution error that may or may not be RSxxx.
 package pgerr
