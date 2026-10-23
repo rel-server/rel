@@ -9,10 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pgerr"
@@ -162,44 +160,4 @@ func formatStackFrames(oopsErr oops.OopsError) []string {
 		out[i] = fmt.Sprintf("%s:%d %s", f.File, f.Line, f.Function)
 	}
 	return out
-}
-
-// streamRows writes rows as a manually streamed JSON array (## Response
-// Shape) ; a failure peeking the first row (before "[") wraps as *cleanStreamError.
-func streamRows(w io.Writer, rows pgx.Rows, cleanErrorPossible bool) error {
-	hasFirst := rows.Next()
-	if err := rows.Err(); err != nil {
-		if cleanErrorPossible {
-			return &cleanStreamError{err}
-		}
-		return err
-	}
-	if !hasFirst {
-		_, err := w.Write([]byte("[]"))
-		return err
-	}
-
-	if _, err := w.Write([]byte("[")); err != nil {
-		return err
-	}
-	for {
-		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
-			return err
-		}
-		if _, err := w.Write(raw); err != nil {
-			return err
-		}
-		if !rows.Next() {
-			break
-		}
-		if _, err := w.Write([]byte(",")); err != nil {
-			return err
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	_, err := w.Write([]byte("]"))
-	return err
 }
