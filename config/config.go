@@ -613,6 +613,12 @@ type Pg struct {
 	// pool used once at startup for reload.cmd/schema reading.
 	PoolSize int
 
+	// NoticesLevel is pg.notices.level, default "warning" ("notice" if Dev) :
+	// the least severe Postgres notice rel logs from its own connections ;
+	// off, warning, notice, info or debug. dmut's connection is separate and
+	// always logs its notices.
+	NoticesLevel string
+
 	// ConnectTimeout is pg.connect_timeout (seconds, default
 	// DefaultPgConnectTimeout) : how long startup waits for Postgres to
 	// accept connections before giving up. 0 means a single attempt.

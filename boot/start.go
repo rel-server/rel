@@ -33,7 +33,7 @@ func Start(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*Reloa
 	}
 
 	// Introspection, reload.cmd and the serving pool all use this same URI (config.PgQuery).
-	db, err := pg.NewInfosAdminQuery(uri, uri, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole)
+	db, err := pg.NewInfosAdminQuery(uri, uri, cfg.Pg.PoolSize, cfg.Pg.Query.AnonymousRole, pg.WithNoticeLevel(cfg.Pg.NoticesLevel))
 	if err != nil {
 		return nil, oops.With("target", target).Wrapf(err, "connecting to postgres")
 	}

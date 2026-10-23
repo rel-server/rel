@@ -90,7 +90,7 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	} else {
 		// Reintrospect, reusing the EXISTING request-serving pool
 		// (pg.ReIntrospect re-checks anonymous-role existence internally).
-		newDb, err := pg.ReIntrospect(ctx, rl.PrimaryURI, oldDb.Pool, rl.Cfg.Pg.Query.AnonymousRole)
+		newDb, err := pg.ReIntrospect(ctx, rl.PrimaryURI, oldDb.Pool, rl.Cfg.Pg.Query.AnonymousRole, pg.WithNoticeLevel(rl.Cfg.Pg.NoticesLevel))
 		if err != nil {
 			rl.Logger.Error("reload: reintrospection failed, resuming under the old schema", "error", err.Error())
 		} else {

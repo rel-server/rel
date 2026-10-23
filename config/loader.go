@@ -611,6 +611,11 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 
 	// specs/complex-query.md ## Availability : each defaults to Dev, same
 	// "true if dev enabled" rule as http.typescript.enable below.
+	noticesDefault := "warning"
+	if cfg.Dev {
+		noticesDefault = "notice"
+	}
+	cfg.Pg.NoticesLevel = root.GetStringOrDefault("pg.notices.level", noticesDefault)
 	cfg.Pg.Query.AllowCount = root.GetBoolOrDefault("pg.query.allow_count", cfg.Dev)
 	cfg.Pg.Query.AllowStats = root.GetBoolOrDefault("pg.query.allow_stats", cfg.Dev)
 	cfg.Pg.Query.AllowQueryPlan = root.GetBoolOrDefault("pg.query.allow_query_plan", cfg.Dev)

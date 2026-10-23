@@ -23,8 +23,9 @@ package config
 func Test() *Config {
 	return &Config{
 		Pg: Pg{
-			User:     "postgres",
-			Password: "postgres",
+			User:         "postgres",
+			Password:     "postgres",
+			NoticesLevel: "off",
 			Query: PgQuery{
 				MaxDepth: DefaultMaxDepth,
 			},

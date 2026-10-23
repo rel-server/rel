@@ -1055,3 +1055,22 @@ func TestLoad_InlineConfig_VarsAreNotReportedAsUnusedKeys(t *testing.T) {
 		t.Errorf("inline document must not leave a config.* key in the tree: %v", k.All())
 	}
 }
+
+func TestLoad_PgNoticesLevel_DefaultFollowsDev(t *testing.T) {
+	for _, c := range []struct{ toml, want string }{
+		{"", "warning"},
+		{"dev = true\n", "notice"},
+		{"dev = true\npg.notices.level = \"off\"\n", "off"},
+	} {
+		t.Chdir(t.TempDir())
+		// top-level keys must precede the [jwt] table
+		p := writeFile(t, t.TempDir(), "rel.toml", c.toml+"[jwt]\nsecret = \"fixed-test-secret\"\n")
+		cfg, err := Load([]string{"--config=" + p})
+		if err != nil {
+			t.Fatalf("Load(%q): %v", c.toml, err)
+		}
+		if cfg.Pg.NoticesLevel != c.want {
+			t.Errorf("%q: pg.notices.level = %q, want %q", c.toml, cfg.Pg.NoticesLevel, c.want)
+		}
+	}
+}

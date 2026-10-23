@@ -101,8 +101,12 @@ func NewInfos(uri string) (*DbInfos, error) {
 // anonymousRole is pg.query.anonymous_role's configured value, checked
 // against pg_roles on the introspection connection to fill the returned
 // *DbInfos' AnonymousRoleExists. Empty leaves it false.
-func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole string) (*DbInfos, error) {
-	db, err := introspect(context.Background(), primaryURI, anonymousRole)
+func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole string, opts ...Option) (*DbInfos, error) {
+	o, err := applyOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	db, err := introspect(context.Background(), primaryURI, anonymousRole, o)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +115,7 @@ func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole
 	if err != nil {
 		return nil, oops.Wrapf(err, "failed to parse query pool connection string")
 	}
+	queryPoolConfig.ConnConfig.OnNotice = o.notices
 	if poolSize > 0 {
 		queryPoolConfig.MaxConns = int32(poolSize)
 	}
@@ -134,8 +139,12 @@ func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole
 // ones at once and busy ones when they are released. A connection holds temp tables built
 // for the previous schema (the write path's, query/write_temp.go), and a fresh one holds none.
 // The caller must have no request running, which is what a reload's maintenance mode guarantees.
-func ReIntrospect(ctx context.Context, primaryURI string, pool *pgxpool.Pool, anonymousRole string) (*DbInfos, error) {
-	db, err := introspect(ctx, primaryURI, anonymousRole)
+func ReIntrospect(ctx context.Context, primaryURI string, pool *pgxpool.Pool, anonymousRole string, opts ...Option) (*DbInfos, error) {
+	o, err := applyOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	db, err := introspect(ctx, primaryURI, anonymousRole, o)
 	if err != nil {
 		return nil, err
 	}
@@ -146,8 +155,13 @@ func ReIntrospect(ctx context.Context, primaryURI string, pool *pgxpool.Pool, an
 
 // introspect is NewInfosAdminQuery's/ReIntrospect's shared body. Pool is
 // left unset — each caller assigns its own afterward.
-func introspect(ctx context.Context, primaryURI string, anonymousRole string) (*DbInfos, error) {
-	introspectPool, err := pgxpool.New(ctx, primaryURI)
+func introspect(ctx context.Context, primaryURI string, anonymousRole string, o *options) (*DbInfos, error) {
+	introspectConfig, err := pgxpool.ParseConfig(primaryURI)
+	if err != nil {
+		return nil, oops.Wrapf(err, "failed to parse introspection connection string")
+	}
+	introspectConfig.ConnConfig.OnNotice = o.notices
+	introspectPool, err := pgxpool.NewWithConfig(ctx, introspectConfig)
 	if err != nil {
 		return nil, oops.Wrapf(err, "failed to create introspection pool")
 	}
