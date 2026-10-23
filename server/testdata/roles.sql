@@ -25,3 +25,9 @@ create function current_claims_setting() returns jsonb language sql as $$
   select current_setting('rel.jwt.claims', true)::jsonb;
 $$;
 grant execute on function current_claims_setting() to "~anonymous", authenticated_user;
+
+-- A unique constraint that is only checked at commit : a write that breaks it succeeds statement
+-- by statement and fails when the transaction commits.
+create table deferred_check (id int primary key, n int not null);
+alter table deferred_check add constraint deferred_check_n_unique unique (n) deferrable initially deferred;
+grant all privileges on deferred_check to "~anonymous", authenticated_user;

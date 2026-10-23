@@ -37,6 +37,10 @@ type Options struct {
 	// Format is the response representation, from cborenc.Negotiate. The zero value is JSON.
 	Format cborenc.Format
 	Policy Policy
+	// Buffer is how many bytes of the response Execute holds back before writing any, so that a
+	// failure while a response that small is produced, or while it is committed, is answered with
+	// an error instead of a cut-short body. 0 holds nothing back.
+	Buffer int
 }
 
 // Fault says whose mistake an Error is: the request's (an HTTP caller maps it to a 4xx) or the
@@ -130,6 +134,7 @@ type Prepared struct {
 	format   query.OutputFormat
 	wire     cborenc.Format
 	policy   Policy
+	buffer   int
 	anyWrite bool
 	targets  []string
 }
@@ -145,7 +150,7 @@ func (p *Prepared) Targets() []string { return p.targets }
 // well-known ones. Nothing is sent to the database. It returns an *Error, whose Fault says
 // whether the query itself is wrong.
 func Prepare(rctx *query.ResolveContext, wk *wellknown.Registry, items []query.ParsedQuery, opts Options) (*Prepared, error) {
-	p := &Prepared{db: rctx.Db, format: query.FormatJSON, wire: opts.Format, policy: opts.Policy}
+	p := &Prepared{db: rctx.Db, format: query.FormatJSON, wire: opts.Format, policy: opts.Policy, buffer: opts.Buffer}
 	if opts.Format != cborenc.JSON {
 		p.format = query.FormatCBOR
 	}
@@ -264,27 +269,20 @@ func targetIdentifier(root *query.QueryNode) string {
 // has to.
 type Begin func(ctx context.Context, conn *pgxpool.Conn) error
 
-// countingWriter counts what goes through it, so an Error can say whether the response started.
-type countingWriter struct {
-	w io.Writer
-	n int
-}
-
-func (c *countingWriter) Write(b []byte) (int, error) {
-	n, err := c.w.Write(b)
-	c.n += n
-	return n, err
-}
-
 // Execute runs the items on conn, in one transaction started by begin, and writes the response
-// body to w: the item's result, or a JSON array/CBOR array of them for several items. It commits
-// after the last byte is written. conn belongs to the caller, who must release it.
+// body to w: the item's result, or a JSON array/CBOR array of them for several items. conn
+// belongs to the caller, who must release it.
+//
+// The first Options.Buffer bytes of the body are held back until the transaction is committed, so
+// a response that fits is delivered whole or not at all. A longer one starts streaming once the
+// buffer is full and is committed after its last byte.
 //
 // Execute returns an *Error. When Error.Started is false nothing was written to w and the caller
 // can still answer with an error; otherwise the body is cut short. The transaction is rolled back
 // on every error. A Prepared is executed once.
 func (p *Prepared) Execute(ctx context.Context, conn *pgxpool.Conn, begin Begin, w io.Writer) (err error) {
-	cw := &countingWriter{w: w}
+	cw := newHoldWriter(w, p.buffer)
+	defer cw.Close()
 	begun := false
 	defer func() {
 		if err == nil {
@@ -298,7 +296,7 @@ func (p *Prepared) Execute(ctx context.Context, conn *pgxpool.Conn, begin Begin,
 			e = NewError(ServerFault, errcode.Internal, err)
 			err = e
 		}
-		e.Started = cw.n > 0
+		e.Started = cw.released
 	}()
 
 	// A timestamp is answered as an instant in the connection's time zone : a zone rel cannot load is
@@ -366,27 +364,25 @@ func (p *Prepared) Execute(ctx context.Context, conn *pgxpool.Conn, begin Begin,
 				return err
 			}
 		}
-		if err := writeItemResponse(ctx, cw, conn, &p.items[i], statements[i], args[i], envelopes[i], writes.buffered[i], multi, i); err != nil {
+		if err := writeItemResponse(ctx, cw, conn, &p.items[i], statements[i], args[i], envelopes[i], writes.buffered[i]); err != nil {
 			// A failing read rolls the whole transaction back too.
-			cause := err
-			if cse, ok := errors.AsType[*cleanStreamError](err); ok {
-				cause = cse.Unwrap()
-			}
-			e := itemError(i, ServerFault, errcode.Internal, cause)
+			e := itemError(i, ServerFault, errcode.Internal, err)
 			e.Postgres = true
 			return e
 		}
 	}
 
-	// The single commit for the whole request, after the body was written : a failure now leaves a
-	// complete-looking response behind.
+	// The single commit for the whole request. A body longer than the buffer is already on its way,
+	// so a failure here cuts it short ; a shorter one is still held and is replaced by the error.
 	if _, err := conn.Exec(ctx, "commit"); err != nil {
 		return NewError(ServerFault, errcode.TransactionError, fmt.Errorf("commit: %w", err))
 	}
 	if multi && p.format == query.FormatJSON {
-		_, err = cw.Write([]byte("]"))
+		if _, err := cw.Write([]byte("]")); err != nil {
+			return err
+		}
 	}
-	return err
+	return cw.Flush()
 }
 
 // writeState is what the write phase leaves for the read phase.

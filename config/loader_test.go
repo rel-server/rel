@@ -293,6 +293,9 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Http.MaxPartCount != DefaultHttpMaxPartCount {
 		t.Errorf("expected default http.max_part_count=%d, got %d", DefaultHttpMaxPartCount, cfg.Http.MaxPartCount)
 	}
+	if cfg.Http.ResponseBuffer != DefaultHttpResponseBuffer {
+		t.Errorf("expected default http.response_buffer=%d, got %d", DefaultHttpResponseBuffer, cfg.Http.ResponseBuffer)
+	}
 	if cfg.Http.Templates.Path != DefaultHttpTemplatesPath {
 		t.Errorf("expected default http.templates.path=%q, got %q", DefaultHttpTemplatesPath, cfg.Http.Templates.Path)
 	}

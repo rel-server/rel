@@ -223,6 +223,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	prepared, err := relexec.Prepare(&query.ResolveContext{Db: db, Config: cfg}, wkReg, items, relexec.Options{
 		Format: wire,
 		Policy: relexecPolicy(cfg),
+		Buffer: cfg.Http.ResponseBuffer,
 	})
 	if err != nil {
 		writeError(ctx, w, relexecRequestError(err), cfg.Dev)

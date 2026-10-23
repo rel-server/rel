@@ -38,12 +38,9 @@ func copyRaw(rows pgx.Rows) []byte {
 }
 
 // streamRowsCBOR is streamRows for CBOR : an indefinite array, so the rows stream, or an empty definite one.
-func streamRowsCBOR(w io.Writer, rows pgx.Rows, enc *query.ResultEncoder, cleanErrorPossible bool) error {
+func streamRowsCBOR(w io.Writer, rows pgx.Rows, enc *query.ResultEncoder) error {
 	hasFirst := rows.Next()
 	if err := rows.Err(); err != nil {
-		if cleanErrorPossible {
-			return &cleanStreamError{err}
-		}
 		return err
 	}
 	if !hasFirst {

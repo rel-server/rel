@@ -224,6 +224,10 @@ type Http struct {
 	// independent of their total byte size — see ## Request bodies
 	// ### Limits.
 	MaxPartCount int
+	// ResponseBuffer is http.response_buffer, default 65536 : how many bytes of a /rel response
+	// are held back until the transaction has committed, so that a response that small is
+	// delivered whole or replaced by an error. 0 streams from the first byte.
+	ResponseBuffer int
 
 	Functions  HttpFunctions
 	Static     HttpStatic
@@ -458,6 +462,8 @@ const (
 	// http.max_part_count (100).
 	DefaultHttpMaxBodySize  = 10485760
 	DefaultHttpMaxPartCount = 100
+	// DefaultHttpResponseBuffer is http.response_buffer's default (64 KiB).
+	DefaultHttpResponseBuffer = 65536
 	// DefaultHttpTemplatesPath is specs/http-content.md ## Templates'
 	// stated default for http.templates.path.
 	DefaultHttpTemplatesPath = "/template"
