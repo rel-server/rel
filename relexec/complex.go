@@ -1,8 +1,7 @@
 // ComplexQuery support (specs/complex-query.md) : per-item response-shaping
 // flags, their validation/availability gating, and the envelope response
-// writer. Split out of rel.go since handleRel's own flow already carries
-// plenty of state ; kept in the same package since every piece here is
-// wired directly into handleRel's per-item loops.
+// writer. Split out of relexec.go since the execution flow already carries
+// plenty of state ; every piece here is wired directly into its per-item loops.
 package relexec
 
 import (

@@ -76,7 +76,7 @@ func writeBufferedRows(w io.Writer, rows [][]byte) error {
 }
 
 // executeDiscard runs sw for its side effects only, scanning no column —
-// server/rel.go's own answer to a read's "returns": "none" + "rollback".
+// relexec's own answer to a read's "returns": "none" + "rollback".
 func executeDiscard(ctx context.Context, conn *pgxpool.Conn, sw *writer.SQLWriter, args []any) error {
 	logging.FromContext(ctx).Debug("executing read", "sql", sw.String(), "args", args)
 	rows, err := conn.Query(ctx, sw.String(), args...)

@@ -76,7 +76,7 @@ func relFuncError(err error) error {
 // rejectRelWrite enforces specs/templating-2.md ## query functions' "rel()
 // only executes reads" rule — a ComplexQuery/write wrapper (item.Write) is
 // out of scope regardless of whether its own Data is set, mirroring
-// server/rel.go's own isWrite derivation (checked at the parse level, since
+// relexec's own isWrite derivation (checked at the parse level, since
 // QueryNode.WriteMode defaults to a write mode even for a plain read once
 // resolved, and so isn't a reliable signal here).
 func rejectRelWrite(item query.ParsedQuery) error {

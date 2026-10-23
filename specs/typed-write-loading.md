@@ -203,7 +203,7 @@ An insert or upsert writes the keys it generated back into the same row's column
 - After that batch, the connection's pgx type map gets a codec registered for each array type OID. The codec accepts the `rawBinary` parameter type and writes its bytes unchanged in binary format.
 - A temp table exists as long as its connection. A reload resets the pool (`pg.ReIntrospect`) once the schema is read, while no request is running, so a connection never outlives the schema its temp tables were built for. The pool keeps its identity ; only its connections are closed.
 - The grant to `public` lets the role switched to by `SET LOCAL ROLE` read and write the tables. It is checked by a test that writes under a role with no privileges of its own.
-- `PrepareWrite` creates the tables and registers the types. `server/rel.go` calls it before beginning a request's transaction, for every write item ; `ExecuteWriteNode` calls it too, which is enough for a caller holding no transaction. Called inside a transaction for a table that is not yet prepared, it fails.
+- `PrepareWrite` creates the tables and registers the types. `relexec` calls it before beginning a request's transaction, for every write item ; `ExecuteWriteNode` calls it too, which is enough for a caller holding no transaction. Called inside a transaction for a table that is not yet prepared, it fails.
 - Transaction-level connection poolers in front of Postgres are unsupported.
 
 > **Why:** creating a temp table is a catalog write that waits for a WAL flush. Lazy creation moves that cost to the first write per table per connection. Creating the tables of every writable relation at connection setup would cost two catalog entries per relation per connection, a few hundred for a database like the test fixture.

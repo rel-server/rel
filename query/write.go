@@ -85,7 +85,7 @@ type Stat struct {
 // SqlResult is one node's compiled statement text(s) from a `sql` request
 // (specs/complex-query.md ## sql) — at most one of Insert/Update/Upsert/
 // Delete is non-empty per statement kind the node actually ran ; Select is
-// left for server/rel.go to fill in separately (the read-back, outside this
+// left for relexec to fill in separately (the read-back, outside this
 // package's scope).
 type SqlResult struct {
 	Path   []string `json:"path"`
@@ -98,7 +98,7 @@ type SqlResult struct {
 
 // PlanResult is one node's EXPLAIN (ANALYZE, FORMAT JSON) output(s) from a
 // `query_plan` request on a write (specs/complex-query.md ## query_plan) —
-// Select is left for server/rel.go (the read-back, outside this package's
+// Select is left for relexec (the read-back, outside this package's
 // scope).
 type PlanResult struct {
 	Path   []string        `json:"path"`
@@ -109,11 +109,11 @@ type PlanResult struct {
 	Delete json.RawMessage `json:"delete,omitempty"`
 }
 
-// WriteOptions augments ExecuteWriteStateParamsOpts with ComplexQuery's
+// WriteOptions augments ExecuteWriteNode with ComplexQuery's
 // write-side response-shaping flags (specs/complex-query.md). QueryPlan and
 // Stats are mutually exclusive — EXPLAIN ANALYZE's plan-row output leaves no
 // RowsAffected()/RETURNING data for Stats to read ; rejecting the
-// combination is the caller's responsibility (server/rel.go), not enforced
+// combination is the caller's responsibility (relexec), not enforced
 // here.
 type WriteOptions struct {
 	Stats     bool
