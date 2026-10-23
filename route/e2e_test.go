@@ -402,6 +402,63 @@ func TestE2E_StreamUpload_TwoCallFlow(t *testing.T) {
 	}
 }
 
+// TestE2E_StreamUpload_SecondCallSeesClaimsAsReceived : a session due for renewal is renewed (a
+// fresh cookie goes out) but neither call of an upload route sees the new iat/exp : SQL and
+// request.jwt always carry the claims as the request presented them.
+func TestE2E_StreamUpload_SecondCallSeesClaimsAsReceived(t *testing.T) {
+	dir := t.TempDir()
+	cfg := *testCfg
+	cfg.Http.Static.Path = dir
+	cfg.Http.Upload.Dir = "uploads"
+	if err := os.MkdirAll(filepath.Join(dir, "uploads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(testDb, &cfg, testReg, static.New(cfg.Http), nil)
+
+	iat := float64(time.Now().Add(-100 * time.Minute).Unix())
+	token, err := jwtpkg.Sign(cfg.Jwt, jwtpkg.Claims{
+		"role": "app_user", "iat": iat, "exp": float64(time.Now().Add(10 * time.Minute).Unix()), "auth_time": iat,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var body strings.Builder
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("file", "c.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write([]byte("x"))
+	_ = mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/new/stream_claims", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(&http.Cookie{Name: cfg.Jwt.CookieName, Value: token})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	renewed := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cfg.Jwt.CookieName && c.Value != token {
+			renewed = true
+		}
+	}
+	if !renewed {
+		t.Error("expected the session to be renewed")
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body %q: %v", rec.Body.String(), err)
+	}
+	if got["iat"] != iat {
+		t.Errorf("second call saw iat %v, want the received %v", got["iat"], iat)
+	}
+}
+
 func getAccepting(path, accept string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	if accept != "" {

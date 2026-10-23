@@ -15,10 +15,10 @@ import (
 	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
-	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/query"
+	"github.com/rel-server/rel/reqauth"
 	"github.com/rel-server/rel/static"
 	"github.com/rel-server/rel/wellknown"
 )
@@ -74,38 +74,34 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 
 	// Verify (Lifecycle step 2) needs no DB connection — run first, so
 	// anonymity is knowable before anything DB-related happens.
-	claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
-	var role string
+	sess, authErr := reqauth.Authenticate(cfg, db, r)
 
 	// specs/logging.md ## Access logging : fires exactly once, from every
-	// return path (including an early rejection), since role/claims not yet
-	// resolved at that point are simply the zero value.
+	// return path (including an early rejection).
 	defer func() {
 		logging.FromContext(ctx).Info("request",
 			"method", r.Method, "path", r.URL.Path,
 			"status", rec.Status, "response_size", rec.Size, "duration", time.Since(start),
-			"verified", verified, "role", role, "claims", claims,
+			"verified", sess.Verified, "role", sess.Role, "claims", sess.Claims,
 			"function", route.Function.Identifier.String(), "full_control", route.FullControl)
 	}()
 
 	// Both anonymous checks run before the body is read or a connection
 	// acquired, so an unauthorized request never holds one.
-	if !verified {
-		if !db.AnonymousRoleExists {
-			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabled, errcode.AnonymousDisabledMessage)
-			return
-		}
-		if !route.AnonymousAuthorized {
-			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousRouteForbidden, "anonymous access not permitted for this route")
-			return
-		}
+	if authErr != nil {
+		writeAuthError(ctx, w, authErr, cfg.Dev)
+		return
+	}
+	if !sess.Verified && !route.AnonymousAuthorized {
+		writePlainError(w, http.StatusUnauthorized, errcode.AnonymousRouteForbidden, "anonymous access not permitted for this route")
+		return
 	}
 
 	// ## `stream_upload` : a different request flow entirely (the same
 	// function called twice), dispatched before the single-transaction
 	// path below.
 	if route.StreamUpload {
-		handleUploadRoute(w, r, db, cfg, reg, route, staticSrv, templates, verified, claims)
+		handleUploadRoute(w, r, db, cfg, reg, route, staticSrv, templates, sess)
 		return
 	}
 
@@ -121,7 +117,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// nil for the route's own call unless middleware ran and set one (##
 	// Middleware).
 	buildReq := func(reqContext json.RawMessage) ([]byte, error) {
-		return buildRelHttpRequest(r, resolved.BodyJSON, verified, claims, staticInfo, resolved.Parts, reqContext, nil, resolved.SniffedContentType)
+		return buildRelHttpRequest(r, resolved.BodyJSON, sess.Verified, sess.Claims, staticInfo, resolved.Parts, reqContext, nil, resolved.SniffedContentType)
 	}
 
 	reqJSON, err := buildReq(nil)
@@ -142,18 +138,15 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// SET LOCAL ROLE/set_config(..., true) only hold for the current
 	// transaction, so middleware/role-switch/the route call all share one.
 	// Renew (Lifecycle step 4) deliberately waits until AFTER the middleware
-	// chain below decides not to reject — jwt/middleware.go's own doc
-	// comment states the invariant (Renew after Check) ; a revocation
-	// middleware must never hand back a freshly renewed cookie for the very
-	// session it just rejected. Role resolution here reads claims' role
-	// only, which renewal never changes, so using the pre-renewal claims
-	// here is exact, not just adequate.
-	tx, release, resolvedRole, ok := beginRoleScopedTx(ctx, w, db, cfg, claims, verified)
-	if !ok {
+	// chain below decides not to reject : a revocation middleware must never
+	// hand back a freshly renewed cookie for the very session it just
+	// rejected.
+	tx, err := sess.Open(ctx, db.Pool)
+	if err != nil {
+		writeAuthError(ctx, w, err, cfg.Dev)
 		return
 	}
-	role = resolvedRole
-	defer release()
+	defer tx.Release()
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	// ## Middleware : runs after the role switch, same transaction,
@@ -172,14 +165,9 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	}
 	// Renew now that the chain has let the request through — a renewed
 	// cookie never reaches the client for a request middleware just
-	// rejected. Discarded rather than reassigned to claims : the route
-	// function's own request.jwt reflects the ORIGINAL claims, same as
-	// before middleware existed (buildReq's closure captures claims by
-	// reference, so reassigning here would leak the renewal into a request
-	// JSON built after this point).
-	if verified {
-		_ = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
-	}
+	// rejected. The route function's own request.jwt keeps the claims as
+	// received.
+	sess.Renew(w)
 
 	if mergedContext != nil {
 		reqJSON, err = buildReq(mergedContext)
@@ -265,7 +253,7 @@ func buildInvokeCall(route Route, reqJSON []byte, resolved resolvedRequestBody, 
 // invokeSingleReturnRoute calls a non-full-control route, returning its raw
 // (already-final-form : real bytes/text/JSON, never itself JSON-wrapped)
 // return value.
-func invokeSingleReturnRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) ([]byte, error) {
+func invokeSingleReturnRoute(ctx context.Context, tx *reqauth.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) ([]byte, error) {
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
 	logging.FromContext(ctx).Debug("invoking route",
 		"function", route.Function.Identifier.String(), "sql", "select "+call, "args", args)
@@ -282,7 +270,7 @@ func invokeSingleReturnRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSO
 
 // invokeNativeCBORRoute calls a single-return route whose type is not a mimetype one, and returns the value as
 // CBOR, built from Postgres' binary format without going through JSON.
-func invokeNativeCBORRoute(ctx context.Context, tx pgx.Tx, db *pg.DbInfos, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) ([]byte, error) {
+func invokeNativeCBORRoute(ctx context.Context, tx *reqauth.Tx, db *pg.DbInfos, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) ([]byte, error) {
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
 	logging.FromContext(ctx).Debug("invoking route", "function", route.Function.Identifier.String(), "sql", "select "+call, "args", args)
 	rows, err := tx.Query(ctx, "select "+call, append([]any{pgx.QueryResultFormats{pgx.BinaryFormatCode}}, args...)...)
@@ -315,7 +303,7 @@ func invokeNativeCBORRoute(ctx context.Context, tx pgx.Tx, db *pg.DbInfos, route
 // invokeFullControlRoute calls a two-OUT-column route via "select * from
 // fn(...)" — the only way to get its two OUT columns back as two separate
 // result columns rather than one composite value.
-func invokeFullControlRoute(ctx context.Context, tx pgx.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) (envelope, content []byte, err error) {
+func invokeFullControlRoute(ctx context.Context, tx *reqauth.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) (envelope, content []byte, err error) {
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
 	logging.FromContext(ctx).Debug("invoking route",
 		"function", route.Function.Identifier.String(), "sql", "select * from "+call, "args", args)

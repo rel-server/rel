@@ -1,12 +1,6 @@
 // Package jwt implements specs/authentication.md's "# JWT" claims/
-// sign/verify/renew mechanics, plus the Verify/Renew half of the HTTP
-// Lifecycle as genuine net/http middleware (middleware.go) : Verify and
-// Renew need no database, so they live here as ordinary
-// func(http.Handler) http.Handler middleware. Check (the check_session
-// function) and Apply role both need the request's own DB connection,
-// which doesn't exist yet when this middleware runs — those two steps are
-// each calling package's own responsibility (route/handler.go, server/rel.go
-// applyRole), using dbauth for the parts they still share.
+// sign/verify/renew mechanics : the half of the HTTP Lifecycle that needs
+// no database. The reqauth package puts it together with the role switch.
 package jwt
 
 import (
