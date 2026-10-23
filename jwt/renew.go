@@ -38,18 +38,18 @@ func Renew(cfg config.Jwt, claims Claims) Claims {
 }
 
 // RenewIfDue is Lifecycle step 4 in full : ShouldRenew's check, then Renew,
-// signing, and writing the fresh Set-Cookie. Returns claims unchanged when
-// renewal isn't due ; a signing failure is silently ignored — a renewal is
-// a courtesy, never worth failing the request over.
-func RenewIfDue(cfg config.Jwt, w http.ResponseWriter, claims Claims) Claims {
+// signing, and writing the fresh Set-Cookie. Nothing happens when renewal
+// isn't due ; a signing failure is silently ignored — a renewal is a
+// courtesy, never worth failing the request over. The renewed claims are not
+// returned : only the cookie changes, never the claims the request is served with.
+func RenewIfDue(cfg config.Jwt, w http.ResponseWriter, claims Claims) {
 	if !ShouldRenew(cfg, claims) {
-		return claims
+		return
 	}
 	renewed := Renew(cfg, claims)
 	if token, err := Sign(cfg, renewed); err == nil {
 		http.SetCookie(w, CookieValue(cfg, token, renewed, ""))
 	}
-	return renewed
 }
 
 // ClearSessionCookie deletes any Set-Cookie header already written to w,
@@ -63,8 +63,7 @@ func ClearSessionCookie(cfg config.Jwt, w http.ResponseWriter) {
 
 // ResolveRole is Lifecycle step 5's role selection : anonymousRole for an
 // unverified request, the claims' own "role" key otherwise — the same
-// three-line if repeated at every SET LOCAL ROLE call site
-// (server/rel.go's applyRole, route/handler.go, route/upload_handler.go).
+// three-line if reqauth applies for every SET LOCAL ROLE.
 func ResolveRole(anonymousRole string, claims Claims, verified bool) string {
 	if verified {
 		return Role(claims)

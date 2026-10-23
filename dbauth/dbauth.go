@@ -1,11 +1,8 @@
 // Package dbauth is the half of authentication.md's Lifecycle that
 // needs an actual Postgres connection — role-switching and identifier-
-// escaping for Apply role (step 5) — shared between /route
-// (route/handler.go) and /rel (server/rel.go), each wrapping its own
-// request's whole DB work in one transaction, start to finish, on one
-// acquired connection. Verify/Renew (steps 2/4, no DB needed) live in the
-// jwt package instead — see jwt/middleware.go's own doc comment for why the
-// split falls there. Check (step 3) was check_session, a single configured
+// escaping for Apply role (step 5) — used by the reqauth package, which
+// opens every request's role-scoped transaction. Verify/Renew (steps 2/4, no DB
+// needed) live in the jwt package instead. Check (step 3) was check_session, a single configured
 // function ; specs/new-routes.md ## Middleware supersedes it — a session
 // check is now an ordinary middleware function.
 package dbauth

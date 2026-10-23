@@ -23,6 +23,7 @@ import (
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/reqauth"
 	"github.com/rel-server/rel/websec"
 	"github.com/rel-server/rel/wellknown"
 )
@@ -197,8 +198,8 @@ func writeTemplateResponse(w http.ResponseWriter, r *http.Request, cfg *config.C
 }
 
 // bindRelContext stashes this request's rel() context into vars, resolving
-// claims the same way GateMiddleware does (inline jwtpkg.VerifyRequest, not
-// through jwtpkg.Middleware) — a no-op (rel() then reports unavailable) when
+// the user the same way GateMiddleware does (verify only : rel() has no anonymous
+// gate of its own) — a no-op (rel() then reports unavailable) when
 // this TemplateSet has no db/wkReg, e.g. sso's own template set.
 func (ts *TemplateSet) bindRelContext(vars jet.VarMap, r *http.Request, cfg *config.Config) {
 	if ts == nil || ts.db == nil {
@@ -207,7 +208,7 @@ func (ts *TemplateSet) bindRelContext(vars jet.VarMap, r *http.Request, cfg *con
 	claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
 	vars.Set(relCtxVarName, &relRuntimeCtx{
 		ctx: r.Context(), db: ts.db, cfg: cfg, wkReg: ts.wkReg,
-		claims: claims, verified: verified,
+		sess: reqauth.NewSession(cfg, claims, verified),
 	})
 }
 
@@ -219,12 +220,11 @@ const relCtxVarName = "__relctx"
 // relRuntimeCtx is one render's worth of context rel() needs, built once
 // per request/render (bindRelContext) rather than per call within it.
 type relRuntimeCtx struct {
-	ctx      context.Context
-	db       *pg.DbInfos
-	cfg      *config.Config
-	wkReg    *wellknown.Registry
-	claims   jwtpkg.Claims
-	verified bool
+	ctx   context.Context
+	db    *pg.DbInfos
+	cfg   *config.Config
+	wkReg *wellknown.Registry
+	sess  *reqauth.Session
 }
 
 // relRuntimeCtxFrom type-asserts rc (a *relRuntimeCtx resolved off the
@@ -258,7 +258,7 @@ func (ts *TemplateSet) relJetFunc(a jet.Arguments) reflect.Value {
 	if err != nil {
 		a.Panicf("rel(): encoding query: %s", err.Error())
 	}
-	raw, err := executeRelRead(rc.ctx, rc.db, rc.cfg, rc.wkReg, rc.claims, rc.verified, queryJSON)
+	raw, err := executeRelRead(rc.ctx, rc.db, rc.cfg, rc.wkReg, rc.sess, queryJSON)
 	if err != nil {
 		a.Panicf("rel(): %s", err.Error())
 	}

@@ -80,6 +80,21 @@ end;
 $$;
 comment on function fn_new_stream(jsonb) is 'route:: path: "/new/stream", stream_upload: true';
 
+-- Returns the claims each of its two calls was handed, to show a renewal never changes them.
+create function fn_new_stream_claims(req jsonb, out resp jsonb, out content jsonb) returns record language plpgsql as $$
+begin
+  if req->'upload'->'size' is null then
+    resp := jsonb_build_object('upload', jsonb_build_object('path', 'claims.txt', 'overwrite', 'allow', 'mkdir', true));
+    content := req->'jwt';
+  else
+    resp := jsonb_build_object('status', 200, 'content_type', 'application/json');
+    content := req->'jwt';
+  end if;
+end;
+$$;
+comment on function fn_new_stream_claims(jsonb) is 'route:: path: "/new/stream_claims", stream_upload: true';
+grant execute on function fn_new_stream_claims(jsonb) to public;
+
 -- Full-control (two-OUT-column) ordinary route.
 create function fn_new_fullcontrol(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
   select jsonb_build_object('status', 200), jsonb_build_object('ok', true);

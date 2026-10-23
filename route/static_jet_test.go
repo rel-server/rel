@@ -119,6 +119,23 @@ func TestStaticJet_RelReadsRows(t *testing.T) {
 	}
 }
 
+// A function that returns one value, not a set, answers with that value itself, as /rel does.
+func TestStaticJet_RelFunctionReturningOneValueIsTheBareValue(t *testing.T) {
+	dir := t.TempDir()
+	writeStaticJetFile(t, dir, "scalar.txt.jet", `{{ rel(map("function", "fn_cbor_int", "schema", "public")) }}`)
+	handler, _ := newStaticJetHandler(t, dir, "")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/scalar.txt", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != "42" {
+		t.Errorf("expected the bare value 42, got %q", got)
+	}
+}
+
 func TestStaticJet_RelRejectsWrite(t *testing.T) {
 	dir := t.TempDir()
 	writeStaticJetFile(t, dir, "write.json.jet",

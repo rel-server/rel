@@ -13,12 +13,11 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
-	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/reqauth"
 	"github.com/rel-server/rel/static"
 )
 
@@ -94,7 +93,7 @@ func mergeContext(ctx map[string]json.RawMessage, content json.RawMessage) error
 // not [a middleware] terminates the request").
 func runMiddlewareChain(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx *reqauth.Tx,
 	w http.ResponseWriter,
 	r *http.Request,
 	cfg *config.Config,
@@ -199,26 +198,27 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 			return
 		}
 
-		claims, verified := jwtpkg.VerifyRequest(cfg.Jwt, r)
-		if !verified && !db.AnonymousRoleExists {
-			writePlainError(w, http.StatusUnauthorized, errcode.AnonymousDisabled, errcode.AnonymousDisabledMessage)
+		ctx := r.Context()
+		sess, err := reqauth.Authenticate(cfg, db, r)
+		if err != nil {
+			writeAuthError(ctx, w, err, cfg.Dev)
 			return
 		}
 
-		// No renewal here : /rel's own resolveClaimsAndRole renews after this gate
-		// passes (a second renewal here would double the Set-Cookie), and
-		// the static fallback never renewed even before middleware existed.
-		ctx := r.Context()
-		tx, release, _, ok := beginRoleScopedTx(ctx, w, db, cfg, claims, verified)
-		if !ok {
+		// No renewal here : /rel renews itself after this gate passes (a second
+		// renewal here would double the Set-Cookie), and the static fallback
+		// never renewed even before middleware existed.
+		tx, err := sess.Open(ctx, db.Pool)
+		if err != nil {
+			writeAuthError(ctx, w, err, cfg.Dev)
 			return
 		}
-		defer release()
+		defer tx.Release()
 		defer func() { _ = tx.Rollback(ctx) }()
 
 		staticInfo := staticInfoForRequest(staticSrv, r)
 		buildReq := func(reqContext json.RawMessage) ([]byte, error) {
-			return buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, reqContext, nil, "")
+			return buildRelHttpRequest(r, json.RawMessage("null"), sess.Verified, sess.Claims, staticInfo, nil, reqContext, nil, "")
 		}
 
 		// mergedContext/accumulated have no consumer here — /rel and the

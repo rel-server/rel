@@ -3,8 +3,7 @@
 // ParsedQuery.Sequence and a well-known query in either position query.ts's
 // Query union allows (bare read, or wrapped in WriteQuery.query for a
 // write), composable alongside a plain Relation in the same Sequence. See
-// the role switch below, and jwt/middleware.go's own doc comment, for how the
-// JWT Lifecycle splits across the two packages.
+// the reqauth package for how the request becomes a user with a role.
 package server
 
 import (
@@ -15,20 +14,18 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
-	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/pgerr"
 	"github.com/rel-server/rel/query"
 	"github.com/rel-server/rel/querystring"
 	"github.com/rel-server/rel/relexec"
+	"github.com/rel-server/rel/reqauth"
 	"github.com/rel-server/rel/wellknown"
 )
 
@@ -36,12 +33,10 @@ import (
 // ## Configuration ("all of them MUST be POST") and ## Response Shape.
 // db.Pool is acquired from once per request ; wkReg resolves a well-known
 // item by name, rebuilt alongside db/cfg on every SIGUSR1 reload
-// (boot/reload.go). Wrapped in jwt.Middleware (Lifecycle step 2/Verify
-// only) — resolveClaimsAndRole (called once handleRel has a connection) does steps
-// 3 (Check), 4 (Renew), and 5 (Apply role), reading the claims
-// jwt.FromContext left behind.
+// (boot/reload.go). reqauth verifies the session and starts the request's
+// transaction as the user's role.
 func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET, POST")
 			writeError(r.Context(), w, methodNotAllowed(fmt.Errorf("/rel only accepts GET or POST")), cfg.Dev)
@@ -49,7 +44,6 @@ func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry
 		}
 		handleRel(w, r, db, cfg, wkReg)
 	})
-	return jwtpkg.Middleware(cfg.Jwt)(inner)
 }
 
 // relQueryBytes returns the query.ts Query JSON the request describes :
@@ -148,37 +142,32 @@ func coerceQueryStringLeaves(v any) any {
 
 func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
 	ctx := r.Context()
-	start := time.Now()
 
 	// Wraps w for the rest of this function so every downstream response
 	// helper keeps calling the ordinary http.ResponseWriter methods
 	// unchanged, while specs/logging.md ## Access logging's status/size
 	// fields get captured for free.
-	rec := logging.NewResponseRecorder(w)
+	rec, logRequest := logging.StartAccessLog(w, r)
 	w = rec
 	w.Header().Add("Vary", "Accept") // the representation depends on it, errors included
 	wire := cborenc.Negotiate(r.Header.Get("Accept"))
-	var role string
+	var sess *reqauth.Session
 	var itemCount int
 	var anyWrite bool
 	var targets []string
 
-	// specs/logging.md ## Access logging : fires exactly once, from every
-	// return path (including an early rejection), since role/itemCount/
-	// anyWrite/targets not yet known at that point are simply the zero value.
+	// Fires exactly once, from every return path (including an early rejection), since
+	// itemCount/anyWrite/targets not yet known at that point are simply the zero value.
 	defer func() {
-		claims, verified := jwtpkg.FromContext(ctx)
-		logging.FromContext(ctx).Info("request",
-			"method", r.Method, "path", r.URL.Path,
-			"status", rec.Status, "response_size", rec.Size, "duration", time.Since(start),
-			"verified", verified, "role", role, "claims", claims,
+		logRequest("verified", sess.Verified, "role", sess.Role, "claims", sess.Claims,
 			"item_count", itemCount, "write", anyWrite, "targets", targets)
 	}()
 
 	// authentication.md "## Roles ## Anonymous role existence" : reject
 	// before reading the body or acquiring a connection when disabled.
-	if _, verified := jwtpkg.FromContext(r.Context()); !verified && !db.AnonymousRoleExists {
-		writeError(ctx, w, unauthorized(errcode.AnonymousDisabled, fmt.Errorf("%s", errcode.AnonymousDisabledMessage)), cfg.Dev)
+	sess, err := reqauth.Authenticate(cfg, db, r)
+	if err != nil {
+		writeError(ctx, w, authRequestError(err), cfg.Dev)
 		return
 	}
 
@@ -238,27 +227,18 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	defer conn.Release()
 
-	// Lifecycle steps 3-5 : the role is decided first (no database involved), then
-	// begin, claims and SET LOCAL ROLE go out in one round trip ; both revert at the
+	// Begin, claims and SET LOCAL ROLE go out in one round trip ; both revert at the
 	// single commit/rollback relexec ends the transaction with (## Transactions).
-	begin := func(ctx context.Context, conn *pgxpool.Conn) error {
-		claims, resolved, err := resolveClaimsAndRole(w, r, cfg)
-		if err != nil {
+	// The session is renewed when the transaction has begun, so a request that fails
+	// to start gets no fresh cookie.
+	begin := sess.RelexecBegin()
+	if err := prepared.Execute(ctx, conn, func(ctx context.Context, conn *pgxpool.Conn) error {
+		if err := begin(ctx, conn); err != nil {
 			return err
 		}
-		role = resolved
-		if err := dbauth.BeginAs(ctx, conn, claims, role); err != nil {
-			if step, ok := errors.AsType[*dbauth.StepError](err); ok && step.Step == "begin" {
-				return relexec.NewError(relexec.ServerFault, errcode.TransactionError, err)
-			} else if ok && step.Step == "claims" {
-				return relexec.NewError(relexec.ServerFault, errcode.Internal, fmt.Errorf("setting jwt claims: %w", err))
-			}
-			return relexec.NewError(relexec.ServerFault, errcode.Internal, fmt.Errorf("applying role: %w", err))
-		}
+		sess.Renew(w)
 		return nil
-	}
-
-	if err := prepared.Execute(ctx, conn, begin, &bodyWriter{w: w, contentType: wire.MediaType()}); err != nil {
+	}, &bodyWriter{w: w, contentType: wire.MediaType()}); err != nil {
 		var e *relexec.Error
 		if errors.As(err, &e) && e.Started {
 			// The status and part of the body are gone already : truncated output is the only
@@ -292,6 +272,23 @@ func relexecPolicy(cfg *config.Config) relexec.Policy {
 	return relexec.Policy{Count: q.AllowCount, Stats: q.AllowStats, QueryPlan: q.AllowQueryPlan, SQL: q.AllowSql, Rollback: q.AllowRollback}
 }
 
+// authRequestError maps a reqauth failure the same way.
+func authRequestError(err error) *requestError {
+	e, ok := errors.AsType[*reqauth.Error](err)
+	if !ok {
+		return serverError(errcode.Internal, err)
+	}
+	if e.Postgres {
+		if status, code, tier, detail, ok := pgerr.Classify(e.Err); ok {
+			return pgClassified(status, code, tier, detail, e.Err)
+		}
+	}
+	if e.Status == http.StatusUnauthorized {
+		return unauthorized(e.Code, errors.New(e.Message))
+	}
+	return serverError(e.Code, e.Err)
+}
+
 // relexecRequestError maps a relexec failure to the response it deserves : a Postgres error is
 // classified (PG_*/RSxxx, never err.Error(), which can embed generated SQL), anything else is a 400
 // or a 500 by whose fault it is.
@@ -309,22 +306,4 @@ func relexecRequestError(err error) *requestError {
 		return badRequest(e.Code, e.Err)
 	}
 	return serverError(e.Code, e.Err)
-}
-
-// resolveClaimsAndRole runs Lifecycle steps 3-4 (Check/Renew) and decides the
-// role of step 5, without touching the database : the caller applies both inside
-// its transaction (dbauth.BeginAs).
-func resolveClaimsAndRole(w http.ResponseWriter, r *http.Request, cfg *config.Config) (jwtpkg.Claims, string, error) {
-	claims, verified := jwtpkg.FromContext(r.Context())
-	// The claims exposed to SQL are the request's own, as received ; a renewal
-	// only changes the token sent back, and the role resolved from it.
-	received := claims
-	if verified {
-		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
-	}
-	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
-	if role == "" {
-		return received, "", relexec.NewError(relexec.ServerFault, errcode.NoRoleConfigured, fmt.Errorf("%s", dbauth.NoRoleConfiguredMessage))
-	}
-	return received, role, nil
 }

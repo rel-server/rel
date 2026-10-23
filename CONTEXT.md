@@ -27,3 +27,17 @@ _Avoid_: return query
 **Prepared request**:
 A request's items after resolving and compiling, before any database connection is taken.
 _Avoid_: compiled request
+
+## Identity
+
+**User**:
+Whoever makes a request: signed in (a verified session) or anonymous.
+_Avoid_: caller, principal, client
+
+**Session**:
+The signed token (JWT cookie) a signed-in user presents; its claims include their role.
+_Avoid_: login, token (when meaning the verified whole)
+
+**Role**:
+The Postgres role a request's transaction runs as: the session's role claim, or the anonymous role for an anonymous user.
+_Avoid_: permission, group

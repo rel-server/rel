@@ -10,23 +10,21 @@ import (
 	"errors"
 
 	"github.com/bytedance/sonic"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/samber/oops"
 
 	"github.com/rel-server/rel/config"
-	"github.com/rel-server/rel/dbauth"
 	"github.com/rel-server/rel/errcode"
-	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/query"
 	"github.com/rel-server/rel/relexec"
+	"github.com/rel-server/rel/reqauth"
 	"github.com/rel-server/rel/wellknown"
 )
 
 // executeRelRead runs one rel() call : parseQuery, reject any write shape, then the same
 // resolve-and-run path /rel uses (relexec) in its own short-lived role-scoped transaction, and
 // return the results as JSON — a single item's result, or an array of results for a Sequence.
-func executeRelRead(ctx context.Context, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry, claims jwtpkg.Claims, verified bool, queryJSON []byte) ([]byte, error) {
+func executeRelRead(ctx context.Context, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry, sess *reqauth.Session, queryJSON []byte) ([]byte, error) {
 	pq, err := query.ParseQuery(queryJSON)
 	if err != nil {
 		return nil, oops.Code(errcode.QueryMalformedJSON).Wrapf(err, "rel(): invalid query JSON")
@@ -47,10 +45,6 @@ func executeRelRead(ctx context.Context, db *pg.DbInfos, cfg *config.Config, wkR
 		return nil, relFuncError(err)
 	}
 
-	role := jwtpkg.ResolveRole(cfg.Pg.Query.AnonymousRole, claims, verified)
-	if role == "" {
-		return nil, oops.Code(errcode.NoRoleConfigured).Errorf("rel(): %s", dbauth.NoRoleConfiguredMessage)
-	}
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
 		return nil, oops.Code(errcode.DBUnavailable).Wrapf(err, "rel(): acquiring connection")
@@ -58,8 +52,7 @@ func executeRelRead(ctx context.Context, db *pg.DbInfos, cfg *config.Config, wkR
 	defer conn.Release()
 
 	var out bytes.Buffer
-	begin := func(ctx context.Context, conn *pgxpool.Conn) error { return dbauth.BeginAs(ctx, conn, claims, role) }
-	if err := prepared.Execute(ctx, conn, begin, &out); err != nil {
+	if err := prepared.Execute(ctx, conn, sess.RelexecBegin(), &out); err != nil {
 		return nil, relFuncError(err)
 	}
 	return out.Bytes(), nil

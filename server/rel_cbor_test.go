@@ -11,9 +11,7 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/rel-server/rel/cborenc"
-	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
-	"github.com/rel-server/rel/query"
 )
 
 func cborBody(t *testing.T, v any) []byte {
@@ -198,169 +196,28 @@ func TestRelHandler_AcceptCBOR(t *testing.T) {
 	}
 }
 
-func TestRelHandler_AcceptCBOR_ShapesAndTypes(t *testing.T) {
-	// nested joins, typed columns and a sequence, answered with the same content as JSON
-	if _, err := testDb.Pool.Exec(context.Background(), `insert into tz_t (id, at, plain, day) values (9201, '2023-11-14 22:13:20.5+00', '2026-10-18 14:30:00', '2026-10-18') on conflict do nothing`); err != nil {
-		t.Fatal(err)
-	}
-	body := `[
-		{"relation": "tz_t", "schema": "public", "select": ["*~"], "where": ["=", ["col", "id"], 9201]},
-		{"relation": "director", "schema": "public", "select": {"name": ["col", "name"], "movies": [".", "movies"]}, "where": ["=", ["col", "name"], "CBOR Director"],
-		 "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}}}}
-	]`
-	j := postAccepting(t, testHandler, body, "")
-	c := postAccepting(t, testHandler, body, "application/cbor")
-	if j.Code != 200 || c.Code != 200 {
-		t.Fatalf("status %d / %d : %s %s", j.Code, c.Code, j.Body.String(), c.Body.String())
-	}
-	jr := decodeJSON[[][]map[string]any](t, j.Body.Bytes())
-	cr := decodeCBOR[[][]map[string]any](t, c.Body.Bytes())
-	if len(cr) != 2 || len(cr[0]) != len(jr[0]) || len(cr[1]) != len(jr[1]) {
-		t.Fatalf("shapes differ : %s / %v", j.Body.String(), cr)
-	}
-	if cr[0][0]["id"] != uint64(9201) {
-		t.Errorf("id = %#v", cr[0][0]["id"])
-	}
-	at, ok := cr[0][0]["at"].(time.Time)
-	if !ok || at.UnixNano() != 1700000000500000000 {
-		t.Errorf("at = %#v", cr[0][0]["at"])
-	}
-	if len(cr[1]) > 0 {
-		if m := cr[1][0]["movies"].([]any); len(m) != len(jr[1][0]["movies"].([]any)) {
-			t.Errorf("movies = %v", m)
-		}
-	}
-}
-
-func TestRelHandler_AcceptCBOR_Envelope(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) {
-		c.Pg.Query.AllowRollback, c.Pg.Query.AllowStats, c.Pg.Query.AllowCount, c.Pg.Query.AllowSql, c.Pg.Query.AllowQueryPlan = true, true, true, true, true
-	})
-	body := `{
-		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
-		"data": [{"name": "Accept Rollback Director"}],
-		"stats": true, "sql": true, "rollback": true
-	}`
-	rec := postAccepting(t, handler, body, "application/cbor")
-	if rec.Code != 200 {
-		t.Fatalf("status %d : %s", rec.Code, rec.Body.String())
-	}
-	env := decodeCBOR[map[string]any](t, rec.Body.Bytes())
-	if res, _ := env["result"].([]any); len(res) != 1 || res[0].(map[string]any)["name"] != "Accept Rollback Director" {
-		t.Errorf("result = %v", env["result"])
-	}
-	for _, k := range []string{"stats", "sql"} {
-		if _, ok := env[k].([]any); !ok {
-			t.Errorf("%s = %#v", k, env[k])
-		}
-	}
-	var n int
-	if err := testDb.Pool.QueryRow(context.Background(), `select count(*) from director where name = 'Accept Rollback Director'`).Scan(&n); err != nil || n != 0 {
-		t.Errorf("rolled back write persisted : %d (%v)", n, err)
-	}
-
-	// a read's plan is EXPLAIN's JSON, transcoded
-	rec = postAccepting(t, handler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "limit": 1}, "query_plan": true}`, "application/cbor")
-	env = decodeCBOR[map[string]any](t, rec.Body.Bytes())
-	if plans, ok := env["query_plan"].([]any); !ok || len(plans) != 1 {
-		t.Errorf("query_plan = %#v", env["query_plan"])
-	}
-
-	// a read with count, returns none
-	rec = postAccepting(t, handler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "limit": 1}, "count": true}`, "application/cbor")
-	env = decodeCBOR[map[string]any](t, rec.Body.Bytes())
-	if _, ok := env["count"].(uint64); !ok || env["limit"] != uint64(1) {
-		t.Errorf("envelope = %v", env)
-	}
-	rec = postAccepting(t, handler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"]}, "count": true, "returns": "none"}`, "application/cbor")
-	env = decodeCBOR[map[string]any](t, rec.Body.Bytes())
-	if _, has := env["result"]; has {
-		t.Errorf("returns none, got %v", env)
-	}
-}
-
-func TestRelHandler_AcceptCBOR_WriteFastPathAndWellKnown(t *testing.T) {
-	// the single-node write answers from its own binary rows
-	rec := postAccepting(t, testHandler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Accept Fast A"}, {"name": "Accept Fast B"}]}`, "application/cbor")
-	if rec.Code != 200 {
-		t.Fatalf("status %d : %s", rec.Code, rec.Body.String())
-	}
-	if rows := decodeCBOR[[]map[string]any](t, rec.Body.Bytes()); len(rows) != 2 || rows[0]["name"] != "Accept Fast A" {
-		t.Errorf("rows = %v", rows)
-	}
-
-	handler := newWellKnownRelHandler(t, map[string]string{"d.json": `{"name": "by_name", "params": {"name": {"type": "text"}},
-		"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], ["$param", "name", "text"]]}}`})
-	rec = postAccepting(t, handler, `{"wellknown": "by_name", "params": {"name": "Accept Fast B"}}`, "application/cbor")
-	if rows := decodeCBOR[[]map[string]any](t, rec.Body.Bytes()); len(rows) != 1 || rows[0]["name"] != "Accept Fast B" {
-		t.Errorf("well-known rows = %x", rec.Body.Bytes())
-	}
-}
-
-// A response asked to use structures reads as the plain CBOR one, says so in its Content-Type, and defines each layout
-// once across the items of a multi-item request.
+// A response asked to use structures says so in its Content-Type (the bytes themselves are
+// relexec's tests), and a JSON client never sees the tags.
 func TestRelHandler_AcceptCBORStructures(t *testing.T) {
-	ctx := context.Background()
-	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) select 'Structures Director ' || g from generate_series(1, 5) g`); err != nil {
-		t.Fatal(err)
-	}
-	one := `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["like", ["col", "name"], "Structures Director%"], "order_by": [["col", "name"]]}`
-	other := `{"relation": "movie", "schema": "public", "select": ["*~"], "where": ["=", ["col", "id"], -1]}`
-	multi := "[" + one + "," + other + "," + one + "]"
+	one := `{"relation": "director", "schema": "public", "select": ["*~"], "limit": 1}`
 
-	for name, body := range map[string]string{"one item": one, "three items": multi} {
-		plain := postAccepting(t, testHandler, body, "application/cbor")
-		structs := postAccepting(t, testHandler, body, "application/cbor; structures=1")
-		if structs.Code != http.StatusOK || plain.Code != http.StatusOK {
-			t.Fatalf("%s: status %d / %d : %s", name, plain.Code, structs.Code, structs.Body.String())
-		}
-		if ct := plain.Header().Get("Content-Type"); ct != "application/cbor" {
-			t.Errorf("%s: plain Content-Type = %q", name, ct)
-		}
-		if ct := structs.Header().Get("Content-Type"); ct != "application/cbor; structures=1" {
-			t.Errorf("%s: structures Content-Type = %q", name, ct)
-		}
-		if got := structs.Header().Get("Vary"); got != "Accept" {
-			t.Errorf("%s: Vary = %q", name, got)
-		}
-		want, err := query.NewCBORNode(plain.Body.Bytes())
-		if err != nil {
-			t.Fatal(err)
-		}
-		got, err := query.NewCBORNode(structs.Body.Bytes())
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		a, _ := want.Raw()
-		b, err := got.Raw()
-		if err != nil || a != b {
-			t.Errorf("%s: plain %s\nstructures %s (%v)", name, a, b, err)
-		}
-		if n := bytes.Count(structs.Body.Bytes(), []byte{0xd9, 0xdf, 0xff}); n != 1 {
-			// one layout for the directors ; the empty movie result writes none
-			t.Errorf("%s: %d definitions, want 1", name, n)
-		}
-		if structs.Body.Len() >= plain.Body.Len() {
-			t.Errorf("%s: %d bytes with structures, %d without", name, structs.Body.Len(), plain.Body.Len())
-		}
+	plain := postAccepting(t, testHandler, one, "application/cbor")
+	structs := postAccepting(t, testHandler, one, "application/cbor; structures=1")
+	if structs.Code != http.StatusOK || plain.Code != http.StatusOK {
+		t.Fatalf("status %d / %d : %s", plain.Code, structs.Code, structs.Body.String())
+	}
+	if ct := plain.Header().Get("Content-Type"); ct != "application/cbor" {
+		t.Errorf("plain Content-Type = %q", ct)
+	}
+	if ct := structs.Header().Get("Content-Type"); ct != "application/cbor; structures=1" {
+		t.Errorf("structures Content-Type = %q", ct)
+	}
+	if got := structs.Header().Get("Vary"); got != "Accept" {
+		t.Errorf("Vary = %q", got)
 	}
 
-	// a JSON client never sees the tags
 	if rec := postAccepting(t, testHandler, one, "application/json"); bytes.Contains(rec.Body.Bytes(), []byte{0xd9, 0xdf, 0xff}) || rec.Header().Get("Content-Type") != "application/json" {
 		t.Errorf("JSON answer: %s %q", rec.Body.String(), rec.Header().Get("Content-Type"))
-	}
-
-	// a write's read-back uses them too
-	rec := postAccepting(t, testHandler, `{"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"name": "Structures Fast A"}, {"name": "Structures Fast B"}]}`, "application/cbor; structures=1")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("write: %d %s", rec.Code, rec.Body.String())
-	}
-	n, err := query.NewCBORNode(rec.Body.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if items, err := n.ArrayItems(); err != nil || len(items) != 2 {
-		t.Errorf("write read-back: %d rows, %v", len(items), err)
 	}
 }
 

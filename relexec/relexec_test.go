@@ -3,6 +3,7 @@ package relexec
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -12,8 +13,10 @@ import (
 
 	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/query"
+	"github.com/rel-server/rel/wellknown"
 )
 
 var (
@@ -54,6 +57,18 @@ func plainBegin(ctx context.Context, conn *pgxpool.Conn) error {
 // run prepares and executes body (one query document) and returns what was written to the sink.
 func run(t *testing.T, body string, opts Options) (string, error) {
 	t.Helper()
+	return runOn(t, testDb, body, opts)
+}
+
+// runOn is run against db.
+func runOn(t *testing.T, db *pg.DbInfos, body string, opts Options) (string, error) {
+	t.Helper()
+	return runWith(t, db, nil, body, opts)
+}
+
+// runWith is runOn with a registry of well-known queries.
+func runWith(t *testing.T, db *pg.DbInfos, reg *wellknown.Registry, body string, opts Options) (string, error) {
+	t.Helper()
 	pq, err := query.ParseQuery([]byte(body))
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
@@ -62,11 +77,11 @@ func run(t *testing.T, body string, opts Options) (string, error) {
 	if items == nil {
 		items = []query.ParsedQuery{pq}
 	}
-	prepared, err := Prepare(&query.ResolveContext{Db: testDb, Config: testCfg}, nil, items, opts)
+	prepared, err := Prepare(&query.ResolveContext{Db: db, Config: testCfg}, reg, items, opts)
 	if err != nil {
 		return "", err
 	}
-	conn, err := testDb.Pool.Acquire(context.Background())
+	conn, err := db.Pool.Acquire(context.Background())
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
@@ -275,3 +290,35 @@ const deferredViolation = `{
 	"query": {"relation": "deferred_check", "schema": "public", "select": ["*~"], "write_mode": "insert"},
 	"data": [{"id": 1, "n": 7}, {"id": 2, "n": 7}]
 }`
+
+// assertClientFault checks err is a client fault carrying code.
+func assertClientFault(t *testing.T, err error, code errcode.Code) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected %s, got no error", code)
+	}
+	e := asError(t, err)
+	if e.Fault != ClientFault || e.Code != code {
+		t.Errorf("expected a client fault %s, got fault=%v code=%s : %v", code, e.Fault, e.Code, e)
+	}
+}
+
+func decodeJSON[T any](t *testing.T, data []byte) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal(data, &v); err != nil {
+		t.Fatalf("unmarshal %s: %v", data, err)
+	}
+	return v
+}
+
+// assertClientError checks err is a client fault, whatever its code.
+func assertClientError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected a client fault, got no error")
+	}
+	if e := asError(t, err); e.Fault != ClientFault {
+		t.Errorf("expected a client fault, got fault=%v : %v", e.Fault, e)
+	}
+}

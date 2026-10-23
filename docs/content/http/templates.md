@@ -128,7 +128,8 @@ request from that user would resolve to:
 
 `query` is built with Jet's own `map()`/`slice()` globals into the same shape a `/rel` request
 body would send — a bare relation, or a well-known query by name (`map("wellknown", "name",
-"params", map(...))`). A write shape (`map("query", ..., "data", ...)`) is always rejected: a
+"params", map(...))`). The result is what `/rel` would answer: the rows of a relation or of a
+function returning a set, or the bare value of a function returning one value. A write shape (`map("query", ..., "data", ...)`) is always rejected: a
 page render must not have side effects. `rel()` opens its own short-lived transaction per call,
 independent of the surrounding request's own transaction (if any) and of any other `rel()` call
 in the same render — it is not a mechanism for a coherent multi-statement read; reach for a

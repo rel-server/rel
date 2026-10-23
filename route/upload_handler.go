@@ -25,9 +25,9 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
-	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/reqauth"
 	"github.com/rel-server/rel/static"
 )
 
@@ -58,7 +58,7 @@ type firstCallEnvelope struct {
 }
 
 // handleUploadRoute implements ## `stream_upload`'s two-call flow.
-func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, route Route, staticSrv *static.Server, templates *TemplateSet, verified bool, claims jwtpkg.Claims) {
+func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, route Route, staticSrv *static.Server, templates *TemplateSet, sess *reqauth.Session) {
 	ctx := r.Context()
 	rlog := logging.FromContext(ctx).With("module", "route")
 
@@ -127,7 +127,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// buildFirstReq re-derives the first call's request JSON for a given
 	// request.context — nil unless middleware ran and set one.
 	buildFirstReq := func(reqContext json.RawMessage) ([]byte, error) {
-		return buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, reqContext, firstUpload, "")
+		return buildRelHttpRequest(r, json.RawMessage("null"), sess.Verified, sess.Claims, staticInfo, nil, reqContext, firstUpload, "")
 	}
 	reqJSON1, err := buildFirstReq(nil)
 	if err != nil {
@@ -141,62 +141,56 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	// once, ahead of the first call only" — same transaction as the first
 	// call itself, after the role switch, same as any other middleware.
 	// Renew (Lifecycle step 4) waits until after the middleware chain below
-	// decides not to reject — see route/handler.go's identical note. Role
-	// resolution reads claims' role only, unaffected by renewal.
-	tx1, release1, role, ok := beginRoleScopedTx(ctx, w, db, cfg, claims, verified)
-	if !ok {
+	// decides not to reject — see route/handler.go's identical note.
+	tx1, err := sess.Open(ctx, db.Pool)
+	if err != nil {
+		writeAuthError(ctx, w, err, cfg.Dev)
 		return
 	}
 
 	handled, mergedContext, accumulated, err := runMiddlewareChain(ctx, tx1, w, r, cfg, reg, route.AnonPath, buildFirstReq, templates, staticSrv)
 	if err != nil {
 		_ = tx1.Rollback(ctx)
-		release1()
+		tx1.Release()
 		return
 	}
 	if handled {
 		if cerr := tx1.Commit(ctx); cerr != nil {
 			writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", cerr)
 		}
-		release1()
+		tx1.Release()
 		return
 	}
 	if mergedContext != nil {
 		reqJSON1, err = buildFirstReq(mergedContext)
 		if err != nil {
 			_ = tx1.Rollback(ctx)
-			release1()
+			tx1.Release()
 			writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 			return
 		}
 		r = r.WithContext(withRequestJSON(ctx, reqJSON1))
 	}
 
-	// Renew now that the chain has let the request through — mutates
-	// claims (unlike route/handler.go's discard), since the second call
-	// below builds its OWN request fresh and should see the renewed
-	// session, same as it did before middleware existed (the first call's
-	// reqJSON1 above is already built/used by this point, so it keeps
-	// showing the pre-renewal claims either way).
-	if verified {
-		claims = jwtpkg.RenewIfDue(cfg.Jwt, w, claims)
-	}
+	// Renew now that the chain has let the request through. Both calls see
+	// the claims as received : a renewal only changes the cookie.
+	sess.Renew(w)
 
 	ident := route.Function.Identifier.EscapedString()
 	var firstEnvelope, firstContent []byte
 	frow := tx1.QueryRow(ctx, "select * from "+ident+"($1::jsonb)", reqJSON1)
 	if err := frow.Scan(&firstEnvelope, &firstContent); err != nil {
 		_ = tx1.Rollback(ctx)
-		release1()
+		tx1.Release()
 		writeErrorForPgErr(ctx, w, err, cfg.Dev)
 		return
 	}
 	if err := tx1.Commit(ctx); err != nil {
-		release1()
+		tx1.Release()
 		writeServerError(ctx, w, http.StatusInternalServerError, errcode.TransactionError, "committing transaction", err)
 		return
 	}
-	release1()
+	tx1.Release()
 
 	var first firstCallEnvelope
 	if err := sonic.Unmarshal(firstEnvelope, &first); err != nil {
@@ -333,20 +327,21 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
 		return
 	}
-	reqJSON2, err := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, staticInfo, nil, nil, secondUpload, "")
+	reqJSON2, err := buildRelHttpRequest(r, json.RawMessage("null"), sess.Verified, sess.Claims, staticInfo, nil, nil, secondUpload, "")
 	if err != nil {
 		writeServerError(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 		return
 	}
 	r = r.WithContext(withRequestJSON(ctx, reqJSON2))
 
-	// A second connection/transaction ; check_session/renew already ran
-	// once, before the first call, and aren't repeated.
-	tx2, release2, ok := beginTxWithRole(ctx, w, db, cfg, claims, role)
-	if !ok {
+	// A second connection/transaction, as the same user ; the middleware chain and
+	// renew already ran before the first call and aren't repeated.
+	tx2, err := sess.Open(ctx, db.Pool)
+	if err != nil {
+		writeAuthError(ctx, w, err, cfg.Dev)
 		return
 	}
-	defer release2()
+	defer tx2.Release()
 
 	var secondEnvelope, secondContent []byte
 	mrow := tx2.QueryRow(ctx, "select * from "+ident+"($1::jsonb)", reqJSON2)
