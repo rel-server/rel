@@ -1,15 +1,14 @@
-package server
+package relexec
 
 import (
-	"net/http"
 	"testing"
 
 	"github.com/rel-server/rel/errcode"
 )
 
-// TestRelHandler_QueryCompileErrors_AttachSpecificCodes : ## Rel-internal
-// codes' query-compile-error family reaches the response, one per code.
-func TestRelHandler_QueryCompileErrors_AttachSpecificCodes(t *testing.T) {
+// TestPrepare_QueryCompileErrors_AttachSpecificCodes : ## Rel-internal
+// codes' query-compile-error family reaches the error, one per code.
+func TestPrepare_QueryCompileErrors_AttachSpecificCodes(t *testing.T) {
 	tests := []struct {
 		name string
 		body string
@@ -42,29 +41,19 @@ func TestRelHandler_QueryCompileErrors_AttachSpecificCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := postRel(t, tt.body)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-			}
-			if got := rec.Header().Get(errcode.Header); got != string(tt.want) {
-				t.Errorf("X-Rel-Errorcode = %q, want %s", got, tt.want)
-			}
+			_, err := run(t, tt.body, Options{})
+			assertClientFault(t, err, tt.want)
 		})
 	}
 }
 
-// TestRelHandler_WriteForbiddenFunctionRoot_HasItsOwnCode : ### Function-
+// TestPrepare_WriteForbiddenFunctionRoot_HasItsOwnCode : ### Function-
 // rooted nodes' unwritable rule gets its own code, not generic WRITE_FORBIDDEN.
-func TestRelHandler_WriteForbiddenFunctionRoot_HasItsOwnCode(t *testing.T) {
+func TestPrepare_WriteForbiddenFunctionRoot_HasItsOwnCode(t *testing.T) {
 	body := `{
 		"query": {"function": "fn_directors", "schema": "public", "select": ["*~"]},
 		"data": [{"id": 1, "name": "Someone"}]
 	}`
-	rec := postRel(t, body)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get(errcode.Header); got != string(errcode.WriteForbiddenFunctionRoot) {
-		t.Errorf("X-Rel-Errorcode = %q, want %s", got, errcode.WriteForbiddenFunctionRoot)
-	}
+	_, err := run(t, body, Options{})
+	assertClientFault(t, err, errcode.WriteForbiddenFunctionRoot)
 }

@@ -1,40 +1,14 @@
-// End-to-end coverage for specs/complex-query.md's ComplexQuery envelope,
-// against the real HTTP handler (httptest, no listener) and a real Postgres
-// (this package's own TestMain/testDb).
-package server
+// End-to-end coverage for specs/complex-query.md's ComplexQuery envelope, through Prepare and
+// Execute against a real Postgres.
+package relexec
 
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"testing"
 
-	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 )
-
-// complexHandler builds a NewRelHandler off a clone of testCfg with the
-// given Allow* flags — never mutates the shared testCfg/testHandler other
-// tests in this package rely on.
-func complexHandler(t *testing.T, configure func(*config.Config)) http.Handler {
-	t.Helper()
-	cfg := *testCfg
-	if configure != nil {
-		configure(&cfg)
-	}
-	return NewRelHandler(testDb, &cfg, nil)
-}
-
-func errCode(t *testing.T, body []byte) errcode.Code {
-	t.Helper()
-	var v struct {
-		Code errcode.Code `json:"code"`
-	}
-	if err := json.Unmarshal(body, &v); err != nil {
-		t.Fatalf("unmarshal error response %s: %v", body, err)
-	}
-	return v.Code
-}
 
 // TestComplexQuery_NoFlags_BareShape proves a ComplexQuery with no flags at
 // all keeps today's bare-array response (specs/complex-query.md ## Response
@@ -44,16 +18,16 @@ func TestComplexQuery_NoFlags_BareShape(t *testing.T) {
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Complex No Flags Director')`); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	handler := complexHandler(t, nil)
-	rec := postRelTo(t, handler, `{
+	opts := Options{}
+	out, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], "Complex No Flags Director"]}
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+	rows := decodeJSON[[]map[string]any](t, []byte(out))
 	if len(rows) != 1 || rows[0]["name"] != "Complex No Flags Director" {
-		t.Fatalf("expected bare array with 1 row, got %s", rec.Body.String())
+		t.Fatalf("expected bare array with 1 row, got %s", out)
 	}
 }
 
@@ -64,14 +38,14 @@ func TestComplexQuery_Count(t *testing.T) {
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Complex Count A'), ('Complex Count B'), ('Complex Count C')`); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowCount = true })
+	opts := Options{Policy: Policy{Count: true}}
 
-	rec := postRelTo(t, handler, `{
+	out, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["like", ["col", "name"], "Complex Count%"], "limit": 1},
 		"count": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env struct {
 		Result []map[string]any `json:"result"`
@@ -79,8 +53,8 @@ func TestComplexQuery_Count(t *testing.T) {
 		Offset *int             `json:"offset"`
 		Limit  *int             `json:"limit"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if len(env.Result) != 1 {
 		t.Fatalf("expected 1 paginated row, got %d", len(env.Result))
@@ -100,68 +74,58 @@ func TestComplexQuery_Count(t *testing.T) {
 // `count` omits the count/offset/limit keys without erroring, while result
 // still returns (## Availability).
 func TestComplexQuery_Count_UngrantedDegradesSilently(t *testing.T) {
-	handler := complexHandler(t, nil) // AllowCount defaults false
-	rec := postRelTo(t, handler, `{
+	opts := Options{} // AllowCount defaults false
+	out, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"], "limit": 1},
 		"count": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env map[string]json.RawMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if _, ok := env["count"]; ok {
-		t.Errorf("expected no \"count\" key when ungranted, got %s", rec.Body.String())
+		t.Errorf("expected no \"count\" key when ungranted, got %s", out)
 	}
 	if _, ok := env["result"]; !ok {
-		t.Errorf("expected \"result\" still present, got %s", rec.Body.String())
+		t.Errorf("expected \"result\" still present, got %s", out)
 	}
 }
 
 // TestComplexQuery_Count_OnWrite_Rejected proves count+data is QUERY_COUNT_IS_READ_ONLY.
 func TestComplexQuery_Count_OnWrite_Rejected(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowCount = true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{Count: true}}
+	_, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Should Not Insert"}],
 		"count": true
-	}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
-	}
-	if code := errCode(t, rec.Body.Bytes()); code != errcode.QueryCountIsReadOnly {
-		t.Errorf("expected %s, got %s", errcode.QueryCountIsReadOnly, code)
-	}
+	}`, opts)
+	assertClientFault(t, err, errcode.QueryCountIsReadOnly)
 }
 
 // TestComplexQuery_Stats_OnRead_Rejected proves stats without data is QUERY_STATS_IS_WRITE_ONLY.
 func TestComplexQuery_Stats_OnRead_Rejected(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{Stats: true}}
+	_, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"stats": true
-	}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
-	}
-	if code := errCode(t, rec.Body.Bytes()); code != errcode.QueryStatsIsWriteOnly {
-		t.Errorf("expected %s, got %s", errcode.QueryStatsIsWriteOnly, code)
-	}
+	}`, opts)
+	assertClientFault(t, err, errcode.QueryStatsIsWriteOnly)
 }
 
 // TestComplexQuery_Stats_OnWrite proves a granted `stats` reports the
 // write's own insert count.
 func TestComplexQuery_Stats_OnWrite(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{Stats: true}}
+	out, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Complex Stats Director"}],
 		"stats": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env struct {
 		Result []map[string]any `json:"result"`
@@ -172,8 +136,8 @@ func TestComplexQuery_Stats_OnWrite(t *testing.T) {
 			Inserted  int      `json:"inserted"`
 		} `json:"stats"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if len(env.Result) != 1 {
 		t.Fatalf("expected 1 result row, got %d", len(env.Result))
@@ -196,8 +160,8 @@ func TestComplexQuery_Stats_OnWrite(t *testing.T) {
 // hotel.properties/room_types upsert) — TestComplexQuery_Stats_OnWrite only
 // ever covers a single flat table, never a join.
 func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{Stats: true}}
+	out, err := run(t, `{
 		"query": {
 			"relation": "director", "schema": "public",
 			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
@@ -209,9 +173,9 @@ func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
 		},
 		"data": [{"name": "Nested Stats Director", "movies": [{"title": "Nested Stats Movie"}]}],
 		"stats": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env struct {
 		Stats []struct {
@@ -221,8 +185,8 @@ func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
 			Inserted  int      `json:"inserted"`
 		} `json:"stats"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if len(env.Stats) != 2 {
 		t.Fatalf("expected 2 Stat entries (director + movies), got %d : %#v", len(env.Stats), env.Stats)
@@ -252,10 +216,10 @@ func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
 // TestComplexQuery_Write_ReturnsEmbeddedChild proves a write's read-back
 // result actually embeds a joined child relation, not just that the SQL
 // compiles (query.TestCompileSelectForDataNode_WithEmbeddedChild only
-// checks compilation) — end to end, through the real HTTP response.
+// checks compilation) — end to end, through the response.
 func TestComplexQuery_Write_ReturnsEmbeddedChild(t *testing.T) {
-	handler := complexHandler(t, nil)
-	rec := postRelTo(t, handler, `{
+	opts := Options{}
+	out, err := run(t, `{
 		"query": {
 			"relation": "director", "schema": "public",
 			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
@@ -266,13 +230,13 @@ func TestComplexQuery_Write_ReturnsEmbeddedChild(t *testing.T) {
 			}}
 		},
 		"data": [{"name": "Returns Expand Director", "movies": [{"title": "Returns Expand Movie"}]}]
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	rows := decodeJSON[[]map[string]any](t, rec.Body.Bytes())
+	rows := decodeJSON[[]map[string]any](t, []byte(out))
 	if len(rows) != 1 {
-		t.Fatalf("expected 1 result row, got %d : %s", len(rows), rec.Body.String())
+		t.Fatalf("expected 1 result row, got %d : %s", len(rows), out)
 	}
 	if rows[0]["name"] != "Returns Expand Director" {
 		t.Fatalf("expected the written director's own name in the result, got %#v", rows[0])
@@ -290,59 +254,49 @@ func TestComplexQuery_Write_ReturnsEmbeddedChild(t *testing.T) {
 // TestComplexQuery_StatsQueryPlanConflict proves the two are rejected
 // together on a write.
 func TestComplexQuery_StatsQueryPlanConflict(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats, c.Pg.Query.AllowQueryPlan = true, true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{Stats: true, QueryPlan: true}}
+	_, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Should Not Run"}],
 		"stats": true,
 		"query_plan": true
-	}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
-	}
-	if code := errCode(t, rec.Body.Bytes()); code != errcode.QueryStatsQueryPlanConflict {
-		t.Errorf("expected %s, got %s", errcode.QueryStatsQueryPlanConflict, code)
-	}
+	}`, opts)
+	assertClientFault(t, err, errcode.QueryStatsQueryPlanConflict)
 }
 
 // TestComplexQuery_UnsupportedReturns proves returns:"none" alone (no other
 // flag) is QUERY_UNSUPPORTED_RETURNS.
 func TestComplexQuery_UnsupportedReturns(t *testing.T) {
-	handler := complexHandler(t, nil)
-	rec := postRelTo(t, handler, `{
+	opts := Options{}
+	_, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"returns": "none"
-	}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
-	}
-	if code := errCode(t, rec.Body.Bytes()); code != errcode.QueryUnsupportedReturns {
-		t.Errorf("expected %s, got %s", errcode.QueryUnsupportedReturns, code)
-	}
+	}`, opts)
+	assertClientFault(t, err, errcode.QueryUnsupportedReturns)
 }
 
 // TestComplexQuery_Returns_None_OnWrite_SkipsResult proves a write's
 // returns:"none" omits "result" while still reporting stats.
 func TestComplexQuery_Returns_None_OnWrite_SkipsResult(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowStats = true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{Stats: true}}
+	out, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Complex Returns None Director"}],
 		"returns": "none",
 		"stats": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env map[string]json.RawMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if _, ok := env["result"]; ok {
-		t.Errorf(`expected no "result" key, got %s`, rec.Body.String())
+		t.Errorf(`expected no "result" key, got %s`, out)
 	}
 	if _, ok := env["stats"]; !ok {
-		t.Errorf(`expected "stats" present, got %s`, rec.Body.String())
+		t.Errorf(`expected "stats" present, got %s`, out)
 	}
 
 	var count int
@@ -357,15 +311,15 @@ func TestComplexQuery_Returns_None_OnWrite_SkipsResult(t *testing.T) {
 // TestComplexQuery_Rollback_UndoesWrite proves rollback:true persists
 // nothing, while still reporting what happened via stats.
 func TestComplexQuery_Rollback_UndoesWrite(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowRollback, c.Pg.Query.AllowStats = true, true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{Rollback: true, Stats: true}}
+	out, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Complex Rollback Director"}],
 		"stats": true,
 		"rollback": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env struct {
 		Result []map[string]any `json:"result"`
@@ -373,8 +327,8 @@ func TestComplexQuery_Rollback_UndoesWrite(t *testing.T) {
 			Inserted int `json:"inserted"`
 		} `json:"stats"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if len(env.Result) != 1 {
 		t.Fatalf("expected 1 result row reflecting what happened before rollback, got %d", len(env.Result))
@@ -396,8 +350,8 @@ func TestComplexQuery_Rollback_UndoesWrite(t *testing.T) {
 // EVERY level of a nested write, not just the root — the existing rollback
 // test only ever writes a single flat table.
 func TestComplexQuery_Rollback_UndoesNestedWrite(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowRollback, c.Pg.Query.AllowStats = true, true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{Rollback: true, Stats: true}}
+	out, err := run(t, `{
 		"query": {
 			"relation": "director", "schema": "public",
 			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
@@ -410,9 +364,9 @@ func TestComplexQuery_Rollback_UndoesNestedWrite(t *testing.T) {
 		"data": [{"name": "Nested Rollback Director", "movies": [{"title": "Nested Rollback Movie"}]}],
 		"stats": true,
 		"rollback": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env struct {
 		Stats []struct {
@@ -420,8 +374,8 @@ func TestComplexQuery_Rollback_UndoesNestedWrite(t *testing.T) {
 			Inserted int    `json:"inserted"`
 		} `json:"stats"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if len(env.Stats) != 2 {
 		t.Fatalf("expected stats to still report both levels despite the rollback, got %#v", env.Stats)
@@ -448,18 +402,13 @@ func TestComplexQuery_Rollback_UndoesNestedWrite(t *testing.T) {
 // TestComplexQuery_Rollback_NotGranted proves an ungranted rollback is a
 // hard QUERY_ROLLBACK_NOT_GRANTED error, not a silent degrade.
 func TestComplexQuery_Rollback_NotGranted(t *testing.T) {
-	handler := complexHandler(t, nil) // AllowRollback defaults false
-	rec := postRelTo(t, handler, `{
+	opts := Options{} // AllowRollback defaults false
+	_, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Should Not Run Either"}],
 		"rollback": true
-	}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
-	}
-	if code := errCode(t, rec.Body.Bytes()); code != errcode.QueryRollbackNotGranted {
-		t.Errorf("expected %s, got %s", errcode.QueryRollbackNotGranted, code)
-	}
+	}`, opts)
+	assertClientFault(t, err, errcode.QueryRollbackNotGranted)
 
 	var count int
 	if err := testDb.Pool.QueryRow(context.Background(), `select count(*) from director where name = 'Should Not Run Either'`).Scan(&count); err != nil {
@@ -477,14 +426,14 @@ func TestComplexQuery_Sql_And_QueryPlan_OnRead(t *testing.T) {
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Complex Sql Plan Director')`); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowSql, c.Pg.Query.AllowQueryPlan = true, true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{SQL: true, QueryPlan: true}}
+	out, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "name"], "Complex Sql Plan Director"]},
 		"sql": true,
 		"query_plan": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env struct {
 		Result []map[string]any `json:"result"`
@@ -497,8 +446,8 @@ func TestComplexQuery_Sql_And_QueryPlan_OnRead(t *testing.T) {
 			Select json.RawMessage `json:"select"`
 		} `json:"query_plan"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if len(env.Result) != 1 {
 		t.Fatalf("expected 1 result row, got %d", len(env.Result))
@@ -514,14 +463,14 @@ func TestComplexQuery_Sql_And_QueryPlan_OnRead(t *testing.T) {
 // TestComplexQuery_Sql_OnWrite_IncludesReadback proves a write's sql
 // collects both the DML statement and the read-back SELECT.
 func TestComplexQuery_Sql_OnWrite_IncludesReadback(t *testing.T) {
-	handler := complexHandler(t, func(c *config.Config) { c.Pg.Query.AllowSql = true })
-	rec := postRelTo(t, handler, `{
+	opts := Options{Policy: Policy{SQL: true}}
+	out, err := run(t, `{
 		"query": {"relation": "director", "schema": "public", "select": ["*~"]},
 		"data": [{"name": "Complex Sql Write Director"}],
 		"sql": true
-	}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+	}`, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	var env struct {
 		Sql []struct {
@@ -530,8 +479,8 @@ func TestComplexQuery_Sql_OnWrite_IncludesReadback(t *testing.T) {
 			Select string   `json:"select"`
 		} `json:"sql"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal: %v : %s", err, rec.Body.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal: %v : %s", err, out)
 	}
 	if len(env.Sql) != 2 {
 		t.Fatalf("expected 2 sql entries (the insert node, plus the read-back), got %d : %#v", len(env.Sql), env.Sql)
