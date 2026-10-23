@@ -2,12 +2,12 @@ package tsgen
 
 import "strings"
 
-// ParseSchemaList splits a comma-separated schema whitelist (typescript.
+// parseSchemaList splits a comma-separated schema whitelist (typescript.
 // schemas, or the `schemas` query param — config can't hold arrays, so both
 // use the same comma-separated-string convention as e.g. http.cors.
 // allowed_origins) into its individual schema names ; "" yields nil ("every
 // schema").
-func ParseSchemaList(s string) []string {
+func parseSchemaList(s string) []string {
 	if s == "" {
 		return nil
 	}

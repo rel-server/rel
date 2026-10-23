@@ -83,33 +83,6 @@ func TestTypeScriptHandler_SchemasParamOutsideWhitelistIsRejected(t *testing.T) 
 	}
 }
 
-func TestResolveTypeScriptSchemas(t *testing.T) {
-	cases := []struct {
-		name       string
-		configured string
-		param      string
-		want       []string
-		wantErr    bool
-	}{
-		{"no whitelist, no param", "", "", nil, false},
-		{"no whitelist, param passes through", "", "a,b", []string{"a", "b"}, false},
-		{"whitelist, no param", "a,b", "", []string{"a", "b"}, false},
-		{"whitelist, param narrows", "a,b", "a", []string{"a"}, false},
-		{"whitelist, param outside is rejected", "a,b", "c", nil, true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, err := resolveTypeScriptSchemas(c.configured, c.param)
-			if (err != nil) != c.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, c.wantErr)
-			}
-			if err == nil && !equalStrings(got, c.want) {
-				t.Fatalf("got %v, want %v", got, c.want)
-			}
-		})
-	}
-}
-
 func TestDatabaseJSONHandler_GET_ReturnsGeneratedDatabaseJSON(t *testing.T) {
 	handler := NewDatabaseJSONHandler(testDb, testCfg, nil)
 
@@ -159,16 +132,4 @@ func TestDatabaseJSONHandler_SchemasParamOutsideWhitelistIsRejected(t *testing.T
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
 	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

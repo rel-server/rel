@@ -5,6 +5,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -27,19 +28,13 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 			return
 		}
 
-		schemas, err := resolveTypeScriptSchemas(cfg.TypeScript.Schemas, r.URL.Query().Get("schemas"))
-		if err != nil {
-			writeError(r.Context(), w, httperr.BadRequest(errcode.Unclassified, err), cfg.Dev)
+		opts, herr := typeScriptOptions(cfg, r, true)
+		if herr != nil {
+			writeError(r.Context(), w, herr, cfg.Dev)
 			return
 		}
 
-		codec, err := tsgen.ResolveCodec(cfg.TypeScript.Codec, r.URL.Query().Get("codec"))
-		if err != nil {
-			writeError(r.Context(), w, httperr.BadRequest(errcode.Unclassified, err), cfg.Dev)
-			return
-		}
-
-		out := tsgen.GenerateDatabaseTS(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist, Codec: codec}, wkReg)
+		out := tsgen.GenerateDatabaseTS(db, opts, wkReg)
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(out))
@@ -59,13 +54,13 @@ func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown
 			return
 		}
 
-		schemas, err := resolveTypeScriptSchemas(cfg.TypeScript.Schemas, r.URL.Query().Get("schemas"))
-		if err != nil {
-			writeError(r.Context(), w, httperr.BadRequest(errcode.Unclassified, err), cfg.Dev)
+		opts, herr := typeScriptOptions(cfg, r, false)
+		if herr != nil {
+			writeError(r.Context(), w, herr, cfg.Dev)
 			return
 		}
 
-		out, err := tsgen.GenerateDatabaseJSON(db, tsgen.Options{Schemas: schemas, Blacklist: cfg.Blacklist}, wkReg)
+		out, err := tsgen.GenerateDatabaseJSON(db, opts, wkReg)
 		if err != nil {
 			writeError(r.Context(), w, httperr.Server(errcode.Internal, err), cfg.Dev)
 			return
@@ -76,33 +71,20 @@ func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown
 	})
 }
 
-// resolveTypeScriptSchemas is docs/content/typescript-client.md ## Fetching it's `schemas`
-// query param, intersected with typescript.schemas' own whitelist —
-// the redactor's own answer, during this feature's implementation, to how
-// the two combine : the param never widens past the configured whitelist ;
-// a name outside it is a 400, not a silent drop, so a typo/misconfiguration
-// surfaces instead of quietly exporting less than asked.
-func resolveTypeScriptSchemas(configured, param string) ([]string, error) {
-	cfgList := tsgen.ParseSchemaList(configured)
-	paramList := tsgen.ParseSchemaList(param)
-
-	if len(cfgList) == 0 {
-		return paramList, nil // "" whitelist means "every schema" ; param alone decides
+// typeScriptOptions is tsgen.Resolve for a request's `schemas` and `codec` params : a bad param is a
+// 400, anything else (a bad configured value) a 500.
+func typeScriptOptions(cfg *config.Config, r *http.Request, withCodec bool) (tsgen.Options, *httperr.Error) {
+	q := r.URL.Query()
+	ov := tsgen.Overrides{Schemas: q.Get("schemas")}
+	if withCodec {
+		ov.Codec = q.Get("codec")
 	}
-	if len(paramList) == 0 {
-		return cfgList, nil // no param : the whole configured whitelist
+	opts, err := tsgen.Resolve(cfg, ov)
+	if err == nil {
+		return opts, nil
 	}
-
-	allowed := make(map[string]bool, len(cfgList))
-	for _, s := range cfgList {
-		allowed[s] = true
+	if _, ok := errors.AsType[*tsgen.BadOverrideError](err); ok {
+		return opts, httperr.BadRequest(errcode.Unclassified, err)
 	}
-	out := make([]string, 0, len(paramList))
-	for _, s := range paramList {
-		if !allowed[s] {
-			return nil, fmt.Errorf("schemas=%q is not in the configured typescript.schemas whitelist", s)
-		}
-		out = append(out, s)
-	}
-	return out, nil
+	return opts, httperr.Server(errcode.Internal, err)
 }

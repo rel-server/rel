@@ -47,16 +47,12 @@ func (s *Snapshot) WriteTypeScriptHelper(cfg *config.Config, logger *slog.Logger
 	if cfg.TypeScript.HelperPath == "" {
 		return
 	}
-	codec, err := tsgen.ParseCodec(cfg.TypeScript.Codec)
+	opts, err := tsgen.Resolve(cfg, tsgen.Overrides{})
 	if err != nil {
 		logger.Error("writing typescript.helper_path", "path", cfg.TypeScript.HelperPath, "error", err.Error())
 		return
 	}
-	out := tsgen.GenerateDatabaseTS(s.Db, tsgen.Options{
-		Schemas:   tsgen.ParseSchemaList(cfg.TypeScript.Schemas),
-		Blacklist: cfg.Blacklist,
-		Codec:     codec,
-	}, s.WellKnown)
+	out := tsgen.GenerateDatabaseTS(s.Db, opts, s.WellKnown)
 	if err := os.WriteFile(cfg.TypeScript.HelperPath, []byte(out), 0o644); err != nil {
 		logger.Error("writing typescript.helper_path", "path", cfg.TypeScript.HelperPath, "error", err.Error())
 		return
