@@ -42,9 +42,26 @@ type ResolveContext struct {
 	resolvingOwn map[*QueryNode]bool
 }
 
-// ResolveQuery resolves one decoded Relation (the root of a bare query or a
-// WriteQuery) into a fully DB-resolved *QueryNode tree.
-func (ctx *ResolveContext) ResolveQuery(raw *rawRelation) (*QueryNode, error) {
+// Resolve turns one decoded Relation (the root of a bare query or a
+// WriteQuery) into a fully resolved *QueryNode tree: tables, expressions and
+// shapes, in the order each step needs. Nothing else is needed before the
+// tree can be compiled.
+func (ctx *ResolveContext) Resolve(raw *rawRelation) (*QueryNode, error) {
+	root, err := ctx.resolveQuery(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.resolveExpressions(root); err != nil {
+		return nil, err
+	}
+	if err := ctx.deriveShapes(root); err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
+// resolveQuery is Resolve's first step: the node tree against the database.
+func (ctx *ResolveContext) resolveQuery(raw *rawRelation) (*QueryNode, error) {
 	return ctx.resolveNode(raw, nil, "", 1)
 }
 

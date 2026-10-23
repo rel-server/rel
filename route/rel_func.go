@@ -64,7 +64,9 @@ func executeRelRead(ctx context.Context, db *pg.DbInfos, cfg *config.Config, wkR
 		}
 
 		var sw interface{ String() string }
-		var argsSrc interface{ ResolveArgs(map[string]any) ([]any, error) }
+		var argsSrc interface {
+			ResolveArgs(map[string]any) ([]any, error)
+		}
 		var paramValues map[string]any
 
 		switch {
@@ -81,15 +83,9 @@ func executeRelRead(ctx context.Context, db *pg.DbInfos, cfg *config.Config, wkR
 			sw = wk.Read
 			argsSrc = wk.Read
 		case item.Relation != nil:
-			root, rerr := rctx.ResolveQuery(item.Relation)
+			root, rerr := rctx.Resolve(item.Relation)
 			if rerr != nil {
 				return nil, oops.With("item", i).Wrap(rerr)
-			}
-			if err := rctx.ResolveExpressions(root); err != nil {
-				return nil, oops.With("item", i).Wrap(err)
-			}
-			if err := rctx.DeriveShapes(root); err != nil {
-				return nil, oops.With("item", i).Wrap(err)
 			}
 			w, cerr := query.CompileSelect(root)
 			if cerr != nil {

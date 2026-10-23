@@ -331,24 +331,16 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		var data query.Node
 		switch {
 		case item.Write != nil:
-			root, rerr = rctx.ResolveQuery(item.Write.Query)
+			root, rerr = rctx.Resolve(item.Write.Query)
 			data = item.Write.Data
 		case item.Relation != nil:
-			root, rerr = rctx.ResolveQuery(item.Relation)
+			root, rerr = rctx.Resolve(item.Relation)
 		default:
 			writeError(ctx, w, badRequest(errcode.QueryMalformedJSON, fmt.Errorf("item %d: empty query", i)), cfg.Dev)
 			return
 		}
 		if rerr != nil {
 			writeError(ctx, w, badRequest(codeOrUnclassified(rerr), fmt.Errorf("item %d: %w", i, rerr)), cfg.Dev)
-			return
-		}
-		if err := rctx.ResolveExpressions(root); err != nil {
-			writeError(ctx, w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
-			return
-		}
-		if err := rctx.DeriveShapes(root); err != nil {
-			writeError(ctx, w, badRequest(codeOrUnclassified(err), fmt.Errorf("item %d: %w", i, err)), cfg.Dev)
 			return
 		}
 		// write_mode "delete" carries no data, so the root decides, not "data".

@@ -57,15 +57,9 @@ func bMustResolveQuery(b *testing.B, src string) *QueryNode {
 		b.Fatalf("ParseQuery(%s) did not produce a bare Relation: %#v", src, pq)
 	}
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	node, err := ctx.ResolveQuery(pq.Relation)
+	node, err := ctx.Resolve(pq.Relation)
 	if err != nil {
-		b.Fatalf("ResolveQuery: %v", err)
-	}
-	if err := ctx.ResolveExpressions(node); err != nil {
-		b.Fatalf("ResolveExpressions: %v", err)
-	}
-	if err := ctx.DeriveShapes(node); err != nil {
-		b.Fatalf("DeriveShapes: %v", err)
+		b.Fatalf("Resolve: %v", err)
 	}
 	return node
 }

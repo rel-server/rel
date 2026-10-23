@@ -71,14 +71,8 @@ func BenchmarkParseResolveCompile(b *testing.B) {
 					b.Fatal(err)
 				}
 				ctx := &ResolveContext{Db: testDb, Config: testCfg}
-				node, err := ctx.ResolveQuery(pq.Relation)
+				node, err := ctx.Resolve(pq.Relation)
 				if err != nil {
-					b.Fatal(err)
-				}
-				if err := ctx.ResolveExpressions(node); err != nil {
-					b.Fatal(err)
-				}
-				if err := ctx.DeriveShapes(node); err != nil {
 					b.Fatal(err)
 				}
 				if _, err := CompileSelect(node); err != nil {

@@ -33,15 +33,9 @@ func mustResolveQuery(t *testing.T, src string) *QueryNode {
 	t.Helper()
 	raw := mustParseRelation(t, src)
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.Resolve(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
-	}
-	if err := ctx.ResolveExpressions(node); err != nil {
-		t.Fatalf("ResolveExpressions: %v", err)
-	}
-	if err := ctx.DeriveShapes(node); err != nil {
-		t.Fatalf("DeriveShapes: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
 	return node
 }
@@ -50,14 +44,8 @@ func resolveQueryExpectError(t *testing.T, src string) error {
 	t.Helper()
 	raw := mustParseRelation(t, src)
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
-	node, err := ctx.ResolveQuery(raw)
-	if err != nil {
-		return err
-	}
-	if err := ctx.ResolveExpressions(node); err != nil {
-		return err
-	}
-	return ctx.DeriveShapes(node)
+	_, err := ctx.Resolve(raw)
+	return err
 }
 
 func TestResolveExpressions_BareColumn(t *testing.T) {
