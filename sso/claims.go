@@ -90,6 +90,11 @@ func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, 
 		return
 	}
 
+	// Deliberately NOT reqauth's role-scoped transaction : the user is not signed in yet (this
+	// call is what signs them in), so the callback runs as the connection's own role, and is
+	// "security definer" to read what it needs (authentication.md's example). It is one
+	// statement, so Postgres already wraps it in a transaction, and it sets no claims or role.
+	// Only Verify is shared with the rest (above), for payload.jwt.
 	raw, err := dbauth.CallJSONBFunctionReturningJSON(r.Context(), db.Pool, functionName, payload)
 	if err != nil {
 		writeErrorForPgErr(w, err, cfg.Dev)

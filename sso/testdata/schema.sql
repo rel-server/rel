@@ -64,3 +64,13 @@ language sql
 as $$
   select jsonb_build_object('status', 200, 'content_type', 'application/json', 'content', payload);
 $$;
+
+-- Test-only fixture : reports the database role and claims setting the callback runs with.
+create function auth.echo_session(payload jsonb) returns "RelHttpResponse"
+language sql
+as $$
+  select jsonb_build_object('status', 200, 'content_type', 'application/json', 'content', jsonb_build_object(
+    'current_user', current_user,
+    'claims_setting', current_setting('rel.jwt.claims', true)
+  ));
+$$;
