@@ -39,6 +39,7 @@ var baseScalarTypes = map[string]string{
 	"int4":   "number",
 	"float4": "number",
 	"float8": "number",
+	"oid":    "number",
 	"json":   "unknown",
 	"jsonb":  "unknown",
 
