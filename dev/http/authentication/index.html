@@ -3285,6 +3285,10 @@ of its own lifespan has elapsed — <code>role</code> and <code>auth_time</code>
 so a stolen cookie is only useful briefly), and <code>jwt.max_session_age</code> bounds how long renewal
 can keep extending the session overall, measured from the original <code>auth_time</code> — once it's
 exceeded, the session can't be renewed anymore and the user has to fully re-authenticate.</p>
+<p>Renewal only changes the cookie sent back. On the request that triggers it, <code>request.jwt</code> and the
+<code>rel.jwt.claims</code> setting still hold the claims exactly as the request carried them (the old <code>iat</code> and <code>exp</code>),
+in every endpoint, both calls of a <code>stream_upload</code> route included. The renewed cookie is sent after
+<a href="../#middleware">middleware</a> accepts the request, so a request middleware rejects never receives one.</p>
 <p>For revocation before either of those would naturally expire it — a password change, a ban, an
 admin-triggered logout — declare a session-checking <a href="../#middleware">middleware</a> at
 whatever prefix needs it (<code>/</code> to cover everything, including <code>/rel</code>). Unlike the old

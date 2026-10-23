@@ -3007,7 +3007,8 @@ request from that user would resolve to:</p>
 </span></code></pre></div>
 <p><code>query</code> is built with Jet's own <code>map()</code>/<code>slice()</code> globals into the same shape a <code>/rel</code> request
 body would send — a bare relation, or a well-known query by name (<code>map("wellknown", "name",
-"params", map(...))</code>). A write shape (<code>map("query", ..., "data", ...)</code>) is always rejected: a
+"params", map(...))</code>). The result is what <code>/rel</code> would answer: the rows of a relation or of a
+function returning a set, or the bare value of a function returning one value. A write shape (<code>map("query", ..., "data", ...)</code>) is always rejected: a
 page render must not have side effects. <code>rel()</code> opens its own short-lived transaction per call,
 independent of the surrounding request's own transaction (if any) and of any other <code>rel()</code> call
 in the same render — it is not a mechanism for a coherent multi-statement read; reach for a

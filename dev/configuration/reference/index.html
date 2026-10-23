@@ -3238,6 +3238,12 @@ the binary itself, if you want it without leaving a terminal.</p>
 <td>Max number of <code>multipart/form-data</code> parts a single declared-route request may contain.</td>
 </tr>
 <tr>
+<td><code>http.response_buffer</code></td>
+<td><code>REL_HTTP__RESPONSE_BUFFER</code></td>
+<td><code>65536</code> (bytes)</td>
+<td>How many bytes of a <code>/rel</code> response are held back until the transaction has committed. A response that fits is delivered whole or replaced by an error; a longer one streams once the buffer is full, and a later failure can only cut it short. <code>0</code> streams from the first byte. Costs up to this much memory per request in flight.</td>
+</tr>
+<tr>
 <td><code>http.static.path</code></td>
 <td><code>REL_HTTP__STATIC__PATH</code></td>
 <td>—</td>
