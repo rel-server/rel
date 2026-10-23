@@ -25,6 +25,8 @@ a straggler can't hold a Postgres lock indefinitely against `reload.cmd`'s own D
 `reload.cmd` empty (the default) skips this step entirely — rel still reintrospects and rebuilds
 its registries, it just runs nothing beforehand.
 
+A reload that fails to build its new routes and queries leaves rel serving what it served before, and resumes normal service. `typescript.helper_path` is rewritten only once the new routes and queries are the ones being served, so a failed reload leaves that file as it was.
+
 ## Command line and interpolation
 
 `reload.cmd` is a single string, split into arguments with shell-style word-splitting/quoting

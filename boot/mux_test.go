@@ -80,10 +80,7 @@ func TestBuildMux_NonceOnlyOnRouteAndAuth(t *testing.T) {
 		t.Fatalf("wellknown.BuildRegistry: %v", err)
 	}
 
-	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
-	if err != nil {
-		t.Fatalf("BuildMux: %v", err)
-	}
+	mux := BuildMux(db, cfg, reg, wkReg, nil)
 
 	relReq := httptest.NewRequest("POST", "/rel", strings.NewReader(`{"relation":"does_not_exist"}`))
 	relReq.Header.Set("Content-Type", "application/json")
@@ -180,10 +177,7 @@ func TestBuildMux_StaticMaskingAndRootFallback(t *testing.T) {
 		t.Fatalf("wellknown.BuildRegistry: %v", err)
 	}
 
-	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
-	if err != nil {
-		t.Fatalf("BuildMux: %v", err)
-	}
+	mux := BuildMux(db, cfg, reg, wkReg, nil)
 
 	// An exact-path route always wins over a same-path static file.
 	maskedReq := httptest.NewRequest("GET", "/masked.txt", nil)
@@ -266,10 +260,7 @@ func TestBuildMux_ChiPrecedence_StaticSegmentBeatsParam(t *testing.T) {
 		t.Fatalf("wellknown.BuildRegistry: %v", err)
 	}
 
-	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
-	if err != nil {
-		t.Fatalf("BuildMux: %v", err)
-	}
+	mux := BuildMux(db, cfg, reg, wkReg, nil)
 
 	specialReq := httptest.NewRequest("GET", "/items/special", nil)
 	specialRec := httptest.NewRecorder()
@@ -354,10 +345,7 @@ func TestBuildMux_MiddlewareGatesRel(t *testing.T) {
 		t.Fatalf("wellknown.BuildRegistry: %v", err)
 	}
 
-	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
-	if err != nil {
-		t.Fatalf("BuildMux: %v", err)
-	}
+	mux := BuildMux(db, cfg, reg, wkReg, nil)
 
 	claims := jwtpkg.Mint(cfg.Jwt, "authenticated_user", time.Now(), cfg.Jwt.MaxAge, nil)
 	token, err := jwtpkg.Sign(cfg.Jwt, claims)
@@ -456,10 +444,7 @@ func TestBuildMux_MiddlewareRejectionDoesNotAlsoRenew(t *testing.T) {
 		t.Fatalf("wellknown.BuildRegistry: %v", err)
 	}
 
-	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
-	if err != nil {
-		t.Fatalf("BuildMux: %v", err)
-	}
+	mux := BuildMux(db, cfg, reg, wkReg, nil)
 
 	claims := jwtpkg.Mint(cfg.Jwt, "authenticated_user", time.Now(), cfg.Jwt.MaxAge, nil)
 	token, err := jwtpkg.Sign(cfg.Jwt, claims)
@@ -553,10 +538,7 @@ func TestBuildMux_MiddlewareGatesStaticFallback(t *testing.T) {
 		t.Fatalf("wellknown.BuildRegistry: %v", err)
 	}
 
-	mux, err := BuildMux(db, cfg, reg, wkReg, nil)
-	if err != nil {
-		t.Fatalf("BuildMux: %v", err)
-	}
+	mux := BuildMux(db, cfg, reg, wkReg, nil)
 
 	gatedReq := httptest.NewRequest("GET", "/private/secret.txt", nil)
 	gatedRec := httptest.NewRecorder()

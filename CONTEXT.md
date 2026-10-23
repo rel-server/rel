@@ -28,6 +28,12 @@ _Avoid_: return query
 A request's items after resolving and compiling, before any database connection is taken.
 _Avoid_: compiled request
 
+## Serving
+
+**Snapshot**:
+Everything a running server serves from, built from one introspection of the database; a reload builds a new one and replaces the old as a whole.
+_Avoid_: state, registry (a registry is only part of it)
+
 ## Identity
 
 **User**:

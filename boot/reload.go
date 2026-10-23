@@ -16,7 +16,6 @@ package boot
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -24,8 +23,6 @@ import (
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/reloadcmd"
-	"github.com/rel-server/rel/route"
-	"github.com/rel-server/rel/wellknown"
 )
 
 // Reloader owns the mutable state a SIGUSR1 reload (specs/migrations.md ##
@@ -66,18 +63,17 @@ func (rl *Reloader) CurrentDbInfos() *pg.DbInfos {
 
 // Reload runs docs/content/configuration/reload.md's reload sequence : begin maintenance, drain
 // in-flight requests, run reload.cmd, reintrospect (skipped when reload.cmd
-// failed), rebuild /route + well-known + the TypeScript helper file, swap
-// in a fresh mux, resume serving. A reload.cmd failure skips reintrospection
-// specifically (docs/content/configuration/reload.md : "the introspection reload is not
-// performed, but wellknown and templates still get updated, rebuilt against
-// the previous, still-loaded schema") — everything downstream of it still
-// runs, against the OLD *pg.DbInfos. Any other step failing (reintrospection
-// itself, /route or well-known registry build, mux build) logs and resumes
-// serving the OLD handler/schema entirely, never half-swapped and never
-// stuck in maintenance mode.
+// failed), build a new snapshot, swap it in, resume serving. A reload.cmd failure skips
+// reintrospection specifically (docs/content/configuration/reload.md : "the introspection reload is
+// not performed, but wellknown and templates still get updated, rebuilt against the previous,
+// still-loaded schema") — the build still runs, against the OLD *pg.DbInfos. Any other step
+// failing (reintrospection itself, the build) logs and resumes serving the OLD snapshot entirely,
+// never half-swapped and never stuck in maintenance mode.
 func (rl *Reloader) Reload(ctx context.Context) {
 	// New requests stop being served immediately.
 	rl.Wrapper.BeginMaintenance()
+	// Whatever happens below, serving resumes (against the new snapshot if it was swapped in).
+	defer rl.Wrapper.EndMaintenance()
 
 	// Wait for in-flight requests, bounded by reload.drain_timeout ; past
 	// that, their contexts are cancelled.
@@ -99,49 +95,25 @@ func (rl *Reloader) Reload(ctx context.Context) {
 			rl.Logger.Error("reload: reintrospection failed, resuming under the old schema", "error", err.Error())
 		} else {
 			db = newDb
-			if rl.Cfg.Pg.Query.AnonymousRole != "" && !newDb.AnonymousRoleExists {
-				rl.Logger.Warn(fmt.Sprintf("configured anonymous role %q does not exist — all anonymous requests will be denied", rl.Cfg.Pg.Query.AnonymousRole))
-			}
+			warnMissingAnonymousRole(db, rl.Cfg, rl.Logger)
 		}
 	}
 
-	// /route and well-known registries rebuild against db (the freshly
-	// reintrospected schema, or the old one when reload.cmd/reintrospection
-	// didn't succeed) ; either failing logs and resumes under the old schema.
-	reg, err := route.BuildRegistry(db, rl.Cfg)
+	// Built against db : the freshly reintrospected schema, or the old one when
+	// reload.cmd/reintrospection didn't succeed.
+	snap, err := Build(db, rl.Cfg, rl.Logger)
 	if err != nil {
-		rl.Logger.Error("reload: building /route registry failed, resuming under the old schema", "error", err.Error())
-		rl.Wrapper.EndMaintenance()
+		rl.Logger.Error("reload: building the new snapshot failed, resuming under the old schema", "error", err.Error())
 		return
 	}
-	wkReg, err := wellknown.BuildRegistry(db, rl.Cfg)
-	if err != nil {
-		rl.Logger.Error("reload: building well-known query registry failed, resuming under the old schema", "error", err.Error())
-		rl.Wrapper.EndMaintenance()
-		return
-	}
-
-	// specs/typescript.md ## Reloading `helper_path` : right after the
-	// registries above, using this same db AND the freshly rebuilt wkReg —
-	// Wellknowns generation needs both.
-	WriteTypeScriptHelperFile(db, rl.Cfg, wkReg, rl.Logger)
-
-	// A fresh mux (via the same BuildMux startup uses) is stored into the
-	// wrapper's atomic.Pointer, never written to Handler directly.
-	mux, err := BuildMux(db, rl.Cfg, reg, wkReg, rl.Logger)
-	if err != nil {
-		rl.Logger.Error("reload: building mux failed, resuming under the old schema", "error", err.Error())
-		rl.Wrapper.EndMaintenance()
-		return
-	}
-	rl.Wrapper.Swap(mux)
+	rl.Wrapper.Swap(snap.Handler)
 
 	rl.mu.Lock()
 	rl.db = db
 	rl.mu.Unlock()
 
-	rl.Logger.Info("reload: succeeded")
+	// specs/typescript.md ## Reloading `helper_path` : only once the new snapshot is the one served.
+	snap.WriteTypeScriptHelper(rl.Cfg, rl.Logger)
 
-	// New requests resume being served, against the new inner mux.
-	rl.Wrapper.EndMaintenance()
+	rl.Logger.Info("reload: succeeded")
 }
