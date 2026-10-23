@@ -61,9 +61,9 @@ func mustParseRelation(t *testing.T, src string) *rawRelation {
 func TestResolveQuery_SimpleRelation(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"relation": "director", "schema": "public"}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node.Relation == nil || node.Relation.Identifier.Name != "director" {
 		t.Fatalf("unexpected node.Relation: %#v", node.Relation)
@@ -79,9 +79,9 @@ func TestResolveQuery_SimpleRelation(t *testing.T) {
 func TestResolveQuery_UnqualifiedSearchPath(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"relation": "director"}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node.Relation == nil || node.Relation.Identifier.Schema != "public" {
 		t.Fatalf("expected public.director via search path, got %#v", node.Relation)
@@ -97,9 +97,9 @@ func TestResolveQuery_NestedJoin_OutgoingAndIncoming(t *testing.T) {
 			"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}
 		}
 	}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if len(node.IncomingNodes) != 1 || len(node.OutgoingNodes) != 0 {
 		t.Fatalf("expected movie under director to be Incoming (to-many), got Outgoing=%d Incoming=%d", len(node.OutgoingNodes), len(node.IncomingNodes))
@@ -123,9 +123,9 @@ func TestResolveQuery_NestedJoin_OutgoingAndIncoming(t *testing.T) {
 			"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}
 		}
 	}`)
-	node2, err := ctx.ResolveQuery(raw2)
+	node2, err := ctx.resolveQuery(raw2)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if len(node2.OutgoingNodes) != 1 || len(node2.IncomingNodes) != 0 {
 		t.Fatalf("expected director under movie to be Outgoing (to-one), got Outgoing=%d Incoming=%d", len(node2.OutgoingNodes), len(node2.IncomingNodes))
@@ -144,7 +144,7 @@ func TestResolveQuery_DeleteBearingOnOutgoing_Rejected(t *testing.T) {
 			"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "write_mode": "merge"}
 		}
 	}`)
-	if _, err := ctx.ResolveQuery(raw); err == nil {
+	if _, err := ctx.resolveQuery(raw); err == nil {
 		t.Fatalf("expected a delete-bearing write_mode on an outgoing relation to be rejected")
 	}
 }
@@ -153,18 +153,18 @@ func TestResolveQuery_OnConflict(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 
 	raw := mustParseRelation(t, `{"relation": "director", "schema": "public", "on_conflict": "director_pkey"}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node.OnConflictConstraintName != "director_pkey" {
 		t.Errorf("expected constraint name form to resolve, got %q", node.OnConflictConstraintName)
 	}
 
 	raw2 := mustParseRelation(t, `{"relation": "target_t", "schema": "public", "on_conflict": ["x", "y"]}`)
-	node2, err := ctx.ResolveQuery(raw2)
+	node2, err := ctx.resolveQuery(raw2)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if len(node2.OnConflictColumns) != 2 {
 		t.Errorf("expected column-list form to resolve, got %#v", node2.OnConflictColumns)
@@ -174,7 +174,7 @@ func TestResolveQuery_OnConflict(t *testing.T) {
 func TestResolveQuery_RelationBlacklist(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"relation": "tables", "schema": "information_schema"}`)
-	if _, err := ctx.ResolveQuery(raw); err == nil {
+	if _, err := ctx.resolveQuery(raw); err == nil {
 		t.Fatalf("expected information_schema.tables to be rejected by the default blacklist")
 	}
 }
@@ -182,7 +182,7 @@ func TestResolveQuery_RelationBlacklist(t *testing.T) {
 func TestResolveQuery_FunctionBlacklist(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"function": "pg_sleep", "schema": "pg_catalog", "arguments": [1]}`)
-	if _, err := ctx.ResolveQuery(raw); err == nil {
+	if _, err := ctx.resolveQuery(raw); err == nil {
 		t.Fatalf("expected pg_catalog.pg_sleep to be rejected by the default blacklist")
 	}
 }
@@ -190,18 +190,18 @@ func TestResolveQuery_FunctionBlacklist(t *testing.T) {
 func TestResolveQuery_FunctionOverloadResolution(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"function": "fn_overload", "schema": "public", "arguments": [1]}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node.Function == nil || node.Function.PgNargs != 1 {
 		t.Fatalf("expected the 1-arg overload, got %#v", node.Function)
 	}
 
 	raw2 := mustParseRelation(t, `{"function": "fn_overload", "schema": "public", "arguments": [1, 2]}`)
-	node2, err := ctx.ResolveQuery(raw2)
+	node2, err := ctx.resolveQuery(raw2)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node2.Function == nil || node2.Function.PgNargs != 2 {
 		t.Fatalf("expected the 2-arg overload, got %#v", node2.Function)
@@ -211,7 +211,7 @@ func TestResolveQuery_FunctionOverloadResolution(t *testing.T) {
 func TestResolveQuery_InsertColumnsValidation(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"relation": "director", "schema": "public", "insert_columns": ["no_such_column"]}`)
-	if _, err := ctx.ResolveQuery(raw); err == nil {
+	if _, err := ctx.resolveQuery(raw); err == nil {
 		t.Fatalf("expected an unknown insert_columns entry to be rejected")
 	}
 }
@@ -219,7 +219,7 @@ func TestResolveQuery_InsertColumnsValidation(t *testing.T) {
 func TestResolveQuery_UpdateColumnsValidation(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"relation": "director", "schema": "public", "update_columns": ["no_such_column"]}`)
-	if _, err := ctx.ResolveQuery(raw); err == nil {
+	if _, err := ctx.resolveQuery(raw); err == nil {
 		t.Fatalf("expected an unknown update_columns entry to be rejected")
 	}
 }
@@ -227,7 +227,7 @@ func TestResolveQuery_UpdateColumnsValidation(t *testing.T) {
 func TestResolveQuery_UnknownRelation(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"relation": "no_such_relation", "schema": "public"}`)
-	if _, err := ctx.ResolveQuery(raw); err == nil {
+	if _, err := ctx.resolveQuery(raw); err == nil {
 		t.Fatalf("expected an unknown relation to be rejected")
 	}
 }
@@ -235,7 +235,7 @@ func TestResolveQuery_UnknownRelation(t *testing.T) {
 func TestResolveQuery_UnknownFunction(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"function": "no_such_function", "schema": "public"}`)
-	if _, err := ctx.ResolveQuery(raw); err == nil {
+	if _, err := ctx.resolveQuery(raw); err == nil {
 		t.Fatalf("expected an unknown function to be rejected")
 	}
 }
@@ -245,9 +245,9 @@ func TestResolveQuery_FunctionNamedArguments(t *testing.T) {
 	// {a: 1} must resolve to the 1-arg overload only, not the 2-arg one
 	// (b required, not supplied) — functionAcceptsNames must check required names are covered, not just that given names are valid.
 	raw := mustParseRelation(t, `{"function": "fn_overload", "schema": "public", "arguments": {"a": 1}}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node.Function == nil || node.Function.PgNargs != 1 {
 		t.Fatalf("expected the 1-arg overload via named args, got %#v", node.Function)
@@ -257,7 +257,7 @@ func TestResolveQuery_FunctionNamedArguments(t *testing.T) {
 func TestResolveQuery_AmbiguousFunction(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"function": "fn_ambig", "schema": "public", "arguments": [1]}`)
-	if _, err := ctx.ResolveQuery(raw); err == nil {
+	if _, err := ctx.resolveQuery(raw); err == nil {
 		t.Fatalf("expected fn_ambig(int)/fn_ambig(text) to be rejected as ambiguous by arity-only matching")
 	}
 }
@@ -268,9 +268,9 @@ func TestResolveQuery_TableValuedFunctionRoot(t *testing.T) {
 		"function": "fn_directors",
 		"schema": "public"
 	}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node.Function == nil {
 		t.Fatalf("expected Function to be set for a function-rooted node")
@@ -288,9 +288,9 @@ func TestResolveQuery_TableValuedFunctionRoot(t *testing.T) {
 			"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}
 		}
 	}`)
-	nodeWithJoin, err := ctx.ResolveQuery(rawWithJoin)
+	nodeWithJoin, err := ctx.resolveQuery(rawWithJoin)
 	if err != nil {
-		t.Fatalf("ResolveQuery with join under a function root: %v", err)
+		t.Fatalf("resolveQuery with join under a function root: %v", err)
 	}
 	if len(nodeWithJoin.IncomingNodes) != 1 {
 		t.Fatalf("expected 1 incoming child joined under the function root, got %d", len(nodeWithJoin.IncomingNodes))
@@ -304,7 +304,7 @@ func TestResolveQuery_MaxDepth(t *testing.T) {
 	}}
 
 	root := mustParseRelation(t, `{"relation": "director", "schema": "public"}`)
-	if _, err := shallow.ResolveQuery(root); err != nil {
+	if _, err := shallow.resolveQuery(root); err != nil {
 		t.Fatalf("expected a root-only query to fit within MaxDepth=1, got %v", err)
 	}
 
@@ -315,7 +315,7 @@ func TestResolveQuery_MaxDepth(t *testing.T) {
 			"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}
 		}
 	}`)
-	if _, err := shallow.ResolveQuery(nested); err == nil {
+	if _, err := shallow.resolveQuery(nested); err == nil {
 		t.Fatalf("expected a depth-2 query to exceed MaxDepth=1")
 	}
 }
@@ -333,9 +333,9 @@ func TestResolveQuery_JoinColumnsOrderIsDeterministic(t *testing.T) {
 	}`
 	for i := range 30 {
 		raw := mustParseRelation(t, src)
-		node, err := ctx.ResolveQuery(raw)
+		node, err := ctx.resolveQuery(raw)
 		if err != nil {
-			t.Fatalf("iteration %d: ResolveQuery: %v", i, err)
+			t.Fatalf("iteration %d: resolveQuery: %v", i, err)
 		}
 		if len(node.IncomingNodes) != 1 {
 			t.Fatalf("iteration %d: expected 1 incoming child, got %d", i, len(node.IncomingNodes))
@@ -361,9 +361,9 @@ func TestResolveQuery_MultipleChildrenUnderOneParent(t *testing.T) {
 	}`
 	for i := range 10 {
 		raw := mustParseRelation(t, src)
-		node, err := ctx.ResolveQuery(raw)
+		node, err := ctx.resolveQuery(raw)
 		if err != nil {
-			t.Fatalf("iteration %d: ResolveQuery: %v", i, err)
+			t.Fatalf("iteration %d: resolveQuery: %v", i, err)
 		}
 		if len(node.IncomingNodes) != 2 {
 			t.Fatalf("iteration %d: expected 2 incoming children, got %d", i, len(node.IncomingNodes))
@@ -378,9 +378,9 @@ func TestResolveQuery_MultipleChildrenUnderOneParent(t *testing.T) {
 func TestResolveQuery_ExplicitWriteModeOverridesRootDefault(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"relation": "director", "schema": "public", "write_mode": "update-existing"}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node.WriteMode != UPDATE_EXISTING {
 		t.Errorf("expected explicit write_mode \"update-existing\" to override the root's INSERT default, got %v", node.WriteMode)
@@ -390,9 +390,9 @@ func TestResolveQuery_ExplicitWriteModeOverridesRootDefault(t *testing.T) {
 func TestResolveQuery_NoPrimaryKey_OnConflictLeftUnresolved(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	raw := mustParseRelation(t, `{"relation": "no_pk_t", "schema": "public"}`)
-	node, err := ctx.ResolveQuery(raw)
+	node, err := ctx.resolveQuery(raw)
 	if err != nil {
-		t.Fatalf("ResolveQuery: %v", err)
+		t.Fatalf("resolveQuery: %v", err)
 	}
 	if node.OnConflictConstraintName != "" || len(node.OnConflictColumns) != 0 {
 		t.Errorf("expected no on_conflict to resolve to anything for a PK-less relation, got constraint=%q columns=%v",

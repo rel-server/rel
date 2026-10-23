@@ -7,9 +7,8 @@
 // A *Compiled entry's *query.QueryNode (Root) and precompiled read
 // statement (Read) are safe to reuse concurrently across every request
 // naming it, for as long as the *Registry that produced them is live : pass
-// 1/2 resolution (query.ResolveContext.ResolveQuery/ResolveExpressions/
-// DeriveShapes) is the only thing that ever writes to a *QueryNode's own
-// fields — nothing in the write path (query.ExecuteWriteStateParams and
+// 1/2 resolution (query.ResolveContext.Resolve) is the only thing that ever
+// writes to a *QueryNode's own fields — nothing in the write path (query.ExecuteWriteNode and
 // everything it calls) mutates the tree, only reads it — so the SAME
 // resolved root serves both the read path (via Read, compiled once) and
 // the write path (recompiled fresh per request, same as a plain /rel write

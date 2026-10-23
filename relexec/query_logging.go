@@ -1,4 +1,4 @@
-package server
+package relexec
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 // loggingQuerier wraps a query.Querier so specs/logging.md ## Access
 // logging's per-item debug detail covers every SQL statement a write item
-// actually sends — ExecuteWriteStateParamsOpts issues several internal
+// actually sends — ExecuteWriteNode issues several internal
 // Exec/Query calls per item, not just one, so wrapping the Querier it's
 // given is the only place that sees all of them.
 type loggingQuerier struct {

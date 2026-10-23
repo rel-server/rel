@@ -129,13 +129,7 @@ func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]
 	}
 
 	for _, def := range defs {
-		root, err := rctx.ResolveQuery(def.Query)
-		if err == nil {
-			err = rctx.ResolveExpressions(root)
-		}
-		if err == nil {
-			err = rctx.DeriveShapes(root)
-		}
+		root, err := rctx.Resolve(def.Query)
 		if err != nil {
 			log.Warn("well-known query failed to resolve, deactivated", "name", def.Name, "path", path, "error", err.Error())
 			continue

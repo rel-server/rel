@@ -149,7 +149,7 @@ func wellknownConstIdent(name string) string {
 // argument. `shape` goes through RootShapeFromLiteralQuery, not the
 // bare ShapeFromRelationQuery : a well-known query's root is array-shaped
 // like any other root (docs/content/query-language/writing.md — "an array
-// of rows at the root" ; server/rel.go's streamItem), whether it's
+// of rows at the root" ; relexec's streamItem), whether it's
 // relation-rooted or (set-returning/scalar) function-rooted ; shapes.ts's
 // own "## Root cardinality" section carries the full reasoning.
 // `write_shape` is wrapped the same way : a function-rooted well-known query

@@ -262,13 +262,13 @@ func TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite(t *testing.T) {
 			"select": {"boom": ["/", 1, 0]}
 		}
 	]`)
-	// The first item already streamed bytes before the second item's
-	// division-by-zero fails — no clean envelope is possible at that point.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected the response to already be mid-stream (200 sent on first byte), got %d : %s", rec.Code, rec.Body.String())
+	// The first item's rows were still held back when the second item failed, so the failure is
+	// answered with an error instead of a cut-short body.
+	if rec.Code == http.StatusOK {
+		t.Fatalf("expected an error status, got 200 : %s", rec.Body.String())
 	}
-	if json.Valid(rec.Body.Bytes()) {
-		t.Fatalf("expected a truncated/invalid JSON body (streaming aborted mid-request), got complete JSON: %s", rec.Body.String())
+	if resp := decodeJSON[map[string]any](t, rec.Body.Bytes()); resp["status"] != "error" {
+		t.Fatalf("expected the error envelope, got %s", rec.Body.String())
 	}
 
 	// The real assertion : the first item's write must not be visible,

@@ -28,16 +28,16 @@ import (
 	"github.com/samber/oops"
 )
 
-// ResolveExpressions resolves every Expression-typed field of node and its
+// resolveExpressions resolves every Expression-typed field of node and its
 // entire subtree, bottom-up.
-func (ctx *ResolveContext) ResolveExpressions(node *QueryNode) error {
+func (ctx *ResolveContext) resolveExpressions(node *QueryNode) error {
 	for _, c := range node.OutgoingNodes {
-		if err := ctx.ResolveExpressions(c); err != nil {
+		if err := ctx.resolveExpressions(c); err != nil {
 			return err
 		}
 	}
 	for _, c := range node.IncomingNodes {
-		if err := ctx.ResolveExpressions(c); err != nil {
+		if err := ctx.resolveExpressions(c); err != nil {
 			return err
 		}
 	}
@@ -57,7 +57,7 @@ func (ctx *ResolveContext) ResolveExpressions(node *QueryNode) error {
 		return err
 	}
 	// selectShape, not resolveExpr : caches the resulting Shape onto
-	// node.Shape too, so DeriveShapes (shape.go) gets a cache hit later.
+	// node.Shape too, so deriveShapes (shape.go) gets a cache hit later.
 	if _, err = ctx.selectShape(node, oc); err != nil {
 		return err
 	}

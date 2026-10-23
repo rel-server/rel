@@ -25,8 +25,7 @@
 //     "_Compile", since the SQL text — and hence the compiler's own work —
 //     hasn't changed at all.
 //
-// Resolution (ParseQuery -> ResolveQuery -> ResolveExpressions ->
-// DeriveShapes) happens ONCE per benchmark, outside the timed loop, same as
+// Resolution (ParseQuery -> Resolve) happens ONCE per benchmark, outside the timed loop, same as
 // CompileSelect for the execute-and-decode variants : none of these queries
 // have any per-iteration data dependency (unlike write_bench_test.go's
 // inserts, reads have nothing that must be "fresh" each call), so timing
@@ -97,15 +96,9 @@ func mustResolveQuery(b *testing.B, src string) *query.QueryNode {
 		b.Fatalf("ParseQuery(%s) did not produce a bare Relation", src)
 	}
 	ctx := &query.ResolveContext{Db: testDb, Config: testCfg}
-	node, err := ctx.ResolveQuery(pq.Relation)
+	node, err := ctx.Resolve(pq.Relation)
 	if err != nil {
-		b.Fatalf("ResolveQuery: %v", err)
-	}
-	if err := ctx.ResolveExpressions(node); err != nil {
-		b.Fatalf("ResolveExpressions: %v", err)
-	}
-	if err := ctx.DeriveShapes(node); err != nil {
-		b.Fatalf("DeriveShapes: %v", err)
+		b.Fatalf("Resolve: %v", err)
 	}
 	return node
 }

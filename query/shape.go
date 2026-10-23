@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Pass 2, shape/writability derivation step : runs after ResolveExpressions
+// Pass 2, shape/writability derivation step : runs after resolveExpressions
 // (expression_resolve.go) has resolved every identifier, over each node's
 // now-resolved Select only — see specs/query-engine.md's Pass 2 description
 // and its "## Writability" section.
@@ -56,17 +56,17 @@ type Extractor struct {
 	JsonPath []string
 }
 
-// DeriveShapes computes NodeShape for root and its entire subtree,
+// deriveShapes computes NodeShape for root and its entire subtree,
 // bottom-up (children before parent — tree-level writability propagation
 // needs each child's Shape already computed).
-func (ctx *ResolveContext) DeriveShapes(root *QueryNode) error {
+func (ctx *ResolveContext) deriveShapes(root *QueryNode) error {
 	for _, c := range root.OutgoingNodes {
-		if err := ctx.DeriveShapes(c); err != nil {
+		if err := ctx.deriveShapes(c); err != nil {
 			return err
 		}
 	}
 	for _, c := range root.IncomingNodes {
-		if err := ctx.DeriveShapes(c); err != nil {
+		if err := ctx.deriveShapes(c); err != nil {
 			return err
 		}
 	}

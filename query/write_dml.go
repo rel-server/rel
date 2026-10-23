@@ -55,7 +55,7 @@ type dmlCompiler struct {
 	// explainAnalyze/planByNode/planOrder back specs/complex-query.md ##
 	// query_plan : true wraps every DML statement in EXPLAIN (ANALYZE,
 	// FORMAT JSON), executed for real, instead of running it plainly.
-	// Mutually exclusive with collectStats — server/rel.go's own job to
+	// Mutually exclusive with collectStats — relexec's own job to
 	// reject that combination before calling in.
 	explainAnalyze bool
 	planByNode     map[*QueryNode]*PlanResult

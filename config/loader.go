@@ -630,6 +630,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Upload.MaxSize = root.GetIntOrDefault("http.upload.max_size", cfg.Http.MaxBodySize)
 	cfg.Http.Upload.Dir = root.GetStringOrDefault("http.upload.dir", "")
 	cfg.Http.MaxPartCount = root.GetIntOrDefault("http.max_part_count", DefaultHttpMaxPartCount)
+	cfg.Http.ResponseBuffer = root.GetIntOrDefault("http.response_buffer", DefaultHttpResponseBuffer)
 	cfg.Http.Functions.AllowedAuth = root.GetStringOrDefault("http.functions.allowed_auth", "")
 	cfg.Http.Static.Path = root.GetStringOrDefault("http.static.path", DefaultHttpStaticPath)
 	cfg.Route = readRoutes(root, "route")

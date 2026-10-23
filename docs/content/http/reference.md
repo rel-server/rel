@@ -66,6 +66,7 @@ HTTP-scoped subset, each row pointing at the page that explains the *behavior*, 
 | `http.cookies_max_age` | `86400` (seconds) | Default max-age for a cookie set via the generic `cookies` field. Never applies to the JWT cookie. See [Requests and responses](requests-responses.md#httpresponse). |
 | `http.max_body_size` | 10 MiB | Hard cap on a declared route request's entire body. See [File uploads](uploads.md#receiving-raw-bytes). |
 | `http.max_part_count` | `100` | Max `multipart/form-data` parts per request. See [File uploads](uploads.md#receiving-raw-bytes). |
+| `http.response_buffer` | `65536` (bytes) | Bytes of a `/rel` response held back until its transaction has committed. See [Configuration reference](../configuration/reference.md). |
 | `http.static.path` | `/static` | Colon-separated filesystem directories served at the router root, as the fallback for any path no declared route claims. See [Static files](static-files.md). |
 | `http.upload.dir` | unset (uploads disabled) | Subpath of the static write directory (the first entry of `http.static.path`) every `stream_upload` writes under — servable, but never jet-eligible. See [File uploads](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
 | `http.upload.max_size` | = `http.max_body_size` | Hard cap on a `stream_upload` route's streamed payload — independent of `http.max_body_size` since this path streams to disk, not memory. See [File uploads](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |

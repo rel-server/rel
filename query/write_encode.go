@@ -126,7 +126,7 @@ func kindName(k NodeKind) string {
 
 // A value that cannot be written is reported as the error Postgres itself raises for the same
 // value, SQLSTATE included, so it classifies and reaches the client the way it always has
-// (server/rel.go classifyWriteError, pgerr.Classify).
+// (server's relexecRequestError, pgerr.Classify).
 
 // isDateTimeType reports whether typ is one of the date and time types.
 func isDateTimeType(typ string) bool {

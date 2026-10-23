@@ -94,7 +94,7 @@ type QueryNode struct {
 	Limit  *int
 
 	// Shape is pass 2's shape/writability derivation output for this node,
-	// computed from the already-resolved Select — see DeriveShapes
+	// computed from the already-resolved Select — see deriveShapes
 	// (shape.go). nil until pass 2's second step has run.
 	Shape *NodeShape
 }

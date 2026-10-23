@@ -1,9 +1,8 @@
 // ComplexQuery support (specs/complex-query.md) : per-item response-shaping
 // flags, their validation/availability gating, and the envelope response
-// writer. Split out of rel.go since handleRel's own flow already carries
-// plenty of state ; kept in the same package since every piece here is
-// wired directly into handleRel's per-item loops.
-package server
+// writer. Split out of relexec.go since the execution flow already carries
+// plenty of state ; every piece here is wired directly into its per-item loops.
+package relexec
 
 import (
 	"context"
@@ -12,7 +11,6 @@ import (
 	"io"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/query"
 	"github.com/samber/oops"
@@ -41,8 +39,8 @@ func validateComplexFlags(ri *resolvedItem) error {
 // rollback is a hard error (## Availability), unlike count/stats/query_plan/
 // sql's silent degrade, since silently ignoring it would let effects persist
 // the caller believed were undone.
-func checkRollbackGrant(ri *resolvedItem, cfg *config.Config) error {
-	if ri.rollback && !cfg.Pg.Query.AllowRollback {
+func checkRollbackGrant(ri *resolvedItem, policy Policy) error {
+	if ri.rollback && !policy.Rollback {
 		return oops.Code(errcode.QueryRollbackNotGranted).Errorf(`query: "rollback" is not enabled on this server`)
 	}
 	return nil
