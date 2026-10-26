@@ -22,7 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ceymard/dmut/v2/mutations"
+	"github.com/ceymard/dmut/v3/mutations"
+	"github.com/ceymard/dmut/v3/mutations/model"
 	"github.com/samber/oops"
 
 	"github.com/rel-server/rel/config"
@@ -46,10 +47,9 @@ func runDmut(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	rerr := mutations.ReadAndRunMutations(runCtx, uri, paths, &mutations.MutationRunnerOptions{
+	rerr := mutations.Apply(runCtx, uri, paths, mutations.Options{
+		Mode:   dmutMode(cfg.Dmut.Mode),
 		Commit: true,
-		Full:   cfg.Dmut.Mode == config.DmutModeFull,
-		Simple: cfg.Dmut.Mode == config.DmutModeSimple,
 		Logger: logger,
 	})
 	if rerr != nil {
@@ -59,6 +59,18 @@ func runDmut(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran 
 		return true, oops.With("path", cfg.Dmut.Path).Wrapf(rerr, "dmut failed")
 	}
 	return true, nil
+}
+
+// dmutMode maps rel's dmut.mode values onto dmut 3's modes: default is
+// normal, simple is safe and full is force.
+func dmutMode(mode string) model.Mode {
+	switch mode {
+	case config.DmutModeSimple:
+		return model.ModeSafe
+	case config.DmutModeFull:
+		return model.ModeForce
+	}
+	return model.ModeNormal
 }
 
 // splitPaths splits a colon-separated list, dropping empty entries.

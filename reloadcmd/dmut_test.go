@@ -117,11 +117,10 @@ func writeMutations(t *testing.T, name, content string) string {
 	return dir
 }
 
-const widgetsMutation = `__namespace: app
-
-app.widgets:
-  core:
-    - create table app_widgets (id int primary key);
+const widgetsMutation = `namespace: app
+structural: true
+sql:
+  - create table app_widgets (id int primary key);
 `
 
 func TestDmutURI_LoginFallback(t *testing.T) {
@@ -251,7 +250,7 @@ func TestRun_Dmut_MissingPathFails(t *testing.T) {
 
 func TestRun_Dmut_TimesOut(t *testing.T) {
 	cfg, _ := newTestDatabase(t)
-	cfg.Dmut.Path = writeMutations(t, "slow.yml", "__namespace: slow\n\nslow.sleep:\n  core:\n    - up: select pg_sleep(30);\n      down: select 1;\n")
+	cfg.Dmut.Path = writeMutations(t, "slow.yml", "namespace: slow\nstructural: true\nsql:\n  - up: select pg_sleep(30);\n    down: select 1;\n")
 	cfg.Dmut.Timeout = 1
 
 	_, err := runDmut(context.Background(), cfg, discardLogger())
@@ -268,14 +267,14 @@ func TestRun_Dmut_SimpleModeRefusesNonAppend(t *testing.T) {
 		t.Fatalf("first apply: %v", err)
 	}
 
-	// Change the table's first core statement : not a pure append.
+	// Change the table's first statement : not a pure append.
 	changed := strings.Replace(widgetsMutation, "id int primary key", "id bigint primary key", 1)
 	if err := os.WriteFile(filepath.Join(dir, "app.yml"), []byte(changed), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg.Dmut.Mode = config.DmutModeSimple
 	if _, err := Run(context.Background(), cfg, discardLogger()); err == nil {
-		t.Fatalf("expected simple mode to refuse a non-append change to core")
+		t.Fatalf("expected simple mode to refuse a non-append change")
 	}
 }
 
@@ -305,7 +304,7 @@ func TestRun_DmutFailureStillRunsReloadCmd(t *testing.T) {
 // A failing statement must be identifiable from the logged attributes alone.
 func TestErrorAttrs_NamesTheFailingStatement(t *testing.T) {
 	cfg, _ := newTestDatabase(t)
-	dir := writeMutations(t, "app.yml", "__namespace: app\n\napp.broken:\n  core:\n    - create table broken (\n")
+	dir := writeMutations(t, "app.yml", "namespace: app\nstructural: true\nsql:\n  - create table broken (\n")
 	cfg.Dmut.Path = dir
 
 	_, err := Run(context.Background(), cfg, discardLogger())

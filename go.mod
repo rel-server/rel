@@ -6,7 +6,7 @@ require (
 	github.com/CloudyKit/jet/v6 v6.3.2
 	github.com/brianvoe/gofakeit/v7 v7.15.0
 	github.com/bytedance/sonic v1.15.3
-	github.com/ceymard/dmut/v2 v2.4.1
+	github.com/ceymard/dmut/v3 v3.0.0-20261026113520-bc469df7469f
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/crewjam/saml v0.5.1
 	github.com/go-chi/chi/v5 v5.3.2
@@ -21,14 +21,7 @@ require (
 )
 
 require (
-	github.com/Masterminds/goutils v1.1.1 // indirect
-	github.com/Masterminds/semver/v3 v3.3.0 // indirect
-	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
 	github.com/alecthomas/participle/v2 v2.1.4 // indirect
-	github.com/huandu/xstrings v1.5.0 // indirect
-	github.com/shopspring/decimal v1.4.0 // indirect
-	github.com/spf13/cast v1.7.0 // indirect
-	github.com/ugurcsen/gods-generic v0.10.4 // indirect
 	gonum.org/v1/gonum v0.17.0 // indirect
 )
 

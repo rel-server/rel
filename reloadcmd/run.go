@@ -35,7 +35,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ceymard/dmut/v2/mutations"
+	"github.com/ceymard/dmut/v3/mutations"
 	"github.com/google/shlex"
 	"github.com/samber/oops"
 

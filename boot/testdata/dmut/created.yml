@@ -1,15 +1,12 @@
 # Same schema change as ../reload_fixture.sql, expressed as a dmut mutation.
-__namespace: app
-
-app.fn_created_by_migration:
-  core:
-    - |
-      create function fn_created_by_migration() returns text language sql as $$
-        select 'from migration'::text;
-      $$;
-  glue:
-    - |
-      comment on function fn_created_by_migration() is 'route:: path: "/created"';
-    # An explicit grant is required : see reload_fixture.sql.
-    - |
-      grant execute on function fn_created_by_migration() to "~anonymous";
+namespace: app
+sql:
+  - |
+    create function fn_created_by_migration() returns text language sql as $$
+      select 'from migration'::text;
+    $$;
+  - |
+    comment on function fn_created_by_migration() is 'route:: path: "/created"';
+  # An explicit grant is required : see reload_fixture.sql.
+  - |
+    grant execute on function fn_created_by_migration() to "~anonymous";

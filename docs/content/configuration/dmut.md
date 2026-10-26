@@ -42,14 +42,14 @@ password = "$FILE$/run/secrets/migrator_password"
 
 ## Modes
 
-`dmut.mode` picks how a change to existing `core` statements (tables and other objects that hold
-data) is applied. A revision file's own `mode:` overrides it.
+`dmut.mode` picks how a change that is not an append to an existing mutation is applied. A revision
+document's own `mode:` overrides it. rel's three values map onto dmut's `normal`, `safe` and `force`.
 
-| Mode | Behaviour |
-|---|---|
-| `default` | Downs the changed statement and everything after it in its mutation, then re-ups. If that fails, the whole run is rolled back. |
-| `simple` | Refuses to run when `core` has any change that isn't a pure append. Use it where a migration must never be destructive. |
-| `full` | Tries `default` first. If that fails, rolls back to before the attempt, downs the changed mutations and everything depending on them, rebuilds them from scratch, and tries once more. |
+| Mode | dmut mode | Behaviour |
+|---|---|---|
+| `default` | `normal` | Downs the changed statement and everything after it in its mutation, then re-ups. If that fails, the whole run is rolled back. |
+| `simple` | `safe` | Refuses to run when a mutation has any change that isn't a pure append. Use it where a migration must never be destructive. |
+| `full` | `force` | Tries `default` first. If that fails, rolls back to before the attempt, reapplies in full every mutation that had to come down and everything depending on it, and tries once more. |
 
 ## Failure handling
 
@@ -66,5 +66,5 @@ SQL statement. Passwords are never logged.
 
 ## Writing mutations
 
-See the [dmut documentation](https://github.com/ceymard/dmut) for the file format.
+See the [dmut documentation](https://github.com/ceymard/dmut) for the file format. A database previously managed with dmut 2 needs migrating : see dmut's "Migrating from dmut 2" page.
 This repo's `boot/testdata/dmut/` holds a small example.
