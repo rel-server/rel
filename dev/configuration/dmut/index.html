@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.0.72">
+      <meta name="generator" content="zensical-0.0.73">
     
     
       
@@ -2938,27 +2938,31 @@ login that serves requests ; give dmut its own :</p>
 <p><code>dmut.user</code> and <code>dmut.password</code> fall back independently : leaving <code>password</code> unset sends
 <code>pg.password</code>. Host, port, database and connection parameters always come from <code>pg</code>.</p>
 <h2 id="modes">Modes<a class="headerlink" href="#modes" title="Permanent link">&para;</a></h2>
-<p><code>dmut.mode</code> picks how a change to existing <code>core</code> statements (tables and other objects that hold
-data) is applied. A revision file's own <code>mode:</code> overrides it.</p>
+<p><code>dmut.mode</code> picks how a change that is not an append to an existing mutation is applied. A revision
+document's own <code>mode:</code> overrides it. rel's three values map onto dmut's <code>normal</code>, <code>safe</code> and <code>force</code>.</p>
 <table>
 <thead>
 <tr>
 <th>Mode</th>
+<th>dmut mode</th>
 <th>Behaviour</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>default</code></td>
+<td><code>normal</code></td>
 <td>Downs the changed statement and everything after it in its mutation, then re-ups. If that fails, the whole run is rolled back.</td>
 </tr>
 <tr>
 <td><code>simple</code></td>
-<td>Refuses to run when <code>core</code> has any change that isn't a pure append. Use it where a migration must never be destructive.</td>
+<td><code>safe</code></td>
+<td>Refuses to run when a mutation has any change that isn't a pure append. Use it where a migration must never be destructive.</td>
 </tr>
 <tr>
 <td><code>full</code></td>
-<td>Tries <code>default</code> first. If that fails, rolls back to before the attempt, downs the changed mutations and everything depending on them, rebuilds them from scratch, and tries once more.</td>
+<td><code>force</code></td>
+<td>Tries <code>default</code> first. If that fails, rolls back to before the attempt, reapplies in full every mutation that had to come down and everything depending on it, and tries once more.</td>
 </tr>
 </tbody>
 </table>
@@ -2972,7 +2976,7 @@ finds it ; on a <code>SIGUSR1</code> reload it skips reintrospection (see <a hre
 <code>logging.exclude</code> apply to them like to any other module. Set <code>logging.level = "debug"</code> to see every
 SQL statement. Passwords are never logged.</p>
 <h2 id="writing-mutations">Writing mutations<a class="headerlink" href="#writing-mutations" title="Permanent link">&para;</a></h2>
-<p>See the <a href="https://github.com/ceymard/dmut">dmut documentation</a> for the file format.
+<p>See the <a href="https://github.com/ceymard/dmut">dmut documentation</a> for the file format. A database previously managed with dmut 2 needs migrating : see dmut's "Migrating from dmut 2" page.
 This repo's <code>boot/testdata/dmut/</code> holds a small example.</p>
 
 
@@ -3065,7 +3069,7 @@ This repo's <code>boot/testdata/dmut/</code> holds a small example.</p>
       <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.10ee5ab6.min.js"></script>
+      <script src="../../assets/javascripts/bundle.77dd0ce9.min.js"></script>
       
     
   </body>
