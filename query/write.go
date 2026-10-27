@@ -1,7 +1,6 @@
 // Pass 4, the Writing Algorithm : denormalizes a payload into typed temp
 // tables, one per destination table (write_denormalize.go, write_temp.go), then
-// executes phased DML off them (write_dml.go) — per specs/query-engine.md's
-// Writing Algorithm and specs/typed-write-loading.md. The temp tables are
+// executes phased DML off them (write_dml.go) . The temp tables are
 // created on the connection the first time a write touches their table
 // (PrepareWrite, called before the request's transaction begins ; ExecuteWriteNode
 // calls it too) and their rows go away at commit or rollback.
@@ -55,22 +54,21 @@ type WriteResult struct {
 
 	// Stats is populated only when WriteOptions.Stats was set — one entry
 	// per writable node an insert/update/upsert/delete statement actually
-	// ran against (specs/complex-query.md ## stats). Nil otherwise.
+	// ran against Nil otherwise.
 	Stats []Stat
 
 	// Sql is populated only when WriteOptions.Sql was set — one entry per
 	// writable node touched, the compiled text of whichever statement
-	// kind(s) it ran (specs/complex-query.md ## sql). Nil otherwise.
+	// kind(s) it ran Nil otherwise.
 	Sql []SqlResult
 
 	// QueryPlan is populated only when WriteOptions.QueryPlan was set —
 	// every DML statement ran as EXPLAIN (ANALYZE, FORMAT JSON) instead of
-	// plainly (specs/complex-query.md ## query_plan). Nil otherwise.
+	// plainly Nil otherwise.
 	QueryPlan []PlanResult
 }
 
-// Stat is one writable node's row counts from a `stats` request
-// (specs/complex-query.md ## stats).
+// Stat is one writable node's row counts from a `stats` request.
 type Stat struct {
 	// Path is the chain of join-alias keys from the root down to this node
 	// ; [] for the root relation itself.
@@ -83,7 +81,7 @@ type Stat struct {
 }
 
 // SqlResult is one node's compiled statement text(s) from a `sql` request
-// (specs/complex-query.md ## sql) — at most one of Insert/Update/Upsert/
+// — at most one of Insert/Update/Upsert/
 // Delete is non-empty per statement kind the node actually ran ; Select is
 // left for relexec to fill in separately (the read-back, outside this
 // package's scope).
@@ -97,7 +95,7 @@ type SqlResult struct {
 }
 
 // PlanResult is one node's EXPLAIN (ANALYZE, FORMAT JSON) output(s) from a
-// `query_plan` request on a write (specs/complex-query.md ## query_plan) —
+// `query_plan` request on a write —
 // Select is left for relexec (the read-back, outside this package's
 // scope).
 type PlanResult struct {
@@ -110,7 +108,7 @@ type PlanResult struct {
 }
 
 // WriteOptions augments ExecuteWriteNode with ComplexQuery's
-// write-side response-shaping flags (specs/complex-query.md). QueryPlan and
+// write-side response-shaping flags. QueryPlan and
 // Stats are mutually exclusive — EXPLAIN ANALYZE's plan-row output leaves no
 // RowsAffected()/RETURNING data for Stats to read ; rejecting the
 // combination is the caller's responsibility (relexec), not enforced
@@ -151,7 +149,7 @@ func assignNodeIDs(root *QueryNode, startAt int) (map[*QueryNode]int, int) {
 }
 
 // findUnwritableNode walks post-order for the deepest, originating
-// non-writable node (## Configuration) — root.Shape.Writable alone only names the root.
+// non-writable node, root.Shape.Writable alone only names the root.
 func findUnwritableNode(node *QueryNode) *QueryNode {
 	if node.WriteMode == READONLY {
 		return nil
@@ -185,7 +183,7 @@ func unwritableNodeName(node *QueryNode) string {
 }
 
 // hasDeleteComponent reports whether m's semantics include deleting rows
-// absent from the payload (specs/query-engine.md ## Writing Algorithm step 4).
+// absent from the payload.
 func hasDeleteComponent(m WriteMode) bool {
 	switch m {
 	case MERGE, MERGE_NEW, MERGE_UPDATE, DELETE_ONLY:
@@ -197,8 +195,7 @@ func hasDeleteComponent(m WriteMode) bool {
 
 // WriteState carries the node id and row id allocators across several
 // ExecuteWriteState calls that share their temp tables within a single
-// request — e.g. several write items in one Sequence (specs/query-engine.md
-// ## Transactions : "several queries... run in a single transaction").
+// request — e.g. several write items in one Sequence, all run in a single transaction.
 // Each call must continue numbering where the previous one left off : both
 // counters restart from 0 internally (assignNodeIDs/denormalize), so two
 // items sharing a zero-valued WriteState would both assign node id 0 to
@@ -222,16 +219,14 @@ type WriteState struct {
 // read, never retained. state numbers __node_id/__row_id across every write of one request, so it
 // must be shared by them and is mutated in place. paramValues resolves the $param references of a
 // well-known write query (nil for a plain /rel write). opts shapes the response
-// (specs/complex-query.md) ; all-false does no extra work (## Availability's "flag off skips the
-// work" rule).
+// ; all-false does no extra work.
 func ExecuteWriteNode(ctx context.Context, conn Querier, root *QueryNode, payload Node, state *WriteState, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
 	ids, nextNodeID := assignNodeIDs(root, state.nextNodeID)
 	if _, ok := ids[root]; !ok {
 		return nil, oops.Code(errcode.WriteForbidden).Errorf("write: root node is readonly, nothing to write")
 	}
 	if bad := findUnwritableNode(root); bad != nil {
-		// A function-rooted node gets its own code — specs/query-engine.md
-		// ## Reading Algorithm ### Function-rooted nodes.
+		// A function-rooted node gets its own code.
 		code := errcode.WriteForbidden
 		if bad.IsFunction() {
 			code = errcode.WriteForbiddenFunctionRoot

@@ -107,16 +107,15 @@ type NumericLiteral struct {
 }
 
 // DefaultKeyword is the literal "default" keyword, valid only in GetExpr's /
-// SetExpr's / GetSetExpr's default-value positions (query-engine.md : "The
-// default expression may be the 'default' keyword if the column has a
-// default value") — meaning "use the column's own DB-level default
+// SetExpr's / GetSetExpr's default-value positions, when the column has a
+// default value — meaning "use the column's own DB-level default
 // expression", not a reference to a column literally named default. Parsed
 // as this sentinel only in that specific position ; a bare "default" string
 // anywhere else in Expression position is an ordinary Identifier, same as any
 // other name.
 //
-// > Question: this is my interpretation of that query-engine.md comment, not a
-// > confirmed spec point — confirm this is actually what was meant.
+// > Question: this reading of the original design note is my interpretation,
+// > not a confirmed point — confirm it is what was meant.
 type DefaultKeyword struct{ notYetValidated }
 
 // ---- operators ----------------------------------------------------------------

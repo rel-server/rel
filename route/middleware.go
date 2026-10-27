@@ -1,9 +1,8 @@
 package route
 
-// This file implements specs/new-routes.md ## Middleware : chain
-// resolution lives in routeset.go (Registry.MiddlewareChain) ; this file
-// runs the resolved chain against a shared transaction, merging
-// request.context and side-effecting fields per the spec's own rules.
+// Middleware execution : chain resolution lives in routeset.go
+// (Registry.MiddlewareChain) ; this file runs the resolved chain against a
+// shared transaction, merging request.context and side-effecting fields.
 
 import (
 	"context"

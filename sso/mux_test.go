@@ -49,8 +49,7 @@ func TestMount_OidcRoutesRegistered(t *testing.T) {
 	}
 }
 
-// TestMount_EntryWithNoEffectiveHostIsSkipped covers specs/oauth-saml.md
-// ## Configuration — HTTP : an entry is skipped (not a fatal error for the
+// TestMount_EntryWithNoEffectiveHostIsSkipped covers that an entry is skipped (not a fatal error for the
 // others) when neither its own public_host nor http.public_host resolves
 // to anything — here http.public_host is deliberately left empty.
 func TestMount_EntryWithNoEffectiveHostIsSkipped(t *testing.T) {

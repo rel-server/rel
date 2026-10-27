@@ -17,7 +17,7 @@ import (
 	"github.com/rel-server/rel/httperr"
 )
 
-// requestPart is specs/route.md ## Request bodies' RequestPart : parts_
+// requestPart describes one multipart part : parts_
 // headers[i] describes files[i].
 type requestPart struct {
 	// Name is Content-Disposition name= ; nil when absent, including for
@@ -137,7 +137,7 @@ func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, max
 	return finishSingleBody(route, contentTypeHeader, body)
 }
 
-// finishMultipartBody applies specs/new-routes.md ## Function prototype's
+// finishMultipartBody applies the
 // multipart mismatch rule : bytea[] (AcceptsBytesArray) is the only shape
 // multipart can populate ; parts is always filled in the request for a
 // multipart body, regardless of whether the route even accepts bytes.

@@ -29,7 +29,7 @@ type candidate struct {
 }
 
 // BuildRegistry loads every well-known query file under
-// pg.query.wellknown_path (## Configuration : a colon-separated directory
+// pg.query.wellknown_path (a colon-separated directory
 // list, consumed exactly like http.static.path — split at the point of
 // use, a missing directory silently skipped, no cap on recursion depth or
 // file count) and returns a *Registry of every one that parsed, resolved,

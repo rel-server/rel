@@ -37,8 +37,7 @@ func Sign(cfg config.Jwt, claims Claims) (string, error) {
 
 // Verify parses and validates token per Lifecycle step 2 : signature,
 // jwt.algorithm (via WithValidMethods — rejects any token whose header
-// claims a different algorithm, including "none", exactly as the spec
-// requires), and exp (the library's own default validation, since exp is
+// claims a different algorithm, including "none", as required), and exp (the library's own default validation, since exp is
 // always present on a rel-minted token). auth_time + jwt.maxsessionage is
 // NOT a standard JWT claim the library validates on its own, so it's
 // checked separately here.

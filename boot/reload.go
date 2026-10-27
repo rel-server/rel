@@ -25,10 +25,9 @@ import (
 	"github.com/rel-server/rel/reloadcmd"
 )
 
-// Reloader owns the mutable state a SIGUSR1 reload (specs/migrations.md ##
-// Reloading) needs across calls : the reload-aware handler wrapper, and
+// Reloader owns the mutable state a SIGUSR1 reload needs across calls : the reload-aware handler wrapper, and
 // the *pg.DbInfos currently backing it (so the NEXT reload's ReIntrospect
-// reuses this one's own Pool, per step 4). Built once, at startup, right
+// reuses this one's own Pool). Built once, at startup, right
 // after the initial mux is wrapped ; Reload is then called once per
 // SIGUSR1, from cmd/rel's persistent signal-handling goroutine.
 type Reloader struct {
@@ -112,7 +111,7 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	rl.db = db
 	rl.mu.Unlock()
 
-	// specs/typescript.md ## Reloading `helper_path` : only once the new snapshot is the one served.
+	// Rewrite the TypeScript helper_path file only once the new snapshot is the one served.
 	snap.WriteTypeScriptHelper(rl.Cfg, rl.Logger)
 
 	rl.Logger.Info("reload: succeeded")

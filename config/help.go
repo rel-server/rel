@@ -56,11 +56,11 @@ var Options = []Option{
 	{"pg.query.anonymous_role", DefaultPgQueryAnonymousRole, "Role used for requests without a valid session."},
 	{"pg.query.max_depth", fmt.Sprint(DefaultMaxDepth), "Maximum nesting depth a query may specify."},
 	{"pg.query.wellknown_path", DefaultPgQueryWellKnownPath, "Colon-separated directories searched for well-known queries."},
-	{"pg.query.allow_count", "same as dev", "Enables ComplexQuery's \"count\" flag. See specs/complex-query.md ## Availability."},
-	{"pg.query.allow_stats", "same as dev", "Enables ComplexQuery's \"stats\" flag. See specs/complex-query.md ## Availability."},
-	{"pg.query.allow_query_plan", "same as dev", "Enables ComplexQuery's \"query_plan\" flag. See specs/complex-query.md ## Availability."},
-	{"pg.query.allow_sql", "same as dev", "Enables ComplexQuery's \"sql\" flag. See specs/complex-query.md ## Availability."},
-	{"pg.query.allow_rollback", "same as dev", "Enables ComplexQuery's \"rollback\" flag ; ungranted is a hard error, not a silent degrade. See specs/complex-query.md ## Availability."},
+	{"pg.query.allow_count", "same as dev", "Enables ComplexQuery's \"count\" flag."},
+	{"pg.query.allow_stats", "same as dev", "Enables ComplexQuery's \"stats\" flag."},
+	{"pg.query.allow_query_plan", "same as dev", "Enables ComplexQuery's \"query_plan\" flag."},
+	{"pg.query.allow_sql", "same as dev", "Enables ComplexQuery's \"sql\" flag."},
+	{"pg.query.allow_rollback", "same as dev", "Enables ComplexQuery's \"rollback\" flag ; ungranted is a hard error, not a silent degrade."},
 
 	// ---- http.* : HTTP server + declared-route discovery ----
 	{"http.host", "(all interfaces)", "HTTP listen address."},
@@ -68,15 +68,15 @@ var Options = []Option{
 	{"http.port", fmt.Sprint(DefaultHttpPort), "HTTP listen port."},
 	{"http.cookies_max_age", fmt.Sprint(DefaultHttpCookiesMaxAge) + " (seconds)", "Default max-age for cookies set via a route response, when unspecified. Doesn't apply to the JWT cookie — see jwt.max_age."},
 	{"http.max_body_size", fmt.Sprint(DefaultHttpMaxBodySize) + " (bytes)", "Hard cap on a declared route request's entire body (for multipart, the whole envelope — boundaries and part headers included, not just part payload bytes). Rejected with 413 before any of it is buffered in memory."},
-	{"http.upload.dir", "(unset — uploads disabled)", "Subpath of the static write directory (the first entry of http.static.path) that all uploads are written under. Uploaded files remain servable as ordinary static content, but no file under this subpath is ever eligible for jet execution — see specs/templating-2.md."},
-	{"http.upload.max_size", "= http.max_body_size", "Hard cap, in bytes, on a stream_upload route's streamed payload (see specs/new-routes.md ## `stream_upload`). Since that payload streams to a temp file rather than being buffered in memory, this can be set much higher than http.max_body_size. A stream_upload function's first call may return a smaller upload.max_size to tighten this per-request ; it can never raise it."},
+	{"http.upload.dir", "(unset — uploads disabled)", "Subpath of the static write directory (the first entry of http.static.path) that all uploads are written under. Uploaded files remain servable as ordinary static content, but no file under this subpath is ever eligible for jet execution."},
+	{"http.upload.max_size", "= http.max_body_size", "Hard cap, in bytes, on a stream_upload route's streamed payload. Since that payload streams to a temp file rather than being buffered in memory, this can be set much higher than http.max_body_size. A stream_upload function's first call may return a smaller upload.max_size to tighten this per-request ; it can never raise it."},
 	{"http.max_part_count", fmt.Sprint(DefaultHttpMaxPartCount), "Max number of multipart/form-data parts a single declared-route request may contain, independent of their total byte size."},
 	{"http.response_buffer", fmt.Sprint(DefaultHttpResponseBuffer) + " (bytes)", "How many bytes of a /rel response are held back until the transaction has committed. A response that fits is delivered whole or replaced by an error (a failing row, a refused commit) ; a longer one streams from the moment the buffer is full, and a later failure can only cut it short. 0 streams from the first byte. Costs up to this much memory per request in flight."},
 	{"http.functions.allowed_auth", "(unrestricted)", "Regexp restricting which route/middleware functions may mint or clear a session."},
 	{"http.functions.sso_callback", "(disabled)", "Fallback Postgres function an openid.<name>/saml.<name> entry's own callback_function calls when it doesn't set one itself (docs/content/http/authentication.md ## OpenID Connect and SAML)."},
 	{"http.static.path", DefaultHttpStaticPath, "Colon-separated list of filesystem directories served as the root-level static fallback for any path no declared route claims."},
 	{"http.templates.path", DefaultHttpTemplatesPath, "Filesystem directory Jet templates (a route's or middleware's own \"template\") are loaded from."},
-	{"http.typescript.enable", "false (true if dev)", "Serve GET /rel/database.ts (the introspected schema as TypeScript types plus a few query-building helpers) and GET /rel/database.json (the same introspected structure as plain JSON — specs/database-json.md)."},
+	{"http.typescript.enable", "false (true if dev)", "Serve GET /rel/database.ts (the introspected schema as TypeScript types plus a few query-building helpers) and GET /rel/database.json (the same introspected structure as plain JSON)."},
 	{"http.cors.allowed_origins", "(empty — CORS closed)", "Comma-separated list of exact origins allowed to make cross-origin requests, or the literal \"*\"."},
 	{"http.cors.allowed_methods", DefaultHttpCorsAllowedMethods, "Methods a CORS preflight may approve."},
 	{"http.cors.allowed_headers", DefaultHttpCorsAllowedHeaders, "Request headers a CORS preflight may approve."},
@@ -171,7 +171,7 @@ Usage:
 rel has no subcommands. It loads configuration (below), connects to
 Postgres, and serves POST /rel plus every declared route (route.<schema>.
 <function>.path, or a "route::"/"route:{...}" comment on the function
-itself — see specs/new-routes.md) until an interrupt/terminate signal
+itself) until an interrupt/terminate signal
 requests a graceful shutdown.
 
 Flags:
@@ -246,7 +246,7 @@ Dynamic namespaces (not enumerated above — "*" matches an entire schema) :
   route.<schema>.<function>.path=<chi-path>    declare <schema>.<function> routable at <chi-path>
   route.<schema>.<function>.method=<verbs>     comma-separated accepted methods ; inferred if unset
   route.<schema>.<function>.template=<path>    default Jet template, used when the response doesn't set its own
-  route.<schema>.<function>.stream_upload=y|n  disk-streamed single-upload flow, called twice (see specs/new-routes.md)
+  route.<schema>.<function>.stream_upload=y|n  disk-streamed single-upload flow, called twice
   route.<schema>.<function>.middleware=y|n     runs ahead of every route, static file, or /rel request under its own path prefix
   openid.<name>.issuer=<url>                   OIDC issuer URL ; /.well-known/openid-configuration is discovered from it
   openid.<name>.client_id=<id>                 default $FILE$/secrets/openid-<name>.id:./openid-<name>.id

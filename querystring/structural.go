@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package querystring implements specs/query-json.md : GET /rel's and
+// Package querystring implements GET /rel's and
 // /route's `query` field's textual encoding of a subset of query.ts's JSON
-// shapes, carried in a URL query string. Two cooperating layers, per that
-// spec :
+// shapes, carried in a URL query string. Two cooperating layers :
 //
 //   - structural.go : the structural decoder (this file) — dot-path query
 //     keys -> nested JSON, repeated keys -> arrays. Generic, reusable for
@@ -56,7 +55,7 @@ func parseRawPairs(raw string) ([][2]string, error) {
 		}
 		k, v, _ := strings.Cut(p, "=")
 		// url.QueryUnescape, not url.PathUnescape : decodes '+' as a literal
-		// space, which specs/query-json.md's examples rely on implicitly.
+		// space, which callers rely on.
 		kd, err := url.QueryUnescape(k)
 		if err != nil {
 			return nil, oops.Wrapf(err, "decoding query key %q", k)
@@ -70,7 +69,7 @@ func parseRawPairs(raw string) ([][2]string, error) {
 	return out, nil
 }
 
-// DecodeStructural implements specs/query-json.md's ## Structural layer :
+// DecodeStructural implements the structural layer :
 // every query key is a dot-separated path into a nested JSON object,
 // repeating the exact same key builds an array. Values stay plain strings
 // — a caller needing number/bool coercion or the filter expression grammar

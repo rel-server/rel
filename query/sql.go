@@ -1,6 +1,6 @@
 // Pass 3, SQL codegen : compiles an already-resolved *QueryNode tree (pass
 // 1 + pass 2 — see node_resolve.go/expression_resolve.go/shape.go) into one
-// executable SQL statement, per specs/query-engine.md's Reading Algorithm.
+// executable SQL statement.
 // Covers the read path only ; the Writing Algorithm (temp tables,
 // extractors, phased DML) is separate, later work.
 package query
@@ -35,7 +35,7 @@ type sqlCompiler struct {
 
 	// countMode is CompileCount's own flag : compileNodeCorrelated emits
 	// "select 1" and skips distinct/order-by/limit-offset/lateral-join-into-FROM,
-	// keeping FROM/WHERE identical to CompileSelect's (specs/complex-query.md ## count).
+	// keeping FROM/WHERE identical to CompileSelect's.
 	countMode bool
 
 	// fromCTE, when set, makes the root node read from that CTE instead of its
@@ -71,13 +71,12 @@ func (c *sqlCompiler) qualify(alias, name string) {
 // row_to_json — exactly parallel to how a to-one embed is wrapped (see
 // compileEmbedField). The one exception is a genuinely scalar function
 // root (Relation == nil, a bare non-composite return type) : its result
-// contributes directly, with no row_to_json wrapping — Reading Algorithm
-// step 6, specs/query-engine.md ## Response Shape. A function returning a
+// contributes directly, with no row_to_json wrapping. A function returning a
 // single composite row (Relation != nil, not SETOF) is not this case ; it
 // goes through the ordinary compileNode path below like any other node.
 //
 // The caller owns executing the statement and manually streaming the
-// response's "["/","/"]" per ## Response Shape — this function's contract
+// response's "["/","/"]" — this function's contract
 // stops at "here is one valid, executable statement plus its bind args".
 func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 	return CompileSelectFormat(root, FormatJSON)
@@ -114,7 +113,7 @@ func CompileSelectFormat(root *QueryNode, format OutputFormat) (*writer.SQLWrite
 // referencing a join always compiles as its own correlated subquery,
 // regardless of root's own select list — see compileAgg/compileScalarHop),
 // but no SELECT projection, ORDER BY, LIMIT, or OFFSET. Rejects a genuinely
-// scalar function root (specs/complex-query.md ## count only defines this
+// scalar function root (count is only defined
 // for a relation-shaped query) — mirrors CompileSelect's own special case.
 func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
 	if root.IsFunction() && !root.Function.ReturnsSet && root.Relation == nil {
@@ -140,7 +139,7 @@ func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
 // touched, via the temp table of its relation — nodeID is root's own assigned __node_id (see
 // ExecuteWrite/WriteResult.NodeIDs), and only its root-level rows
 // (__parent_id is null) are in scope. Used for the write-then-reread
-// response (specs/query-engine.md ## Response Shape : the response is built by
+// response (the response is built by
 // a separate, read-only statement issued after the write transaction's
 // commit, never from inside it) — the temp table must already exist and hold this
 // request's rows on the connection this statement later runs against.
@@ -230,7 +229,7 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 				c.w.Id(f.key)
 			}
 		} else {
-			// ## Reading Algorithm ### Scalar-selected nodes : to_jsonb(...),
+			// A scalar-selected node : to_jsonb(...),
 			// not a bare emission, since streamRows writes this column raw. In CBOR the value
 			// comes out as it is, and its own type says how to encode it.
 			if c.format == FormatCBOR {
@@ -425,7 +424,7 @@ type selectField struct {
 }
 
 // isShapeProducingSelect reports whether sel is a construct selectFieldsFor
-// can expand ; anything else is a scalar select (### Scalar-selected nodes).
+// can expand ; anything else is a scalar select.
 func isShapeProducingSelect(sel Expression) bool {
 	switch sel.(type) {
 	case StarExpr, ObjectExpr, *GetExpr:

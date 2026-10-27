@@ -1,4 +1,4 @@
-// This file implements specs/templating-2.md's static-serving half : the
+// Jet rendering for static serving : the
 // root-level static fallback mount (boot.BuildMux) and masking's
 // static_file (route/encode.go) both need the same Resolve-then-maybe-
 // render behavior, so it lives here once rather than twice.
@@ -39,8 +39,7 @@ func NewStaticHandler(db *pg.DbInfos, cfg *config.Config, staticSrv *static.Serv
 	})
 }
 
-// serveStaticFileOrJet is masking's static_file (specs/new-routes.md
-// ## Static path masking) — the jet-aware twin of static.Server.ServeFile,
+// serveStaticFileOrJet is masking's static_file — the jet-aware twin of static.Server.ServeFile,
 // used instead of it wherever rendering matters (route/encode.go). Returns
 // false when relPath resolves to nothing at all, leaving 404 rendering to
 // the caller, exactly like static.Server.ServeFile's own contract.
@@ -83,8 +82,7 @@ func serveResolvedStatic(w http.ResponseWriter, r *http.Request, cfg *config.Con
 	renderStaticJet(w, r, cfg, templates, jc)
 }
 
-// renderStaticJet renders jc — specs/templating-2.md's jet-in-static
-// rendering : nonce/CSP/JWT verification run only here, on the jet-
+// renderStaticJet renders jc (jet-in-static rendering) : nonce/CSP/JWT verification run only here, on the jet-
 // execution branch, never mounted unconditionally on /static (see
 // websec.NonceMiddleware's own doc comment for why /rel and /static don't
 // get one today ; this keeps that true for the common plain-file case,

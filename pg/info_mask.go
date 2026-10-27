@@ -16,7 +16,7 @@ package pg
 
 // MaskSlot is one position of a relation's presence layout : a column, or a
 // sub-field of a composite column, and the bit that records whether a written
-// row supplied it (specs/typed-write-loading.md ## Presence slots).
+// row supplied it.
 type MaskSlot struct {
 	// Path is the column, followed by the composite sub-fields leading to this
 	// slot ; length 1 for a plain column. Callers must not modify it.

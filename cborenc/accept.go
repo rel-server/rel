@@ -9,7 +9,7 @@ import (
 // MediaType is the media type of a CBOR response.
 const MediaType = "application/cbor"
 
-// MediaTypeStructures is the media type of a CBOR response that uses structures (specs/cbor.md ## Structures).
+// MediaTypeStructures is the media type of a CBOR response that uses structures.
 const MediaTypeStructures = MediaType + "; structures=1"
 
 // Format is the representation a request's Accept header selects.

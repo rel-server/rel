@@ -1,4 +1,4 @@
-// This file implements specs/new-routes.md ## `stream_upload` : the same
+// This file implements stream_upload : the same
 // full-control function is called twice — once with request.upload
 // metadata-only (no bytes received yet, deciding the destination), once
 // with request.upload.size filled in (bytes already landed on disk). The

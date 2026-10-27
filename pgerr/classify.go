@@ -1,5 +1,5 @@
-// This file implements specs/error-handling.md ## Postgres-raised codes'
-// PG_* family and ## Postgres error detail's tiered field allow-list —
+// This file implements the PG_* error code family and the tiered field
+// allow-list for Postgres error detail —
 // additive to rscode.go's RSxxx handling, not a replacement : RSStatus
 // keeps its existing signature and its three existing call sites
 // (httperr, static/static.go, server's check_session path)
@@ -14,9 +14,8 @@ import (
 	"github.com/rel-server/rel/errcode"
 )
 
-// Tier is specs/error-handling.md ## Postgres error detail's three-way
-// split of what a client response is allowed to contain — never about what
-// gets logged, which always gets the full *pgconn.PgError regardless.
+// Tier classifies how much of a Postgres error a client response may
+// contain — never what gets logged, which always gets the full *pgconn.PgError regardless.
 type Tier int
 
 const (
@@ -38,9 +37,8 @@ const (
 	TierPermissionDenied
 )
 
-// Detail is the field allow-list specs/error-handling.md ###
-// `pg_error` field allow-list specifies — built explicitly field-by-field
-// from *pgconn.PgError, never from its .Error() string or the raw struct,
+// Detail is the allow-list of `pg_error` fields a client response may carry — built
+// explicitly field-by-field from *pgconn.PgError, never from its .Error() string or the raw struct,
 // so a field added to pgconn.PgError in a future dependency bump can't
 // silently start leaking through this type. Where/InternalQuery/Position/
 // InternalPosition/File/Line/Routine are deliberately absent : they
@@ -63,7 +61,7 @@ type classified struct {
 }
 
 // pgClassTable maps well-known SQLSTATEs to (status, code, tier) — the
-// "small fixed table" of specs/error-handling.md ### Postgres-raised codes.
+// small fixed table of Postgres-raised codes.
 var pgClassTable = map[string]classified{
 	"23505": {409, "PG_UNIQUE_VIOLATION", TierConstraintViolation},
 	"23503": {409, "PG_FOREIGN_KEY_VIOLATION", TierConstraintViolation},
@@ -94,8 +92,7 @@ func IsRSCode(code errcode.Code) bool {
 // deliberate status pick, which must win over any generic classification of
 // the same underlying SQLSTATE-shaped code). ok is false when err doesn't
 // unwrap to a *pgconn.PgError at all — the caller's own generic
-// Internal/Unclassified fallback applies in that case, per
-// specs/error-handling.md ## Error codes.
+// Internal/Unclassified fallback applies in that case.
 func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Detail, ok bool) {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
@@ -124,8 +121,7 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 	return 500, errcode.Internal, TierUnclassified, d, true
 }
 
-// AllowsDetail reports whether specs/error-handling.md ## Postgres error
-// detail's tiering allows a client-facing response to include the
+// AllowsDetail reports whether the tiering allows a client-facing response to include the
 // classified error's full Detail : unconditionally true for a constraint
 // violation (the client's own submitted data caused it), true for
 // permission-denied/unclassified only under dev. The single source of
@@ -143,9 +139,8 @@ func AllowsDetail(tier Tier, dev bool) bool {
 	}
 }
 
-// FallbackMessage is the generic, safe-by-default text specs/error-handling.md
-// ## Postgres error detail names for tier 2 (permission-denied) and tier 3
-// (unclassified) in production — used whenever AllowsDetail(tier, dev) is
+// FallbackMessage is the generic, safe-by-default text used for the permission-denied and
+// unclassified tiers in production — used whenever AllowsDetail(tier, dev) is
 // false. Meaningless for TierConstraintViolation, which AllowsDetail never
 // refuses.
 func FallbackMessage(tier Tier) string {

@@ -59,7 +59,7 @@ func runSelect(t *testing.T, sql string, args []any) []map[string]any {
 }
 
 // runSelectScalar is runSelect's counterpart for a scalar-selected node
-// (## Reading Algorithm ### Scalar-selected nodes) : decodes into "any", not map[string]any.
+// : decodes into "any", not map[string]any.
 func runSelectScalar(t *testing.T, sql string, args []any) []any {
 	t.Helper()
 	rows, err := testDb.Pool.Query(context.Background(), sql, args...)
@@ -105,7 +105,7 @@ func TestCompileSelect_BareOwn(t *testing.T) {
 }
 
 // TestCompileSelect_ComputedColumnSelfAlias proves a row-type-taking
-// function called with the node's own alias (## Scoping) resolves via a self-reference, not "not yet supported".
+// function called with the node's own alias resolves via a self-reference, not "not yet supported".
 func TestCompileSelect_ComputedColumnSelfAlias(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Self Alias Director')`); err != nil {
@@ -322,7 +322,7 @@ func TestCompileSelect_Cast_RejectsInjectedTypeName(t *testing.T) {
 }
 
 // TestCompileCount_IgnoresLimit proves count reports the total matching
-// row count, not the paginated page size (specs/complex-query.md ## count).
+// row count, not the paginated page size.
 func TestCompileCount_IgnoresLimit(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Count Director A'), ('Count Director B'), ('Count Director C')`); err != nil {
@@ -400,7 +400,7 @@ func TestCompileSelect_ToManyEmbed(t *testing.T) {
 	}
 }
 
-// TestCompileSelect_RootScalarSelect proves ## Scalar-selected nodes for a
+// TestCompileSelect_RootScalarSelect proves scalar-selected nodes for a
 // table root : a bare-column select reads back as a flat array of scalars, not one-key objects. TEXT matters since to_jsonb's quoting is the point.
 func TestCompileSelect_RootScalarSelect(t *testing.T) {
 	ctx := context.Background()
@@ -695,7 +695,7 @@ func TestCompileSelect_LateralSharedChild(t *testing.T) {
 	}
 
 	// "movies" is consumed twice (embedded array + "agg") — the dual-
-	// consumption case that forces LATERAL (## Reading Algorithm step 5).
+	// consumption case that forces LATERAL.
 	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "movies": [".", "movies"], "movie_count": ["agg", {"schema": "pg_catalog", "name": "count"}, [[".", "movies"]]]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}}}}`, directorID))
 	sql, args := mustCompileSelect(t, node)
 	if !containsLateral(sql) {

@@ -1,6 +1,6 @@
 package pg
 
-// specs/logging.md ## Introspection logging : introspect must emit one
+// Introspection logging : introspect must emit one
 // info-level summary line, plus debug-level per-symbol lines, every time
 // it runs — not just once at process startup (TestMain already ran it once
 // before this test even starts).

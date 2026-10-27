@@ -1,5 +1,5 @@
 // Pass 1, decode step for well-known query definition files — parses
-// specs/well-known-queries.md ## Definition's WellKnownQuery{name, params,
+// WellKnownQuery{name, params,
 // query} shape (and its WellKnownQuery[] array form), reusing
 // parseRawRelation (node_parse.go) for the "query" field's own Relation
 // tree unchanged. Distinct from ParseQuery/node_parse.go's rawWellKnown :
@@ -38,14 +38,14 @@ type RawWellKnownDefinition struct {
 	Query  *rawRelation
 
 	// QueryRaw is "query"'s own verbatim JSON text, captured alongside the
-	// parsed *rawRelation — specs/typescript.md ## Wellknowns embeds this
+	// parsed *rawRelation — the TypeScript generation embeds this
 	// directly as a TS literal and lets ShapeFromRelationQuery (shapes.ts)
 	// infer its type, rather than duplicating that inference in Go.
 	QueryRaw []byte
 }
 
 // ParseWellKnownFile decodes one well-known query file's top-level content
-// — "either one WellKnownQuery or WellKnownQuery[]" (## Definition).
+// — "either one WellKnownQuery or WellKnownQuery[]".
 func ParseWellKnownFile(data []byte) ([]RawWellKnownDefinition, error) {
 	root, perr := ast.NewParser(string(bytes.TrimSpace(data))).Parse()
 	if perr != 0 {

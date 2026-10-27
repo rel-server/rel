@@ -91,7 +91,7 @@ create index idx_plain on orders (customer_id, total);
 create unique index idx_partial_only on orders (flag) where note is not null;
 create index idx_expr_only on orders (lower(note));
 
--- int8/numeric precision (specs/typescript-wire-types.md, server/rel_test.go's own regression) : the query
+-- int8/numeric precision (server/rel_test.go's own regression) : the query
 -- compiler casts both to text (query/sql.go's textCastSuffix) since JSON.parse would otherwise silently round
 -- a value like these to the nearest float64.
 create table precision_check (
@@ -119,8 +119,7 @@ create function fn_pure_variadic(variadic rest int[]) returns int language sql a
 create function fn_all_defaults(a int default 1, b int default 2) returns int language sql as $$ select a + b $$;
 
 -- genuinely ambiguous overload : same arity, only distinguished by argument
--- type, which pass 1's resolver deliberately does not match on (see
--- specs/query-engine.md's Open Question 1) — a positional call is
+-- type, which pass 1's resolver deliberately does not match on — a positional call is
 -- expected to be rejected as ambiguous, not silently guessed
 create function fn_ambig(a int) returns int language sql as $$ select a $$;
 create function fn_ambig(a text) returns text language sql as $$ select a $$;
@@ -141,9 +140,8 @@ create function fn_directors() returns setof director language sql as $$ select 
 -- fn_directors, just naturally producing one row instead of many.
 create function fn_one_director(p_id int) returns director language sql as $$ select * from director where id = p_id $$;
 
--- row-type-taking computed column (specs/query-engine.md's own "## Scoping"
--- example : "a function taking the relation's row type as its argument,
--- callable via alias.func_name or func_name(alias)") — exercises a bare
+-- row-type-taking computed column (a function taking the relation's row type as its argument,
+-- callable via alias.func_name or func_name(alias)) — exercises a bare
 -- self-alias reference reaching compileResolvedField as a *QueryNode
 -- (query/sql_expr.go), not a plain column.
 create function director_display_name(d director) returns text language sql as $$ select d.name || ' (director)' $$;

@@ -30,8 +30,7 @@ func captureWarnLogs(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// TestLoadOrGenerateSPKeyPair_GeneratesThenReusesSilently covers specs/oauth-saml.md
-// ## Certificate's three numbered steps end to end : first call has no
+// TestLoadOrGenerateSPKeyPair_GeneratesThenReusesSilently covers the load-or-generate steps end to end : first call has no
 // keypair on disk, generates and persists one with a loud WARN ; second
 // call against the SAME paths loads the persisted keypair back, silently
 // (no WARN), and gets byte-identical certificate/key material.

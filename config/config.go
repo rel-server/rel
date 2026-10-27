@@ -1,12 +1,8 @@
 package config
 
 // Config is rel's runtime configuration — connection settings are
-// docs/content/configuration/index.md ### Postgres connection, blacklist shape
-// is specs/query-engine.md ## Scoping. This is only the shape ; nothing loads
-// it from a file/env yet (config.tempindexthreshold, mentioned in
-// query-engine.md's Writing Algorithm as a tentative option the redactor was
-// "torn" on, isn't here either — deliberately, since it was never actually
-// settled).
+// documented in docs/content/configuration/index.md ### Postgres connection.
+// This is only the shape ; nothing loads it from a file/env yet.
 type Config struct {
 	Pg      Pg
 	Logging Logging
@@ -15,19 +11,18 @@ type Config struct {
 	Reload  Reload
 	Dmut    Dmut
 
-	// Openid/Saml are specs/oauth-saml.md's openid.<name>.*/saml.* :
+	// Openid/Saml are the openid.<name>.*/saml.* entries :
 	// the /auth/oidc/{name}/* and /auth/saml/{name}/* endpoints.
 	Openid map[string]OpenidProvider
 	Saml   Saml
 
 	Blacklist Blacklist
 
-	// Route is route.<schema>.<function>.* — specs/new-routes.md
-	// ## In the configuration : config-declared routes, keyed schema then
-	// function name.
+	// Route is route.<schema>.<function>.* : config-declared routes, keyed
+	// schema then function name.
 	Route map[string]map[string]RouteDecl
 
-	// TypeScript is specs/typescript.md ## Configuration's typescript.* :
+	// TypeScript is the typescript.* namespace :
 	// typescript.helper_path only, as of now — the endpoints themselves are
 	// gated by Http.TypeScript/Http.Json below.
 	TypeScript TypeScript
@@ -47,12 +42,11 @@ type Config struct {
 	Raw map[string]any
 }
 
-// TypeScript is specs/typescript.md ## Configuration's typescript.* namespace.
+// TypeScript is the typescript.* namespace.
 type TypeScript struct {
 	// HelperPath is typescript.helper_path, default "" (disabled) : a
 	// filesystem path rel (re)writes database.ts's content to directly, at
-	// startup and on every SIGUSR1 reload (specs/typescript.md ## Reloading
-	// `helper_path`), on top of serving it over HTTP.
+	// startup and on every SIGUSR1 reload, on top of serving it over HTTP.
 	HelperPath string
 	// Schemas is typescript.schemas, default "" (every schema found,
 	// aside from pg_catalog) : a comma-separated whitelist of schemas that
@@ -158,7 +152,7 @@ type Jwt struct {
 // DefaultJwt* are authentication.md ## Configuration's stated defaults.
 const (
 	// DefaultJwtSecret's $GEN$ path is a colon-separated search list, resolved
-	// per specs/configuration.md ## $GEN$ multi-path resolution : a fixed
+	// as a $GEN$ multi-path : a fixed
 	// deployment mount point first, falling back to the process's own cwd.
 	DefaultJwtSecret        = "$FILE$/secrets/jwt-secret:./jwt-secret$GEN$32"
 	DefaultJwtCookieName    = "accesstoken"
@@ -184,10 +178,8 @@ type Logging struct {
 	Exclude map[string]string
 }
 
-// Http is the HTTP listen address (Host/Port — invented for cmd/rel, since
-// no spec under specs/ defines the bind host/port) plus
-// route.md ## HTTP ## Configuration's own http.* keys, which
-// govern /route function discovery and dispatch.
+// Http is the HTTP listen address (Host/Port) plus the http.* keys, which
+// govern route function discovery and dispatch.
 type Http struct {
 	Host string
 	Port int
@@ -238,18 +230,17 @@ type Http struct {
 	TypeScript HttpTypeScript
 }
 
-// HttpUpload is http.upload.* — upload destinations, per
-// specs/http-content.md ## Upload destinations and specs/templating-2.md.
+// HttpUpload is http.upload.* — upload destinations.
 type HttpUpload struct {
 	// Dir is http.upload.dir, default "" (uploads disabled) : a subpath of
 	// the static write directory (static.Server.WriteDir, the first entry of
 	// http.static.path) that all uploads are written under. Uploaded files
 	// remain servable as ordinary static content, but no file under this
-	// subpath is ever eligible for jet execution (specs/templating-2.md).
+	// subpath is ever eligible for jet execution.
 	Dir string
 	// MaxSize is http.upload.max_size, default equal to MaxBodySize : hard
 	// cap, in bytes, on the streamed payload of a single-upload /route
-	// request (specs/http-content.md ## Upload destinations) — replaces
+	// request — replaces
 	// MaxBodySize as the ceiling on that path, since the payload streams
 	// straight to a temp file rather than being buffered in memory, so it
 	// can reasonably be set much higher. A route's __prepare function may
@@ -267,8 +258,7 @@ type HttpTypeScript struct {
 	Enable bool
 }
 
-// HttpTemplates is http.templates.* — specs/http-content.md ##
-// Templates.
+// HttpTemplates is http.templates.*.
 type HttpTemplates struct {
 	// Path is http.templates.path, default "/template" (renamed from the
 	// never-implemented http.templatesdir) : the filesystem directory Jet
@@ -276,8 +266,7 @@ type HttpTemplates struct {
 	Path string
 }
 
-// HttpCors is http.cors.* — specs/http-content.md ## CORS ##
-// Configuration.
+// HttpCors is http.cors.*.
 type HttpCors struct {
 	// AllowedOrigins is http.cors.allowed_origins, default "" (CORS fully
 	// closed) : comma-separated list of exact origins, or the literal "*"
@@ -295,8 +284,8 @@ type HttpCors struct {
 	MaxAge int
 }
 
-// HttpCsp is http.csp.* — specs/http-content.md ## CSP ## Configuration
-// : one config key per CSP directive, plus a raw full-policy override.
+// HttpCsp is http.csp.* :
+// one config key per CSP directive, plus a raw full-policy override.
 type HttpCsp struct {
 	DefaultSrc     string
 	ScriptSrc      string
@@ -316,8 +305,8 @@ type HttpCsp struct {
 	Policy string
 }
 
-// RouteDecl is one route.<schema>.<function>.* config-declared route —
-// specs/new-routes.md ## In the configuration. Schema/function are
+// RouteDecl is one route.<schema>.<function>.* config-declared route.
+// Schema/function are
 // inferred from the config key path itself, not stored here. Mirrors the
 // same fields a comment-embedded Route declaration carries (see
 // route.Declaration), minus function/schema.
@@ -325,8 +314,7 @@ type RouteDecl struct {
 	// Path is route.<schema>.<function>.path : a path in chi syntax.
 	// Required for the function to become routable at all.
 	Path string
-	// Method is route.<schema>.<function>.method, default "" (inferred —
-	// see specs/new-routes.md ## Method inference) : a comma-separated
+	// Method is route.<schema>.<function>.method, default "" (inferred) : a comma-separated
 	// list of accepted HTTP methods.
 	Method string
 	// Template is route.<schema>.<function>.template : a Jet template path,
@@ -353,8 +341,7 @@ type HttpFunctions struct {
 	SsoCallback string
 }
 
-// OpenidProvider is one openid.<name>.* entry — specs/oauth-saml.md
-// ## Configuration — OIDC.
+// OpenidProvider is one openid.<name>.* entry.
 type OpenidProvider struct {
 	// Issuer is openid.<name>.issuer (required) : /.well-known/openid-
 	// configuration is fetched from it for discovery.
@@ -376,16 +363,14 @@ type OpenidProvider struct {
 	// falls back to HttpFunctions.SsoCallback when unset.
 	CallbackFunction string
 	// PublicHost is openid.<name>.public_host, default "" (empty) : an
-	// optional override of Http.PublicHost for this entry alone — see
-	// specs/oauth-saml.md ## Configuration — HTTP. Empty means "use
+	// optional override of Http.PublicHost for this entry alone. Empty means "use
 	// Http.PublicHost."
 	PublicHost string
 }
 
 // Saml is saml.* : the default SP certificate/key (shared across every
 // configured saml.<name> IdP that doesn't override it) plus the named
-// saml.<name>.* entries themselves — specs/oauth-saml.md
-// ## Configuration — SAML/## Certificate.
+// saml.<name>.* entries themselves.
 type Saml struct {
 	// CertificatePath/PrivateKeyPath are saml.certificate_path/
 	// saml.private_key_path, default DefaultSamlCertificatePath/
@@ -431,8 +416,7 @@ type SamlProvider struct {
 	PrivateKeyPath  string
 }
 
-// HttpStatic is http.static.* — static file serving, per
-// specs/new-routes.md ## Static path masking : Path names a colon-
+// HttpStatic is http.static.* — static file serving : Path names a colon-
 // separated list of FILESYSTEM directories, served at the router ROOT as a
 // fallback for any path no declared route claims (NOT a fixed /static/
 // prefix). Access control moved to ## Middleware — a database-backed gate
@@ -464,24 +448,21 @@ const (
 	DefaultHttpMaxPartCount = 100
 	// DefaultHttpResponseBuffer is http.response_buffer's default (64 KiB).
 	DefaultHttpResponseBuffer = 65536
-	// DefaultHttpTemplatesPath is specs/http-content.md ## Templates'
-	// stated default for http.templates.path.
+	// DefaultHttpTemplatesPath is the default for http.templates.path.
 	DefaultHttpTemplatesPath = "/template"
 	// DefaultHttpCorsAllowedMethods/DefaultHttpCorsAllowedHeaders/
-	// DefaultHttpCorsMaxAge are specs/http-content.md ## CORS
-	// ### Configuration's stated defaults. AllowedOrigins has no default
+	// DefaultHttpCorsMaxAge are the defaults for the matching http.cors.* keys. AllowedOrigins has no default
 	// constant — its default is the empty string (CORS fully closed).
 	DefaultHttpCorsAllowedMethods = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 	DefaultHttpCorsAllowedHeaders = "Content-Type"
 	DefaultHttpCorsMaxAge         = 600
-	// DefaultHttpCspDefaultSrc is specs/http-content.md ## CSP
-	// ### Configuration's stated default : only default-src has a value by
+	// DefaultHttpCspDefaultSrc is the default for http.csp.default_src : only default-src has a value by
 	// default, every other directive is unset.
 	DefaultHttpCspDefaultSrc = "'self'"
 )
 
 // DefaultOpenidScopes/DefaultOpenidClientIDPath/DefaultOpenidClientSecretPath
-// are specs/oauth-saml.md ## Configuration — OIDC's stated defaults.
+// are the defaults for the matching openid.<name>.* keys.
 // ClientID/ClientSecret have NO $GEN$ fallback the way jwt.secret does —
 // unlike a JWT secret or the SAML SP certificate, a client id/secret is
 // issued by the IdP when the app is registered there, so rel has no
@@ -495,8 +476,8 @@ const (
 	DefaultSamlForceSignedRequests = true
 )
 
-// DefaultSamlCertificatePath/DefaultSamlPrivateKeyPath are specs/oauth-saml.md
-// ## Configuration — SAML's stated defaults : flat filenames directly
+// DefaultSamlCertificatePath/DefaultSamlPrivateKeyPath are the defaults for
+// saml.certificate_path/saml.private_key_path : flat filenames directly
 // under /secrets/, not a subdirectory — see jwt.secret's own doc comment
 // for why rel deliberately never needs to create a directory for these.
 const (
@@ -553,7 +534,7 @@ type PgQuery struct {
 	WellKnownDirs string
 
 	// AllowCount/AllowStats/AllowQueryPlan/AllowSql/AllowRollback are
-	// specs/complex-query.md ## Availability's pg.query.allow_count/
+	// pg.query.allow_count/
 	// pg.query.allow_stats/pg.query.allow_query_plan/pg.query.allow_sql/
 	// pg.query.allow_rollback : server-wide switches for ComplexQuery's
 	// matching flags, each defaulting to Dev.
@@ -575,7 +556,7 @@ type Pg struct {
 	// URI is pg.uri : a full "postgres://user:pass@host:port/db"
 	// connection string. When set, it takes precedence : Host/Port/
 	// Database/User/Password are all derived FROM it
-	// (specs/pg-uri-precedence.md), and setting any of pg.host/pg.port/
+	// and setting any of pg.host/pg.port/
 	// pg.database/pg.user/pg.password alongside pg.uri is a configuration
 	// error rather than a silently-ignored or silently-overridden value.
 	// Composes naturally with $FILE$ (a single secrets file holding the
@@ -599,10 +580,7 @@ type Pg struct {
 	// PgQuery's own login when that's set, since it's always the same
 	// Postgres instance/database, only the credentials narrow. Always
 	// populated, either read directly (with Host/Port defaulting to
-	// DefaultPgHost/DefaultPgPort) or derived from pg.uri. Database is
-	// NOT in query-engine.md at all ; this struct had no field naming
-	// which database to connect to at all before this was added (see
-	// specs/TODO.md's own note on this invented key).
+	// DefaultPgHost/DefaultPgPort) or derived from pg.uri.
 	Host     string
 	Port     int
 	Database string

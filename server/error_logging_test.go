@@ -12,8 +12,7 @@ import (
 	"github.com/rel-server/rel/errcode"
 )
 
-// TestWriteError_LogsServerErrorInFull proves specs/logging.md ## Error
-// logging : a 5xx is logged in full server-side even when dev=false hides
+// TestWriteError_LogsServerErrorInFull proves a 5xx error is logged in full server-side even when dev=false hides
 // the detail from the client itself (the exact gap found diagnosing the
 // upsert identity bug — the client response and the server log are
 // independent of each other).

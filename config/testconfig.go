@@ -1,6 +1,6 @@
 package config
 
-// Test returns a hand-written Config for tests : the spec'd defaults
+// Test returns a hand-written Config for tests : the default values
 // (DefaultBlacklist, DefaultMaxDepth) plus credentials matching this repo's
 // testcontainers convention (pg/info_test.go's postgres:16-alpine container,
 // and testcontainers-go's own default superuser). Exported from a non-_test

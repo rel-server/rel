@@ -1,5 +1,5 @@
-// Unused-key detection : specs/configuration.md's "no configuration-
-// looking value is silently ignored" rule, regardless of which of the
+// Unused-key detection : no configuration-looking value is silently
+// ignored, regardless of which of the
 // three sources (config file, REL_ environment variable, CLI flag) it came
 // from — they're all merged into one koanf tree before assemble ever runs,
 // so one pass over that tree, diffed against keyTracker's own bookkeeping

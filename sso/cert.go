@@ -1,6 +1,5 @@
-// This file implements specs/oauth-saml.md ## Certificate : load the
-// deployment's SAML SP keypair if one exists at the configured paths,
-// otherwise generate and persist a self-signed one — silent reuse on
+// This file loads the deployment's SAML SP keypair if one exists at the
+// configured paths, otherwise generates and persists a self-signed one — silent reuse on
 // every later boot, loud WARN only the first time a keypair is generated.
 package sso
 
@@ -21,7 +20,7 @@ import (
 )
 
 // spKeyPair is the deployment's own SAML SP identity : Key signs outgoing
-// AuthnRequests (specs/oauth-saml.md's force_signed_requests) and
+// AuthnRequests (force_signed_requests) and
 // Certificate is what's published at /auth/saml/{name}/metadata for an IdP
 // administrator to trust.
 type spKeyPair struct {
@@ -29,9 +28,8 @@ type spKeyPair struct {
 	Certificate *x509.Certificate
 }
 
-// LoadOrGenerateSPKeyPair implements ## Certificate's three numbered
-// steps : try every (certPathList, keyPathList) candidate pair, in order,
-// for an existing readable keypair ; generate one if none was found,
+// LoadOrGenerateSPKeyPair loads or creates the SP keypair : try every
+// (certPathList, keyPathList) candidate pair, in order, for an existing readable keypair ; generate one if none was found,
 // persisting it to the first candidate pair whose directory already
 // exists (rel never creates directories — see jwt.secret's own doc
 // comment for why) ; fall back to an ephemeral, unpersisted keypair (loudly

@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	// specs/new-routes.md fixtures : config-declared routes, exercised by
+	// Config-declared route fixtures, exercised by
 	// routeset_test.go's BuildRouteSet tests.
 	testCfg.Route = map[string]map[string]config.RouteDecl{
 		"public": {

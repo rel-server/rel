@@ -10,6 +10,5 @@ $$;
 comment on function fn_created_by_migration() is 'route:: path: "/created"';
 
 -- route.applyAnonymousAuthorization requires an explicit grant, never one
--- credited only via PUBLIC's own CREATE FUNCTION default (specs/route.md
--- ## Anonymous route authorization).
+-- credited only via PUBLIC's own CREATE FUNCTION default.
 grant execute on function fn_created_by_migration() to "~anonymous";

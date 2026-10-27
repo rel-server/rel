@@ -17,7 +17,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// The CBOR adapter (specs/cbor.md ## CBOR adapter) : a Node over a decoded CBOR document. The whole
+// The CBOR adapter : a Node over a decoded CBOR document. The whole
 // document is decoded at once, with the limits and rules below, and the node tree is read from the result.
 
 var refDecMode = func() cbor.DecMode {

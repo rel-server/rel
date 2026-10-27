@@ -25,8 +25,7 @@ import (
 // (pg.Relation.ComputedFields), n's own declared alias (InnerName,
 // self-referencing n itself), and n's visible children's join aliases
 // (OuterAlias, both OutgoingNodes and IncomingNodes) — never a parent's or a
-// sibling's, per specs/query-engine.md's "## Scoping ### Self-reference and
-// child scope" section.
+// sibling's.
 //
 // A name matching more than one of these is a hard error, not silently
 // resolved by precedence (decided this session) : picking one on a

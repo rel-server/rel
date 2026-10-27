@@ -12,7 +12,7 @@ import (
 // columnEncoder returns the encoder for a value of type t and whether it is
 // in binary mode. Binary mode needs an encoder for every type in t's tree ; any
 // other type is in text mode, whose encoder writes the text Postgres' input
-// function reads (specs/typed-write-loading.md ## Column mode).
+// function reads.
 func columnEncoder(t *pg.Type) (enc fieldEncoder, binary bool) {
 	if enc := binaryEncoderFor(t); enc != nil {
 		return enc, true

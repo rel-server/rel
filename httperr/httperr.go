@@ -1,8 +1,8 @@
 // Package httperr decides what a failed request tells its client, and logs the failures that are the
-// server's fault (specs/error-handling.md, specs/logging.md ## Error logging).
+// server's fault.
 //
 // An Error carries the status, code and cause, plus the Postgres tier and detail when the cause is a
-// Postgres error. Deciding what is safe to show (the tiers of ## Postgres error detail) and logging
+// Postgres error. Deciding what is safe to show (the Postgres error tiers) and logging
 // a 5xx happen here, once. Writing is left to the caller for a JSON envelope (server/response.go) and
 // done here for the plain-text one /route and the SSO callbacks use.
 package httperr
@@ -46,7 +46,7 @@ func Server(code errcode.Code, err error) *Error {
 	return &Error{Status: http.StatusInternalServerError, Code: code, Err: err}
 }
 
-// Unauthorized is a 401 (authentication.md "## Roles ## Anonymous role existence").
+// Unauthorized is a 401 (e.g. anonymous access disabled).
 func Unauthorized(code errcode.Code, err error) *Error {
 	return &Error{Status: http.StatusUnauthorized, Code: code, Err: err}
 }
@@ -122,7 +122,7 @@ func (e *Error) PlainText(dev bool) string {
 	}
 }
 
-// WritePlain writes message as a plain-text error response (## Postgres Exceptions), deliberately
+// WritePlain writes message as a plain-text error response, deliberately
 // unlike server/response.go's JSON envelope. Nothing is logged : use it for a client's mistake.
 func WritePlain(w http.ResponseWriter, status int, code errcode.Code, message string) {
 	w.Header().Set(errcode.Header, string(code))

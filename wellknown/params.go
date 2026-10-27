@@ -11,7 +11,7 @@ import (
 )
 
 // ResolveParams validates and defaults one request's own "params" object
-// against c's declared Params (specs/well-known-queries.md ## Definition),
+// against c's declared Params,
 // returning one Go value per declared param — ready to hand straight to
 // writer.SQLWriter.ResolveArgs (the read path) or
 // query.ExecuteWriteStateParams (the write path). raw is the caller's own
@@ -19,9 +19,8 @@ import (
 // entirely (equivalent to every declared param being absent).
 //
 // A key present in raw but not declared in c.Params is silently ignored —
-// specs/well-known-queries.md's own error taxonomy only defines
-// WELL_KNOWN_UNKNOWN_PARAM for a *query* referencing an undeclared param at
-// load time (## Compilation Errors), not for a caller sending an unused
+// WELL_KNOWN_UNKNOWN_PARAM is only raised for a *query* referencing an
+// undeclared param at load time, not for a caller sending an unused
 // extra key ; there's nothing unsafe about ignoring it.
 func (c *Compiled) ResolveParams(raw []byte) (map[string]any, error) {
 	supplied := map[string]json.RawMessage{}
@@ -52,7 +51,7 @@ func (c *Compiled) ResolveParams(raw []byte) (map[string]any, error) {
 	return out, nil
 }
 
-// checkParamType is a shallow, JSON-kind-level front door (## Definition) ;
+// checkParamType is a shallow, JSON-kind-level front door ;
 // a JSON null always passes, an unrecognized type defers to the SQL cast.
 func checkParamType(pgType string, raw json.RawMessage) error {
 	kind := jsonKindOf(raw)
@@ -149,7 +148,7 @@ var textPgTypes = map[string]bool{
 var booleanPgTypes = map[string]bool{"boolean": true, "bool": true}
 
 // TSTypeForParam maps a declared param's "type" string to the TypeScript
-// type tsgen emits for it (specs/typescript.md ## Wellknowns), reusing
+// type tsgen emits for it, reusing
 // classifyPgType's own buckets rather than a second, divergent mapping —
 // so a param's generated TS type always matches what checkParamType (the
 // wire-level check for the SAME declared type) actually accepts.

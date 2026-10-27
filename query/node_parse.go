@@ -13,8 +13,7 @@
 // limitations under the License.
 
 // Pass 1, decode step : query.ts's JSON shape decoded into the raw* types
-// below, hand-written over sonic/ast (no struct-tag unmarshal — see
-// query-engine.md ## Implementation), mirroring expression_parse.go's
+// below, hand-written over sonic/ast (no struct-tag unmarshal), mirroring expression_parse.go's
 // style and reusing its unexported helpers directly (same package). Nothing
 // here touches pg or config : that's node_resolve.go's job. Expression-typed
 // fields ARE resolved to query.Expression at this stage (via parseNode),
@@ -46,7 +45,7 @@ type ParsedQuery struct {
 
 // rawWriteQuery is query.ts's ComplexQuery ; exactly one of Query/WellKnown
 // is set. Data stays the decoded document, JSON or CBOR, walked later by the writing algorithm ; nil
-// means a read (specs/complex-query.md ## Parsing), distinguished from an
+// means a read, distinguished from an
 // explicit "data": null by Data being a non-nil null Node.
 type rawWriteQuery struct {
 	Query     *rawRelation  // nil if WellKnown is set instead
@@ -54,7 +53,7 @@ type rawWriteQuery struct {
 	Data      Node
 
 	// Returns/Count/Stats/QueryPlan/Sql/Rollback are ComplexQuery's own
-	// response-shaping flags (specs/complex-query.md), decoded off the same
+	// response-shaping flags, decoded off the same
 	// object as Query/WellKnown/Data. Returns is "" when absent (defaults
 	// to "results" downstream), never validated to a known value here — see
 	// ValidateReturns.

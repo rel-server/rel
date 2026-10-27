@@ -1,4 +1,4 @@
-// End-to-end coverage for specs/complex-query.md's ComplexQuery envelope, through Prepare and
+// End-to-end coverage for the ComplexQuery envelope, through Prepare and
 // Execute against a real Postgres.
 package relexec
 
@@ -11,8 +11,7 @@ import (
 )
 
 // TestComplexQuery_NoFlags_BareShape proves a ComplexQuery with no flags at
-// all keeps today's bare-array response (specs/complex-query.md ## Response
-// shape's back-compat guarantee).
+// all keeps today's bare-array response (back-compat).
 func TestComplexQuery_NoFlags_BareShape(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Complex No Flags Director')`); err != nil {
@@ -156,8 +155,7 @@ func TestComplexQuery_Stats_OnWrite(t *testing.T) {
 
 // TestComplexQuery_Stats_OnNestedWrite proves `stats` reports one entry per
 // writable relation touched, each with its own join-key `path` — mirroring
-// specs/complex-query.md ## stats's own nested example (there, a two-level
-// hotel.properties/room_types upsert) — TestComplexQuery_Stats_OnWrite only
+// a two-level hotel.properties/room_types upsert — TestComplexQuery_Stats_OnWrite only
 // ever covers a single flat table, never a join.
 func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
 	opts := Options{Policy: Policy{Stats: true}}

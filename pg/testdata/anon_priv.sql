@@ -1,7 +1,6 @@
 -- Fixture for pg/anonymous_test.go : covers the two new introspection
--- queries specs/authentication.md adds — "# Roles ## Anonymous role
--- existence" (a pg_roles existence check) and "# HTTP ## Anonymous route
--- authorization" (the has_schema_privilege/has_function_privilege
+-- queries : the anonymous role existence check (pg_roles) and the anonymous
+-- route authorization check (the has_schema_privilege/has_function_privilege
 -- two-conjunct check) — run under a non-superuser connecting role, same
 -- concern nonsuperuser_test.go already covers for the rest of
 -- introspection : both queries ask about ANOTHER role's privileges, never

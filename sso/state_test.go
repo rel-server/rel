@@ -119,7 +119,7 @@ func TestRelayState_NilRoundTripsToEmptyString(t *testing.T) {
 }
 
 // TestDecodeRelayState_MalformedIsTreatedAsNoState : an IdP-initiated
-// login (specs/oauth-saml.md ## Endpoints) never went through /login, so
+// login never went through /login, so
 // there's no rel-issued RelayState to decode — malformed/unexpected input
 // degrades to "no state" rather than rejecting the login outright.
 func TestDecodeRelayState_MalformedIsTreatedAsNoState(t *testing.T) {

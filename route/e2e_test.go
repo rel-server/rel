@@ -1,6 +1,6 @@
 package route
 
-// End-to-end tests for specs/new-routes.md's new dispatch mechanism,
+// End-to-end tests for the declaration-based dispatch mechanism,
 // driven through a real http.Handler (testHandler, or a dedicated one with
 // a real static.Server for the stream_upload case) rather than calling
 // internal functions directly — proving the whole request lifecycle
@@ -269,7 +269,7 @@ func TestE2E_RSxxxClassification(t *testing.T) {
 
 // TestE2E_TemplateRendering proves a declared template actually renders
 // over a real HTTP request — the single-return route's jsonb return value
-// becomes the template's Data, per specs/new-routes.md ## Templates. No
+// becomes the template's Data. No
 // existing test exercised writeTemplateResponse/NewTemplateSet through the
 // real dispatch path at all before this.
 func TestE2E_TemplateRendering(t *testing.T) {
@@ -296,7 +296,7 @@ func TestE2E_TemplateRendering(t *testing.T) {
 
 // TestE2E_TemplateRendering_RelAvailable proves rel() is available from a
 // database-function-return template, not only a static one
-// (specs/templating-2.md) — the shared jet.Set's Set-global registration
+// — the shared jet.Set's Set-global registration
 // reaches both.
 func TestE2E_TemplateRendering_RelAvailable(t *testing.T) {
 	if _, err := testDb.Pool.Exec(context.Background(), "delete from stream_upload_log"); err != nil {

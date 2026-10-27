@@ -1,5 +1,4 @@
-// Typed temp tables of the write path (specs/typed-write-loading.md ## Temp row
-// types, ## Connection lifecycle, ## Loading) : per destination table, one temp
+// Typed temp tables of the write path : per destination table, one temp
 // table holding the rows of a write request and one used only for its row type
 // by the fast path, loaded from a single binary array parameter.
 package query

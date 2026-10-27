@@ -66,8 +66,7 @@ func (o Options) targetFunction(f *pg.Function) bool {
 	return !o.Blacklist.IsFunctionBlacklisted(f.Identifier.Schema, f.Identifier.Name)
 }
 
-// GenerateSchema renders specs/typescript.md ## database.ts ### File
-// layout's Section 2 : Relations/Relationships/ComputedProperties/Functions/
+// GenerateSchema renders the schema section of database.ts : Relations/Relationships/ComputedProperties/Functions/
 // FunctionsByName/Wellknowns and the Table__/View__/Type__/Computed__
 // interfaces they reference, from db filtered by opts.
 func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) string {
@@ -136,7 +135,7 @@ func wellknownConstIdent(name string) string {
 	return b.String()
 }
 
-// renderWellknowns is specs/typescript.md ## Wellknowns : rather than
+// renderWellknowns renders the Wellknowns section : rather than
 // re-deriving a well-known query's row shape in Go (duplicating shapes.ts'
 // own type-level inference), each compiled query's raw "query" JSON is
 // embedded verbatim as a `const ... as const` literal and
@@ -265,7 +264,7 @@ func renderRelationsMap(relations []*pg.Relation) string {
 }
 
 // isRequiredColumn reports whether c MUST be given a value on insert —
-// specs/required-fields.md : not nullable, no default expression, and not
+// not nullable, no default expression, and not
 // identity/generated (both of which Postgres fills in itself, the same way
 // a default would). IsUpdatable/view-writability aren't factored in here ;
 // RequiredColumns describes the relation's own shape, not what a given
@@ -276,7 +275,7 @@ func isRequiredColumn(c *pg.Column) bool {
 	return c.IsReallyNotNull() && c.DefaultExpression == "" && !c.IsIdentity && !c.IsGenerated
 }
 
-// renderRequiredColumns is specs/required-fields.md's RequiredColumns : for
+// renderRequiredColumns renders RequiredColumns : for
 // every target relation, the physical columns a write actually MUST supply
 // a value for — shapes.ts's WriteShapeFromRelationQuery uses this to mark
 // exactly those keys mandatory in a relation's write shape, leaving every
@@ -312,7 +311,7 @@ func renderRequiredColumns(relations []*pg.Relation) string {
 }
 
 // relationshipVariant is one FK-derived entry under Relationships[key] —
-// specs/typescript.md ## Schema interfaces' "Relationships" paragraph. Cardinality is carried
+// see renderRelationships. Cardinality is carried
 // entirely by shortcut's own direction marker (`>`/`<`/`*` — docs/content/typescript/index.md
 // ## Building a query), not a separate field.
 type relationshipVariant struct {
@@ -325,7 +324,7 @@ type relationshipVariant struct {
 // renderRelationships walks every target relation's own OutgoingForeignKeys
 // exactly once (a constraint belongs to exactly one relation's own list),
 // producing up to two variants per FK — see the type's own doc
-// comment and specs/typescript.md ## Schema interfaces ## Relationships. A
+// comment. A
 // foreign key whose own columns aren't indexed isn't a legal join target in
 // either direction (query.ts's `on` doc comment) : its variants go to
 // IneligibleRelationships instead, carrying the reason, so join() can say why
@@ -364,8 +363,7 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 			outgoing := relationshipVariant{key: ownerKey, shortcut: referencedKey + ">" + pairStr, relation: referencedName}
 			incoming := relationshipVariant{key: referencedKey, shortcut: ownerKey + incomingMarker + pairStr, relation: ownerName}
 
-			// Eligibility (query.ts's own `on` doc comment, quoted verbatim
-			// in specs/typescript.md ## Relationships) : the FK-holding
+			// Eligibility (see query.ts's `on` doc comment) : the FK-holding
 			// side's own columns must be indexed, or neither direction is a
 			// legal join target.
 			if owner.IsIndexed(ownerCols) {
@@ -457,7 +455,7 @@ func columnNames(columns []*pg.Column) []string {
 // earlier-searched schema whose arguments don't actually fit a given call
 // site still "wins" here and shadows a later, better-fitting schema :
 // accepted as a best-effort heuristic, not a validator, the same stance
-// specs/typescript.md already takes for write-shape derivation.
+// taken for write-shape derivation.
 func bareNameWinners(fns []*pg.Function, searchPath []string) map[string]string {
 	pathIndex := make(map[string]int, len(searchPath))
 	for i, s := range searchPath {
@@ -487,7 +485,7 @@ func bareNameWinners(fns []*pg.Function, searchPath []string) map[string]string 
 	return winners
 }
 
-// renderFunctionsByName is the bare-name half of specs/typescript.md's
+// renderFunctionsByName is the bare-name half of the
 // computed-column story : shapes.ts's ShapeFromCallTag consults this
 // UNCONDITIONALLY (unlike ComputedProperties, purely a discoverability
 // aid), so `["call", "func_name", ...]` (the unqualified form — the whole
@@ -519,7 +517,7 @@ func renderFunctionsByName(fns []*pg.Function, searchPath []string) string {
 	return b.String()
 }
 
-// renderComputedProperties is specs/typescript.md's discoverability half of
+// renderComputedProperties is the discoverability half of
 // computed fields — pg.Relation.ComputedFields (pg/info_computed.go) is the
 // one place eligibility is decided (same schema as the relation, callable
 // with exactly one argument, first argument typed as the relation's own row
@@ -592,8 +590,7 @@ func renderComputedProperties(relations []*pg.Relation, bl config.Blacklist, tc 
 	return interfaces.String() + mapBody.String()
 }
 
-// renderFunctions is specs/typescript.md ## Schema interfaces' "Functions"
-// paragraph. Always emits the interface, even empty (a real deployment
+// renderFunctions renders the Functions interface. Always emits the interface, even empty (a real deployment
 // exporting zero functions) : shapes.ts references `Functions`
 // unconditionally (ResolveFunctionModel, FunctionsByName's own indexed
 // entries, ShapeFromCallTag), and a downstream reference to a type absent
@@ -698,8 +695,8 @@ func renderFunctionArgs(b *strings.Builder, f *pg.Function, tc *typeCollector) {
 	fmt.Fprintf(b, "    args: %s\n", argsType)
 }
 
-// renderFunctionReturns is specs/typescript.md ## Schema interfaces'
-// "Functions" paragraph's `relation`/`returns` half : `relation` present
+// renderFunctionReturns renders the `relation`/`returns` half of
+// Functions entries : `relation` present
 // only for a set-returning function whose row shape matches a real target
 // Table__/View__ ; a RETURNS TABLE/OUT-parameter function with no matching
 // real relation falls back to an inline object shape instead.

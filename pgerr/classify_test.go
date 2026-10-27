@@ -113,6 +113,6 @@ func TestDetail_FieldAllowList(t *testing.T) {
 	sort.Strings(got)
 
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Detail's fields = %v, want exactly %v — see specs/error-handling.md ### `pg_error` field allow-list", got, want)
+		t.Fatalf("Detail's fields = %v, want exactly %v", got, want)
 	}
 }

@@ -4,8 +4,7 @@ import (
 	"testing"
 )
 
-// TestLoad_OpenidClientCredentials_DefaultFilePath covers specs/oauth-saml.md
-// ## Configuration — OIDC's per-name $FILE$ default : client_id/client_secret
+// TestLoad_OpenidClientCredentials_DefaultFilePath covers the per-name $FILE$ default : client_id/client_secret
 // need no explicit config line at all when the corresponding flat file
 // exists at the deployment's own cwd (the default's second, local-dev
 // candidate — /secrets/openid-<name>.id is assumed absent on the machine
@@ -61,8 +60,7 @@ client_secret = "explicit-secret"
 }
 
 // TestLoad_OpenidClientCredentials_MissingEverywhereIsAnError : no $GEN$
-// fallback for these (specs/oauth-saml.md : "rel has no business
-// fabricating one") — absent from config AND absent at both candidate
+// fallback for these (rel must not fabricate a client id/secret) — absent from config AND absent at both candidate
 // paths must fail Load, not silently produce an empty ClientID/ClientSecret.
 func TestLoad_OpenidClientCredentials_MissingEverywhereIsAnError(t *testing.T) {
 	t.Chdir(t.TempDir())
@@ -105,8 +103,7 @@ issuer = "https://issuer.example.com"
 	}
 }
 
-// TestLoad_SamlCertPaths_DefaultFlatUnderSecrets covers specs/oauth-saml.md
-// ## Configuration — SAML's flat-file default (no subdirectory).
+// TestLoad_SamlCertPaths_DefaultFlatUnderSecrets covers the flat-file default (no subdirectory).
 func TestLoad_SamlCertPaths_DefaultFlatUnderSecrets(t *testing.T) {
 	cfg, err := Load([]string{"--config=" + writeFile(t, t.TempDir(), "rel.toml", "")})
 	if err != nil {
@@ -120,8 +117,7 @@ func TestLoad_SamlCertPaths_DefaultFlatUnderSecrets(t *testing.T) {
 	}
 }
 
-// TestLoad_SamlForceSignedRequests_DefaultsTrue covers specs/oauth-saml.md's
-// "Why default true" : the SP always has a key, so signing costs nothing
+// TestLoad_SamlForceSignedRequests_DefaultsTrue covers the true default : the SP always has a key, so signing costs nothing
 // and is strictly more secure — an operator must opt OUT, not in.
 func TestLoad_SamlForceSignedRequests_DefaultsTrue(t *testing.T) {
 	cfgPath := writeFile(t, t.TempDir(), "rel.toml", `
@@ -256,8 +252,7 @@ sso_callback = "auth.sso_callback"
 
 // TestLoad_PublicHost_GlobalDefaultAndPerEntryOverride covers
 // docs/content/http/authentication.md ## OpenID Connect and SAML :
-// http.public_host is a bare host with no default ; specs/oauth-saml.md
-// ## Configuration — HTTP's openid.<name>.public_host/saml.<name>.public_host
+// http.public_host is a bare host with no default ; openid.<name>.public_host/saml.<name>.public_host
 // override it per entry when set.
 func TestLoad_PublicHost_GlobalDefaultAndPerEntryOverride(t *testing.T) {
 	cfg, err := Load([]string{"--config=" + writeFile(t, t.TempDir(), "rel.toml", "")})

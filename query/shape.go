@@ -14,8 +14,7 @@
 
 // Pass 2, shape/writability derivation step : runs after resolveExpressions
 // (expression_resolve.go) has resolved every identifier, over each node's
-// now-resolved Select only — see specs/query-engine.md's Pass 2 description
-// and its "## Writability" section.
+// now-resolved Select only.
 package query
 
 import (
@@ -36,7 +35,7 @@ type NodeShape struct {
 	Fields map[string]ResolvedField
 
 	// Extractors is only populated when WriteMode != READONLY — see
-	// specs/query-engine.md ## Writability : writability is skipped entirely for reads.
+	// writability is skipped entirely for reads.
 	Extractors []Extractor
 
 	// Writable is this node's own identity-target columns (PK, or
@@ -131,7 +130,7 @@ func identityIsWritable(node *QueryNode, accum *writeAccum) bool {
 	if node.Relation == nil {
 		return false
 	}
-	// A function-rooted node is never writable (### Function-rooted nodes) ;
+	// A function-rooted node is never writable ;
 	// checked before PrimaryKey/OnConflict so its underlying table can't leak through.
 	if node.IsFunction() {
 		return false
@@ -185,7 +184,7 @@ func (a *writeAccum) record(path ColumnPath, jsonPath []string, isClean bool) {
 }
 
 // walkSelectForWritability descends expr, threading jsonPath and
-// coalesceOnly (## Writability) ; get is never recorded, default-value sub-expressions are never walked.
+// coalesceOnly ; get is never recorded, default-value sub-expressions are never walked.
 func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []string, coalesceOnly bool, accum *writeAccum) {
 	if expr == nil {
 		return

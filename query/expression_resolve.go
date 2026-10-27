@@ -13,9 +13,7 @@
 // limitations under the License.
 
 // Pass 2, resolution step : binds every bare Identifier and every call/agg
-// FunctionRef against a scope or the function catalog, in place — see
-// specs/query-engine.md's Pass 2 description and its "## Scoping ###
-// Identifier resolution" section.
+// FunctionRef against a scope or the function catalog, in place.
 // Runs bottom-up (children before parents), since a "." chain into a
 // child's select needs that child already resolved.
 package query
@@ -45,7 +43,7 @@ func (ctx *ResolveContext) resolveExpressions(node *QueryNode) error {
 	oc := oops.With("node", node.InnerName)
 
 	// Marks node while resolving its own expressions, so resolveExternalHop
-	// refuses a self-alias hop into its own still-resolving Shape (## Scoping).
+	// refuses a self-alias hop into its own still-resolving Shape.
 	if ctx.resolvingOwn == nil {
 		ctx.resolvingOwn = map[*QueryNode]bool{}
 	}

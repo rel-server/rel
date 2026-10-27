@@ -4,9 +4,8 @@
 -- note on "~anonymous"/app_user above), which can SET ROLE to anything
 -- regardless of grants — silently masking the exact bug this fixture
 -- exists to catch. query_user_deploy is a genuine, non-superuser LOGIN
--- role granted membership in every role a request might switch to,
--- matching the deployment prerequisite specs/TODO.md now documents. That
--- grant alone used to not be enough : introspection itself failed under a
+-- role granted membership in every role a request might switch to.
+-- That grant alone used to not be enough : introspection itself failed under a
 -- non-superuser role before SET ROLE was ever attempted (see
 -- pg/info_constraint.go's own comment, fixed alongside this fixture, and
 -- pg/nonsuperuser_test.go for the same regression covered directly next
@@ -15,8 +14,8 @@ create role query_user_deploy login password 'test-password' nosuperuser;
 grant "~anonymous" to query_user_deploy;
 grant app_user to query_user_deploy;
 
--- A REAL (non-stub) credential check via pgcrypto, matching specs/TODO.md's
--- own resolution of the login question : "checks credentials however the
+-- A REAL (non-stub) credential check via pgcrypto, matching the
+-- login convention : "checks credentials however the
 -- developer wants — bcrypt, an extension, whatever". Every other login
 -- fixture in schema.sql (fn_login) always succeeds unconditionally — fine
 -- for testing dispatch/mint mechanics, but not an example of the pattern

@@ -32,9 +32,8 @@ import (
 // (migrations.md ## Reloading step 1 : "no templating").
 const maintenancePageBody = "rel is applying migrations, please retry shortly.\n"
 
-// ReloadableHandler is http.Server.Handler's own, permanent value — see
-// specs/migrations.md ## Reloading's "http.Server.Handler is, permanently...
-// a small reload-aware wrapper holding an atomic.Pointer" paragraph. The
+// ReloadableHandler is http.Server.Handler's own, permanent value : a
+// small reload-aware wrapper holding an atomic.Pointer. The
 // inner *http.Handler is only ever swapped via Swap ; ServeHTTP always
 // dispatches through the current pointer, so http.Server.Handler itself
 // never needs to change after startup.
@@ -101,8 +100,7 @@ func (h *ReloadableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Swap stores next as the current inner handler — a single atomic pointer
-// store, never a write to http.Server.Handler itself (specs/migrations.md ##
-// Reloading step 6).
+// store, never a write to http.Server.Handler itself (the last step of a reload).
 func (h *ReloadableHandler) Swap(next http.Handler) {
 	h.inner.Store(&next)
 }

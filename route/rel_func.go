@@ -1,4 +1,4 @@
-// This file implements specs/templating-2.md ## query functions : rel(), a
+// This file implements rel(), a
 // read-only query entrypoint bound into the shared jet.Set (see templates.go).
 // It runs /rel's own resolve-and-run path (relexec) in a per-call, role-scoped
 // transaction, after refusing every write shape up front.
@@ -66,8 +66,7 @@ func relFuncError(err error) error {
 	return oops.Wrapf(err, "rel()")
 }
 
-// rejectRelWrite enforces specs/templating-2.md ## query functions' "rel()
-// only executes reads" rule — a ComplexQuery/write wrapper (item.Write) is
+// rejectRelWrite enforces that rel() only executes reads — a ComplexQuery/write wrapper (item.Write) is
 // out of scope regardless of whether its own Data is set, mirroring
 // relexec's own isWrite derivation (checked at the parse level, since
 // QueryNode.WriteMode defaults to a write mode even for a plain read once

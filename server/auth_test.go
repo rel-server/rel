@@ -126,8 +126,7 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	}
 }
 
-// TestRelHandler_AnonymousRoleDoesNotExist_Is401 : authentication.md's
-// Anonymous role existence rule — a role never CREATE ROLEd is 401.
+// TestRelHandler_AnonymousRoleDoesNotExist_Is401 : a role never CREATE ROLEd is 401.
 func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
 	cfg := *testCfg
 	cfg.Pg.Query.AnonymousRole = "role_nobody_ever_created"

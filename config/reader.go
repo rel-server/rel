@@ -11,8 +11,7 @@ import (
 	koanf "github.com/knadh/koanf/v2"
 )
 
-// ConfigReader is specs/configuration.md ## Accessing configuration's
-// typed accessor over the merged koanf tree. k is always the SAME shared,
+// ConfigReader is the typed accessor over the merged koanf tree. k is always the SAME shared,
 // whole-tree *koanf.Koanf across every ConfigReader derived from one root —
 // path is this reader's own dotted scope prefix ("" at the root), prepended
 // to every sub-path an accessor is called with. Addressing by full dotted
@@ -121,7 +120,7 @@ func notFoundErr(path string) error {
 // Exists reports whether path is present in the merged configuration,
 // distinguishing "absent" from "present but equal to a default" — used
 // where precedence between two keys depends on which was actually set, not
-// merely on its resolved value (specs/pg-uri-precedence.md).
+// merely on its resolved value.
 func (r *ConfigReader) Exists(path string) bool {
 	full := r.join(path)
 	ok := r.k.Exists(full)
@@ -161,9 +160,8 @@ func (r *ConfigReader) GetObjectOrDefault(path string, def func() *ConfigReader)
 }
 
 // GetIterator scopes to path like GetObject, then yields its immediate
-// children as (key, *ConfigReader) pairs in alphabetical order (spec :
-// "GetIterator yields entries in a deterministic (alphabetically sorted)
-// order"). A child may itself be an object or a scalar — GetIterator makes
+// children as (key, *ConfigReader) pairs in alphabetical order, so
+// iteration is deterministic. A child may itself be an object or a scalar — GetIterator makes
 // no assumption either way, unlike GetObject ; the caller's own accessor
 // call on the yielded reader (GetString("") for a scalar, another
 // GetIterator for a nested object, ...) determines that.

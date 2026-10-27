@@ -137,7 +137,7 @@ func agree(t *testing.T, name string, data []byte) (accepted bool) {
 		if containsInvalid(want) || strings.Contains(gotErr.Error(), "a map key that is not a text string") ||
 			strings.Contains(gotErr.Error(), "a tag 0 value that is not an RFC 3339") {
 			// the library reads a byte string key as text, and a tag 0 over a string that is no date as that
-			// string ; specs/cbor.md refuses the first, and a tag 0 only means a date and time
+			// string ; the adapter refuses the first, and a tag 0 only means a date and time
 			return false
 		}
 		t.Errorf("%s % x: refused (%v), the reference reads it", name, data, gotErr)
@@ -159,7 +159,7 @@ func agree(t *testing.T, name string, data []byte) (accepted bool) {
 	return true
 }
 
-// usesStructureTags reports whether data may hold a structure's tag (specs/cbor.md ## Structures) : a two-byte tag
+// usesStructureTags reports whether data may hold a structure's tag : a two-byte tag
 // of 0xdfff or from 0xe000 up.
 func usesStructureTags(data []byte) bool {
 	for i := 0; i+2 < len(data); i++ {

@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Filter expression grammar : specs/query-json.md's ## Filter expression
-// grammar, a small S-expression-style parser producing the SAME plain Go
+// Filter expression grammar : a small S-expression-style parser producing the SAME plain Go
 // value tree shape query.ts's own JSON Expression uses (string, float64,
 // bool, nil, []any, map[string]any) — never a parallel Expression type.
 // This one recursive-descent scanner is reused for `where`, every
 // select/order_by/distinct_on comma-list, and each `call`'s own argument
-// list, per the spec's own "one tokenizer, reused everywhere" rule.
+// list (one tokenizer, reused everywhere).
 package querystring
 
 import (
@@ -89,7 +88,7 @@ func isIdentPart(c byte) bool {
 }
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
-// parseIdentifier consumes specs/query-json.md's `identifier` production :
+// parseIdentifier consumes an identifier :
 // /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/ — e.g. "actors.name".
 func (p *exprParser) parseIdentifier() (string, error) {
 	start := p.i
@@ -227,7 +226,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 	}
 	if !known {
 		// An unrecognized name is a plain function call — query.ts's own
-		// ["call", identifier, ...arguments] form (specs/query-json.md).
+		// ["call", identifier, ...arguments] form.
 		fnRef, err := functionRefFromName(ident)
 		if err != nil {
 			return nil, err
@@ -320,7 +319,7 @@ func (p *exprParser) parseCall(ident string) (any, error) {
 
 	default:
 		// "-"/"~" each cover two operators of different arity ; the word
-		// chosen must be checked against the arity it claims (specs/query-json.md).
+		// chosen must be checked against the arity it claims.
 		switch ident {
 		case "neg", "bnot":
 			if len(args) != 1 {

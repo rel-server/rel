@@ -1,7 +1,6 @@
-// Response framing : the manual "["/","/"]" streaming specs/query-engine.md's
-// ## Response Shape asks for (no json_agg, constant memory, first byte
-// before the query finishes), plus the error envelope specs/error-handling.md
-// specifies in full.
+// Response framing : the manual "["/","/"]" streaming
+// (no json_agg, constant memory, first byte
+// before the query finishes), plus the error envelope.
 package server
 
 import (
@@ -17,7 +16,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// errorResponse is the RelErrorResponse envelope (error-handling.md).
+// errorResponse is the RelErrorResponse envelope.
 // Status is always "error" ; the numeric HTTP status is never repeated here.
 type errorResponse struct {
 	Error      string        `json:"error"`
@@ -27,10 +26,9 @@ type errorResponse struct {
 	Stacktrace []string      `json:"stacktrace,omitempty"`
 }
 
-// writeError writes err as the RelErrorResponse envelope (error-handling.md) ;
+// writeError writes err as the RelErrorResponse envelope ;
 // only clean if nothing has been written to w yet, invalid JSON otherwise.
-// Takes ctx solely to log a server-side (5xx) failure in full — specs/
-// logging.md ## Error logging — independently of what dev/tier let the
+// Takes ctx solely to log a server-side (5xx) failure in full, independently of what dev/tier let the
 // client itself see. An err that is not an *httperr.Error is a 500.
 func writeError(ctx context.Context, w http.ResponseWriter, err error, dev bool) {
 	e, ok := errors.AsType[*httperr.Error](err)

@@ -1,4 +1,4 @@
-// specs/database-json.md's GET /rel/database.json : the same introspected
+// GET /rel/database.json : the same introspected
 // structure GenerateSchema (schema.go) renders as TypeScript, exported as
 // plain JSON instead — for a caller that isn't a TypeScript project, or that
 // wants the raw introspected facts (nullability, domain identity, constraint
@@ -16,13 +16,12 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// databaseJSONVersion is specs/database-json.md ## Top-level shape's
-// `version` : this JSON payload's own format version, bumped whenever a
+// databaseJSONVersion is the `version` field : this JSON payload's own format version, bumped whenever a
 // breaking shape change is made to any section below — unrelated to the
 // database's own schema version (there isn't one).
 const databaseJSONVersion = 1
 
-// DatabaseJSON is specs/database-json.md ## Top-level shape.
+// DatabaseJSON is the top-level shape of the database.json payload.
 type DatabaseJSON struct {
 	Version            int                                         `json:"version"`
 	SearchPath         []string                                    `json:"search_path"`
@@ -35,8 +34,8 @@ type DatabaseJSON struct {
 	Wellknowns         map[string]WellknownInfoJSON                `json:"wellknowns"`
 }
 
-// TypeInfoJSON is specs/database-json.md ## `types`' TypeInfo — one Go
-// struct standing in for that section's discriminated union ; MarshalJSON
+// TypeInfoJSON is a `types` entry — one Go
+// struct standing in for a discriminated union ; MarshalJSON
 // below emits only the fields the "kind" it holds actually specifies.
 type TypeInfoJSON struct {
 	Schema   string
@@ -71,7 +70,7 @@ func (t *TypeInfoJSON) MarshalJSON() ([]byte, error) {
 	return sonic.Marshal(m)
 }
 
-// RelationInfoJSON is specs/database-json.md ## `relations`' RelationInfo.
+// RelationInfoJSON is a `relations` entry.
 type RelationInfoJSON struct {
 	Schema            string              `json:"schema"`
 	Name              string              `json:"name"`
@@ -90,7 +89,7 @@ type ConstraintRefJSON struct {
 	Columns []string `json:"columns"`
 }
 
-// ColumnInfoJSON is specs/database-json.md ## `relations`' ColumnInfo.
+// ColumnInfoJSON is one column of a RelationInfoJSON.
 type ColumnInfoJSON struct {
 	Name         string `json:"name"`
 	Type         string `json:"type"`
@@ -103,15 +102,15 @@ type ColumnInfoJSON struct {
 	HasDefault   bool   `json:"has_default"`
 }
 
-// IndexInfoJSON is specs/database-json.md ## `relations`' IndexInfo.
+// IndexInfoJSON is one index of a RelationInfoJSON.
 type IndexInfoJSON struct {
 	Name    string   `json:"name"`
 	Unique  bool     `json:"unique"`
 	Columns []string `json:"columns"`
 }
 
-// RelationshipVariantJSON is specs/database-json.md ## `relationships`'
-// RelationshipVariant.
+// RelationshipVariantJSON is one `relationships` entry : a foreign key
+// seen from one side.
 type RelationshipVariantJSON struct {
 	Target         string            `json:"target"`
 	Direction      string            `json:"direction"` // "outgoing" | "incoming"
@@ -122,7 +121,7 @@ type RelationshipVariantJSON struct {
 	ConstraintName string            `json:"constraint_name"`
 }
 
-// FunctionInfoJSON is specs/database-json.md ## `functions`' FunctionInfo.
+// FunctionInfoJSON is a `functions` entry.
 type FunctionInfoJSON struct {
 	Schema     string                `json:"schema"`
 	Name       string                `json:"name"`
@@ -135,8 +134,7 @@ type FunctionInfoJSON struct {
 	Relation   *string               `json:"relation,omitempty"`
 }
 
-// FunctionArgInfoJSON is specs/database-json.md ## `functions`'
-// FunctionArgInfo.
+// FunctionArgInfoJSON is one argument of a FunctionInfoJSON.
 type FunctionArgInfoJSON struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
@@ -144,23 +142,20 @@ type FunctionArgInfoJSON struct {
 	HasDefault bool   `json:"has_default"`
 }
 
-// ComputedFieldInfoJSON is specs/database-json.md ## `computed_properties`'
-// ComputedFieldInfo.
+// ComputedFieldInfoJSON is a `computed_properties` entry.
 type ComputedFieldInfoJSON struct {
 	Returns    string `json:"returns"`
 	ReturnsSet bool   `json:"returns_set"`
 }
 
-// WellknownInfoJSON is specs/database-json.md ## `wellknowns`'
-// WellknownInfo.
+// WellknownInfoJSON is a `wellknowns` entry.
 type WellknownInfoJSON struct {
 	Name   string                   `json:"name"`
 	Query  json.RawMessage          `json:"query"`
 	Params []WellknownParamInfoJSON `json:"params"`
 }
 
-// WellknownParamInfoJSON is specs/database-json.md ## `wellknowns`'
-// WellknownParamInfo.
+// WellknownParamInfoJSON is one parameter of a WellknownInfoJSON.
 type WellknownParamInfoJSON struct {
 	Name       string `json:"name"`
 	PgType     string `json:"pg_type"`
@@ -168,7 +163,7 @@ type WellknownParamInfoJSON struct {
 	HasDefault bool   `json:"has_default"`
 }
 
-// GenerateDatabaseJSON is specs/database-json.md's full payload, marshaled.
+// GenerateDatabaseJSON marshals the full database.json payload.
 func GenerateDatabaseJSON(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) ([]byte, error) {
 	return sonic.Marshal(buildDatabaseJSON(db, opts, wkReg))
 }
@@ -316,7 +311,7 @@ func buildRelationInfo(r *pg.Relation, tc *jsonTypeCollector) *RelationInfoJSON 
 	}
 }
 
-// buildRelationships is specs/database-json.md ## `relationships` : every
+// buildRelationships builds the `relationships` section : every
 // declared foreign key touching an exported relation, both directions,
 // whether or not it's actually usable in a `join()` — unlike
 // renderRelationships (schema.go), which drops an ineligible one outright.
@@ -495,8 +490,7 @@ func buildWellknowns(wkReg *wellknown.Registry) map[string]WellknownInfoJSON {
 // walking column/argument/return types, de-duplicated by "schema.name" —
 // tsgen's own typeCollector (types.go), keyed by type identity instead of
 // rendering a TS expression. Also records every composite type's own
-// backing relation (extraRelations) — specs/database-json.md ## `relations`
-// ## Endpoint's transitive-closure rule : that relation must resolve in
+// backing relation (extraRelations) — transitive closure : that relation must resolve in
 // `relations` regardless of the schema whitelist/blacklist.
 type jsonTypeCollector struct {
 	seen           map[string]bool

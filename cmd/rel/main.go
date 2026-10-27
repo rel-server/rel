@@ -1,6 +1,5 @@
-// Command rel is the process entrypoint : loads configuration
-// (specs/configuration.md), builds the process-wide logger
-// (specs/logging.md ## Configuration/## Logger construction), connects
+// Command rel is the process entrypoint : loads configuration,
+// builds the process-wide logger, connects
 // to Postgres, and serves POST /rel (server.NewRelHandler) and
 // /route/{schema}/{function} (route.NewHandler) until an interrupt/terminate
 // signal requests a graceful shutdown.
@@ -67,7 +66,7 @@ func main() {
 	}
 
 	// http.Server.Handler is reloader.Wrapper, permanently ; only its own
-	// atomic.Pointer is swapped, by the reload sequence (specs/migrations.md ## Reloading).
+	// atomic.Pointer is swapped, by the reload sequence.
 	reloader, err := boot.Start(context.Background(), cfg, logger)
 	if err != nil {
 		logger.Error("starting", logging.Error(err)...)

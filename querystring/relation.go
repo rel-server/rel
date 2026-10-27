@@ -63,7 +63,7 @@ var relationFieldKinds = map[string]fieldKind{
 	"arguments":      kindArguments,
 }
 
-// getOnlyForbiddenFields is specs/query-json.md's ## Scope list, rejected
+// getOnlyForbiddenFields lists the fields rejected
 // anywhere in the decoded tree (root or any depth of join) on GET /rel.
 var getOnlyForbiddenFields = map[string]bool{
 	"write_mode":     true,
@@ -72,7 +72,7 @@ var getOnlyForbiddenFields = map[string]bool{
 	"update_columns": true,
 }
 
-// DecodeRelation implements specs/query-json.md end to end for GET /rel :
+// DecodeRelation decodes a GET /rel query string end to end :
 // raw query string -> structural decode -> per-field compile (expression
 // grammar for where/select/order_by/distinct_on/arguments, own/full for
 // select, dot-path recursion for join) -> the read-only/single-relation
@@ -98,8 +98,7 @@ func DecodeRelation(raw string) ([]byte, error) {
 }
 
 // DecodeQueryField implements /route's `query` field : the structural layer
-// only (no filter expression grammar involvement — specs/query-json.md's
-// own ## /route's query field section), generalized to any shape, not scoped
+// only (no filter expression grammar involvement), generalized to any shape, not scoped
 // to Relation's fixed keys. Returns nil (encodes as JSON null) for an empty
 // raw query string, matching "no query string at all" rather than "an empty
 // object" — a route function distinguishing the two is a reasonable thing
@@ -407,12 +406,12 @@ func parseArgumentToken(s string) (any, error) {
 	return v, nil
 }
 
-// rejectGetOnlyFields walks the compiled Relation tree, not raw query keys
-// (specs/query-json.md), so a select alias named e.g. "write_mode" can't false-positive.
+// rejectGetOnlyFields walks the compiled Relation tree, not raw query keys,
+// so a select alias named e.g. "write_mode" can't false-positive.
 func rejectGetOnlyFields(rel map[string]any) error {
 	for field := range getOnlyForbiddenFields {
 		if _, present := rel[field]; present {
-			return oops.Errorf("%q is not valid on GET /rel (read-only, per specs/query-json.md ## Scope)", field)
+			return oops.Errorf("%q is not valid on GET /rel (read-only)", field)
 		}
 	}
 	if joinRaw, ok := rel["join"]; ok {

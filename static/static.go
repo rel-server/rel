@@ -1,10 +1,8 @@
-// Package static implements specs/http-content.md ## Static files and
-// specs/templating-2.md's generalized fallback : serving http.static.path's
-// colon-separated directory search list, with no directory listing and no
-// dotfiles, plus a plain-file/index.html/.ext.jet lookup chain. Access
-// control moved to specs/new-routes.md ## Middleware — a database-backed
-// gate over a subtree is now an ordinary middleware function declared at
-// that prefix, not something this package arranges itself.
+// Package static serves http.static.path's colon-separated directory search
+// list, with no directory listing and no dotfiles, plus a
+// plain-file/index.html/.ext.jet lookup chain. Access control is not done
+// here — a database-backed gate over a subtree is an ordinary middleware
+// function declared at that prefix, not something this package arranges.
 //
 // This package only ever reports what should be served (Resolve) and
 // serves a plain file it already found ; it never executes a .jet
@@ -35,7 +33,7 @@ import (
 // ## Static files' own "this check re-runs every time the inner mux is
 // (re)built" rule. UploadDir is the resolved absolute path of
 // http.upload.dir under WriteDir() ("" when uploads are disabled) —
-// specs/templating-2.md's subtree no file is ever jet-eligible under.
+// the subtree no file is ever jet-eligible under.
 type Server struct {
 	Dirs      []string
 	UploadDir string
@@ -78,7 +76,7 @@ func (s *Server) WriteDir() string {
 }
 
 // isUpload reports whether abs (an absolute path already resolved under one
-// of Dirs) falls under UploadDir — specs/templating-2.md's jet exclusion,
+// of Dirs) falls under UploadDir — the jet exclusion,
 // checked against the one absolute path it resolves to, not re-derived per
 // http.static.path search-list entry.
 func (s *Server) isUpload(abs string) bool {
@@ -111,9 +109,9 @@ func resolveUnderStaticDir(dir, rel string) (string, bool) {
 }
 
 // Info reports what would be served at a given request path, before any
-// masking route function or middleware runs — specs/new-routes.md
-// ## Static path masking's request.static shape. A jet-backed path reports
-// the .jet SOURCE file's own stats (specs/templating-2.md) : the caller's
+// masking route function or middleware runs — the shape behind
+// request.static in masking. A jet-backed path reports
+// the .jet SOURCE file's own stats : the caller's
 // own choice of a .jet file already means a request there renders, and a
 // route function relying on this for a jet-backed path gets that source
 // file's size/mtime, not anything about the eventual render.
@@ -141,12 +139,12 @@ type JetCandidate struct {
 	// extensionless case always resolves through its ".html" form).
 	Ext string
 	// Excluded is true when AbsPath falls under UploadDir — the caller must
-	// refuse to render it (specs/templating-2.md's upload/jet separation).
+	// refuse to render it (uploads are never rendered as jet).
 	Excluded bool
 }
 
-// hasDotSegment implements ## Static files' "Dotfiles are never served"
-// rule, checked before any filesystem call.
+// hasDotSegment reports whether p has a dot-prefixed segment (dotfiles are
+// never served), checked before any filesystem call.
 func hasDotSegment(p string) bool {
 	for _, seg := range strings.Split(p, "/") {
 		if strings.HasPrefix(seg, ".") && seg != "" {
@@ -198,9 +196,8 @@ func (s *Server) NeedsTrailingSlash(reqPath string) bool {
 	return ok && fi.IsDir()
 }
 
-// Resolve reports how reqPath should be handled, per specs/templating-2.md's
-// generalized fallback chain : a plain servable file's absolute path
-// (existing behavior, extended with the extensionless -> ".html" fallback),
+// Resolve reports how reqPath should be handled : a plain servable file's absolute path
+// (extended with the extensionless -> ".html" fallback),
 // a .jet candidate for the caller to render, or neither (ok=false, 404).
 // A reachable file always wins over its own .jet fallback, checked
 // directory-by-directory in http.static.path's own search order — .jet is
@@ -261,7 +258,7 @@ func (s *Server) dirIndex(dir string) int {
 }
 
 // Stat is Resolve, reduced to the Info shape masking's request.static needs
-// (specs/new-routes.md ## Static path masking) — reqPath is relative to
+// — reqPath is relative to
 // http.static.path, no leading "/". An excluded jet candidate reports as
 // nonexistent, same as any other refused path.
 func (s *Server) Stat(reqPath string) Info {
@@ -298,10 +295,9 @@ func redirectToTrailingSlash(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, to, http.StatusMovedPermanently)
 }
 
-// Handler is the static fallback mount for a plain file — specs/new-routes.md
-// ## Static path masking : rel os.Stats/serves whatever the request path
+// Handler is the static fallback mount for a plain file : rel os.Stats/serves whatever the request path
 // resolves to, relative to http.static.path ; a database-backed gate over a
-// subtree is a middleware function (## Middleware), not something this
+// subtree is a middleware function, not something this
 // handler arranges. A .jet candidate 404s here — this handler has no
 // rendering capability (see the package doc comment) ; boot.BuildMux mounts
 // route.NewStaticHandler instead, which wraps Resolve with jet execution
@@ -326,7 +322,7 @@ func (s *Server) Handler(db *pg.DbInfos, cfg *config.Config) http.Handler {
 
 // ServeFile serves relPath (relative to http.static.path, no leading "/")
 // through the same Resolve-driven lookup Handler itself applies —
-// specs/new-routes.md ## Static path masking's static_file : a full-control
+// the static_file of masking : a full-control
 // route or middleware response can defer to a specific file on disk, not
 // necessarily the one at the request's own URL path. Returns false (writes
 // nothing) when relPath doesn't resolve to a plain servable file — a .jet

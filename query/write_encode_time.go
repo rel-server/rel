@@ -84,8 +84,8 @@ func digitsAt(s string, i, n int) (int64, bool) {
 	return v, true
 }
 
-// parseDateTimeText reads the ISO 8601 forms of specs/typed-write-loading.md ## Date
-// and time strings. wantTime false reads a date only (type date).
+// parseDateTimeText reads the ISO 8601 date and time
+// strings. wantTime false reads a date only (type date).
 func parseDateTimeText(typ, s string, wantTime bool) (timeFields, error) {
 	var f timeFields
 	in := s

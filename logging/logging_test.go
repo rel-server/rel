@@ -82,8 +82,7 @@ func TestFor_WithAttrsAccumulates(t *testing.T) {
 	}
 }
 
-// TestError_FlattensOopsContextAsSiblingAttrs : ## Error integration with
-// samber/oops requires a key attached via .With(key, value) to stay
+// TestError_FlattensOopsContextAsSiblingAttrs : a key attached via .With(key, value) stays
 // independently queryable, not nested under a group filter/exclude can't see.
 func TestError_FlattensOopsContextAsSiblingAttrs(t *testing.T) {
 	err := oops.Code("SOME_CODE").With("relation", "chains").With("attempt", 3).Errorf("boom")

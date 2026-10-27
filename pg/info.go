@@ -35,8 +35,7 @@ type DbInfos struct {
 	Functions []*Function
 	Relations []*Relation
 
-	// AnonymousRoleExists is specs/authentication.md's "# Roles ##
-	// Anonymous role existence" check : whether the configured
+	// AnonymousRoleExists reports whether the configured
 	// pg.query.anonymous_role name was found in pg_roles at introspection
 	// time. false means anonymous access is disabled outright — every
 	// unauthenticated request to /rel and /route alike must be rejected with
@@ -132,7 +131,7 @@ func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole
 // lookup maps/AnonymousRoleExists) the same way NewInfosAdminQuery does —
 // via a short-lived connection to primaryURI — but reuses the EXISTING pool
 // passed in for the returned DbInfos' own Pool field, rather than building
-// a new one : the caller (specs/migrations.md ## Reloading step 4) owns that
+// a new one : the caller owns that
 // pool's lifecycle entirely ; this function never builds or closes one.
 //
 // It does reset the pool once the schema is read : every connection is closed, idle

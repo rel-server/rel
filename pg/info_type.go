@@ -43,8 +43,7 @@ type Type struct {
 	// EnumLabels is pg_enum's own label list, in declaration order
 	// (enumsortorder) — nil unless this type is a CREATE TYPE ... AS ENUM,
 	// which IsEnum() below tests directly. Meant primarily for the
-	// TypeScript export (specs/typescript.md ## Schema interfaces : "an
-	// enum becomes a string-literal union").
+	// TypeScript export (an enum becomes a string-literal union).
 	EnumLabels []string
 }
 

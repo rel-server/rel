@@ -49,7 +49,7 @@ defineCborTag(37, {
 const options = { useRecords: false, mapsAsObjects: true, tagUint8Array: false }
 const decoder = new Decoder(options)
 const encoder = new Encoder(options)
-// Structures : objects with the same keys are written as the keys once, then the values (specs/cbor.md ## Structures).
+// Structures : objects with the same keys are written as the keys once, then the values.
 // Never `sequential`, which refers to structures defined by an earlier body : the server reads each request alone.
 // The decoder needs no option to read them.
 // `mapsAsObjects` stays unset : with it, cbor-x would tag every `Map` it writes with 259.

@@ -1,6 +1,6 @@
 package route
 
-// specs/logging.md ## Access logging : handleRoute must emit exactly one
+// Access logging : handleRoute must emit exactly one
 // info-level "request" line per HTTP request, plus a debug-level
 // "invoking route" line carrying the compiled SQL/args actually sent.
 

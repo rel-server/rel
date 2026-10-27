@@ -9,7 +9,7 @@ import (
 	"github.com/rel-server/rel/query"
 )
 
-// CBOR responses (specs/cbor.md ## Responses) : the same shapes as the JSON ones, with rows read from Postgres in
+// CBOR responses : the same shapes as the JSON ones, with rows read from Postgres in
 // its binary format and turned into CBOR by a query.ResultEncoder, never through JSON. A resolvedItem whose enc is
 // non-nil is answered in CBOR.
 

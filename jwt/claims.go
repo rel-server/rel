@@ -1,4 +1,4 @@
-// Package jwt implements specs/authentication.md's "# JWT" claims/
+// Package jwt implements JWT claims/
 // sign/verify/renew mechanics : the half of the HTTP Lifecycle that needs
 // no database. The reqauth package puts it together with the role switch.
 package jwt
@@ -12,7 +12,7 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// Claims is specs/authentication.md ## Claims, extended with any free-form
+// Claims is the session token's claims, extended with any free-form
 // claims a login/callback function adds :
 //
 //	{ role: string, iat: number, exp: number, auth_time: number, ...free-form }
@@ -36,8 +36,7 @@ const (
 )
 
 // Role reads the required "role" claim — empty string if absent (callers
-// verifying a token check this against "" to detect a missing role, per
-// ## Claims : "Required; a JWT without one is an error").
+// verifying a token check this against "" to detect a missing role; a JWT without one is an error).
 func Role(c Claims) string {
 	s, _ := c[claimRole].(string)
 	return s
@@ -65,8 +64,8 @@ func timeClaim(c Claims, key string) time.Time {
 // always now, exp is iat+maxage. extra is copied in as additional free-form
 // claims (a login function's own custom claims) ; role/iat/exp/auth_time in
 // extra, if present, are overwritten by this function's own values, never
-// the other way around — ## Claims : "the supplied values are ignored and
-// overwritten" for the three rel-computed timestamps, and role is this
+// the other way around: the supplied values for the three rel-computed
+// timestamps are ignored, and role is this
 // function's own required parameter, not something extra should also carry.
 func Mint(cfg config.Jwt, role string, authTime time.Time, maxage int, extra map[string]any) Claims {
 	now := time.Now().UTC()

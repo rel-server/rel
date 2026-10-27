@@ -122,7 +122,7 @@ port = 1111
 }
 
 // pg.uri, when set, takes precedence and populates pg.host/pg.port/
-// pg.database/pg.user/pg.password itself (specs/pg-uri-precedence.md).
+// pg.database/pg.user/pg.password itself.
 func TestLoad_PgURI_TakesPrecedence(t *testing.T) {
 	t.Chdir(t.TempDir()) // see TestLoad_PrecedenceFileEnvFlag's own note on why
 	p := writeFile(t, t.TempDir(), "rel.toml", `
@@ -169,7 +169,7 @@ uri = "postgres://db.internal:5432/mydb"
 	}
 }
 
-// specs/pg-uri-precedence.md : pg.host/pg.port/pg.database set alongside
+// pg.host/pg.port/pg.database set alongside
 // pg.uri is a configuration error, not a silently-ignored value.
 func TestLoad_PgURI_WithGranularFieldsIsFatal(t *testing.T) {
 	t.Chdir(t.TempDir())
@@ -183,7 +183,7 @@ host = "conflicting-host"
 	}
 }
 
-// specs/pg-uri-precedence.md : pg.user/pg.password set alongside pg.uri is
+// pg.user/pg.password set alongside pg.uri is
 // now a configuration error too, matching pg.host/pg.port/pg.database's own
 // rule — pg.uri's credentials are no longer silently kept-or-overridden.
 func TestLoad_PgURI_WithUserPasswordIsFatal(t *testing.T) {
@@ -207,7 +207,7 @@ password = "conflicting-password"
 	}
 }
 
-// Inverse direction (specs/pg-uri-precedence.md) : when only the granular
+// Inverse direction : when only the granular
 // fields are given, pg.uri is itself derived from them — including
 // defaults — so it's never left blank for reload.cmd's {pg.uri}.
 func TestLoad_GranularFields_DerivePgURI(t *testing.T) {

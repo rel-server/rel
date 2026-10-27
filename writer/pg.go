@@ -67,7 +67,7 @@ func (w *SQLWriter) Bind(value any) *SQLWriter {
 }
 
 // BindParam reserves the next $N placeholder for a well-known query's named
-// parameter (specs/well-known-queries.md ## Definition's `["$param", ...]`)
+// parameter (`["$param", ...]` in a well-known definition)
 // instead of binding a value immediately : a well-known query's SQL text is
 // compiled once, at load time, while a param's actual value only exists per
 // request. Shares the same $N sequence as Bind, so a statement mixing
@@ -101,8 +101,7 @@ func (w *SQLWriter) Args() []any {
 
 // ParamNames returns every distinct name reserved via BindParam on this
 // statement, in first-occurrence order — the well-known loader's own
-// unused/unknown-param validation pass (specs/well-known-queries.md ##
-// Definition) walks this per compiled statement rather than re-walking the
+// unused/unknown-param validation pass walks this per compiled statement rather than re-walking the
 // expression tree itself.
 func (w *SQLWriter) ParamNames() []string {
 	seen := map[string]bool{}

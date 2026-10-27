@@ -1,9 +1,9 @@
-// Package dbauth is the half of authentication.md's Lifecycle that
+// Package dbauth is the half of the HTTP auth lifecycle that
 // needs an actual Postgres connection — role-switching and identifier-
 // escaping for Apply role (step 5) — used by the reqauth package, which
 // opens every request's role-scoped transaction. Verify/Renew (steps 2/4, no DB
 // needed) live in the jwt package instead. Check (step 3) was check_session, a single configured
-// function ; specs/new-routes.md ## Middleware supersedes it — a session
+// function ; it is superseded — a session
 // check is now an ordinary middleware function.
 package dbauth
 
@@ -27,7 +27,7 @@ type Execer interface {
 }
 
 // Querier is Execer's counterpart for a single-jsonb-in, single-jsonb-out
-// call — e.g. specs/oauth-saml.md ## Callback function, whose whole point
+// call — e.g. the SSO callback function, whose whole point
 // is the RelHttpResponse it returns (see CallJSONBFunctionReturningJSON
 // below).
 type Querier interface {
@@ -135,8 +135,7 @@ func QualifiedIdentifier(qualifiedName string) (schema, name string) {
 }
 
 // CallJSONBFunctionReturningJSON invokes qualifiedName(payload::jsonb) and
-// returns its own jsonb result raw — specs/oauth-saml.md ## Callback
-// function's calling convention : the SSO callback's whole point is its
+// returns its own jsonb result raw — the SSO callback's whole point is its
 // RelHttpResponse return value.
 func CallJSONBFunctionReturningJSON(ctx context.Context, q Querier, qualifiedName string, payload []byte) ([]byte, error) {
 	schema, name := QualifiedIdentifier(qualifiedName)

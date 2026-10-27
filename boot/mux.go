@@ -32,15 +32,14 @@ import (
 )
 
 // BuildMux assembles the full inner http.Handler — /rel, every declared
-// route at its own arbitrary path (specs/new-routes.md), and a root-level
+// route at its own arbitrary path, and a root-level
 // static fallback for any path no declared route claims — wrapped
-// uniformly in logging.RequestMiddleware (specs/logging.md ## Request-
-// scoped logging) and websec.Middleware (specs/http-content.md's "CORS and
-// CSP apply uniformly"). Declared routes and /auth (the SSO mount)
+// uniformly in logging.RequestMiddleware and websec.Middleware
+// (CORS and CSP apply uniformly). Declared routes and /auth (the SSO mount)
 // additionally sit behind websec.NonceMiddleware, scoped via a chi.Group
 // (docs/content/http/cors-csp.md ## CSP ### Nonce explains why /rel doesn't
 // get one). The static fallback gets a nonce too, but only inline, on the
-// specific request that resolves to a jet render (specs/templating-2.md) —
+// specific request that resolves to a jet render —
 // route.NewStaticHandler generates and injects it itself rather than this
 // package mounting NonceMiddleware unconditionally on every static request. A well-known query is invoked through
 // /rel, not a separate route ; wkReg is handed to server.NewRelHandler
@@ -59,9 +58,9 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	// the same router" — its own dedicated transaction, distinct from
 	// /rel's own internal one.
 	mux.Handle("/rel", route.GateMiddleware(db, cfg, reg, templates, staticSrv, server.NewRelHandler(db, cfg, wkReg)))
-	// specs/typescript.md ## Configuration : gated by http.typescript.enable,
+	// Gated by http.typescript.enable,
 	// not mounted at all otherwise (no 404 handler needed for the disabled case).
-	// specs/database-json.md ## Endpoint shares the same gate.
+	// The database.json endpoint shares the same gate.
 	if cfg.Http.TypeScript.Enable {
 		mux.Handle("/rel/database.ts", server.NewTypeScriptHandler(db, cfg, wkReg))
 		mux.Handle("/rel/database.json", server.NewDatabaseJSONHandler(db, cfg, wkReg))
@@ -72,7 +71,7 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 
 		route.RegisterRoutes(r, db, cfg, reg, staticSrv, wkReg)
 
-		// specs/oauth-saml.md : /auth/oidc/* and /auth/saml/* — a no-op when
+		// /auth/oidc/* and /auth/saml/* — a no-op when
 		// neither openid.* nor saml.* has any entry configured. Mount resolves
 		// each entry's own host (http.public_host or its own public_host
 		// override) and logs/skips individually, rather than an all-or-nothing
@@ -80,7 +79,7 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 		sso.Mount(r, db, cfg, wkReg)
 	})
 
-	// specs/new-routes.md ## Static path masking : a path no declared route
+	// Static path masking : a path no declared route
 	// claims falls through to a static file, if any exist, at the router
 	// ROOT — not a fixed /static/* prefix, which is what makes masking "/"
 	// (index override) meaningful. An exact-path route always wins first,

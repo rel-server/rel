@@ -126,8 +126,7 @@ type ComputedFieldRef struct {
 type Shape map[string]ResolvedField
 
 // ResolvedField is what resolving an Identifier (or a later hop in a
-// ./->/->>/#>/#>> chain) produces — see specs/query-engine.md's
-// "## Scoping ### Identifier resolution" section for the full reasoning. Four
+// ./->/->>/#>/#>> chain) produces. Four
 // concrete variants :
 //   - ColumnPath : a physical column, or a composite sub-field reached by
 //     walking *pg.Type.Relation.ColumnsMap off one. Already fully

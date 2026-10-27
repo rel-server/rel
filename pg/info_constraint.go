@@ -268,18 +268,18 @@ func splitOn(on map[string]string) (local, parent []string) {
 // reports whether the embed is to-one.
 //
 // Cardinality is decided purely by whether r's own `on` columns are unique on
-// r (query-engine.md ## Reading Algorithm : "unique on the joined side -> object")
+// r (unique on the joined side -> object)
 // — independent of whether the relationship is foreign-key-backed, and
 // independent of which side satisfies the eligibility check below.
 //
-// Eligibility (query-engine.md ### Scoping) requires either a foreign key whose
+// Eligibility requires either a foreign key whose
 // exact column pairing matches `on`, or a unique constraint on r's columns or
 // on parent's columns — and, unconditionally, an index on r's own `on`
 // columns : the generated query always scans r filtered by them, once per
 // parent row, regardless of whether the embed turns out to be to-one or
 // to-many. This is a hard error, not a warning.
 func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constraint *Constraint, isToOne bool, err error) {
-	// error-handling.md's whole "Join eligibility" family, not just the
+	// the whole "Join eligibility" error family, not just the
 	// literal missing-index case — distinct from errcode.UnknownIdentifier.
 	oc := oops.With("relation", r.Identifier.String()).With("parent", parent.Identifier.String()).With("on", on).Code(errcode.JoinMissingIndex)
 

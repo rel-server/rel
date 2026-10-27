@@ -126,9 +126,8 @@ func (tc *typeCollector) declarations() string {
 
 // tsTypeExpr returns the TS type expression a column/argument of type t
 // should use, registering any composite/enum/domain type it (transitively)
-// references into tc exactly once (specs/typescript.md ## Schema interfaces
-// : "Type__<Schema>__<Name> ... one per introspected composite/enum/domain
-// type referenced by a column or function argument").
+// references into tc exactly once (one Type__<Schema>__<Name> per introspected
+// composite/enum/domain type referenced by a column or function argument).
 func tsTypeExpr(t *pg.Type, tc *typeCollector) string {
 	if t == nil {
 		return "unknown"
@@ -204,8 +203,7 @@ func docComment(s, indent string) string {
 }
 
 // columnTSType is a column's own read type : its scalar/array/named type
-// expression, unioned with `null` unless the column is genuinely not-null
-// (specs/typescript.md ## Schema interfaces ## Column typing).
+// expression, unioned with `null` unless the column is genuinely not-null.
 func columnTSType(c *pg.Column, tc *typeCollector) string {
 	expr := tsTypeExpr(c.Type, tc)
 	if id := tc.ids.typeExpr(c); id != "" {

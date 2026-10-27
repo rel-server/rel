@@ -42,23 +42,23 @@ type relHttpRequestPayload struct {
 	Body    json.RawMessage   `json:"body"`
 	Cookies map[string]string `json:"cookies"`
 	Jwt     jwtpkg.Claims     `json:"jwt"`
-	// Query is specs/query-json.md ## /route's query field, decoded
+	// Query is the request's query field, decoded
 	// through the structural layer only (querystring.DecodeQueryField).
 	Query any `json:"query"`
 	// CspNonce is docs/content/http/cors-csp.md ## CSP ### Nonce's csp_nonce.
 	CspNonce string `json:"csp_nonce"`
-	// Parts is specs/new-routes.md ## Function prototype's multipart part
+	// Parts is the multipart part
 	// metadata, always filled for a multipart request regardless of
 	// whether the route declares bytea[] — nil for a non-multipart request.
 	Parts []requestPart `json:"parts,omitempty"`
-	// Static is specs/new-routes.md ## Static path masking's request.static
+	// Static is request.static
 	// : what would be served at this exact request path, computed once per
 	// request regardless of whether anything ends up masking it.
 	Static *staticInfoPayload `json:"static,omitempty"`
-	// Context is specs/new-routes.md ## Middleware's request.context :
+	// Context is request.context :
 	// shallow-merged in by any middleware that ran first ; nil if none did.
 	Context json.RawMessage `json:"context,omitempty"`
-	// Upload is specs/new-routes.md ## `stream_upload`'s per-call upload
+	// Upload is the stream_upload per-call upload
 	// metadata ({part} on the first call, {part, size} on the second) ;
 	// nil for any route that isn't stream_upload.
 	Upload json.RawMessage `json:"upload,omitempty"`
@@ -71,7 +71,7 @@ type staticInfoPayload struct {
 	ModifiedAt string `json:"modified_at,omitempty"`
 }
 
-// badBodyError marks a malformed request body (specs/route.md ## Request)
+// badBodyError marks a malformed request body
 // — a 400, same class as badQueryError.
 type badBodyError struct{ err error }
 
@@ -92,8 +92,7 @@ func mediaTypeOf(contentType string) string {
 }
 
 // encodeBody implements docs/content/http/requests-responses.md's body
-// dispatch (see specs/route.md ## Request for the malformed-body/charset
-// edge cases) ; hasFiles forces JSON null since the payload goes through
+// dispatch ; hasFiles forces JSON null since the payload goes through
 // files/parts_headers instead.
 func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage, error) {
 	if hasFiles || len(body) == 0 {
@@ -129,10 +128,10 @@ func (e *badQueryError) Unwrap() error { return e.err }
 
 // buildRelHttpRequest encodes r as docs/content/http/requests-responses.md's RelHttpRequest ; bodyJSON is
 // pre-encoded (see encodeBody) since the handler needs the route's hasFiles.
-// static/parts/reqContext are specs/new-routes.md additions — static is nil
+// static is nil
 // when there's no static.Server at all ; parts is nil for a non-multipart
 // request ; reqContext is nil until a middleware has actually merged
-// something in (## Middleware).
+// something in.
 func buildRelHttpRequest(r *http.Request, bodyJSON json.RawMessage, verified bool, claims jwtpkg.Claims, static *staticInfoPayload, parts []requestPart, reqContext, upload json.RawMessage, sniffedContentType string) ([]byte, error) {
 	cookies := map[string]string{}
 	for _, c := range r.Cookies() {
@@ -175,14 +174,13 @@ type relHttpResponsePayload struct {
 	Cookies     map[string]json.RawMessage `json:"cookies"`
 	Jwt         json.RawMessage            `json:"jwt"`
 	JwtAttrs    *jwtAttrsPayload           `json:"jwt_attrs"`
-	// Template/TemplateData are specs/http-content.md ## Templates : a
+	// Template/TemplateData : a
 	// non-empty Template renders in place of Content as the response body.
 	Template     string          `json:"template"`
 	TemplateData json.RawMessage `json:"template_data"`
 	// Csp is docs/content/http/cors-csp.md ## CSP ### Per-response override.
 	Csp string `json:"csp"`
-	// StaticFile is specs/new-routes.md ## Static path masking's
-	// static_file : served instead of Content when set.
+	// StaticFile (static_file) is served instead of Content when set.
 	StaticFile string `json:"static_file"`
 }
 
@@ -258,9 +256,8 @@ func applyResponseSideEffects(w http.ResponseWriter, r *http.Request, cfg *confi
 // bytes/text/JSON, never itself JSON-encoded the way a single-jsonb-
 // envelope's "content" key is, so it's written verbatim rather than
 // through contentBytes. route.Template (the declared default) renders it
-// as Data when set — specs/new-routes.md ## Templates : "the other return
-// type is then used as the Data" applies here too, there being no
-// per-response override without full control.
+// as Data when set — the other return type is used as the Data here too,
+// there being no per-response override without full control.
 func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, functionIdent string, route Route, accumulated relHttpResponsePayload, raw []byte, isCBOR bool, templates *TemplateSet) {
 	applyResponseSideEffects(w, r, cfg, functionIdent, accumulated)
 
@@ -282,7 +279,7 @@ func writeSingleReturnResponse(w http.ResponseWriter, r *http.Request, cfg *conf
 	_, _ = w.Write(raw)
 }
 
-// negotiateBody answers a JSON body in CBOR when the request Accepts it more than JSON (specs/cbor.md ## Responses).
+// negotiateBody answers a JSON body in CBOR when the request Accepts it more than JSON.
 // The body is converted as a whole : a route function returns its value at once, there is nothing to stream.
 // Whatever cannot be converted stays JSON ; any other media type is left alone.
 func negotiateBody(w http.ResponseWriter, r *http.Request, contentType string, raw []byte) ([]byte, string) {
@@ -302,8 +299,7 @@ func negotiateBody(w http.ResponseWriter, r *http.Request, contentType string, r
 }
 
 // writeFullControlResponse decodes envelopeRaw (the first OUT column) and
-// renders contentRaw (the second) as the body, per specs/new-routes.md
-// ## Function prototype's two-OUT-column shape. accumulated carries any
+// renders contentRaw (the second) as the body (the two-OUT-column shape). accumulated carries any
 // cookies/headers/jwt/jwt_attrs/csp already merged in from middleware that
 // ran ahead of this response (## Middleware : "on a per-key basis, a later
 // middleware's or the route function's own value ... wins") — pass a
@@ -418,7 +414,7 @@ func decodeOutboundCookie(cfg *config.Config, name string, raw json.RawMessage) 
 		MaxAge:   cfg.Http.CookiesMaxAge,
 	}
 
-	// specs/new-routes.md ## Cookie clearing : checked before the plain-
+	// Cookie clearing : checked before the plain-
 	// string unmarshal below, which would otherwise silently treat JSON
 	// null the same as an empty string and produce a persistent, not
 	// cleared, cookie.

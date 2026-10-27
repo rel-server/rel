@@ -1,5 +1,5 @@
-// Package server implements POST/GET /rel — query-engine.md's Reading/
-// Writing algorithms wired into an HTTP request, including a
+// Package server implements POST/GET /rel — the read and
+// write algorithms wired into an HTTP request, including a
 // ParsedQuery.Sequence and a well-known query in either position query.ts's
 // Query union allows (bare read, or wrapped in WriteQuery.query for a
 // write), composable alongside a plain Relation in the same Sequence. See
@@ -29,8 +29,8 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// NewRelHandler serves POST/GET /rel per specs/query-engine.md's
-// ## Configuration ("all of them MUST be POST") and ## Response Shape.
+// NewRelHandler serves POST/GET /rel (GET only for a bare
+// relation or well-known query).
 // db.Pool is acquired from once per request ; wkReg resolves a well-known
 // item by name, rebuilt alongside db/cfg on every SIGUSR1 reload
 // (boot/reload.go). reqauth verifies the session and starts the request's
@@ -145,7 +145,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	// Wraps w for the rest of this function so every downstream response
 	// helper keeps calling the ordinary http.ResponseWriter methods
-	// unchanged, while specs/logging.md ## Access logging's status/size
+	// unchanged, while the access log's status/size
 	// fields get captured for free.
 	rec, logRequest := logging.StartAccessLog(w, r)
 	w = rec
@@ -163,7 +163,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 			"item_count", itemCount, "write", anyWrite, "targets", targets)
 	}()
 
-	// authentication.md "## Roles ## Anonymous role existence" : reject
+	// Anonymous role existence : reject
 	// before reading the body or acquiring a connection when disabled.
 	sess, err := reqauth.Authenticate(cfg, db, r)
 	if err != nil {
@@ -193,7 +193,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		writeError(ctx, w, httperr.BadRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
 		return
 	}
-	// specs/complex-query.md ## rollback's GET rule : a ComplexQuery
+	// GET rule : a ComplexQuery
 	// wrapper (data present or not) is GET-ineligible, only a bare
 	// RelationQuery/WellKnownQuery is convenience-served there.
 	if r.Method == http.MethodGet && pq.Write != nil {

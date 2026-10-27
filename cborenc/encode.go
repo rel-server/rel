@@ -43,7 +43,7 @@ const (
 	TagEpochDate      = 100
 )
 
-// Structures (specs/cbor.md ## Structures) : the record extension of cbor-x. A definition is TagStructureDef over
+// Structures : the record extension of cbor-x. A definition is TagStructureDef over
 // [StructureTagBase + id, [names], values...] and a reference is StructureTagBase + id over [values...].
 const (
 	TagStructureDef  = 0xdfff

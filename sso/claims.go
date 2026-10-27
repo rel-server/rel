@@ -1,7 +1,6 @@
-// Package sso implements specs/oauth-saml.md : the /auth/oidc/{name}/*
-// and /auth/saml/{name}/* endpoints. This file is the part both protocols
-// converge on — ## Callback function's payload shape and invocation, and
-// writing the RelHttpResponse it returns.
+// Package sso implements the /auth/oidc/{name}/* and /auth/saml/{name}/*
+// endpoints. This file is the part both protocols converge on — the
+// callback function's payload shape and invocation, and writing the RelHttpResponse it returns.
 package sso
 
 import (
@@ -20,8 +19,7 @@ import (
 
 var log = logging.For("sso")
 
-// ssoIdentity is specs/oauth-saml.md ## Callback payload shape's per-protocol
-// answer — what the SSO round trip itself actually verified — nested
+// ssoIdentity is the per-protocol answer — what the SSO round trip itself actually verified — nested
 // under the callback payload's "identity" key, never flattened into it
 // directly : keeping "claims" meaning exactly one thing (the protocol-
 // supplied identity claims) regardless of nesting depth is worth the
@@ -58,7 +56,7 @@ type ssoCallbackPayload struct {
 	State    any           `json:"state"`
 }
 
-// resolveCallbackFunction is ## Callback function's fallback rule :
+// resolveCallbackFunction applies the fallback rule :
 // per-entry callback_function first, http.functions.sso_callback second.
 func resolveCallbackFunction(perEntry string, cfg *config.Config) string {
 	if perEntry != "" {
@@ -74,8 +72,7 @@ func resolveCallbackFunction(perEntry string, cfg *config.Config) string {
 // response — WriteRelHttpResponse is route's shared implementation, see
 // route/encode.go's own doc comment on why it no longer needs a
 // discovered Route to do this). No function configured at all is a 500,
-// per ## Callback function's own "always 500s until a function is
-// configured".
+// (the endpoints always 500 until a function is configured).
 func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, db *pg.DbInfos, templates *route.TemplateSet, functionName string, identity ssoIdentity, state any) {
 	if functionName == "" {
 		log.Error("sso: no callback function configured for this endpoint, and http.functions.sso_callback is also unset", "protocol", identity.Protocol, "name", identity.Name)
@@ -92,7 +89,7 @@ func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, 
 
 	// Deliberately NOT reqauth's role-scoped transaction : the user is not signed in yet (this
 	// call is what signs them in), so the callback runs as the connection's own role, and is
-	// "security definer" to read what it needs (authentication.md's example). It is one
+	// "security definer" to read what it needs. It is one
 	// statement, so Postgres already wraps it in a transaction, and it sets no claims or role.
 	// Only Verify is shared with the rest (above), for payload.jwt.
 	raw, err := dbauth.CallJSONBFunctionReturningJSON(r.Context(), db.Pool, functionName, payload)

@@ -108,8 +108,7 @@ func TestBuildMux_NonceOnlyOnRouteAndAuth(t *testing.T) {
 	}
 }
 
-// TestBuildMux_StaticMaskingAndRootFallback proves specs/new-routes.md ##
-// Static path masking end to end through the real router : a declared route
+// TestBuildMux_StaticMaskingAndRootFallback proves static path masking end to end through the real router : a declared route
 // at an exact path wins over a same-path static file (chi tries every
 // registered route before falling to NotFound), a declared route at "/"
 // overrides index serving, and an unmasked static file still serves through
@@ -204,9 +203,8 @@ func TestBuildMux_StaticMaskingAndRootFallback(t *testing.T) {
 	}
 }
 
-// TestBuildMux_ChiPrecedence_StaticSegmentBeatsParam proves the plan's
-// trusted-but-unverified assumption that chi's own trie precedence (static
-// segment > named param) implements specs/new-routes.md's "longest
+// TestBuildMux_ChiPrecedence_StaticSegmentBeatsParam proves that chi's own trie precedence (static
+// segment > named param) implements the "longest
 // anonymized path first" rule, for two routes that would otherwise collide
 // on a shared prefix.
 func TestBuildMux_ChiPrecedence_StaticSegmentBeatsParam(t *testing.T) {
@@ -277,7 +275,7 @@ func TestBuildMux_ChiPrecedence_StaticSegmentBeatsParam(t *testing.T) {
 	}
 }
 
-// TestBuildMux_MiddlewareGatesRel proves specs/new-routes.md ## Middleware
+// TestBuildMux_MiddlewareGatesRel proves middleware
 // applies to /rel, replacing check_session's own reject-and-clear-cookie
 // pattern : a middleware declared at "/" ("/rel" itself is a reserved path,
 // never available for a user declaration — see isReservedPath) terminates
@@ -474,8 +472,8 @@ func TestBuildMux_MiddlewareRejectionDoesNotAlsoRenew(t *testing.T) {
 	}
 }
 
-// TestBuildMux_MiddlewareGatesStaticFallback proves specs/new-routes.md
-// ## Middleware supersedes http.static.access.* : a middleware declared at
+// TestBuildMux_MiddlewareGatesStaticFallback proves middleware
+// supersedes http.static.access.* : a middleware declared at
 // a prefix under http.static.path gates a static file under that prefix
 // exactly the way the old named access-control rule did.
 func TestBuildMux_MiddlewareGatesStaticFallback(t *testing.T) {

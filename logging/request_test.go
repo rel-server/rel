@@ -43,7 +43,7 @@ func TestRequestMiddleware_GeneratesAndLogsRequestID(t *testing.T) {
 }
 
 // TestRequestMiddleware_ReusesInboundRequestID : an inbound X-Request-Id
-// header is reused verbatim, not always regenerated (## Request-scoped logging).
+// header is reused verbatim, not always regenerated.
 func TestRequestMiddleware_ReusesInboundRequestID(t *testing.T) {
 	var buf bytes.Buffer
 	old := slog.Default()

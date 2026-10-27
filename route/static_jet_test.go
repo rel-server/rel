@@ -1,4 +1,4 @@
-// Tests for specs/templating-2.md : jet templating served from static,
+// Tests for jet templating served from static,
 // rel(), and the upload/jet exclusion — driven directly against
 // NewStaticHandler (not through the full chi router/GateMiddleware, since
 // none of that is needed to exercise this feature) and this package's own
@@ -170,8 +170,7 @@ func TestStaticJet_UploadDirExcludedFromExecution(t *testing.T) {
 // "./", no leading "/") resolves relative to the including template's own
 // location — the same as "./" would — rather than against templates.path.
 // This is jet's own resolution rule, not a distinct third addressing mode ;
-// specs/templating-2.md's "any other name follows the loader/templates.path
-// machinery" is only true for a leading-"/" name in practice.
+// only a leading-"/" name reaches the loader/templates.path machinery in practice.
 func TestStaticJet_LeadingSlashIncludeReachesTemplatesPath(t *testing.T) {
 	staticDir := t.TempDir()
 	templatesDir := t.TempDir()

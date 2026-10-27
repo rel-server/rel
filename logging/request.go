@@ -1,5 +1,4 @@
-// This file implements specs/logging.md ## Request-scoped logging :
-// deriving a per-request child logger tagged with a stable request_id and
+// This file derives a per-request child logger tagged with a stable request_id and
 // making it retrievable from context, so every log line emitted while
 // handling one request can be correlated end to end.
 package logging
@@ -21,9 +20,8 @@ func WithContext(ctx context.Context, logger *slog.Logger) context.Context {
 	return context.WithValue(ctx, requestLoggerKey{}, logger)
 }
 
-// FromContext is ## Request-scoped logging's own "application code MUST
-// retrieve its logger from context rather than calling slog.Default()
-// directly" : returns the request-scoped logger RequestMiddleware stashed,
+// FromContext is how application code retrieves its logger, rather than
+// calling slog.Default() directly : it returns the request-scoped logger RequestMiddleware stashed,
 // or slog.Default() as a safe fallback for a ctx that never passed through
 // it (startup code, background jobs, or a test calling application code
 // directly with context.Background()) — same "always usable, never nil"
@@ -35,12 +33,11 @@ func FromContext(ctx context.Context) *slog.Logger {
 	return slog.Default()
 }
 
-// RequestMiddleware implements ## Request-scoped logging's three numbered
-// steps : read (or generate) a request ID, derive a child logger via
+// RequestMiddleware does three things : read (or generate) a request ID, derive a child logger via
 // .With("request_id", id), store it on the request's context. Deliberately
 // does NOT echo the ID back as a response header — request_id's whole job
 // here is correlating log lines server-side ; a response header is
-// ## Access logging's own, separate concern.
+// access logging's separate concern.
 //
 // slog.Default() is resolved fresh per request, not captured once at
 // construction — same reasoning as dynamicHandler's (logging.go).

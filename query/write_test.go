@@ -284,7 +284,7 @@ func TestExecuteWrite_Update(t *testing.T) {
 }
 
 // TestExecuteWrite_UnwritableSelect_Rejected proves a select omitting the
-// identity column ("id") is rejected up front (## Configuration), not silently writing a phantom identity — see write.go's findUnwritableNode.
+// identity column ("id") is rejected up front, not silently writing a phantom identity — see write.go's findUnwritableNode.
 func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -310,7 +310,7 @@ func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
 }
 
 // TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation proves
-// a function root is never writable even with a real Relation (### Function-rooted nodes) — shape.go's IsFunction() guard.
+// a function root is never writable even with a real Relation — shape.go's IsFunction() guard.
 func TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -381,7 +381,7 @@ func TestExecuteWrite_Upsert(t *testing.T) {
 
 // TestExecuteWriteStateParamsOpts_Sql proves `sql` collects each DML
 // statement's compiled text without needing execution to have been wrapped
-// in anything extra (specs/complex-query.md ## sql : "adds zero DB round trips").
+// in anything extra (it adds zero DB round trips).
 func TestExecuteWriteStateParamsOpts_Sql(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -406,7 +406,7 @@ func TestExecuteWriteStateParamsOpts_Sql(t *testing.T) {
 
 // TestExecuteWriteStateParamsOpts_QueryPlan proves `query_plan` runs the
 // DML statement for real (EXPLAIN ANALYZE), reporting a plan and leaving
-// the actual write in place — specs/complex-query.md ## query_plan.
+// the actual write in place.
 func TestExecuteWriteStateParamsOpts_QueryPlan(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -444,7 +444,6 @@ func TestExecuteWriteStateParamsOpts_QueryPlan(t *testing.T) {
 
 // TestExecuteWriteStateParamsStats_Insert proves stats reports the insert
 // count, and that collectStats=false leaves WriteResult.Stats nil
-// (specs/complex-query.md ## stats).
 func TestExecuteWriteStateParamsStats_Insert(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -669,9 +668,7 @@ func TestExecuteWriteStateParamsStats_Delete(t *testing.T) {
 
 // TestExecuteWrite_ReadonlyNestedChild_NeverWrittenOrInStats proves a
 // write_mode:"readonly" nested relation is skipped entirely — never written
-// to, and absent from stats — per complex-query.md ## stats's own rule
-// ("A relation marked write_mode: readonly (or nested under one) never
-// appears here, same as it never gets written to"), previously untested at
+// to, and absent from stats, previously untested at
 // the nested level.
 func TestExecuteWrite_ReadonlyNestedChild_NeverWrittenOrInStats(t *testing.T) {
 	conn := acquireWriteConn(t)

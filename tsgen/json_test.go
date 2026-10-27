@@ -20,7 +20,7 @@ func generateTestJSON(t *testing.T, opts Options) *DatabaseJSON {
 	return &doc
 }
 
-// TestGenerateDatabaseJSON_Relations is specs/database-json.md ## `relations` :
+// TestGenerateDatabaseJSON_Relations covers `relations` :
 // kind/comment/columns/primary_key/unique_constraints/indexes, all sourced
 // straight from testdata/schema.sql's own hotel.rooms (two indexes, an FK
 // each) and hotel.room_types (a UNIQUE constraint distinct from its PK).
@@ -85,7 +85,7 @@ func TestGenerateDatabaseJSON_Relations(t *testing.T) {
 }
 
 // TestGenerateDatabaseJSON_TypesRegistryClosure is the transitive-closure
-// rule (specs/database-json.md ## `types` and its ## Endpoint amendment) :
+// rule :
 // hotel.suppliers.mailing_address's own composite type (hotel.address) must
 // resolve in `types`, with its backing relation present in `relations` even
 // though it's never itself a queryable table ; hotel.landmarks.location's
@@ -150,8 +150,7 @@ func TestGenerateDatabaseJSON_TypesRegistryClosure(t *testing.T) {
 	}
 }
 
-// TestGenerateDatabaseJSON_Relationships is the widened-visibility rule
-// (specs/database-json.md ## `relationships`) : hotel.staff -> hotel.properties
+// TestGenerateDatabaseJSON_Relationships is the widened-visibility rule : hotel.staff -> hotel.properties
 // is deliberately left unindexed (testdata/schema.sql) — unlike database.ts,
 // it must still appear here, in both directions, flagged eligible: false.
 // hotel.rooms' two FKs must appear as two distinct, eligible variants.
@@ -208,9 +207,8 @@ func TestGenerateDatabaseJSON_Relationships(t *testing.T) {
 }
 
 // TestGenerateDatabaseJSON_Functions is FunctionInfo's own mode/volatility/
-// record-shape coverage (specs/database-json.md ## `functions`) :
-// hotel.property_summary (RETURNS TABLE) must report returns: null with its
-// row shape carried by "out"/"table"-mode args ; hotel.rooms_available (a
+// record-shape coverage : hotel.property_summary (RETURNS TABLE) must report
+// returns: null with its row shape carried by "out"/"table"-mode args ; hotel.rooms_available (a
 // real SETOF hotel.properties) must resolve `relation`.
 func TestGenerateDatabaseJSON_Functions(t *testing.T) {
 	doc := generateTestJSON(t, Options{Schemas: []string{"hotel"}, Blacklist: config.DefaultBlacklist()})

@@ -1,7 +1,6 @@
-// This file implements specs/oauth-saml.md's OIDC half : /auth/oidc/{name}/
+// This file implements the OIDC half : /auth/oidc/{name}/
 // login and .../callback, on golang.org/x/oauth2 (code exchange) +
-// coreos/go-oidc/v3 (discovery + ID-token verification) — see
-// specs/authentication.md's "# Authentication" for why, over goth/gothic.
+// coreos/go-oidc/v3 (discovery + ID-token verification), rather than goth/gothic.
 package sso
 
 import (
@@ -33,8 +32,7 @@ const oidcStateCookiePrefix = "rel_oidc_state_"
 
 // oidcEndpoint is one configured openid.<name> entry's mutable runtime
 // state : discovery is attempted once at construction, and again, lazily,
-// synchronously, on the next /login request if it failed — specs/oauth-saml.md
-// ## Metadata fetch is lazy. mu guards provider/oauthCfg/verifier together,
+// synchronously, on the next /login request if it failed. mu guards provider/oauthCfg/verifier together,
 // since a concurrent lazy-retry and a read must never observe a half-built set.
 type oidcEndpoint struct {
 	name string
@@ -82,7 +80,7 @@ func (e *oidcEndpoint) discover(ctx context.Context, redirectURL string) error {
 	return nil
 }
 
-// ensureReady is ## Metadata fetch is lazy's own retry : a not-yet-ready
+// ensureReady is the lazy discovery retry : a not-yet-ready
 // endpoint gets exactly one synchronous retry per request, never a
 // background loop.
 func (e *oidcEndpoint) ensureReady(ctx context.Context, redirectURL string) bool {
@@ -113,9 +111,8 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// mergeUserinfoClaims implements ## Callback payload shape's merge precedence :
-// "the userinfo endpoint's claims are merged over the ID token's own
-// (userinfo wins on key collision)" — idTokenClaims is never mutated in
+// mergeUserinfoClaims merges the userinfo endpoint's claims over the ID
+// token's own (userinfo wins on key collision) — idTokenClaims is never mutated in
 // place, since it may still be logged/inspected by the caller on error.
 func mergeUserinfoClaims(idTokenClaims, userinfoClaims map[string]any) map[string]any {
 	merged := make(map[string]any, len(idTokenClaims)+len(userinfoClaims))
@@ -133,8 +130,8 @@ func callbackPath(name string) string { return "/auth/oidc/" + name + "/callback
 
 // mountOidc registers /auth/oidc/{name}/login and .../callback for every
 // configured openid.<name> entry onto router. Each entry's own root URL is
-// resolveHost(p.PublicHost, cfg.Http.PublicHost) — specs/oauth-saml.md
-// ## Configuration — HTTP's per-entry override, used to build redirect_uri.
+// resolveHost(p.PublicHost, cfg.Http.PublicHost), the per-entry
+// override, used to build redirect_uri.
 func mountOidc(router chi.Router, db *pg.DbInfos, cfg *config.Config, templates *route.TemplateSet) {
 	if len(cfg.Openid) == 0 {
 		return
@@ -156,12 +153,12 @@ func mountOidc(router chi.Router, db *pg.DbInfos, cfg *config.Config, templates 
 	}
 }
 
-// oidcLoginHandler is specs/oauth-saml.md's "redirects to the issuer's
-// authorization endpoint" — csrfToken+nonce are generated fresh per
+// oidcLoginHandler redirects to the issuer's authorization endpoint —
+// csrfToken+nonce are generated fresh per
 // request and carried in a short-lived cookie, never server-side session
 // state. Any query string /login itself received travels ALONGSIDE
-// csrfToken in the outgoing state param (## Passing state through login)
-// — a distinct concern from csrfToken/nonce, composed rather than
+// csrfToken in the outgoing state param,
+// a distinct concern from csrfToken/nonce, composed rather than
 // conflated with them, since only csrfToken is ever validated on return.
 func oidcLoginHandler(e *oidcEndpoint, redirectURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +211,7 @@ func oidcLoginHandler(e *oidcEndpoint, redirectURL string) http.HandlerFunc {
 
 // oidcCallbackHandler is the OAuth2 redirect target : exchanges the code,
 // verifies the ID token (including the nonce this same flow minted),
-// optionally merges userinfo, and hands the result to ## Callback function.
+// optionally merges userinfo, and hands the result to the callback function.
 func oidcCallbackHandler(e *oidcEndpoint, db *pg.DbInfos, cfg *config.Config, templates *route.TemplateSet) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, provider, verifier := e.snapshot()
@@ -232,8 +229,7 @@ func oidcCallbackHandler(e *oidcEndpoint, db *pg.DbInfos, cfg *config.Config, te
 		http.SetCookie(w, &http.Cookie{Name: oidcStateCookiePrefix + e.name, Value: "", Path: callbackPath(e.name), MaxAge: -1})
 		wantCsrf, wantNonce, ok := strings.Cut(cookie.Value, ".")
 		// The returned state param is csrfToken alone, or csrfToken+"."+
-		// encodedAppState when /login received a query string (## Passing
-		// state through login) — only the csrfToken half is ever validated;
+		// encodedAppState when /login received a query string — only the csrfToken half is ever validated;
 		// strings.Cut's own no-separator case (encodedAppState == "") means
 		// "no app state was ever appended," same as before this feature existed.
 		gotCsrf, encodedAppState, _ := strings.Cut(r.URL.Query().Get("state"), ".")

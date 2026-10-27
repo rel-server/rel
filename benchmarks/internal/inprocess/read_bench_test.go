@@ -33,7 +33,7 @@
 //
 // ## Join eligibility shaped which "realistic" queries were even possible
 //
-// specs/query-engine.md's "### Join eligibility" requires the CHILD side of
+// Join eligibility requires the CHILD side of
 // every join to be covered by an index on its own `on` columns — Postgres
 // does not auto-index the referencing side of a foreign key, and this
 // schema (deliberately realistic, not hand-tuned for rel) mostly doesn't

@@ -12,7 +12,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// Native CBOR results (specs/cbor.md ## 2). In CBOR mode the read compiler returns the rows as records and
+// Native CBOR results. In CBOR mode the read compiler returns the rows as records and
 // arrays of records instead of JSON text (OutputFormat), and a ResultEncoder turns the binary form Postgres sends them in
 // into CBOR, a value at a time, as the rows stream. Every field of a record carries its own type, so the
 // encoder needs no per-column setup : a field named by the query's shape is a map key, and the type decides
@@ -74,7 +74,7 @@ type recordPlan struct {
 	structID int           // the node's structure in a StructureTable ; -1 when records are written as maps
 }
 
-// StructureTable gives the record layouts of one response their ids (specs/cbor.md ## Structures). It is shared by
+// StructureTable gives the record layouts of one response their ids. It is shared by
 // the encoders of every item of the response, so an id means one list of names from the first byte to the last, and
 // it is written to by one goroutine at a time.
 type StructureTable struct {

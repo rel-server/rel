@@ -26,7 +26,7 @@ func TestEncodeBody_JSON(t *testing.T) {
 	}
 }
 
-// TestEncodeBody_PlusJsonSuffix covers "any +json suffix" per spec, e.g.
+// TestEncodeBody_PlusJsonSuffix covers "any +json suffix", e.g.
 // application/vnd.api+json.
 func TestEncodeBody_PlusJsonSuffix(t *testing.T) {
 	raw, err := encodeBody("application/vnd.api+json", []byte(`{"ok":true}`), false)

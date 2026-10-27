@@ -1,5 +1,5 @@
--- Fixture schema for the static package's own access-control tests
--- (specs/http-content.md ### Access control). Kept separate from
+-- Fixture schema for the static package's own access-control tests.
+-- Kept separate from
 -- rpc/testdata/schema.sql — this package tests only check_static_access's
 -- own calling convention and ordering, not the rest of the HTTP surface.
 

@@ -1,6 +1,5 @@
 // Denormalization : walks a payload alongside the resolved query tree and loads one
-// row per node instance into the typed temp table of that node's relation (specs/typed-write-loading.md
-// ## General path). The payload is expected to mirror the same shape reads produce
+// row per node instance into the typed temp table of that node's relation. The payload is expected to mirror the same shape reads produce
 // for this tree : the same selectFieldsFor (sql.go) that answers "what does this
 // node's JSON shape look like" for compiling a SELECT answers it here too, for
 // walking the payload's mirror shape.

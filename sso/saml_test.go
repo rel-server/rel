@@ -51,7 +51,7 @@ type samlTestFixture struct {
 // keypair) and an IdP (its own freshly generated keypair) that already
 // trusts this exact SP's metadata — IDPMetadata is set directly rather
 // than fetched over HTTP, since the test already holds the *EntityDescriptor
-// in-process ; this is equivalent to ## Metadata fetch is lazy having
+// in-process ; this is equivalent to the lazy metadata fetch having
 // already succeeded once.
 func newSamlTestFixture(t *testing.T, rootURL string, forceSigned bool) *samlTestFixture {
 	t.Helper()
@@ -163,8 +163,7 @@ func loginRelayState(t *testing.T, f *samlTestFixture, rawQuery string) string {
 }
 
 // TestSaml_MetadataAlwaysServed proves /metadata is servable regardless of
-// e.ready — specs/oauth-saml.md ## Endpoints' bootstrapping-deadlock
-// rationale : a developer must be able to hand this document to an IdP
+// e.ready, avoiding a bootstrapping deadlock : a developer must be able to hand this document to an IdP
 // administrator before the IdP side is configured at all.
 func TestSaml_MetadataAlwaysServed(t *testing.T) {
 	f := newSamlTestFixture(t, "https://app.example.com", true)

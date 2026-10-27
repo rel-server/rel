@@ -1,5 +1,4 @@
-// This file implements specs/http-content.md ## Templates : RelHttpResponse.
-// template/template_data rendering via Jet, and specs/templating-2.md's
+// RelHttpResponse.template/template_data rendering via Jet, and the
 // extension of that same jet.Set to static-served .jet files and rel().
 package route
 
@@ -44,7 +43,7 @@ type TemplateSet struct {
 // templateRoot is one real directory a multiRootLoader serves. A
 // static-sourced root is namespaced under its own "/__staticN/" virtual
 // prefix so it can never collide with a http.templates.path-rooted name in
-// the shared jet.Set's own template cache (specs/templating-2.md) ; the
+// the shared jet.Set's own template cache ; the
 // templates.path root itself keeps its existing, unprefixed addressing so
 // every absolute/relative {{include}}/{{extends}} already written against
 // it keeps resolving exactly as before.
@@ -56,7 +55,7 @@ type templateRoot struct {
 // multiRootLoader implements jet.Loader across the templates.path root and
 // every static search-list directory, refusing anything that resolves
 // under uploadDir regardless of which root or resolution path found it
-// (specs/templating-2.md's upload/jet exclusion, applied once here rather
+// (the upload/jet exclusion, applied once here rather
 // than at every call site).
 type multiRootLoader struct {
 	roots     []templateRoot
@@ -115,15 +114,14 @@ func staticTemplateName(dirIndex int, relPath string) string {
 
 // NewTemplateSet builds a TemplateSet loading from cfg.Http.Templates.Path
 // and, when non-empty, every entry of staticDirs (static.Server.Dirs) — the
-// "shared jet loader/Set" specs/templating-2.md requires between database-
+// shared jet loader/Set between database-
 // function-return templates and static .jet rendering. uploadDir is the
 // resolved absolute path jet execution is excluded from (empty disables the
 // exclusion). Returns nil when there is nowhere at all to load from.
 // jet.InDevelopmentMode() is deliberately not used — SIGUSR1 reload is the
 // one mechanism for picking up a changed .jet file (static-sourced ones
 // included), so every render is cached until the next reload,
-// unconditionally, per specs/http-content.md ## Templates' own "Reload"
-// paragraph.
+// unconditionally.
 func NewTemplateSet(cfg *config.Config, staticDirs []string, db *pg.DbInfos, wkReg *wellknown.Registry) *TemplateSet {
 	// Prefixed static roots are tried before the bare templates.path root
 	// (never the other way around) — the bare root's prefix-less match
@@ -159,8 +157,7 @@ func NewTemplateSet(cfg *config.Config, staticDirs []string, db *pg.DbInfos, wkR
 // old single-jsonb-envelope's template/template_data/content_type (sso's
 // callback, WriteRelHttpResponse's own non-full-control case), or a
 // full-control route's envelope template/content_type paired with its
-// second OUT column as Data (specs/new-routes.md ## Templates : "the other
-// return type is then used as the Data").
+// second OUT column as Data.
 func writeTemplateResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, templates *TemplateSet, templateName string, dataRaw json.RawMessage, contentType string, status int) {
 	rlog := logging.FromContext(r.Context()).With("module", "route")
 	if templates == nil || templates.set == nil {

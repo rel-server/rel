@@ -36,7 +36,7 @@ func ExecuteWriteState(ctx context.Context, conn Querier, root *QueryNode, paylo
 // ExecuteWriteStateParams is ExecuteWriteState, additionally resolving any
 // $param reference (ParamExpr) the tree's own where/on_conflict/etc.
 // expressions compile to against paramValues — a well-known write query's
-// own per-request params (specs/well-known-queries.md ## Definition). nil
+// own per-request params). nil
 // for a plain /rel write, which never contains a ParamExpr to begin with.
 func ExecuteWriteStateParams(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState, paramValues map[string]any) (*WriteResult, error) {
 	return ExecuteWriteStateParamsStats(ctx, conn, root, payload, state, paramValues, false)
@@ -49,9 +49,8 @@ func ExecuteWriteStateParamsStats(ctx context.Context, conn Querier, root *Query
 }
 
 // ExecuteWriteStateParamsOpts is ExecuteWriteStateParams, additionally
-// shaping the response per opts (specs/complex-query.md) — an all-false
-// opts is a no-op : no extra statement, row-scan, or EXPLAIN wrapping runs,
-// per ## Availability's "flag off skips the work" rule.
+// shaping the response per opts — an all-false
+// opts is a no-op : no extra statement, row-scan, or EXPLAIN wrapping runs.
 func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryNode, payload []byte, state *WriteState, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
 	node, err := jsonPayload(payload)
 	if err != nil {

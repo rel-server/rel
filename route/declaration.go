@@ -1,9 +1,8 @@
 package route
 
-// This file implements specs/new-routes.md's route declaration surface :
-// the Route JSON/HUML shape and the two places it's read from — a
-// database COMMENT ON FUNCTION (## In comments), and the config
-// route.<schema>.<function>.* namespace (## In the configuration).
+// Route declaration surface : the Route JSON/HUML shape and the two places
+// it's read from — a database COMMENT ON FUNCTION, and the config
+// route.<schema>.<function>.* namespace.
 
 import (
 	"fmt"
@@ -15,7 +14,7 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// Declaration is specs/new-routes.md ## JSON Types' Route interface,
+// Declaration is a route's declared shape,
 // minus function/schema — both are always known from context (the
 // function the comment sits on, or the config key path), never read out
 // of the declaration text itself.

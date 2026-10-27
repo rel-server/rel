@@ -23,7 +23,7 @@ import (
 
 // FillSearchPath introspects the connecting role's resolved search path
 // into infos.SearchPath, in lookup order. Live-introspected, not static
-// config : query-engine.md ## Search path only ever respects the base
+// config : only the base
 // connection's actual search path, never a switched-to role's own.
 func FillSearchPath(infos *DbInfos, conn *pgx.Conn) error {
 	row := conn.QueryRow(context.Background(), INFO_QUERY_SEARCH_PATH)

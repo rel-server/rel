@@ -14,8 +14,8 @@
 
 package query
 
-// OperatorWords is the single source of truth for specs/query-json.md's
-// "Filter expression grammar" operator table : every word-form spelling
+// OperatorWords is the single source of truth for the filter expression
+// grammar's operator table : every word-form spelling
 // (used by the query-string filter-expression grammar's `call` identifier,
 // see the querystring package) mapped 1:1 onto the exact query.ts tag string
 // it means. Two things reuse this exact table, never a second copy :
@@ -32,7 +32,7 @@ package query
 // Entries whose word form is spelled identically to the canonical query.ts
 // tag (e.g. "and", "in", "between", "agg", "like") are included too, as
 // harmless identity mappings — this keeps the table a complete, exhaustive
-// transcription of specs/query-json.md's operator table, not just the
+// transcription of the operator table, not just the
 // entries that happen to differ.
 var OperatorWords = map[string]string{
 	"and": "and",
@@ -104,9 +104,8 @@ var OperatorWords = map[string]string{
 	"overlaps_or_left":  "&<",
 	"overlaps_or_right": "&>",
 
-	// op_qcolon : name explicitly marked TBD by specs/query-json.md — kept
-	// as-is, this is a naming choice not a semantic one (see that file's
-	// note directly under the operator table).
+	// op_qcolon : name still provisional — kept
+	// as-is, this is a naming choice not a semantic one.
 	"op_qcolon":  "?:",
 	"matches_ts": "@@",
 

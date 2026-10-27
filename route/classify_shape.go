@@ -1,8 +1,7 @@
 package route
 
-// classifyShape implements specs/new-routes.md ## Function prototype's
-// structural argument/return-type matching, ## Method inference, and the
-// ## Templates template+binary-return incompatibility check.
+// Structural argument/return-type matching, method inference, and the
+// template+binary-return incompatibility check.
 
 import (
 	"strings"
@@ -11,8 +10,7 @@ import (
 	"github.com/rel-server/rel/pg"
 )
 
-// log is this package's module-tagged logger, per specs/logging.md
-// ## Domain scoping.
+// log is this package's module-tagged logger.
 var log = logging.For("route")
 
 func isJsonType(t *pg.Type) bool {

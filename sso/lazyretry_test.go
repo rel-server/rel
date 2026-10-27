@@ -10,8 +10,7 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// TestOidc_LazyRetry_DiscoveryFailsThenSucceeds covers specs/oauth-saml.md
-// ## Metadata fetch is lazy for OIDC : discovery fails at construction
+// TestOidc_LazyRetry_DiscoveryFailsThenSucceeds covers OIDC's lazy metadata fetch : discovery fails at construction
 // time (the issuer 404s, as if the IdP side isn't wired up yet), the
 // first /login attempt fails 503 and retries inline, and — once the
 // issuer starts responding, with no process restart involved — the next

@@ -1,6 +1,4 @@
-// Phase 1 (insert/update/upsert) and phase 2 (delete) DML, per
-// specs/query-engine.md ## Writing Algorithm ### Implementation / ###
-// Insertion-Updates. One dmlCompiler carries the shared state (connection,
+// Phase 1 (insert/update/upsert) and phase 2 (delete) DML. One dmlCompiler carries the shared state (connection,
 // node-ID assignment) across the whole tree walk.
 package query
 
@@ -31,12 +29,12 @@ type dmlCompiler struct {
 	// tableNodes is, per relation, the node ids that have rows in its temp table so far in the request.
 	tableNodes map[*pg.Relation]map[int]bool
 
-	// Node IDs that received a row from denormalize ; absent means
-	// unpopulated (## Writing Algorithm's noop-skipping note).
+	// Node IDs that received a row from denormalize; absent means
+	// unpopulated.
 	populated map[int]bool
 
-	// collectStats/submitted/statsByNode/statOrder back specs/complex-query.md
-	// ## stats ; submitted is keyed by __node_id, precomputed once in
+	// collectStats/submitted/statsByNode/statOrder back the `stats` response ;
+	// submitted is keyed by __node_id, precomputed once in
 	// write.go from denormalize's own row output. statOrder preserves
 	// first-touch order across phase1/phase2, since a Stat is one entry per
 	// node even when both phases touch it (e.g. MERGE's upsert then delete).
@@ -45,15 +43,15 @@ type dmlCompiler struct {
 	statsByNode  map[*QueryNode]*Stat
 	statOrder    []*QueryNode
 
-	// collectSQL/sqlByNode/sqlOrder back specs/complex-query.md ## sql :
+	// collectSQL/sqlByNode/sqlOrder back the `sql` response :
 	// every DML statement's already-compiled text, collected instead of
 	// only executed — never an extra round trip.
 	collectSQL bool
 	sqlByNode  map[*QueryNode]*SqlResult
 	sqlOrder   []*QueryNode
 
-	// explainAnalyze/planByNode/planOrder back specs/complex-query.md ##
-	// query_plan : true wraps every DML statement in EXPLAIN (ANALYZE,
+	// explainAnalyze/planByNode/planOrder back the `query_plan` response :
+	// true wraps every DML statement in EXPLAIN (ANALYZE,
 	// FORMAT JSON), executed for real, instead of running it plainly.
 	// Mutually exclusive with collectStats — relexec's own job to
 	// reject that combination before calling in.
@@ -172,12 +170,11 @@ func (dc *dmlCompiler) finalPlans() []PlanResult {
 
 // exec is every run*'s single execution point for its main DML statement
 // (never temp-table housekeeping, which stays a bare dc.conn.Exec — same
-// exclusion ## stats already draws) : records kind's compiled text under
+// exclusion as for stats) : records kind's compiled text under
 // node when collectSQL, and — mutually exclusively with collectStats —
 // substitutes EXPLAIN (ANALYZE, FORMAT JSON) for the statement itself when
 // explainAnalyze, since the Writing Algorithm's later statements depend on
-// this one's real side effects having already happened (specs/complex-query.md
-// ## query_plan).
+// this one's real side effects having already happened.
 func (dc *dmlCompiler) exec(ctx context.Context, node *QueryNode, kind string, w *writer.SQLWriter, args []any) (pgconn.CommandTag, error) {
 	if dc.collectSQL {
 		dc.recordSQL(node, kind, w.String())
@@ -329,7 +326,7 @@ func (dc *dmlCompiler) runExplainAnalyze(ctx context.Context, sql string, args [
 }
 
 // nodeStatPath is the chain of join-alias keys from root down to node — []
-// for the root itself (specs/complex-query.md ## stats's Stat.path).
+// for the root itself (Stat.path).
 func nodeStatPath(node *QueryNode) []string {
 	path := []string{}
 	for n := node; n.Parent != nil; n = n.Parent {
@@ -538,7 +535,7 @@ func withKeysColumns(node *QueryNode, cols []ColumnPath) []ColumnPath {
 }
 
 // outgoingKeySource finds the outgoing child whose recovered key supplies
-// node's col (### Insertion/Updates' outgoing "on" mapping, parent's side).
+// node's col (the outgoing "on" mapping, parent's side).
 func outgoingKeySource(node *QueryNode, col *pg.Column) (child *QueryNode, keyCol *pg.Column) {
 	for _, c := range node.OutgoingNodes {
 		for _, jc := range c.JoinColumns {
@@ -570,7 +567,7 @@ func incomingKeySource(node *QueryNode, col *pg.Column) (keyCol *pg.Column, ok b
 // ---- resolved CTE -------------------------------------------------------------------
 
 // writeResolvedCTE writes "resolved as (select ...)" (no leading "with"),
-// one row per temp row, per ### Insertion/Updates' three-way rule. withMasks
+// one row per temp row. withMasks
 // also exposes the row's presence words as "__m0", "__m1", ..., for statements
 // that must tell an absent column from a supplied one (runUpdate).
 func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, cols []ColumnPath, withMasks bool) error {
@@ -1037,8 +1034,7 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	}
 	// Folded into "dml" itself (like runUpsert), not a separate per-row Go
 	// round trip : keeps this EXPLAIN-ANALYZE-safe for query_plan, since
-	// nothing downstream needs RETURNING back in Go (specs/complex-query.md
-	// ## query_plan).
+	// nothing downstream needs RETURNING back in Go.
 	tt := dc.tempOf(node)
 	w.Write("update ")
 	w.Write(tt.qualifiedGeneral())
@@ -1189,8 +1185,8 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		}
 		w.Id(col.Name)
 	}
-	// "one CommandTag can't tell an insert from an update on its own" —
-	// specs/complex-query.md ## stats. Always present (negligible cost) ;
+	// one CommandTag can't tell an insert from an update on its own.
+	// Always present (negligible cost) ;
 	// only consumed by the collectStats branch below.
 	w.Write(", (xmax = 0) as __inserted")
 	w.Unindent()
@@ -1380,7 +1376,7 @@ func writeTargetPath(w *writer.SQLWriter, cp ColumnPath) {
 // ---- phase 2 : delete -----------------------------------------------------------------
 
 // runDelete deletes node's rows absent from the payload, scoped to parent
-// (nil at root) via node's own FK-to-parent columns (### Definitions).
+// (nil at root) via node's own FK-to-parent columns.
 func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *QueryNode) error {
 	identCols, err := requireIdentityColumns(node, "deleteonly/merge")
 	if err != nil {

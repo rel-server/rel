@@ -20,7 +20,7 @@ import (
 )
 
 // TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm checks the
-// word-form spelling (specs/query-json.md) resolves to the identical tree.
+// word-form spelling resolves to the identical tree.
 func TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm(t *testing.T) {
 	cases := []struct {
 		word   string

@@ -21,8 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # /secrets/jwt is jwt.secret's default $GEN$ candidate (config.DefaultJwtSecret)
 # — pre-creating it here means a container with no volume mounted there still
 # writes into its own writable layer instead of falling back to the
-# ephemeral, console-logged value (specs/configuration.md ## $GEN$
-# multi-path resolution).
+# ephemeral, console-logged value.
 RUN mkdir -p /vol/static /vol/template /vol/wellknown /vol/secrets/jwt && \
     chown -R 1000:1000 /vol
 

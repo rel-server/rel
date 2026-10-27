@@ -75,8 +75,7 @@ func TestGenerateSchema_NotNullSemantics(t *testing.T) {
 	}
 }
 
-// TestGenerateSchema_RequiredColumns is specs/required-fields.md's
-// RequiredColumns : only a column with no way to end up with a value on its
+// TestGenerateSchema_RequiredColumns checks RequiredColumns : only a column with no way to end up with a value on its
 // own — not nullable, no default, not identity/generated — is required.
 // hotel.properties.id is `serial` (excluded via its own default expression,
 // same as identity would be), created_at is NOT NULL but defaulted (also
@@ -249,7 +248,7 @@ func TestGenerateSchema_BareNameShadowing(t *testing.T) {
 }
 
 // TestGenerateDatabaseTS_TypeChecks proves the concatenated, self-sufficient
-// database.ts output specs/typescript.md ## database.ts describes actually
+// database.ts output actually
 // type-checks on its own — AGENTS.md's "Always use `just check`: NO error
 // MUST remain" rule, applied to generated output rather than the hand-
 // maintained typescript/ draft.
@@ -267,7 +266,7 @@ func TestGenerateDatabaseTS_TypeChecks_BareNameShadowing(t *testing.T) {
 }
 
 // TestGenerateSchema_Wellknowns is the Wellknowns feature's own regression :
-// specs/typescript.md ## Wellknowns embeds a compiled well-known query's raw
+// Wellknowns embeds a compiled well-known query's raw
 // "query" JSON verbatim as a `const ... as const` literal and infers its
 // shape through RootShapeFromLiteralQuery/ResolveModel (shapes.ts), rather
 // than re-deriving that shape in Go — this proves the emitted literal/params

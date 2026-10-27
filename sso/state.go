@@ -18,7 +18,7 @@ import (
 // DecodeQueryField) — dotted keys nest, an empty query string decodes to
 // nil ("no state at all", not "an empty object"). This is the ONLY
 // validation performed on it : the result is attacker-influenceable, IdP-
-// visible data, per ## Passing state through login's security note, never
+// visible data, never
 // something rel itself trusts.
 func decodeLoginState(rawQuery string) (any, error) {
 	return querystring.DecodeQueryField(rawQuery)
@@ -79,7 +79,7 @@ func encodeRelayState(state any) (string, error) {
 
 // decodeRelayState reverses encodeRelayState. A value that fails to
 // decode as JSON is treated as "no state" rather than a hard error : an
-// IdP-initiated login (specs/oauth-saml.md ## Endpoints) never went
+// IdP-initiated login never went
 // through /login at all, so there was never a rel-issued RelayState to
 // begin with, and some IdPs echo back their own RelayState convention
 // regardless — neither is an attack, just absence of this feature's data.

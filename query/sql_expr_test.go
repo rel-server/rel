@@ -36,7 +36,7 @@ func TestCompileSelect_ParamExprReservesNamedPlaceholder(t *testing.T) {
 }
 
 // TestCompileSelect_ParamExprDefaultsToJsonbCast pins the no-cast default
-// to jsonb (specs/well-known-queries.md ## Definition).
+// to jsonb.
 func TestCompileSelect_ParamExprDefaultsToJsonbCast(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public", "select": ["*~"],

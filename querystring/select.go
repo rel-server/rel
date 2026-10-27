@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// select.go compiles specs/query-json.md's `select=` value : either one
-// own/full-family call taking up the entire value (## own / full), or a
+// select.go compiles the `select=` value : either one
+// own/full-family call taking up the entire value, or a
 // plain comma-list of [alias:]expr entries compiling to the OBJECT variant
-// of Expression (## select). The two are mutually exclusive per the spec,
+// of Expression. The two are mutually exclusive,
 // tried in that order.
 package querystring
 
@@ -230,7 +230,7 @@ func compileSelectCommaList(s string) (any, error) {
 	}
 }
 
-// compileOrderBy's leading "-" (specs/query-json.md ## Filter expression grammar) immediately
+// compileOrderBy's leading "-" immediately
 // followed by a digit opens a negative number, not a descending marker.
 func compileOrderBy(s string) ([]any, error) {
 	p := newExprParser(s)

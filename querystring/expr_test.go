@@ -83,7 +83,7 @@ func TestParseFullExpr_StarNotUsableAsSubExpression(t *testing.T) {
 
 func TestParseFullExpr_NegSubBnotMatchEnforceTheirOwnArity(t *testing.T) {
 	// Wrong argument count for the word used must error, not silently
-	// swap to the other same-symbol operator's meaning (specs/query-json.md).
+	// swap to the other same-symbol operator's meaning.
 	for _, in := range []string{"neg(5,3)", "bnot(name,'foo')", "match(status)", "sub(5)"} {
 		if _, err := parseFullExpr(in); err == nil {
 			t.Fatalf("parseFullExpr(%q) : expected an arity error, got none", in)

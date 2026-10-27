@@ -135,7 +135,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: expression array must start with a string tag: %w", err)
 	}
-	// Word-form synonyms (specs/query-json.md) normalize to their canonical
+	// Word-form synonyms normalize to their canonical
 	// tag here, before anything downstream sees it — see OperatorWords.
 	if canonical, ok := OperatorWords[tag]; ok {
 		tag = canonical

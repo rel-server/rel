@@ -255,7 +255,7 @@ func TestParseQuery_TopLevelWrongType(t *testing.T) {
 }
 
 // TestParseQuery_ComplexQuery_MissingData_IsARead proves
-// specs/complex-query.md ## Parsing : a ComplexQuery with no "data" is a
+// a ComplexQuery with no "data" is a
 // valid read, not rejected like a pre-ComplexQuery WriteQuery was.
 func TestParseQuery_ComplexQuery_MissingData_IsARead(t *testing.T) {
 	pq, err := ParseQuery([]byte(`{"query": {"relation": "movie"}}`))
@@ -271,8 +271,8 @@ func TestParseQuery_ComplexQuery_MissingData_IsARead(t *testing.T) {
 }
 
 // TestParseQuery_ComplexQuery_ExplicitNullData_DiffersFromAbsent proves the
-// nil-vs-"null" distinction specs/complex-query.md ## Parsing relies on
-// instead of a separate HasData field.
+// nil-vs-"null" distinction that stands in
+// for a separate HasData field.
 func TestParseQuery_ComplexQuery_ExplicitNullData_DiffersFromAbsent(t *testing.T) {
 	pq, err := ParseQuery([]byte(`{"query": {"relation": "movie"}, "data": null}`))
 	if err != nil {
@@ -287,7 +287,7 @@ func TestParseQuery_ComplexQuery_ExplicitNullData_DiffersFromAbsent(t *testing.T
 }
 
 // TestParseQuery_ComplexQuery_Flags proves the six new ComplexQuery fields
-// decode off the same object as query/data (specs/complex-query.md ## Parsing).
+// decode off the same object as query/data.
 func TestParseQuery_ComplexQuery_Flags(t *testing.T) {
 	pq, err := ParseQuery([]byte(`{
 		"query": {"relation": "movie"},

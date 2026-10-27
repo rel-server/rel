@@ -21,7 +21,7 @@ const (
 	// wantAccept : the encoder accepts, and Postgres reads the same text to the same value.
 	wantAccept encWant = iota
 	// wantReject : Postgres accepts the text but the encoder rejects it. These entries
-	// are the documented rejection list of specs/typed-write-loading.md ## Column encoders.
+	// are the documented rejection list of the encoders.
 	wantReject
 	// wantBad : the encoder and Postgres both reject.
 	wantBad

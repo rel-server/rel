@@ -1,6 +1,6 @@
 package server
 
-// specs/logging.md ## Access logging : handleRel must emit exactly one
+// Access logging : handleRel must emit exactly one
 // info-level "request" line per HTTP request, with item_count/write set
 // from the resolved Sequence, plus debug-level per-query lines carrying
 // the actual SQL sent to Postgres.

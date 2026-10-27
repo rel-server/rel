@@ -1,9 +1,8 @@
-// This file implements specs/oauth-saml.md's SAML half : /auth/saml/{name}/
+// This file implements the SAML half : /auth/saml/{name}/
 // login, .../acs, and .../metadata, on crewjam/saml's lower-level
 // *saml.ServiceProvider API directly — NOT samlsp.Middleware, which owns
 // its own session/cookie/attribute-name opinions ; we want every raw
-// assertion attribute handed to the callback function untouched (## Claims
-// shape), not samlsp's own guess at "the" username attribute.
+// assertion attribute handed to the callback function untouched, not samlsp's own guess at "the" username attribute.
 package sso
 
 import (
@@ -44,8 +43,7 @@ func samlMetadataPath(name string) string { return "/auth/saml/" + name + "/meta
 
 // newSamlEndpoint builds the *saml.ServiceProvider immediately — this is
 // what makes /auth/saml/{name}/metadata servable right away, independent
-// of whether the IdP's own metadata has ever resolved (specs/oauth-saml.md
-// ## Certificate's bootstrapping-deadlock rationale) — and attempts the
+// of whether the IdP's own metadata has ever resolved — and attempts the
 // IdP metadata fetch once, leaving a failure for the lazy retry.
 func newSamlEndpoint(name string, cfg config.SamlProvider, rootURL string, kp *spKeyPair) *samlEndpoint {
 	root := strings.TrimRight(rootURL, "/") + "/auth/saml/" + name + "/"
@@ -71,8 +69,8 @@ func newSamlEndpoint(name string, cfg config.SamlProvider, rootURL string, kp *s
 }
 
 // fetchMetadata is the shared body of construction and the lazy retry —
-// safe to call more than once ; a success is permanent (## Metadata fetch
-// is lazy : "clears the not-ready mark permanently").
+// safe to call more than once ; a success is permanent (it clears the
+// not-ready mark for good).
 func (e *samlEndpoint) fetchMetadata(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -92,7 +90,7 @@ func (e *samlEndpoint) fetchMetadata(ctx context.Context) error {
 	return nil
 }
 
-// ensureReady is ## Metadata fetch is lazy's own retry, mirroring
+// ensureReady is the lazy metadata retry, mirroring
 // oidcEndpoint.ensureReady exactly.
 func (e *samlEndpoint) ensureReady(ctx context.Context) bool {
 	e.mu.Lock()
@@ -110,13 +108,12 @@ func (e *samlEndpoint) ensureReady(ctx context.Context) bool {
 
 // mountSaml registers /auth/saml/{name}/{login,acs,metadata} for every
 // configured saml.<name> entry. sharedKP is the default SP identity — one
-// keypair shared by every entry that doesn't override it, per
-// specs/oauth-saml.md ## Certificate. An entry with its own
+// keypair shared by every entry that doesn't override it. An entry with its own
 // certificate_path/private_key_path (resolveSamlKeyPair) instead loads or
 // generates a keypair of its own, under the same rules, so its own IdP
 // trusts a certificate distinct from the shared default. Each entry's own
-// root URL is resolveHost(p.PublicHost, cfg.Http.PublicHost) —
-// specs/oauth-saml.md ## Configuration — HTTP's per-entry override.
+// root URL is resolveHost(p.PublicHost, cfg.Http.PublicHost), the
+// per-entry override.
 func mountSaml(router chi.Router, db *pg.DbInfos, cfg *config.Config, sharedKP *spKeyPair, templates *route.TemplateSet) {
 	if len(cfg.Saml.Providers) == 0 {
 		return
@@ -168,8 +165,7 @@ func resolveSamlKeyPair(name string, p config.SamlProvider, cfg *config.Config, 
 
 // samlLoginHandler is the SP-initiated flow : redirect to the IdP with a
 // signed or unsigned AuthnRequest per force_signed_requests. Any query
-// string /login itself received travels as RelayState (## Passing state
-// through login) — previously hardcoded empty, since SAML's own CSRF/
+// string /login itself received travels as RelayState — previously hardcoded empty, since SAML's own CSRF/
 // replay protection comes from the signed assertion and InResponseTo
 // correlation, never from RelayState, so it's free to carry this.
 func samlLoginHandler(e *samlEndpoint) http.HandlerFunc {
@@ -199,10 +195,9 @@ func samlLoginHandler(e *samlEndpoint) http.HandlerFunc {
 
 // samlAcsHandler is the Assertion Consumer Service : parses the IdP's
 // response (SP-initiated or IdP-initiated alike, since AllowIDPInitiated
-// skips InResponseTo correlation — specs/oauth-saml.md ## Endpoints :
-// "nothing distinguishes an IdP-initiated POST... no separate
-// configuration"), extracts every attribute as string[], and hands the
-// result to ## Callback function.
+// skips InResponseTo correlation, so nothing distinguishes the two and no
+// separate configuration is needed), extracts every attribute as string[], and
+// hands the result to the callback function.
 func samlAcsHandler(e *samlEndpoint, db *pg.DbInfos, cfg *config.Config, templates *route.TemplateSet) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !e.ensureReady(r.Context()) {
@@ -230,13 +225,12 @@ func samlAcsHandler(e *samlEndpoint, db *pg.DbInfos, cfg *config.Config, templat
 	}
 }
 
-// extractSamlClaims is specs/oauth-saml.md ## Callback payload shape's SAML half :
-// "every assertion attribute, keyed by its attribute name", each value
+// extractSamlClaims maps every assertion attribute, keyed by its attribute name, each value
 // ALWAYS a string[] even for a single-valued attribute — SAML attributes
-// are multi-valued by the spec, and rel does not guess at collapsing a
+// are multi-valued, and rel does not guess at collapsing a
 // single-element array. The assertion's own NameID is folded in under the
 // literal key "NameID", matching the example callback function's own
-// candidate-key list (specs/oauth-saml.md ## Example).
+// candidate-key list.
 func extractSamlClaims(assertion *saml.Assertion) map[string]any {
 	claims := map[string]any{}
 	for _, stmt := range assertion.AttributeStatements {
@@ -255,7 +249,7 @@ func extractSamlClaims(assertion *saml.Assertion) map[string]any {
 }
 
 // samlMetadataHandler always serves this deployment's own SP metadata —
-// independent of e.ready, per specs/oauth-saml.md ## Endpoints.
+// independent of e.ready.
 func samlMetadataHandler(e *samlEndpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		buf, err := xml.MarshalIndent(e.sp.Metadata(), "", "  ")

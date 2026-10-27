@@ -9,8 +9,7 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// resolveHost is specs/oauth-saml.md ## Configuration — HTTP's per-entry
-// override rule : an entry's own public_host wins when set, otherwise
+// resolveHost applies the per-entry override rule : an entry's own public_host wins when set, otherwise
 // http.public_host ; "" means neither is configured for this entry.
 func resolveHost(perEntry, global string) string {
 	if perEntry != "" {
@@ -21,8 +20,8 @@ func resolveHost(perEntry, global string) string {
 
 // rootURLFor builds the fixed "https://<host>" root every OIDC redirect_uri
 // and SAML metadata/ACS URL is rooted at — always https, never configurable
-// (## Configuration — HTTP : rel is assumed to sit behind a TLS-terminating
-// reverse proxy ; native TLS termination is a distinct, unbuilt feature).
+// (rel is assumed to sit behind a TLS-terminating reverse proxy ; native
+// TLS termination is a distinct, unbuilt feature).
 func rootURLFor(host string) string {
 	return "https://" + host
 }

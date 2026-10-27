@@ -1,4 +1,4 @@
-// Middleware composes ## CORS and ## CSP into one func(http.Handler)
+// Middleware composes CORS and CSP into one func(http.Handler)
 // http.Handler, applied uniformly to /rel, /route, AND /static — same
 // func(http.Handler) http.Handler style jwt/middleware.go already uses.
 // Nonce generation is a separate, narrower layer — see NonceMiddleware.
@@ -16,8 +16,8 @@ import (
 // emitted by next still carries it, and so a route function's own
 // writeRelHttpResponse can overwrite Content-Security-Policy on top when
 // resp.csp is set (see route/encode.go). Mounted around every path
-// uniformly ; NonceMiddleware, mounted only around /route and /auth
-// (## CSP ### Nonce), overwrites this base header again with a nonce
+// uniformly ; NonceMiddleware, mounted only around /route and /auth,
+// overwrites this base header again with a nonce
 // appended, for the paths that can actually use one.
 func Middleware(cfg *config.Config) func(http.Handler) http.Handler {
 	// Logged once here, not per request : Middleware is built exactly once

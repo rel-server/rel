@@ -7,8 +7,7 @@ import (
 	"github.com/rel-server/rel/logging"
 )
 
-// log is this package's own module-tagged logger — specs/logging.md
-// ## Domain scoping's convention, one per package.
+// log is this package's own module-tagged logger, one per package.
 var log = logging.For("jwt")
 
 // VerifyRequest is Lifecycle step 2 (Verify) : reads cfg.CookieName off the

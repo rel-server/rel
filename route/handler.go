@@ -36,11 +36,10 @@ func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *st
 }
 
 // RegisterRoutes registers every reg.Routes entry at its own declared chi
-// pattern on r — specs/new-routes.md replaces the old fixed
-// /route/{schema}/{function} dynamic dispatch with arbitrary, per-route
-// paths. staticSrv is used to compute request.static (## Static path
-// masking) for every request ; nil means no http.static.path directory
-// exists at all. wkReg backs rel() (specs/templating-2.md) for this
+// pattern on r — arbitrary, per-route paths rather than a fixed
+// /route/{schema}/{function} dispatch. staticSrv is used to compute
+// request.static for every request ; nil means no http.static.path directory
+// exists at all. wkReg backs rel() for this
 // package's own TemplateSet, built here rather than reusing boot.BuildMux's
 // (a distinct jet.Set, own cache — pre-existing, not something this change
 // consolidates).
@@ -67,7 +66,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	// Wraps w for the rest of this function so every downstream response
 	// helper (httperr.WritePlain, httperr.WritePostgres, write*Response, ...)
 	// keeps calling the ordinary http.ResponseWriter methods unchanged,
-	// while specs/logging.md ## Access logging's status/size fields get
+	// while the access log's status/size fields get
 	// captured for free.
 	rec, logRequest := logging.StartAccessLog(w, r)
 	w = rec
@@ -313,8 +312,7 @@ func invokeFullControlRoute(ctx context.Context, tx *reqauth.Tx, route Route, re
 	return envelope, content, nil
 }
 
-// staticInfoForRequest computes specs/new-routes.md ## Static path masking's
-// request.static — nil when there's no static.Server at all.
+// staticInfoForRequest computes request.static — nil when there's no static.Server at all.
 func staticInfoForRequest(staticSrv *static.Server, r *http.Request) *staticInfoPayload {
 	if staticSrv == nil {
 		return nil

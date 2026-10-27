@@ -1,15 +1,11 @@
 // Package logging builds Rel's one process-wide *slog.Logger from
-// config.Logging (## Configuration, ## Logger construction), derives
-// per-request child loggers (## Request-scoped logging, request.go :
-// RequestMiddleware, FromContext), and provides ResponseRecorder
-// (response_recorder.go), the http.ResponseWriter wrapper route/handler.go
-// and server/rel.go each use to build ## Access logging's own line —
-// ## Configuration, ## Logger construction, ## Domain scoping,
-// ## Request-scoped logging, and ## Error integration with samber/oops
-// (Error, below) live here ; the rest of specs/logging.md's sections
-// (## Access logging, ## Introspection logging, ## Route registry logging,
-// ## Error logging) live in the packages they log (route, server, pg)
-// instead, since their fields are domain-specific.
+// config.Logging, derives
+// per-request child loggers (request.go : RequestMiddleware, FromContext),
+// and provides ResponseRecorder (response_recorder.go), the http.ResponseWriter wrapper route/handler.go
+// and server/rel.go each use to build the access log line.
+// Access, introspection, route registry and error logging live in the
+// packages they log (route, server, pg) instead, since their fields are
+// domain-specific.
 package logging
 
 import (
@@ -30,9 +26,8 @@ import (
 // "error" holds err.Error() itself, followed by every oops .With(key, value)
 // context entry attached anywhere in err's chain, as its own sibling
 // key/value pair — never nested under an "error"/"context" group, since
-// specs/logging.md ## Error integration with samber/oops requires a key
-// attached at the error site to be independently queryable (and
-// logging.filter/logging.exclude, ## Configuration, can't match a key
+// a key attached at the error site must be independently queryable (and
+// logging.filter/logging.exclude can't match a key
 // hidden inside a group at all).
 func Error(err error) []any {
 	if err == nil {
@@ -50,8 +45,7 @@ func Error(err error) []any {
 // Build constructs the *slog.Logger described by cfg, without installing it
 // as the process default — see Install for that. Every field is validated :
 // an unrecognized handler/level, or an invalid filter/exclude regexp, is a
-// configuration error (specs/configuration.md's own "malformed value" is
-// fatal), not silently ignored.
+// configuration error (a malformed value is fatal), not silently ignored.
 func Build(cfg config.Logging) (*slog.Logger, error) {
 	level, err := parseLevel(cfg.Level)
 	if err != nil {
@@ -77,7 +71,7 @@ func Build(cfg config.Logging) (*slog.Logger, error) {
 }
 
 // Install builds cfg's logger and installs it via slog.SetDefault — the one
-// place logging.handler/logging.level are read, per ## Logger construction.
+// place logging.handler/logging.level are read.
 // Returns the logger too, for callers that prefer passing it explicitly
 // (e.g. into http.Server.ErrorLog via slog.NewLogLogger) rather than relying
 // on the package-level default.
@@ -92,8 +86,7 @@ func Install(cfg config.Logging) (*slog.Logger, error) {
 
 // For returns a *slog.Logger tagged with a "module" attribute — see
 // docs/content/configuration/operations.md ## Logging for what the
-// attribute means to a reader of the logs, specs/logging.md ## Domain
-// scoping for the attach-once-per-package mechanism. Convention : one
+// attribute means to a reader of the logs. Loggers are attached once per package. Convention : one
 // package-level `var log = logging.For("<name>")` per package, `<name>`
 // matching the package/directory name (query, route, pg, reloadcmd, boot, ...),
 // used for every log call in that package instead of calling slog.Default()
@@ -161,7 +154,7 @@ func parseLevel(level string) (slog.Level, error) {
 	}
 }
 
-// filterHandler applies logging.filter/logging.exclude (## Configuration) ;
+// filterHandler applies logging.filter/logging.exclude ;
 // a key nested inside an slog.Group is invisible, treated as absent.
 type filterHandler struct {
 	inner   slog.Handler

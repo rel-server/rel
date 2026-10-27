@@ -115,7 +115,7 @@ type resolvedItem struct {
 	enc *query.ResultEncoder
 
 	// returns/count/stats/queryPlan/sql/rollback are ComplexQuery's own
-	// response-shaping flags (specs/complex-query.md) — zero values (no
+	// response-shaping flags — zero values (no
 	// flag set) for a bare RelationQuery/WellKnownQuery item, since a bare
 	// "wellknown" object never takes them directly.
 	returns   string
@@ -213,7 +213,7 @@ func prepareItem(rctx *query.ResolveContext, wk *wellknown.Registry, item query.
 		}
 		ri.root = root
 		if item.Write != nil {
-			// specs/complex-query.md ## Parsing : "data"'s presence, not item.Write's, decides
+			// "data"'s presence, not item.Write's, decides
 			// whether this is a write — a ComplexQuery with no "data" is a valid read.
 			// write_mode "delete" carries no data, so the root decides there.
 			ri.data = item.Write.Data
@@ -461,7 +461,7 @@ func (p *Prepared) readPhase(ctx context.Context, conn *pgxpool.Conn, ws *writeS
 	envelopes = make([]envelopeData, len(p.items))
 	for i, item := range p.items {
 		// returns=="none" on a write skips compiling/running the read-back
-		// SELECT entirely (specs/complex-query.md ## Response shape).
+		// SELECT entirely.
 		skipReadback := item.isWrite && (item.returns == "none" || item.root.WriteMode == query.DELETE ||
 			(ws.results[i] != nil && ws.results[i].Rows != nil))
 

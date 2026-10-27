@@ -13,8 +13,7 @@
 // limitations under the License.
 
 // Pass 1, resolution step : turns a decoded rawRelation tree (node_parse.go)
-// into a fully DB-resolved *QueryNode tree — see specs/query-engine.md's
-// Pass 1 description (top of the file). Expression-typed fields are copied through as-is
+// into a fully DB-resolved *QueryNode tree . Expression-typed fields are copied through as-is
 // (already parsed by node_parse.go via parseNode) ; nothing here resolves
 // identifiers inside them, that's pass 2.
 package query

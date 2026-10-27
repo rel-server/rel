@@ -1,5 +1,4 @@
-// Binary field encoders for the typed write path (specs/typed-write-loading.md
-// ## Column encoders) : each turns a request Node into the bytes Postgres'
+// Binary field encoders for the typed write path : each turns a request Node into the bytes Postgres'
 // binary receive function for the column's type reads. A column whose type has
 // no encoder is loaded as text instead (text mode).
 package query

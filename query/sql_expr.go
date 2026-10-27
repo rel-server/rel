@@ -189,7 +189,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 
 	case ParamExpr:
 		// A named placeholder resolved later ; cast defaults to jsonb, not
-		// text (well-known-queries.md ## Definition).
+		// text.
 		c.w.BindParam(v.Name)
 		cast := v.Cast
 		if cast == "" {
@@ -205,7 +205,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 }
 
 // compileResolvedField emits whatever an *Identifier resolved to. n
-// distinguishes a self-reference (r == n, ## Scoping) from another node.
+// distinguishes a self-reference (r == n) from another node.
 func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) error {
 	switch r := field.(type) {
 	case ColumnPath:

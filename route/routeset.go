@@ -1,14 +1,9 @@
 package route
 
-// This file implements specs/new-routes.md's declaration-based discovery :
-// BuildRegistry resolves every route.<schema>.<function> config entry and
-// every "route" comment declaration to its actual *pg.Function, classifies
-// its argument/return shape structurally, and sorts/excludes per
-// ## How it works. It exists alongside the old domain-based BuildRegistry
-// (registry.go) as a separate, not-yet-wired artifact — see
-// specs/new-routes.md and the implementation plan's Stage 1/2 split ; the
-// old registry keeps serving real traffic until the Stage 2 cutover
-// deletes it and renames this one into its place.
+// Declaration-based route discovery : BuildRegistry resolves every
+// route.<schema>.<function> config entry and every "route" comment
+// declaration to its actual *pg.Function, classifies its argument/return
+// shape structurally, and sorts/excludes the result.
 
 import (
 	"context"
@@ -29,8 +24,8 @@ type Route struct {
 
 	// Path is exactly as declared, chi syntax. AnonPath replaces every
 	// "{name}"/"{name:regexp}" placeholder with "{}" — the sort/collision/
-	// prefix-matching key specs/new-routes.md ## How it works and
-	// ## Middleware both use.
+	// prefix-matching key used by both route
+	// collision checks and middleware matching.
 	Path     string
 	AnonPath string
 
@@ -160,8 +155,7 @@ func (s *Registry) find(schema, function string) (Route, bool) {
 	return Route{}, false
 }
 
-// reservedPrefixes is specs/new-routes.md ## How it works' "path under a
-// reserved prefix" rule : rel's own endpoints, always excluded from user
+// reservedPrefixes lists the "path under a reserved prefix" rule : rel's own endpoints, always excluded from user
 // declaration regardless of source, at a higher priority than the
 // ordinary collision rule below.
 var reservedPrefixes = []string{"/auth", "/rel"}

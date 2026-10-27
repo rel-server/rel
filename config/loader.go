@@ -1,6 +1,5 @@
 // Package config assembles Rel's runtime Config from three sources — a
-// config file, REL_ environment variables, and CLI flags — per
-// specs/configuration.md. Load is the entry point ; everything else in
+// config file, REL_ environment variables, and CLI flags. Load is the entry point ; everything else in
 // this file is Load's own machinery.
 package config
 
@@ -347,8 +346,7 @@ func readFirstExisting(paths []string) (data []byte, path string, err error) {
 // pathList is SplitPathList's colon-separated search list — e.g. jwt.secret's
 // own default, "/secrets/jwt-secret:./jwt-secret", tries the deployment's
 // intended mount point first and falls back to a plain cwd-relative file for
-// an unconfigured dev run, per specs/configuration.md ## $GEN$ multi-path
-// resolution.
+// an unconfigured dev run.
 //
 // Three passes, each over the FULL candidate list before falling through to
 // the next pass — never per-candidate interleaved, so an earlier candidate
@@ -377,9 +375,9 @@ func readFirstExisting(paths []string) (data []byte, path string, err error) {
 //     convenience for a developer spinning up rel with no volumes wired at
 //     all — and print it, loudly flagged, since it is otherwise invisible
 //     and regenerates (invalidating every session/token issued against it)
-//     on every single restart. specs/configuration.md ## Error handling and
-//     secrets' "never log the resolved value" rule deliberately does not
-//     cover this : that rule is scoped to logged ERRORS, and this isn't one.
+//     on every single restart. The "never log the resolved value" rule for
+//     secrets deliberately does not cover this : it is scoped to logged
+//     ERRORS, and this isn't one.
 func resolveGenValue(pathList string, n int) (string, error) {
 	paths := SplitPathList(pathList)
 	if len(paths) == 0 {
@@ -455,8 +453,7 @@ func SplitPathList(s string) []string {
 	return out
 }
 
-// trimOneNewline trims exactly one trailing "\n" or "\r\n" — the spec's own
-// wording — never more, so multi-line values survive intact.
+// trimOneNewline trims exactly one trailing "\n" or "\r\n", never more, so multi-line values survive intact.
 func trimOneNewline(data []byte) string {
 	s := string(data)
 	if strings.HasSuffix(s, "\r\n") {
@@ -497,7 +494,7 @@ func generateRandom(n int) (string, error) {
 // mis-escapes userinfo) and net.JoinHostPort (IPv6 needs bracketing) — the
 // inverse of splitPgURI, used to derive pg.uri when only the granular
 // fields (pg.host/pg.port/pg.database/pg.user/pg.password) are set, so
-// cfg.Raw's "pg.uri" stays populated either way (specs/pg-uri-precedence.md).
+// cfg.Raw's "pg.uri" stays populated either way.
 func PostgresURI(host string, port int, database, user, password string) string {
 	u := &url.URL{
 		Scheme: "postgres",
@@ -509,7 +506,7 @@ func PostgresURI(host string, port int, database, user, password string) string 
 }
 
 // splitPgURI extracts host/port/database/user/password from a
-// "postgres://..." connection string, for specs/pg-uri-precedence.md's
+// "postgres://..." connection string, for the
 // pg.uri -> pg.host/pg.port/pg.database/pg.user/pg.password derivation.
 // port defaults to DefaultPgPort when the URI names none, matching
 // pg.port's own default. user/password are "" when the URI carries no
@@ -543,7 +540,7 @@ func rejectArrays(k *koanf.Koanf) error {
 		rv := reflect.ValueOf(v)
 		if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
 			slog.Default().Error("config: array value not allowed", "path", key)
-			return fmt.Errorf("config: %s: array values are not allowed (see specs/configuration.md ## No arrays)", key)
+			return fmt.Errorf("config: %s: array values are not allowed", key)
 		}
 	}
 	return nil
@@ -562,7 +559,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// comments for the full shape ; pg.query.* is optional, never required.
 	cfg.Pg.URI = root.GetStringOrDefault("pg.uri", "")
 
-	// specs/pg-uri-precedence.md : pg.uri, when set, takes precedence and
+	// pg.uri, when set, takes precedence and
 	// populates Host/Port/Database/User/Password itself ; any of those set
 	// alongside it is a configuration error, not a silently-ignored or
 	// silently-overridden value. Otherwise, the granular fields are read
@@ -572,7 +569,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// actually configured.
 	if cfg.Pg.URI != "" {
 		if root.Exists("pg.host") || root.Exists("pg.port") || root.Exists("pg.database") || root.Exists("pg.user") || root.Exists("pg.password") {
-			errs = append(errs, fmt.Errorf("config: pg.host/pg.port/pg.database/pg.user/pg.password: cannot be set alongside pg.uri (see specs/pg-uri-precedence.md)"))
+			errs = append(errs, fmt.Errorf("config: pg.host/pg.port/pg.database/pg.user/pg.password: cannot be set alongside pg.uri"))
 		}
 		host, port, database, user, password, uerr := splitPgURI(cfg.Pg.URI)
 		if uerr != nil {
@@ -588,7 +585,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 		cfg.Pg.Host = root.GetStringOrDefault("pg.host", DefaultPgHost)
 		cfg.Pg.Port = root.GetIntOrDefault("pg.port", DefaultPgPort)
 		// pg.database : not itemized in docs/content/configuration/index.md's
-		// Postgres connection table either — an invented key (specs/TODO.md).
+		// Postgres connection table either.
 		cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
 		cfg.Pg.User = root.GetStringOrDefault("pg.user", "")
 		cfg.Pg.Password = root.GetStringOrDefault("pg.password", "")
@@ -609,7 +606,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// be toggled independently.
 	cfg.Dev = root.GetBoolOrDefault("dev", false)
 
-	// specs/complex-query.md ## Availability : each defaults to Dev, same
+	// Each pg.query.allow_* defaults to Dev, same
 	// "true if dev enabled" rule as http.typescript.enable below.
 	noticesDefault := "warning"
 	if cfg.Dev {
@@ -642,7 +639,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Templates.Path = root.GetStringOrDefault("http.templates.path", DefaultHttpTemplatesPath)
 
 	// http.typescript.enable defaults to Dev, same "true if dev enabled"
-	// rule as specs/typescript.md ## Configuration states — a computed
+	// rule — a computed
 	// default, not a plain constant, so it's read after cfg.Dev above.
 	cfg.Http.TypeScript.Enable = root.GetBoolOrDefault("http.typescript.enable", cfg.Dev)
 	cfg.TypeScript.Schemas = root.GetStringOrDefault("typescript.schemas", "")
@@ -685,7 +682,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Jwt.RenewAfter = root.GetFloat64OrDefault("jwt.renew_after", DefaultJwtRenewAfter)
 	cfg.Jwt.MaxSessionAge = root.GetIntOrDefault("jwt.max_session_age", DefaultJwtMaxSessionAge)
 
-	// specs/oauth-saml.md : openid.<name>.*/saml.* — see readOpenidProviders'
+	// openid.<name>.*/saml.* — see readOpenidProviders'
 	// own doc comment for why client_id/client_secret need the same manual
 	// $FILE$-resolve-of-an-absent-key treatment jwt.secret does above.
 	cfg.Http.Functions.SsoCallback = root.GetStringOrDefault("http.functions.sso_callback", "")
@@ -759,7 +756,7 @@ func readStringMap(root *ConfigReader, path string) map[string]string {
 // readStaticAccess reads http.static.access.<name>.{prefix,function} —
 // named sub-keys, not an array (config can't hold arrays).
 // readRoutes reads route.<schema>.<function>.{path,method} —
-// specs/new-routes.md ## In the configuration : two levels deep, since a
+// two levels deep, since a
 // route is identified by TWO levels (schema, then function name), not one.
 func readRoutes(root *ConfigReader, path string) map[string]map[string]RouteDecl {
 	out := map[string]map[string]RouteDecl{}

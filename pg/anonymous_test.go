@@ -23,7 +23,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// Exercises authentication.md's Anonymous role existence check : pg_roles
+// Exercises the anonymous role existence check : pg_roles
 // existence sets AnonymousRoleExists, non-fatal either way.
 func TestNewInfosAdminQuery_AnonymousRoleExistence(t *testing.T) {
 	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 0, "plain_login_role_does_not_exist_xyz")
@@ -114,8 +114,7 @@ func TestAnonymousAndPublicPrivilegeQuery_NonSuperuser(t *testing.T) {
 	// Mirrors route.applyAnonymousAuthorization's actual query : anonOK
 	// requires an EXPLICIT EXECUTE grant (never one credited only via
 	// PUBLIC), while publicOK keeps using has_function_privilege, which
-	// does credit PUBLIC — see specs/route.md ## Anonymous route
-	// authorization.
+	// does credit PUBLIC.
 	check := func(t *testing.T, role string, oid int) (anonOK, publicOK bool) {
 		t.Helper()
 		err := pool.QueryRow(ctx, `

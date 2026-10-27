@@ -11,7 +11,7 @@
 create role "~anonymous";
 create role app_user;
 
--- specs/new-routes.md fixtures : plain json/jsonb-typed functions, matched
+-- Plain json/jsonb-typed functions, matched
 -- structurally rather than by RelHttpRequest domain identity, so these
 -- coexist with the domain-based fixtures above without either registry
 -- picking up the other's functions.
@@ -188,14 +188,14 @@ comment on function fn_new_raises(jsonb) is 'route:: path: "/new/raises"';
 grant execute on function fn_new_raises(jsonb) to "~anonymous";
 
 -- Single-return jsonb route with a declared template : the other return
--- type is used as the template's Data, per specs/new-routes.md ## Templates.
+-- type is used as the template's Data.
 create function fn_new_templated(req jsonb) returns jsonb language sql as $$
   select jsonb_build_object('name', 'world');
 $$;
 comment on function fn_new_templated(jsonb) is 'route:: path: "/new/templated", template: "greet.jet"';
 grant execute on function fn_new_templated(jsonb) to "~anonymous";
 
--- specs/new-routes.md ## Middleware fixtures (route/middleware_test.go).
+-- Middleware fixtures (route/middleware_test.go).
 
 -- Pass-through middleware : merges {"from_a": "a", "shared": "a"} into
 -- request.context, no side-effecting fields, no terminal fields.
@@ -305,8 +305,7 @@ grant execute on function fn_mw_stream_counter(jsonb) to "~anonymous";
 
 -- Impacts : a missing EXECUTE grant on a covering middleware is an ordinary
 -- Postgres permission error (42501), classified 403 the same as any other
--- route call's — never a silent skip, and never the 500 an earlier spec
--- draft claimed. Deliberately NOT granted to "~anonymous".
+-- route call's — never a silent skip, and never a 500. Deliberately NOT granted to "~anonymous".
 create function fn_mw_ungranted(req jsonb, out resp jsonb, out content jsonb) returns record language sql as $$
   select null::jsonb, null::jsonb;
 $$;

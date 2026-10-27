@@ -1,4 +1,4 @@
-// Package wellknown implements specs/well-known-queries.md : loading query
+// Package wellknown loads query
 // definition files from pg.query.wellknown_path, resolving/compiling each
 // one exactly once (at boot, and again on every SIGUSR1 reload — see
 // boot/reload.go), and validating a request's own params against what was
@@ -12,8 +12,7 @@
 // everything it calls) mutates the tree, only reads it — so the SAME
 // resolved root serves both the read path (via Read, compiled once) and
 // the write path (recompiled fresh per request, same as a plain /rel write
-// always has been ; see specs/well-known-queries.md ## Behaviour's own
-// note on the write-side compile/execute split still being open work).
+// always has been ; the write-side compile/execute split is still open work).
 package wellknown
 
 import (
@@ -33,11 +32,9 @@ type ParamDef struct {
 // Compiled is one successfully loaded, resolved, and validated well-known
 // query — absent from a *Registry entirely (not tombstoned) when it was
 // never validly defined, deactivated by a duplicate name, or failed
-// validation ; docs/content/query-language/well-known-queries.md
-// ## Defining one : "a request for a deactivated or never-registered name
-// gets the same WELL_KNOWN_UNKNOWN_QUERY error either way", so there's no
-// distinct state to carry
-// for that case.
+// validation ; a request for a deactivated or never-registered name
+// gets the same WELL_KNOWN_UNKNOWN_QUERY error either way, so there's no
+// distinct state to carry for that case.
 type Compiled struct {
 	Name   string
 	Params map[string]ParamDef
@@ -52,8 +49,7 @@ type Compiled struct {
 
 	// QueryRaw is the definition's own "query" field, verbatim JSON —
 	// query.RawWellKnownDefinition.QueryRaw carried through unchanged.
-	// tsgen embeds this as a TS literal for Wellknowns (specs/typescript.md
-	// ## Wellknowns) rather than re-deriving its shape in Go.
+	// tsgen embeds this as a TS literal for Wellknowns rather than re-deriving its shape in Go.
 	QueryRaw []byte
 }
 

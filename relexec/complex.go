@@ -1,4 +1,4 @@
-// ComplexQuery support (specs/complex-query.md) : per-item response-shaping
+// ComplexQuery support : per-item response-shaping
 // flags, their validation/availability gating, and the envelope response
 // writer. Split out of relexec.go since the execution flow already carries
 // plenty of state ; every piece here is wired directly into its per-item loops.
@@ -101,7 +101,7 @@ func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNo
 }
 
 // runCount compiles and runs CompileCount(root), returning the total
-// matching row count (specs/complex-query.md ## count).
+// matching row count.
 func runCount(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, paramValues map[string]any) (int, error) {
 	cw, err := query.CompileCount(root)
 	if err != nil {
@@ -119,8 +119,7 @@ func runCount(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, pa
 }
 
 // explainFormatJSON runs "explain (format json) <sql>" — never executed for
-// real beyond what EXPLAIN itself runs (specs/complex-query.md ## query_plan
-// "On a read"), used both for a plain read and for a write's read-back.
+// real beyond what EXPLAIN itself runs. Used both for a plain read and for a write's read-back.
 func explainFormatJSON(ctx context.Context, conn *pgxpool.Conn, sql string, args []any) (json.RawMessage, error) {
 	rows, err := conn.Query(ctx, "explain (format json)\n"+sql, args...)
 	if err != nil {
@@ -141,8 +140,7 @@ func explainFormatJSON(ctx context.Context, conn *pgxpool.Conn, sql string, args
 
 // writeKey writes ,"key":<json of val> (no leading comma if first) ; used
 // only by writeEnvelope's own hand-rolled JSON, since "result" must stream
-// row-by-row alongside these already-known keys, never buffered whole
-// (specs/complex-query.md ## Response shape).
+// row-by-row alongside these already-known keys, never buffered whole.
 func writeKey(w io.Writer, first *bool, key string, val any) error {
 	prefix := ","
 	if *first {

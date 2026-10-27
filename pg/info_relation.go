@@ -42,7 +42,7 @@ type Relation struct {
 	// (...)` composite type's own pseudo-relation (relkind 'c') — reachable
 	// only via its owning *Type's own Relation field, never a real
 	// queryable table/view. Meant primarily for the TypeScript export
-	// (specs/typescript.md ## Schema interfaces) to tell a real Table__/
+	// to tell a real Table__/
 	// View__ candidate apart from a composite type's backing row shape.
 	IsStandaloneCompositeType bool
 
@@ -162,7 +162,7 @@ INNER JOIN pg_class ON pg_class.relname = col.table_name AND pg_class.relnamespa
 -- database, pg_catalog/information_schema included (e.g. a function returning
 -- a pg_catalog composite type still needs that type resolved). Restricting
 -- pg_catalog/information_schema as *query targets* is a compile-time concern
--- (query-engine.md ### Scoping's relation blacklist), not an introspection-time one.
+-- (the relation blacklist), not an introspection-time one.
 
 GROUP BY
 pg_class.oid, pg_class.relnamespace, pg_class.relname

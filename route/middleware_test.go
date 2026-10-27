@@ -1,6 +1,6 @@
 package route
 
-// Tests for specs/new-routes.md ## Middleware, driven through testHandler
+// Tests for middleware, driven through testHandler
 // like e2e_test.go — proving the chain-execution logic in middleware.go
 // against real HTTP requests and real Postgres, not just the resolution
 // logic MiddlewareChain already covers in routeset_test.go.
@@ -123,7 +123,7 @@ func TestMiddleware_TerminalShortCircuit(t *testing.T) {
 }
 
 // TestMiddleware_StreamUploadRunsOnceBeforeFirstCallOnly proves
-// specs/new-routes.md ## Middleware's stream_upload wrinkle : the chain
+// the stream_upload middleware wrinkle : the chain
 // runs once, ahead of the first (metadata-only) call, never repeated
 // before the second — a full two-call upload must show exactly 1 recorded
 // middleware invocation, not 2.
@@ -177,8 +177,7 @@ func TestMiddleware_StreamUploadRunsOnceBeforeFirstCallOnly(t *testing.T) {
 // regression test: a covering middleware missing an EXECUTE grant for the
 // request's resolved role is an ordinary Postgres permission-denied error
 // (42501), classified 403 like any other route call's — never a silent
-// skip, and never the 500 an earlier spec draft claimed (fixed alongside
-// this test).
+// skip, and never a 500.
 func TestMiddleware_MissingGrantIsPermissionDenied(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ungranted/target", nil)
 	rec := httptest.NewRecorder()

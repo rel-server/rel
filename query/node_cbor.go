@@ -16,7 +16,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// The CBOR adapter (specs/cbor.md ## CBOR adapter) : a Node over a CBOR document, read in one pass over
+// The CBOR adapter : a Node over a CBOR document, read in one pass over
 // its bytes into a flat arena. Nothing is decoded into Go values : a node records what kind of item it is and where
 // its data sits in the request body, and a string or a number is only built when a column asks for it. The pass
 // also validates the whole document, so a malformed body is refused before anything else happens.
@@ -86,7 +86,7 @@ type cborDoc struct {
 type cborDecoder struct {
 	doc     *cborDoc
 	pos     int
-	structs map[int][]int32 // the names of each structure defined so far, by id : indexes of their text nodes (specs/cbor.md ## Structures)
+	structs map[int][]int32 // the names of each structure defined so far, by id : indexes of their text nodes
 }
 
 func (d *cborDecoder) remaining() int { return len(d.doc.data) - d.pos }
@@ -456,7 +456,7 @@ func (d *cborDecoder) tagItem(tag uint64, depth int) (int32, error) {
 	return bad()
 }
 
-// structureItem reads a structure's definition or reference (specs/cbor.md ## Structures) as the map it stands for :
+// structureItem reads a structure's definition or reference as the map it stands for :
 // its names are the text nodes of the definition, shared by every record that refers to it.
 func (d *cborDecoder) structureItem(tag uint64, depth int) (int32, error) {
 	bad := func(format string, args ...any) (int32, error) {

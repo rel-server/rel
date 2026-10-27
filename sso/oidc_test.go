@@ -259,7 +259,7 @@ func TestOidc_CallbackRejectsUnknownIdentity(t *testing.T) {
 
 // TestOidc_FetchUserinfoMergesOverIdToken proves the fetch_userinfo path
 // actually calls the userinfo endpoint and that its claims win over the ID
-// token's own on collision, per ## Callback payload shape.
+// token's own on collision.
 func TestOidc_FetchUserinfoMergesOverIdToken(t *testing.T) {
 	issuer := newFakeOidcIssuer(t)
 	issuer.tokenIDTokenExtra = map[string]any{"email": "from-id-token@example.com"}

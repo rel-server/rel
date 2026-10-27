@@ -170,7 +170,7 @@ func TestServer_MultiDirectoryLayering_FirstMatchWins(t *testing.T) {
 	}
 }
 
-// specs/templating-2.md's generalized Resolve fallback chain — pure lookup
+// Resolve's generalized fallback chain — pure lookup
 // logic, no jet execution (that's route's job, exercised in
 // route/static_jet_test.go instead).
 

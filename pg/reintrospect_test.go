@@ -21,7 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Covers migrations.md ## Reloading step 4 : a fresh *DbInfos reflecting a
+// Covers re-introspection : a fresh *DbInfos reflecting a
 // DDL change made between two calls, reusing the exact same pool pointer.
 func TestReIntrospect_ReflectsSchemaChangeAndReusesPool(t *testing.T) {
 	ctx := context.Background()
@@ -82,7 +82,7 @@ func TestReIntrospect_ReflectsSchemaChangeAndReusesPool(t *testing.T) {
 	}
 }
 
-// Covers authentication.md's Anonymous role existence check running again
+// Covers the anonymous role existence check running again
 // on reload, not just at startup.
 func TestReIntrospect_AnonymousRoleCheck(t *testing.T) {
 	ctx := context.Background()

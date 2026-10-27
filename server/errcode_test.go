@@ -164,8 +164,8 @@ func TestRelHandler_UnclassifiedInternalError_DevGated(t *testing.T) {
 	}
 }
 
-// TestRelHandler_MethodNotAllowed_Is405 : the fix found while drafting
-// specs/error-handling.md — this path used to be a wrongly-classified 400.
+// TestRelHandler_MethodNotAllowed_Is405 : this path used to be a
+// wrongly-classified 400.
 func TestRelHandler_MethodNotAllowed_Is405(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/rel", nil)
 	rec := httptest.NewRecorder()

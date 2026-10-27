@@ -1,4 +1,4 @@
-// This file implements specs/http-content.md ## CORS : origin
+// This file implements CORS : origin
 // matching, the `*` wildcard, and preflight detection — pure logic, no
 // http.Handler wiring (that's middleware.go).
 package websec
@@ -14,9 +14,9 @@ func maxAgeString(seconds int) string {
 	return strconv.Itoa(seconds)
 }
 
-// IsPreflight is ### Preflight handling's own distinguishing rule : "a real
+// IsPreflight reports whether r is a CORS preflight : a real
 // browser preflight always carries BOTH an Origin header and an
-// Access-Control-Request-Method header" — an OPTIONS request missing
+// Access-Control-Request-Method header — an OPTIONS request missing
 // either one is NOT a preflight, and must fall through to normal route
 // dispatch instead (so a real fn__options route isn't shadowed).
 func IsPreflight(method, origin, requestMethod string) bool {
@@ -32,8 +32,7 @@ type OriginDecision struct {
 	Vary            bool   // whether Vary: Origin is also sent
 }
 
-// ResolveOrigin is ## CORS ### Configuration/### `*` as an explicit value's
-// matching rule : allowedOrigins == "*" (the WHOLE value, not a comma-list
+// ResolveOrigin applies the origin matching rule : allowedOrigins == "*" (the WHOLE value, not a comma-list
 // containing it) allows every origin but never sends credentials or
 // reflects the literal Origin back ; otherwise an exact, comma-separated
 // allowlist match reflects the origin AND sends credentials AND Vary :
@@ -57,7 +56,7 @@ func ResolveOrigin(allowedOrigins string, requestOrigin string) OriginDecision {
 // CorsHeaders is what ResolveOrigin's decision, plus the request's own
 // preflight-vs-actual context, translates into actual header writes —
 // shared between the preflight responder and the actual-response path
-// (### Preflight handling's own "same headers on the real response" rule).
+// (the real response carries the same headers).
 type CorsHeaders struct {
 	AllowOrigin      string
 	AllowCredentials bool
@@ -70,7 +69,7 @@ type CorsHeaders struct {
 
 // BuildCorsHeaders resolves cfg against requestOrigin, filling in the
 // preflight-only fields (methods/headers/max-age) only when isPreflight —
-// ## CORS's actual (non-preflight) response never sends those three, only
+// an actual (non-preflight) response never sends those three, only
 // Allow-Origin/-Credentials/Vary.
 func BuildCorsHeaders(cfg config.HttpCors, requestOrigin string, isPreflight bool) (CorsHeaders, bool) {
 	decision := ResolveOrigin(cfg.AllowedOrigins, requestOrigin)

@@ -49,7 +49,7 @@ func TestParseWellKnownFile_ArrayOfDefinitions(t *testing.T) {
 }
 
 // TestParseWellKnownFile_DefaultPresenceStates pins HasDefault/Default
-// distinguishing the spec's 3 default states — a plain map lookup can't tell them apart.
+// distinguishing the 3 default states (absent, null, set) — a plain map lookup can't tell them apart.
 func TestParseWellKnownFile_DefaultPresenceStates(t *testing.T) {
 	defs, err := ParseWellKnownFile([]byte(`{
 		"name": "three_states",

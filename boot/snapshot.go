@@ -39,7 +39,7 @@ func Build(db *pg.DbInfos, cfg *config.Config, logger *slog.Logger) (*Snapshot, 
 	return &Snapshot{Db: db, WellKnown: wkReg, Handler: BuildMux(db, cfg, reg, wkReg, logger)}, nil
 }
 
-// WriteTypeScriptHelper is specs/typescript.md ## Reloading `helper_path` : a no-op when
+// WriteTypeScriptHelper writes the TypeScript helper file : a no-op when
 // typescript.helper_path is unset. Called once the snapshot is the one being served (after startup's
 // build, after a reload's swap), so a failed build leaves the file untouched, like the schema.
 // A failure to write is logged, never fatal.
