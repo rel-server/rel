@@ -20,6 +20,7 @@ import (
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/httperr"
+	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/query"
@@ -159,7 +160,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	// Fires exactly once, from every return path (including an early rejection), since
 	// itemCount/anyWrite/targets not yet known at that point are simply the zero value.
 	defer func() {
-		logRequest("verified", sess.Verified, "role", sess.Role, "claims", sess.Claims,
+		logRequest("verified", sess.Verified, "role", sess.Role, "claims", jwtpkg.LogValue(sess.Claims),
 			"item_count", itemCount, "write", anyWrite, "targets", targets)
 	}()
 
