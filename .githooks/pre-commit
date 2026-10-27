@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuses a commit whose go.mod can't be built by anyone else (see `just check-deps`).
+# Enable once per clone: git config core.hooksPath .githooks
+exec just check-deps

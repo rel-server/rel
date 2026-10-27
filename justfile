@@ -142,3 +142,28 @@ bench-medium:
 
 bench-full:
     go run ./benchmarks/cmd/bench -profile full
+
+# --- dmut dependency ---
+
+# Build against the dmut checkout in ~/Code/dmut, uncommitted edits included. Writes a gitignored go.work ;
+# go.mod is left untouched, so nothing bogus can be committed.
+dmut-local:
+    go work init . ../dmut
+    @echo "using ../dmut — 'just dmut-release' to go back"
+
+# Stop using the local dmut checkout (go.mod's pinned version applies again)
+dmut-release:
+    rm -f go.work go.work.sum
+
+# Pin go.mod to the latest dmut commit on its remote's default branch, then drop any local override.
+# The commit must already be pushed ; commit the go.mod/go.sum change on its own.
+dmut-latest: dmut-release
+    GOFLAGS=-mod=mod GOPROXY=direct go get github.com/ceymard/dmut/v3@master
+    go mod tidy
+
+# Fail if go.mod/go.sum couldn't be built by someone else : a replace directive, or a dmut version
+# that isn't published (e.g. a pseudo-version of an unpushed commit). Run by .githooks/pre-commit.
+check-deps:
+    @! grep -q '^[[:space:]]*replace\b' go.mod || { echo "go.mod has a replace directive"; exit 1; }
+    GOWORK=off GOFLAGS=-mod=readonly GOPROXY=direct go build ./...
+    GOWORK=off go mod verify

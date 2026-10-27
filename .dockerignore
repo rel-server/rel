@@ -6,3 +6,5 @@ specs
 docs
 test
 *.md
+go.work
+go.work.sum

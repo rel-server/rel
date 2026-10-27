@@ -13,3 +13,7 @@ jwt-secret
 node_modules/
 typescript/tests/generated/
 typescript/combos/*/database.ts
+
+# Local dmut checkout (just dmut-local) — never committed
+/go.work
+/go.work.sum
