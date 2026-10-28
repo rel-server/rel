@@ -24,7 +24,7 @@ they can come in either order, and more than one of either kind is fine too: eve
 concatenated into one except-list, every object merged into one and-map (a later key overriding
 an earlier one). In practice you'll almost always give at most one of each.
 
-A bare JSON string is always a *literal* value now, never a reference — see [Filtering with
+A bare JSON string is always a *literal* value, never a reference — see [Filtering with
 `where`](filtering.md#a-bare-string-is-a-literal). To point at something, use `col` (asserts a
 real column; fails clearly on a typo'd alias) or `.` (looks up anything in scope, no
 restriction). Object literals nest arbitrarily and can mix real columns, joined relations, and
@@ -44,8 +44,8 @@ computed values in one shape:
 ## The dot-chain form
 
 `.` is the general-purpose "look this up" building block. A bare name in the leading position is
-always resolved against scope, no restriction to real columns — `[".", "name"]` resolves `name`
-exactly like a bare string used to. Every operand after that is always a further bare hop-name
+always resolved against scope, no restriction to real columns — `[".", "name"]` resolves `name`.
+Every operand after that is always a further bare hop-name
 (never re-parsed as a literal), chaining as deep as needed — `[".", "chain", "name"]` looks up
 `chain`, then steps into its own `name` field, pulling one field from a joined relation flat into
 this level instead of nesting it as its own object. `chain` still has to be declared in `join`

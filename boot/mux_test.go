@@ -15,11 +15,16 @@
 package boot
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -194,12 +199,33 @@ func TestBuildMux_StaticMaskingAndRootFallback(t *testing.T) {
 		t.Errorf("expected the route to override index serving, got %d: %q", rootRec.Code, rootRec.Body.String())
 	}
 
-	// An unmasked file still serves through the root-level NotFound fallback.
+	// An unmasked file still serves through the root-level NotFound fallback, and a static
+	// request gets its access line like any other, a missing file included.
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	defer slog.SetDefault(prev)
+
 	otherReq := httptest.NewRequest("GET", "/other.txt", nil)
 	otherRec := httptest.NewRecorder()
 	mux.ServeHTTP(otherRec, otherReq)
 	if otherRec.Code != 200 || otherRec.Body.String() != "STATIC OTHER" {
 		t.Errorf("expected the unmasked static file to serve, got %d: %q", otherRec.Code, otherRec.Body.String())
+	}
+	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/nope.txt", nil))
+
+	var got []string
+	for _, raw := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var line map[string]any
+		if err := json.Unmarshal([]byte(raw), &line); err != nil {
+			t.Fatalf("decoding log line %q: %v", raw, err)
+		}
+		if line["msg"] == "request" {
+			got = append(got, fmt.Sprintf("%v %v %v %v", line["method"], line["path"], line["status"], line["response_size"]))
+		}
+	}
+	if want := []string{"GET /other.txt 200 12", "GET /nope.txt 404 19"}; !slices.Equal(got, want) {
+		t.Errorf("expected access lines %v for the static requests, got %v", want, got)
 	}
 }
 

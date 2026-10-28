@@ -33,8 +33,8 @@ func FromContext(ctx context.Context) *slog.Logger {
 	return slog.Default()
 }
 
-// RequestMiddleware does three things : read (or generate) a request ID, derive a child logger via
-// .With("request_id", id), store it on the request's context. Deliberately
+// RequestMiddleware does three things : read (or generate) a request ID, derive a child logger that
+// appends request_id as the last attribute of every line, store it on the request's context. Deliberately
 // does NOT echo the ID back as a response header — request_id's whole job
 // here is correlating log lines server-side ; a response header is
 // access logging's separate concern.
@@ -47,9 +47,37 @@ func RequestMiddleware(next http.Handler) http.Handler {
 		if id == "" {
 			id = newRequestID()
 		}
-		logger := slog.Default().With("request_id", id)
+		logger := slog.New(requestIDHandler{inner: slog.Default().Handler(), id: id})
 		next.ServeHTTP(w, r.WithContext(WithContext(r.Context(), logger)))
 	})
+}
+
+// requestIDHandler appends request_id to each record rather than using With, because attrs added
+// through With are printed before the record's own, which would put request_id first on every line.
+// The inner handler is the one slog.Default() had when the request began.
+type requestIDHandler struct {
+	inner slog.Handler
+	id    string
+}
+
+func (h requestIDHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.inner.Enabled(ctx, level)
+}
+
+func (h requestIDHandler) Handle(ctx context.Context, r slog.Record) error {
+	r = r.Clone() // AddAttrs may write into storage shared with the caller's copy
+	r.AddAttrs(slog.String("request_id", h.id))
+	return h.inner.Handle(ctx, r)
+}
+
+func (h requestIDHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return requestIDHandler{inner: h.inner.WithAttrs(attrs), id: h.id}
+}
+
+// WithGroup nests request_id into the group along with the record's other attrs ; nothing in rel
+// opens groups on a request logger.
+func (h requestIDHandler) WithGroup(name string) slog.Handler {
+	return requestIDHandler{inner: h.inner.WithGroup(name), id: h.id}
 }
 
 // newRequestID is a short random hex token ; 8 bytes is plenty since

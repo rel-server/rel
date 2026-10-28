@@ -34,7 +34,8 @@ import (
 // BuildMux assembles the full inner http.Handler — /rel, every declared
 // route at its own arbitrary path, and a root-level
 // static fallback for any path no declared route claims — wrapped
-// uniformly in logging.RequestMiddleware and websec.Middleware
+// uniformly in logging.RequestMiddleware, logging.AccessLog (one access line for every request,
+// static files and rejections included) and websec.Middleware
 // (CORS and CSP apply uniformly). Declared routes and /auth (the SSO mount)
 // additionally sit behind websec.NonceMiddleware, scoped via a chi.Group
 // (docs/content/http/cors-csp.md ## CSP ### Nonce explains why /rel doesn't
@@ -90,5 +91,5 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 		logger.Debug("boot: no http.static.path directory found, static fallback is not mounted")
 	}
 
-	return logging.RequestMiddleware(websec.Middleware(cfg)(mux))
+	return logging.RequestMiddleware(logging.AccessLog(websec.Middleware(cfg)(mux)))
 }

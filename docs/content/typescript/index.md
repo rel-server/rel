@@ -78,10 +78,6 @@ a joined alias that isn't declared, and it's a compile error, not a runtime surp
 goes for `relation()`/`func()`'s own first argument: `relation("hotel.bogus", ...)` is a compile
 error too, with your editor autocompleting the relation/function names your schema actually has.
 
-Hovering over `properties` (or any `.get()`/`.write()`/`call()` result) shows a plain, flattened
-object literal — `{ id: number; name: string; rooms: {...}[] }` — at every nesting level, not the
-chain of internal type names that computed it.
-
 A joined column's shortcut type-checks correctly even without a callback — write it as a plain
 object literal, with `shortcut` right on the join entry, and it's still checked against exactly
 the foreign keys reachable from the relation you're joining *from*, with autocomplete listing the
@@ -222,8 +218,7 @@ const all: Property[] = await properties.get()
 ```
 
 `$row` and `$draft` only exist for `typeof`: they are declared, never assigned, so reading
-`properties.$row` at runtime gives `undefined`. They are flattened the same way `.get()` and
-`.write()` are, so hovering `Property` shows the actual object shape.
+`properties.$row` at runtime gives `undefined`.
 
 A row that sits in a join is reached by indexing the root's type with the join's name. A to-many
 join is an array, so index it with `[number]`; a to-one join that can be `null` needs `NonNullable`
@@ -613,8 +608,7 @@ list of tokens, in any order, in the `codec` GET parameter of `GET /rel/database
 | | `bigint` | `Int8` is `number \| bigint`: a safe integer is a number, a larger one a bigint, and a `bigint` can be sent. Over JSON it needs `lossless-json` (`bun add lossless-json`), which parses slower than `JSON.parse`: for large responses prefer `cbor`. |
 
 `json,temporal,bigint` and `cbor,temporal` are valid; `json,cbor`, `date,temporal`, a token twice and an unknown token
-are a `400` (a bad `typescript.codec` stops `rel` at startup). The generated file's header says which options built it
-(`// Codec: cbor,temporal,bigint`), and it has no `import` except for the package the options need, at its top.
+are a `400` (a bad `typescript.codec` stops `rel` at startup). The generated file has no `import` except for the package the options need, at its top.
 
 The types follow the options: `Int8`, `Timestamptz`, `Timestamp`, `PgDate` and `Bytea` are what the codec hands over, in reads and
 writes, and an id column over a `bigserial` follows. The file offers no supported way to change them from your own code: ask for another codec instead.
@@ -696,14 +690,6 @@ faster in `cbor-x`.
   it, with `join()` and the like, starts from the prototype's value again). Objects that never share their keys, such as a
   `jsonb` value used as a dictionary of ids, gain no bytes from them and take about 2.4 times as long to encode : turn it
   off for a query that sends mostly those. Everything else is written correctly either way.
-
-Sharing a prototype (`draft()` rows, or a class) does not speed up the encoding : `cbor-x` compares the keys of every
-object whatever its prototype, and an object with a prototype of its own takes a slower path through its extensions.
-
-The `cbor` code is about 100 lines: the tag entries, the encoder options, and a rewrite of what `cbor-x` writes differently
-from `JSON.stringify` (an `undefined` object member is dropped, and a whole number of 2^32 or more is sent as an integer,
-which an `int8` column needs). Decoding is not faster with `date` than with `temporal`: building the `Temporal` objects is a
-small part of the cost, `cbor-x` itself the rest.
 
 ## database.json
 

@@ -100,8 +100,7 @@ argument at all; the whole point is that the file's bytes never enter Postgres.
   from the file's own head. This call's response is the one actually sent to the client,
   exactly like any other full-control route; it cannot change the destination.
 
-Both calls happen inside the same request; there is no separate registration step and no
-`__prepare`/mandatory-function pairing to declare — one function, called twice, distinguished
+Both calls happen inside the same request: one function, called twice, distinguished
 by whether `req.upload.size` is present.
 
 [Middleware](index.md#middleware) covering a `stream_upload` route's path runs once, ahead of

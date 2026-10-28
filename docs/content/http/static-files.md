@@ -89,8 +89,7 @@ fallback described above, rendering rather than serving raw template source when
 
 ## Restricting access to part of the tree
 
-Gate a subpath by declaring a [middleware](index.md#middleware) at the covering prefix — this
-fully supersedes the old, database-backed `http.static.access.*` mechanism:
+Gate a subpath by declaring a [middleware](index.md#middleware) at the covering prefix:
 
 ```sql
 create function hotel.gate_private_docs(req jsonb, out resp jsonb, out content jsonb)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/rel-server/rel/logging"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,7 +50,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	testHandler = NewRelHandler(testDb, testCfg, nil)
+	testHandler = logging.AccessLog(NewRelHandler(testDb, testCfg, nil))
 
 	m.Run()
 }

@@ -73,7 +73,7 @@ func TestAccessLog_EmitsOncePerRequestWithFields(t *testing.T) {
 	}
 	line := accessLines[0]
 
-	for _, key := range []string{"method", "path", "status", "response_size", "duration", "verified", "role", "claims", "function", "full_control"} {
+	for _, key := range []string{"method", "path", "status", "response_size", "duration", "role", "function", "full_control"} {
 		if _, ok := line[key]; !ok {
 			t.Errorf("access log line missing %q : %v", key, line)
 		}

@@ -88,7 +88,7 @@ a session's lifecycle (claims, renewal, roles) is covered in
   matching placeholder — or any argument of another type past this point — disables the
   function with a discovery-time error.
 
-Returning a single type replies `200` with a mimetype resolved structurally, same as ever:
+Returning a single type replies `200` with a mimetype resolved structurally:
 `text` → `text/plain`, `json`/`jsonb` → `application/json`, `bytea` → `application/octet-stream`,
 and a domain whose name contains `/` (over `bytea` or `text`) → that name as `Content-Type` —
 see [Static files ## Returning binary or text content
@@ -124,8 +124,7 @@ any other route. Its response may:
 
 Any middleware, terminating or not, may also set `cookies`/`headers`/`jwt`/`jwt_attrs`/`csp` —
 merged per-key across the chain and into whatever eventually renders the response, later
-values winning. This is what supersedes the old `check_session` function and
-`http.static.access.*` rules — see [Authentication ## Session
+values winning. Session checks and path restrictions are done this way — see [Authentication ## Session
 lifecycle](authentication.md#session-lifecycle) and [Static files ## Restricting access to
 part of the tree](static-files.md#restricting-access-to-part-of-the-tree).
 
@@ -135,8 +134,7 @@ itself blocked by the check meant to detect the lack of one. `/rel` itself is a 
 so a middleware can never be declared directly there; gate it by declaring at `/` (or any
 other prefix that still covers it) instead.
 
-Session-checking middleware runs *as the request's already-resolved role*, unlike
-`check_session` used to (which ran on the primary connection, before the role switch). Grant
+Session-checking middleware runs *as the request's already-resolved role*. Grant
 `EXECUTE` on every middleware function to every role that should reach the paths it covers —
 including the anonymous role — or those requests fail with an ordinary Postgres
 permission-denied `403`, the same as any other route call missing a grant.

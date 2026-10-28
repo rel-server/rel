@@ -20,7 +20,6 @@ import (
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/httperr"
-	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/query"
@@ -144,12 +143,6 @@ func coerceQueryStringLeaves(v any) any {
 func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
 	ctx := r.Context()
 
-	// Wraps w for the rest of this function so every downstream response
-	// helper keeps calling the ordinary http.ResponseWriter methods
-	// unchanged, while the access log's status/size
-	// fields get captured for free.
-	rec, logRequest := logging.StartAccessLog(w, r)
-	w = rec
 	w.Header().Add("Vary", "Accept") // the representation depends on it, errors included
 	wire := cborenc.Negotiate(r.Header.Get("Accept"))
 	var sess *reqauth.Session
@@ -157,11 +150,14 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	var anyWrite bool
 	var targets []string
 
-	// Fires exactly once, from every return path (including an early rejection), since
-	// itemCount/anyWrite/targets not yet known at that point are simply the zero value.
+	// Runs on every return path (including an early rejection), so itemCount/anyWrite/targets
+	// not yet known at that point are simply the zero value.
 	defer func() {
-		logRequest("verified", sess.Verified, "role", sess.Role, "claims", jwtpkg.LogValue(sess.Claims),
-			"item_count", itemCount, "write", anyWrite, "targets", targets)
+		role := ""
+		if sess != nil {
+			role = sess.Role
+		}
+		logging.AnnotateAccess(ctx, role, "item_count", itemCount, "write", anyWrite, "targets", targets)
 	}()
 
 	// Anonymous role existence : reject

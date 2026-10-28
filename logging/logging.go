@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/rel-server/rel/config"
-	"github.com/lmittmann/tint"
 	"github.com/samber/oops"
 )
 
@@ -55,7 +54,7 @@ func Build(cfg config.Logging) (*slog.Logger, error) {
 	var inner slog.Handler
 	switch cfg.Handler {
 	case "", "pretty":
-		inner = tint.NewTextHandler(os.Stdout, &tint.Options{Level: level})
+		inner = newPrettyHandler(os.Stdout, level, colorEnabled())
 	case "JSON":
 		inner = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 	default:
@@ -68,6 +67,12 @@ func Build(cfg config.Logging) (*slog.Logger, error) {
 	}
 
 	return slog.New(filtered), nil
+}
+
+// colorEnabled is whether the pretty handler colors its output : always, unless the NO_COLOR
+// environment variable is set to a non-empty value (https://no-color.org).
+func colorEnabled() bool {
+	return os.Getenv("NO_COLOR") == ""
 }
 
 // Install builds cfg's logger and installs it via slog.SetDefault — the one

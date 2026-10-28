@@ -170,10 +170,7 @@ entirely — a deployment that never needs `stream_upload` doesn't need a writab
 all.
 
 The compose file above assumes `your-registry/your-app:latest` is already sitting in a registry
-`docker-compose pull`/`docker-compose up` can reach. `just image` builds the plain
-`ghcr.io/rel-server/rel` base image (tags it `<version>` and `latest`, `<version>` from `git
-describe`) and `just upload` pushes it — useful as the `FROM` your own app's image builds on
-top of, not something you deploy directly once you have app-specific assets to bake in.
+`docker-compose pull`/`docker-compose up` can reach.
 
 `ghcr.io/rel-server/rel` also publishes a rolling `main` tag,
 rebuilt on every push to this repo's `main` branch, alongside the version-tagged releases —

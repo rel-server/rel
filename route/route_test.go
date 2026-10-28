@@ -2,6 +2,7 @@ package route
 
 import (
 	"context"
+	"github.com/rel-server/rel/logging"
 	"net/http"
 	"testing"
 
@@ -59,7 +60,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	testHandler = NewHandler(testDb, testCfg, testReg, nil, nil)
+	testHandler = logging.AccessLog(NewHandler(testDb, testCfg, testReg, nil, nil))
 
 	m.Run()
 }

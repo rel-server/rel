@@ -63,22 +63,17 @@ func RegisterRoutes(r chi.Router, db *pg.DbInfos, cfg *config.Config, reg *Regis
 func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, route Route, templates *TemplateSet, staticSrv *static.Server) {
 	ctx := r.Context()
 
-	// Wraps w for the rest of this function so every downstream response
-	// helper (httperr.WritePlain, httperr.WritePostgres, write*Response, ...)
-	// keeps calling the ordinary http.ResponseWriter methods unchanged,
-	// while the access log's status/size fields get
-	// captured for free.
-	rec, logRequest := logging.StartAccessLog(w, r)
-	w = rec
-
 	// Verify (Lifecycle step 2) needs no DB connection — run first, so
 	// anonymity is knowable before anything DB-related happens.
 	sess, authErr := reqauth.Authenticate(cfg, db, r)
 
-	// Fires exactly once, from every return path (including an early rejection).
+	// Runs on every return path, an early rejection included.
 	defer func() {
-		logRequest("verified", sess.Verified, "role", sess.Role, "claims", sess.Claims,
-			"function", route.Function.Identifier.String(), "full_control", route.FullControl)
+		role := ""
+		if sess != nil {
+			role = sess.Role
+		}
+		logging.AnnotateAccess(ctx, role, "function", route.Function.Identifier.String(), "full_control", route.FullControl)
 	}()
 
 	// Both anonymous checks run before the body is read or a connection

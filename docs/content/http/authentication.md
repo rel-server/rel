@@ -100,9 +100,7 @@ just two differently-named entries. Each one gets its own routes:
 
 Both protocols converge on the same callback function signature — one `payload` argument,
 returning a single `jsonb` value shaped like [`HttpResponse`](requests-responses.md#httpresponse)
-plus its own `content`/`template_data` keys (this one call site predates, and isn't a
-declared route itself, so it keeps its own single-envelope shape rather than the two-`OUT`-column
-one) — regardless of which protocol produced it:
+plus its own `content`/`template_data` keys — regardless of which protocol produced it:
 
 ```sql
 create function auth.sso_callback(payload jsonb) returns jsonb
@@ -248,8 +246,7 @@ in every endpoint, both calls of a `stream_upload` route included. The renewed c
 
 For revocation before either of those would naturally expire it — a password change, a ban, an
 admin-triggered logout — declare a session-checking [middleware](index.md#middleware) at
-whatever prefix needs it (`/` to cover everything, including `/rel`). Unlike the old
-`check_session` mechanism, middleware runs *after* the role switch, as the request's own
+whatever prefix needs it (`/` to cover everything, including `/rel`). The middleware runs *after* the role switch, as the request's own
 already-resolved role — and terminates with `{status: 401, jwt: null}` to reject and clear
 the session in one step, rather than merely raising:
 
@@ -298,6 +295,19 @@ The `true` second argument matters: without it, `current_setting` raises an erro
 returning `null` on a connection where it was never set — worth keeping even though rel itself
 always sets it, since a direct `psql` session (superuser, migrations) never goes through this
 path at all.
+
+### The request's role
+
+rel does not store the role in a setting of its own: it switches to it with `SET LOCAL ROLE`, for every request, the anonymous role included. Inside a `SECURITY DEFINER` function, `current_user` is the function's owner, not the request's role. To read the role the request runs as from such a function, use `current_setting('role')`, which `SET ROLE` sets and which a `SECURITY DEFINER` function does not change.
+
+```sql
+create function audit.who() returns text
+language sql
+security definer
+as $$ select current_setting('role') $$;
+```
+
+It returns the request's role (the anonymous role for an unauthenticated request), or `none` on a connection where no role was switched, such as a direct `psql` session. The claims are not a substitute: `rel.jwt.claims` is `null` for an anonymous request, so it carries no role then.
 
 ## Deployment checklist
 

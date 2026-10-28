@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -75,5 +76,29 @@ func TestFromContext_FallsBackToDefault(t *testing.T) {
 	logger := FromContext(t.Context())
 	if logger == nil {
 		t.Fatal("expected a non-nil fallback logger")
+	}
+}
+
+// TestRequestMiddleware_RequestIDComesLast : request_id is the final attribute of a line, after
+// the ones the caller passed, not before them.
+func TestRequestMiddleware_RequestIDComesLast(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+
+	handler := RequestMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		FromContext(r.Context()).With("scoped", 1).Info("handling request", "path", "/x", "role", "r")
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Request-Id", "abc")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	line := strings.TrimSpace(buf.String())
+	if !strings.HasSuffix(line, " request_id=abc") {
+		t.Errorf("expected request_id=abc last, got: %s", line)
+	}
+	if strings.Index(line, "scoped=1") > strings.Index(line, "path=/x") {
+		t.Errorf("expected With attrs before the call's own, got: %s", line)
 	}
 }
