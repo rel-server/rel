@@ -3,6 +3,7 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -10,29 +11,6 @@ import (
 	"github.com/rel-server/rel/config"
 	"github.com/samber/oops"
 )
-
-// buildTo is Build, but writing to buf instead of the hardcoded os.Stdout,
-// so tests can inspect the handler's output directly.
-func buildTo(buf *bytes.Buffer, cfg config.Logging) (*slog.Logger, error) {
-	level, err := parseLevel(cfg.Level)
-	if err != nil {
-		return nil, err
-	}
-	var inner slog.Handler
-	switch cfg.Handler {
-	case "", "pretty":
-		inner = slog.NewTextHandler(buf, &slog.HandlerOptions{Level: level})
-	case "JSON":
-		inner = slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: level})
-	default:
-		return Build(cfg) // let Build produce the real error
-	}
-	filtered, err := newFilterHandler(inner, cfg.Filter, cfg.Exclude)
-	if err != nil {
-		return nil, err
-	}
-	return slog.New(filtered), nil
-}
 
 // TestFor_ResolvesDefaultLazily : a logger built via For before
 // slog.SetDefault runs must still pick up the handler installed later.
@@ -114,19 +92,19 @@ func TestError_NilIsNil(t *testing.T) {
 }
 
 func TestBuild_UnrecognizedHandlerIsError(t *testing.T) {
-	if _, err := Build(config.Logging{Handler: "xml"}); err == nil {
+	if _, err := Build(io.Discard, config.Logging{Handler: "xml"}); err == nil {
 		t.Fatalf("expected an error for an unrecognized handler")
 	}
 }
 
 func TestBuild_UnrecognizedLevelIsError(t *testing.T) {
-	if _, err := Build(config.Logging{Level: "verbose"}); err == nil {
+	if _, err := Build(io.Discard, config.Logging{Level: "verbose"}); err == nil {
 		t.Fatalf("expected an error for an unrecognized level")
 	}
 }
 
 func TestBuild_DefaultHandlerIsPretty(t *testing.T) {
-	logger, err := Build(config.Logging{})
+	logger, err := Build(io.Discard, config.Logging{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -155,12 +133,12 @@ func TestParseLevel(t *testing.T) {
 
 func TestFilter_KeyPresentMustMatch(t *testing.T) {
 	var buf bytes.Buffer
-	logger, err := buildTo(&buf, config.Logging{
+	logger, err := Build(&buf, config.Logging{
 		Handler: "JSON", Level: "info",
 		Filter: map[string]string{"component": "^db$"},
 	})
 	if err != nil {
-		t.Fatalf("buildTo: %v", err)
+		t.Fatalf("Build: %v", err)
 	}
 	logger.Info("db line", "component", "db")
 	logger.Info("http line", "component", "http")
@@ -176,12 +154,12 @@ func TestFilter_KeyPresentMustMatch(t *testing.T) {
 
 func TestFilter_KeyAbsentPasses(t *testing.T) {
 	var buf bytes.Buffer
-	logger, err := buildTo(&buf, config.Logging{
+	logger, err := Build(&buf, config.Logging{
 		Handler: "JSON", Level: "info",
 		Filter: map[string]string{"component": "^db$"},
 	})
 	if err != nil {
-		t.Fatalf("buildTo: %v", err)
+		t.Fatalf("Build: %v", err)
 	}
 	logger.Info("no component attr at all")
 
@@ -192,12 +170,12 @@ func TestFilter_KeyAbsentPasses(t *testing.T) {
 
 func TestFilter_AppliesToWithAttrs(t *testing.T) {
 	var buf bytes.Buffer
-	logger, err := buildTo(&buf, config.Logging{
+	logger, err := Build(&buf, config.Logging{
 		Handler: "JSON", Level: "info",
 		Filter: map[string]string{"component": "^db$"},
 	})
 	if err != nil {
-		t.Fatalf("buildTo: %v", err)
+		t.Fatalf("Build: %v", err)
 	}
 	logger.With("component", "http").Info("via With, should be suppressed")
 
@@ -208,12 +186,12 @@ func TestFilter_AppliesToWithAttrs(t *testing.T) {
 
 func TestExclude_SuppressesMatchingValue(t *testing.T) {
 	var buf bytes.Buffer
-	logger, err := buildTo(&buf, config.Logging{
+	logger, err := Build(&buf, config.Logging{
 		Handler: "JSON", Level: "info",
 		Exclude: map[string]string{"noisy": "true"},
 	})
 	if err != nil {
-		t.Fatalf("buildTo: %v", err)
+		t.Fatalf("Build: %v", err)
 	}
 	logger.Info("quiet line", "noisy", "false")
 	logger.Info("noisy line", "noisy", "true")
@@ -228,13 +206,13 @@ func TestExclude_SuppressesMatchingValue(t *testing.T) {
 }
 
 func TestBuild_BadFilterRegexpIsError(t *testing.T) {
-	if _, err := Build(config.Logging{Filter: map[string]string{"key": "("}}); err == nil {
+	if _, err := Build(io.Discard, config.Logging{Filter: map[string]string{"key": "("}}); err == nil {
 		t.Fatalf("expected an error for an invalid filter regexp")
 	}
 }
 
 func TestBuild_BadExcludeRegexpIsError(t *testing.T) {
-	if _, err := Build(config.Logging{Exclude: map[string]string{"key": "("}}); err == nil {
+	if _, err := Build(io.Discard, config.Logging{Exclude: map[string]string{"key": "("}}); err == nil {
 		t.Fatalf("expected an error for an invalid exclude regexp")
 	}
 }

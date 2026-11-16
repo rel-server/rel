@@ -3,7 +3,7 @@ package logging
 
 import (
 	"context"
-	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"regexp"
@@ -28,9 +28,9 @@ func Error(err error) []any {
 	return attrs
 }
 
-// Build constructs cfg's logger without installing it as the default. An unrecognized handler/level or an invalid
-// filter/exclude regexp is an error.
-func Build(cfg config.Logging) (*slog.Logger, error) {
+// Build constructs cfg's logger writing to w, without installing it as the default. An unrecognized handler/level or
+// an invalid filter/exclude regexp is an error.
+func Build(w io.Writer, cfg config.Logging) (*slog.Logger, error) {
 	level, err := parseLevel(cfg.Level)
 	if err != nil {
 		return nil, err
@@ -39,11 +39,11 @@ func Build(cfg config.Logging) (*slog.Logger, error) {
 	var inner slog.Handler
 	switch cfg.Handler {
 	case "", "pretty":
-		inner = newPrettyHandler(os.Stdout, level, colorEnabled())
+		inner = newPrettyHandler(w, level, colorEnabled())
 	case "JSON":
-		inner = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+		inner = slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level})
 	default:
-		return nil, fmt.Errorf("logging: logging.handler: unrecognized value %q (want \"pretty\" or \"JSON\")", cfg.Handler)
+		return nil, oops.With("handler", cfg.Handler).Errorf("logging: logging.handler: unrecognized value %q (want \"pretty\" or \"JSON\")", cfg.Handler)
 	}
 
 	filtered, err := newFilterHandler(inner, cfg.Filter, cfg.Exclude)
@@ -59,9 +59,9 @@ func colorEnabled() bool {
 	return os.Getenv("NO_COLOR") == ""
 }
 
-// Install builds cfg's logger, sets it as slog's default and returns it.
+// Install builds cfg's logger on stdout, sets it as slog's default and returns it.
 func Install(cfg config.Logging) (*slog.Logger, error) {
-	logger, err := Build(cfg)
+	logger, err := Build(os.Stdout, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func parseLevel(level string) (slog.Level, error) {
 	case "error":
 		return slog.LevelError, nil
 	default:
-		return 0, fmt.Errorf("logging: logging.level: unrecognized value %q (want debug/info/warn/error)", level)
+		return 0, oops.With("level", level).Errorf("logging: logging.level: unrecognized value %q (want debug/info/warn/error)", level)
 	}
 }
 
@@ -187,7 +187,7 @@ func compileAll(label string, raw map[string]string) (map[string]*regexp.Regexp,
 	for key, pattern := range raw {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			return nil, fmt.Errorf("logging: %s.%s: invalid regexp: %w", label, key, err)
+			return nil, oops.With("key", label+"."+key).Wrapf(err, "logging: %s.%s: invalid regexp", label, key)
 		}
 		out[key] = re
 	}
