@@ -1,7 +1,6 @@
 package route
 
-// Structural argument/return-type matching, method inference, and the
-// template+binary-return incompatibility check.
+// Route function argument/return-type matching and method inference.
 
 import (
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/rel-server/rel/pg"
 )
 
-// log is this package's module-tagged logger.
 var log = logging.For("route")
 
 func isJsonType(t *pg.Type) bool {
@@ -29,23 +27,19 @@ func isTextType(t *pg.Type) bool {
 	return t != nil && t.PgIdentifier.String() == "pg_catalog.text"
 }
 
-// isBytesArrayType reports whether t is exactly bytea[], matched by type
-// rather than through a domain wrapper.
+// isBytesArrayType reports whether t is exactly bytea[], not a domain over it.
 func isBytesArrayType(t *pg.Type) bool {
 	return t != nil && t.IsArray() && t.ElementType != nil && t.ElementType.PgIdentifier.String() == "pg_catalog.bytea"
 }
 
-// isMimeTypeUnderlying is docs/content/http/static-files.md ## Returning
-// binary or text content directly's mimetype-domain rule : a domain over
-// bytea or over text.
+// isMimeTypeUnderlying reports whether a mimetype domain's underlying type is allowed : bytea or text.
 func isMimeTypeUnderlying(underlying *pg.Type) bool {
 	name := underlying.PgIdentifier.String()
 	return name == "pg_catalog.bytea" || name == "pg_catalog.text"
 }
 
-// classifyShape resolves rd's function against ## Function prototype ;
-// (Route{}, false) means classification failed and a discovery-time
-// error was already logged.
+// classifyShape matches rd's function against the allowed route prototypes ; (Route{}, false) means it failed
+// and the error was already logged.
 func classifyShape(rd resolvedDeclaration) (Route, bool) {
 	fn, decl := rd.fn, rd.decl
 
@@ -187,8 +181,7 @@ func classifyShape(rd resolvedDeclaration) (Route, bool) {
 	return entry, true
 }
 
-// classifySingleReturn is ## Function prototype's single-return-value
-// mimetype table, applied to fn's own ReturnType.
+// classifySingleReturn is the single-return-value mimetype table, applied to fn's ReturnType.
 func classifySingleReturn(fn *pg.Function) (contentType string, isBinary bool, ok bool) {
 	if fn.ReturnType == nil {
 		return "", false, false
@@ -196,10 +189,8 @@ func classifySingleReturn(fn *pg.Function) (contentType string, isBinary bool, o
 	return classifySingleReturnType(fn.ReturnType)
 }
 
-// classifySingleReturnType is classifySingleReturn's type-only half, reused
-// for a full-control function's second OUT column — both resolve to the
-// exact default Content-Type ## Function prototype's table states, not
-// just whether the value is binary.
+// classifySingleReturnType is classifySingleReturn's type-only half, also used for a full-control function's
+// second OUT column.
 func classifySingleReturnType(t *pg.Type) (contentType string, isBinary bool, ok bool) {
 	if t == nil {
 		return "", false, false
@@ -235,8 +226,8 @@ func anyValueType(t *pg.Type) bool {
 	return u != nil && !pseudoTypeOids[u.PgOid] && !pseudoTypeOids[t.PgOid]
 }
 
-// resolveMethods is ## Method inference : GET by default, POST when the
-// function takes upload bytes (either shape) or declares stream_upload.
+// resolveMethods defaults to GET, or POST when the function takes upload bytes (either shape) or declares
+// stream_upload.
 func resolveMethods(raw string, acceptsBytes, acceptsBytesArray, streamUpload bool) []string {
 	if raw == "" {
 		if acceptsBytes || acceptsBytesArray || streamUpload {

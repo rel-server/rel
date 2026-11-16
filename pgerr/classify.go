@@ -1,10 +1,4 @@
-// This file implements the PG_* error code family and the tiered field
-// allow-list for Postgres error detail —
-// additive to rscode.go's RSxxx handling, not a replacement : RSStatus
-// keeps its existing signature and its three existing call sites
-// (httperr, static/static.go, server's check_session path)
-// untouched. Classify is the new, broader entry point for a write/read
-// execution error that may or may not be RSxxx.
+// The PG_* error codes and the tiered allow-list of Postgres error detail.
 package pgerr
 
 import (
@@ -14,8 +8,7 @@ import (
 	"github.com/rel-server/rel/errcode"
 )
 
-// Tier classifies how much of a Postgres error a client response may
-// contain — never what gets logged, which always gets the full *pgconn.PgError regardless.
+// Tier classifies how much of a Postgres error a client response may contain ; logs always get all of it.
 type Tier int
 
 const (
@@ -27,23 +20,16 @@ const (
 	// GENERATED ALWAYS column (428C9) : the client's own request triggered
 	// this, so Detail is always safe to send.
 	TierConstraintViolation
-	// TierRequestInvalid is a request Postgres could not make sense of (an
-	// overload it cannot pick, a parameter it cannot type) : the client's own
-	// doing like a constraint violation, so Detail is always safe to send, and its
-	// message names the signature and suggests casts, which makes it the headline.
+	// TierRequestInvalid is a request Postgres could not make sense of (an overload it cannot pick, a parameter
+	// it cannot type) : Detail is always safe to send, and the message is the headline.
 	TierRequestInvalid
 	// TierPermissionDenied is insufficient_privilege : the object name
 	// Postgres embeds is a fingerprinting risk, generic unless dev mode is on.
 	TierPermissionDenied
 )
 
-// Detail is the allow-list of `pg_error` fields a client response may carry — built
-// explicitly field-by-field from *pgconn.PgError, never from its .Error() string or the raw struct,
-// so a field added to pgconn.PgError in a future dependency bump can't
-// silently start leaking through this type. Where/InternalQuery/Position/
-// InternalPosition/File/Line/Routine are deliberately absent : they
-// describe rel's own generated SQL and Postgres's internal execution path,
-// not the client's data.
+// Detail is the allow-list of `pg_error` fields a client response may carry, copied field by field.
+// Where/InternalQuery/Position/File/Line/Routine are left out : they describe rel's generated SQL.
 type Detail struct {
 	Message        string `json:"message"`
 	Detail         string `json:"detail,omitempty"`
@@ -60,8 +46,7 @@ type classified struct {
 	tier   Tier
 }
 
-// pgClassTable maps well-known SQLSTATEs to (status, code, tier) — the
-// small fixed table of Postgres-raised codes.
+// pgClassTable maps SQLSTATEs to (status, code, tier).
 var pgClassTable = map[string]classified{
 	"23505": {409, "PG_UNIQUE_VIOLATION", TierConstraintViolation},
 	"23503": {409, "PG_FOREIGN_KEY_VIOLATION", TierConstraintViolation},
@@ -78,21 +63,14 @@ var pgClassTable = map[string]classified{
 	"42501": {403, "PG_PERMISSION_DENIED", TierPermissionDenied},
 }
 
-// IsRSCode reports whether code is RSxxx-shaped — used by a caller that
-// needs to tell an author-chosen, always-safe RSxxx message
-// (docs/content/http/index.md ## Errors are just exceptions) apart from every other code sharing
-// TierUnclassified, since Classify itself has no separate tier value for
-// that distinction (see its RSxxx branch's own doc comment).
+// IsRSCode reports whether code is RSxxx-shaped, whose message is always safe to show ; Classify gives it no
+// tier of its own.
 func IsRSCode(code errcode.Code) bool {
 	return len(code) == 5 && code[0] == 'R' && code[1] == 'S'
 }
 
-// Classify unwraps err to a *pgconn.PgError and classifies it : RSxxx takes
-// precedence over the PG_* table (an RSxxx code is a PL/pgSQL author's own
-// deliberate status pick, which must win over any generic classification of
-// the same underlying SQLSTATE-shaped code). ok is false when err doesn't
-// unwrap to a *pgconn.PgError at all — the caller's own generic
-// Internal/Unclassified fallback applies in that case.
+// Classify unwraps err to a *pgconn.PgError and classifies it ; RSxxx takes precedence over the PG_* table. ok
+// is false when err is not a *pgconn.PgError.
 func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Detail, ok bool) {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
@@ -100,8 +78,7 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 	}
 
 	if rsStatus, message, isRS := RSStatus(err); isRS {
-		// Tier isn't meaningful for RSxxx : the raised message IS the
-		// response body, unconditionally (docs/content/http/index.md ## Errors are just exceptions).
+		// Tier isn't meaningful for RSxxx : the raised message is the response body.
 		return rsStatus, errcode.Code(pgErr.Code), TierUnclassified, &Detail{Message: message}, true
 	}
 
@@ -121,13 +98,8 @@ func Classify(err error) (status int, code errcode.Code, tier Tier, detail *Deta
 	return 500, errcode.Internal, TierUnclassified, d, true
 }
 
-// AllowsDetail reports whether the tiering allows a client-facing response to include the
-// classified error's full Detail : unconditionally true for a constraint
-// violation (the client's own submitted data caused it), true for
-// permission-denied/unclassified only under dev. The single source of
-// truth for this decision — shared between /rel's structured envelope and
-// /route's plain-text body, which render an "allowed" case differently but
-// must never independently drift on which tier allows what.
+// AllowsDetail reports whether a client response may include Detail : always for a constraint violation or an
+// invalid request, under dev only for the others.
 func AllowsDetail(tier Tier, dev bool) bool {
 	switch tier {
 	case TierConstraintViolation, TierRequestInvalid:
@@ -139,10 +111,7 @@ func AllowsDetail(tier Tier, dev bool) bool {
 	}
 }
 
-// FallbackMessage is the generic, safe-by-default text used for the permission-denied and
-// unclassified tiers in production — used whenever AllowsDetail(tier, dev) is
-// false. Meaningless for TierConstraintViolation, which AllowsDetail never
-// refuses.
+// FallbackMessage is the generic text for when AllowsDetail is false.
 func FallbackMessage(tier Tier) string {
 	if tier == TierPermissionDenied {
 		return "insufficient permissions for this operation"

@@ -1,6 +1,4 @@
-// This file implements CORS : origin
-// matching, the `*` wildcard, and preflight detection — pure logic, no
-// http.Handler wiring (that's middleware.go).
+// CORS origin matching and preflight detection.
 package websec
 
 import (
@@ -14,11 +12,8 @@ func maxAgeString(seconds int) string {
 	return strconv.Itoa(seconds)
 }
 
-// IsPreflight reports whether r is a CORS preflight : a real
-// browser preflight always carries BOTH an Origin header and an
-// Access-Control-Request-Method header — an OPTIONS request missing
-// either one is NOT a preflight, and must fall through to normal route
-// dispatch instead (so a real fn__options route isn't shadowed).
+// IsPreflight reports whether r is a CORS preflight : an OPTIONS with both Origin and
+// Access-Control-Request-Method. Any other OPTIONS goes to normal dispatch, so a fn__options route still works.
 func IsPreflight(method, origin, requestMethod string) bool {
 	return method == "OPTIONS" && origin != "" && requestMethod != ""
 }
@@ -32,12 +27,9 @@ type OriginDecision struct {
 	Vary            bool   // whether Vary: Origin is also sent
 }
 
-// ResolveOrigin applies the origin matching rule : allowedOrigins == "*" (the WHOLE value, not a comma-list
-// containing it) allows every origin but never sends credentials or
-// reflects the literal Origin back ; otherwise an exact, comma-separated
-// allowlist match reflects the origin AND sends credentials AND Vary :
-// Origin (the allowed origin varies per caller). No match at all : not
-// allowed, no headers sent.
+// ResolveOrigin matches origin : an allowedOrigins of exactly "*" allows every origin, without credentials or
+// reflecting it ; otherwise an exact match in the comma-separated list reflects the origin, with credentials
+// and Vary: Origin. No match sends no header.
 func ResolveOrigin(allowedOrigins string, requestOrigin string) OriginDecision {
 	if requestOrigin == "" {
 		return OriginDecision{}
@@ -53,10 +45,7 @@ func ResolveOrigin(allowedOrigins string, requestOrigin string) OriginDecision {
 	return OriginDecision{}
 }
 
-// CorsHeaders is what ResolveOrigin's decision, plus the request's own
-// preflight-vs-actual context, translates into actual header writes —
-// shared between the preflight responder and the actual-response path
-// (the real response carries the same headers).
+// CorsHeaders is the CORS headers to write, on a preflight or an actual response.
 type CorsHeaders struct {
 	AllowOrigin      string
 	AllowCredentials bool
@@ -67,10 +56,8 @@ type CorsHeaders struct {
 	MaxAge       string
 }
 
-// BuildCorsHeaders resolves cfg against requestOrigin, filling in the
-// preflight-only fields (methods/headers/max-age) only when isPreflight —
-// an actual (non-preflight) response never sends those three, only
-// Allow-Origin/-Credentials/Vary.
+// BuildCorsHeaders resolves cfg against requestOrigin, with the preflight-only fields (methods/headers/max-age)
+// only when isPreflight.
 func BuildCorsHeaders(cfg config.HttpCors, requestOrigin string, isPreflight bool) (CorsHeaders, bool) {
 	decision := ResolveOrigin(cfg.AllowedOrigins, requestOrigin)
 	if !decision.Allowed {

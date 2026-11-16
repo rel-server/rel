@@ -14,8 +14,7 @@
 
 package pg
 
-// buildLookupIndices populates the by-schema-then-name indices, once at
-// introspection time — same convention as Relation's own byName/uniqueColumnGroups.
+// buildLookupIndices populates the by-schema-then-name indices.
 func buildLookupIndices(infos *DbInfos) {
 	infos.RelationMapBySchemaName = make(map[string]map[string]*Relation)
 	for _, r := range infos.Relations {
@@ -38,13 +37,8 @@ func buildLookupIndices(infos *DbInfos) {
 	}
 }
 
-// ResolveRelation resolves schema.name against introspection : looked up
-// directly when schema is given, or via infos.SearchPath (first schema
-// where the name exists wins — standard Postgres search_path semantics)
-// when schema is "". Returns nil, not an error, when nothing matches — the
-// caller (the query package) decides how "not found" versus "blacklisted"
-// map to their respective HTTP statuses ; pg has no config dependency and
-// performs no blacklist check itself.
+// ResolveRelation resolves schema.name, through SearchPath when schema is "". Returns nil when nothing
+// matches ; it does no blacklist check.
 func (d *DbInfos) ResolveRelation(schema, name string) *Relation {
 	if schema != "" {
 		return d.RelationMapBySchemaName[schema][name]
@@ -57,10 +51,7 @@ func (d *DbInfos) ResolveRelation(schema, name string) *Relation {
 	return nil
 }
 
-// ResolveFunctionCandidates is ResolveRelation for functions, returning the
-// full overload set for schema.name (schema resolved via search path the
-// same way when "") — disambiguating by call shape (arity, argument names)
-// is the caller's job ; this only answers "what's named this."
+// ResolveFunctionCandidates is ResolveRelation for functions, returning every overload ; the caller picks one.
 func (d *DbInfos) ResolveFunctionCandidates(schema, name string) []*Function {
 	if schema != "" {
 		return d.FunctionsBySchemaName[schema][name]

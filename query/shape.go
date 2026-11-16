@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Pass 2, shape/writability derivation step : runs after resolveExpressions
-// (expression_resolve.go) has resolved every identifier, over each node's
-// now-resolved Select only.
+// Pass 2, shape/writability derivation step : runs over each node's Select once every identifier is resolved.
 package query
 
 import (
@@ -22,42 +20,28 @@ import (
 	"github.com/samber/oops"
 )
 
-// NodeShape is pass 2's derived-shape output for one QueryNode, attached as
-// QueryNode.Shape.
+// NodeShape is pass 2's derived shape of one QueryNode.
 type NodeShape struct {
-	// Fields is node.Select's resolved Shape (see selectShape,
-	// expression_resolve.go) — own/full column expansion, child aliases, and
-	// computed (own_and/full_and/object-literal) keys uniformly, at any
-	// nesting depth. nil for a computed key whose expression isn't itself
-	// chainable (e.g. arithmetic), which is a legitimately opaque terminal,
-	// not a gap ; empty entirely if Select isn't a shape-producing
-	// expression (e.g. a bare get/get-set or a scalar expression).
+	// Fields is node.Select's resolved Shape. A key is nil when its expression is opaque (arithmetic, ...) ; the
+	// map is empty when Select produces no shape (a bare "get", a scalar).
 	Fields map[string]ResolvedField
 
-	// Extractors is only populated when WriteMode != READONLY — see
-	// writability is skipped entirely for reads.
+	// Extractors is only populated when WriteMode != READONLY.
 	Extractors []Extractor
 
-	// Writable is this node's own identity-target columns (PK, or
-	// on_conflict's columns) all coming out writable by the exactly-once/
-	// coalescing-only rule, AND (propagated) every child whose own
-	// WriteMode isn't READONLY is itself Writable. A node whose own
-	// WriteMode is READONLY is trivially Writable (nothing to check).
+	// Writable means every identity column (primary key or on_conflict's) is selected exactly once and "clean"
+	// (see writeAccum), and every non-READONLY child is Writable. A READONLY node is always Writable.
 	Writable bool
 }
 
-// Extractor records where one writable column's value lives within a data
-// payload shaped like this node's select : Path is the physical column (or
-// composite sub-field, independently writable per this session's decision),
-// JsonPath is the sequence of select-output keys leading to it.
+// Extractor records where one writable column (or composite sub-field) sits in a payload shaped like the node's
+// select : JsonPath is the select-output keys leading to it.
 type Extractor struct {
 	Path     ColumnPath
 	JsonPath []string
 }
 
-// deriveShapes computes NodeShape for root and its entire subtree,
-// bottom-up (children before parent — tree-level writability propagation
-// needs each child's Shape already computed).
+// deriveShapes computes NodeShape for root and its subtree, children first since writability propagates up.
 func (ctx *ResolveContext) deriveShapes(root *QueryNode) error {
 	for _, c := range root.OutgoingNodes {
 		if err := ctx.deriveShapes(c); err != nil {
@@ -130,8 +114,7 @@ func identityIsWritable(node *QueryNode, accum *writeAccum) bool {
 	if node.Relation == nil {
 		return false
 	}
-	// A function-rooted node is never writable ;
-	// checked before PrimaryKey/OnConflict so its underlying table can't leak through.
+	// A function-rooted node is never writable, checked first so its underlying table can't leak through.
 	if node.IsFunction() {
 		return false
 	}
@@ -207,8 +190,7 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 		}
 
 	case *GetExpr:
-		// excluded entirely — read-only, never a write occurrence, and its
-		// DefaultValue is not walked either.
+		// Read-only : not a write occurrence, and its DefaultValue is not walked.
 
 	case CoalesceExpr:
 		for _, a := range v.Args {
@@ -221,8 +203,7 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 			walkSelectForWritability(v.Left, node, jsonPath, coalesceOnly, accum)
 			walkSelectForWritability(v.Right, node, jsonPath, coalesceOnly, accum)
 		case FoldDot:
-			// Record only Right ; cp.Node == node excludes a hop into a
-			// child's own column, and an index-hopping chain (see TestResolveExpressions_ArrayIndexThenDot).
+			// Record only Right, and neither a hop into a child's column nor a chain through an index.
 			if id, ok := v.Right.(*Identifier); ok && !chainHopsThroughIndex(v) {
 				if cp, ok := id.Resolved.(ColumnPath); ok && cp.Node == node {
 					accum.record(cp, jsonPath, coalesceOnly)
@@ -305,8 +286,7 @@ func walkSelectForWritability(expr Expression, node *QueryNode, jsonPath []strin
 		walkSelectForWritability(v.Array, node, jsonPath, false, accum)
 
 	default:
-		// literals, Star, ParamExpr, DefaultKeyword, *QueryNode-typed
-		// embeds reached indirectly, etc. : nothing to record.
+		// Nothing to record.
 	}
 }
 

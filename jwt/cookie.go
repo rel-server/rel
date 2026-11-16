@@ -6,8 +6,7 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// sameSite maps jwt.samesite's string form to net/http's enum ; an
-// unrecognized value falls back to Lax (cfg.Jwt.SameSite is validated once at startup).
+// sameSite maps jwt.samesite to net/http's enum ; an unknown value falls back to Lax.
 func sameSite(s string) http.SameSite {
 	switch s {
 	case "Strict":
@@ -19,10 +18,8 @@ func sameSite(s string) http.SameSite {
 	}
 }
 
-// CookieValue builds the Set-Cookie for a (freshly minted or renewed)
-// session : Max-Age always mirrors the token's own exp-iat, per Lifecycle's
-// "The JWT cookie's Max-Age always mirrors the token's own exp - iat — it
-// is never set independently." token is claims already Sign-ed.
+// CookieValue builds the Set-Cookie for a minted or renewed session ; Max-Age is always the token's exp-iat.
+// token is claims, signed.
 func CookieValue(cfg config.Jwt, token string, claims Claims, samesiteOverride string) *http.Cookie {
 	ss := cfg.SameSite
 	if samesiteOverride != "" {
@@ -40,8 +37,8 @@ func CookieValue(cfg config.Jwt, token string, claims Claims, samesiteOverride s
 	}
 }
 
-// ClearCookie is logout (RelHttpResponse.jwt: null) or a check_session
-// rejection — an immediately-expiring cookie, forcing re-authentication.
+// ClearCookie is an immediately expiring cookie, for logout (RelHttpResponse.jwt: null) or a check_session
+// rejection.
 func ClearCookie(cfg config.Jwt) *http.Cookie {
 	return &http.Cookie{
 		Name:     cfg.CookieName,

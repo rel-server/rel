@@ -21,10 +21,8 @@ import (
 	"github.com/samber/oops"
 )
 
-// FillSearchPath introspects the connecting role's resolved search path
-// into infos.SearchPath, in lookup order. Live-introspected, not static
-// config : only the base
-// connection's actual search path, never a switched-to role's own.
+// FillSearchPath fills infos.SearchPath with the connecting role's resolved search path, in lookup order ;
+// never a switched-to role's.
 func FillSearchPath(infos *DbInfos, conn *pgx.Conn) error {
 	row := conn.QueryRow(context.Background(), INFO_QUERY_SEARCH_PATH)
 	if err := row.Scan(&infos.SearchPath); err != nil {
@@ -33,8 +31,5 @@ func FillSearchPath(infos *DbInfos, conn *pgx.Conn) error {
 	return nil
 }
 
-// current_schemas(true) : the already-$user-expanded, existence-filtered
-// search path, including the implicit trailing pg_catalog — exactly the
-// order an unqualified-name lookup needs, without hand-parsing the raw
-// search_path GUC string or separately filtering nonexistent schemas.
+// current_schemas(true) includes the implicit pg_catalog.
 var INFO_QUERY_SEARCH_PATH = /* sql */ `SELECT current_schemas(true) AS search_path`

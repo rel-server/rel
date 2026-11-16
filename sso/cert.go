@@ -1,6 +1,4 @@
-// This file loads the deployment's SAML SP keypair if one exists at the
-// configured paths, otherwise generates and persists a self-signed one — silent reuse on
-// every later boot, loud WARN only the first time a keypair is generated.
+// Loads the SAML SP keypair from the configured paths, or generates and persists a self-signed one (warned once).
 package sso
 
 import (
@@ -19,22 +17,15 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// spKeyPair is the deployment's own SAML SP identity : Key signs outgoing
-// AuthnRequests (force_signed_requests) and
-// Certificate is what's published at /auth/saml/{name}/metadata for an IdP
-// administrator to trust.
+// spKeyPair is the SAML SP identity : Key signs AuthnRequests, Certificate is published in the metadata.
 type spKeyPair struct {
 	Key         *rsa.PrivateKey
 	Certificate *x509.Certificate
 }
 
-// LoadOrGenerateSPKeyPair loads or creates the SP keypair : try every
-// (certPathList, keyPathList) candidate pair, in order, for an existing readable keypair ; generate one if none was found,
-// persisting it to the first candidate pair whose directory already
-// exists (rel never creates directories — see jwt.secret's own doc
-// comment for why) ; fall back to an ephemeral, unpersisted keypair (loudly
-// warned, same spirit as $GEN$'s own pass 3) if no candidate directory
-// exists at all. hostnames populates the generated certificate's DNSNames.
+// LoadOrGenerateSPKeyPair loads the first readable (certPathList, keyPathList) candidate pair, or generates
+// one and persists it to the first pair whose directory exists (rel never creates directories). With no such
+// directory the keypair is ephemeral, with a warning. hostnames fills the generated certificate's DNSNames.
 func LoadOrGenerateSPKeyPair(certPathList, keyPathList string, hostnames []string, logger *slog.Logger) (*spKeyPair, error) {
 	certCandidates := config.SplitPathList(certPathList)
 	keyCandidates := config.SplitPathList(keyPathList)
@@ -68,9 +59,7 @@ func LoadOrGenerateSPKeyPair(certPathList, keyPathList string, hostnames []strin
 	return kp, nil
 }
 
-// tryLoadExistingKeyPair tries each (cert, key) candidate pair BY INDEX —
-// never cert candidate i with key candidate j — since they're always
-// written together as a pair in the first place.
+// tryLoadExistingKeyPair tries each (cert, key) candidate pair by index, never cert i with key j.
 func tryLoadExistingKeyPair(certCandidates, keyCandidates []string) (*spKeyPair, bool) {
 	n := min(len(certCandidates), len(keyCandidates))
 	for i := 0; i < n; i++ {
@@ -111,10 +100,7 @@ func parseKeyPair(certPEM, keyPEM []byte) (*spKeyPair, error) {
 	return &spKeyPair{Key: key, Certificate: cert}, nil
 }
 
-// generateSelfSignedKeyPair mirrors legacy's own generation shape (RSA
-// 2048, self-signed, 2-year validity) — PEM-encoded return values are what
-// get persisted to disk, the parsed *spKeyPair is what the caller uses
-// immediately without a round trip back through PEM.
+// generateSelfSignedKeyPair makes an RSA 2048, 2-year keypair, returned both parsed and as PEM to persist.
 func generateSelfSignedKeyPair(hostnames []string) (*spKeyPair, []byte, []byte, error) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -148,9 +134,7 @@ func generateSelfSignedKeyPair(hostnames []string) (*spKeyPair, []byte, []byte, 
 	return &spKeyPair{Key: priv, Certificate: cert}, certPEM, keyPEM, nil
 }
 
-// logWarnf falls back to slog.Default() when logger is nil (mux-building
-// call sites that haven't threaded a *slog.Logger through, mirroring
-// route/registry.go's own logging.For(...) fallback style).
+// logWarnf falls back to slog.Default() when logger is nil.
 func logWarnf(logger *slog.Logger, format string, args ...any) {
 	if logger == nil {
 		logger = slog.Default()

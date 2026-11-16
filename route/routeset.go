@@ -1,9 +1,6 @@
 package route
 
-// Declaration-based route discovery : BuildRegistry resolves every
-// route.<schema>.<function> config entry and every "route" comment
-// declaration to its actual *pg.Function, classifies its argument/return
-// shape structurally, and sorts/excludes the result.
+// Route discovery from config and comment declarations.
 
 import (
 	"context"
@@ -22,40 +19,28 @@ import (
 type Route struct {
 	Function *pg.Function
 
-	// Path is exactly as declared, chi syntax. AnonPath replaces every
-	// "{name}"/"{name:regexp}" placeholder with "{}" — the sort/collision/
-	// prefix-matching key used by both route
-	// collision checks and middleware matching.
+	// Path is exactly as declared, chi syntax. AnonPath replaces every placeholder with "{}" ; it is the key for
+	// sorting, collisions and middleware matching.
 	Path     string
 	AnonPath string
 
-	// Methods is the resolved, uppercased, deduplicated method set — never
-	// empty (## Method inference always produces at least one).
+	// Methods is the resolved, uppercased, deduplicated method set ; never empty.
 	Methods []string
 
-	// HasRequestArg is true when the function's first argument is
-	// json/jsonb (it always receives the request object) — false only for
-	// a genuinely no-argument function.
+	// HasRequestArg is true when the function's first argument is json/jsonb, which receives the request object.
 	HasRequestArg bool
 
-	// PathArgs is the function's own named `text` IN arguments, in
-	// declared order — each must appear as a placeholder name in Path (see
-	// classifyShape).
+	// PathArgs is the function's named `text` IN arguments, in declared order ; each is a placeholder name in Path.
 	PathArgs []string
 
-	// AcceptsBytes/AcceptsBytesArray record which second-argument shape (if
-	// any) the function declared — mutually exclusive, both false for a
-	// function taking no upload bytes at all.
+	// AcceptsBytes/AcceptsBytesArray record which upload bytes argument (if any) the function takes ; mutually
+	// exclusive.
 	AcceptsBytes      bool
 	AcceptsBytesArray bool
 
-	// ContentType is the default Content-Type ## Function prototype's
-	// single-return-value table states, resolved from either the plain
-	// single-return type (FullControl false) or the two-OUT shape's second
-	// column (FullControl true, where the envelope's own "content_type"
-	// can still override it at response time). ContentIsBinary additionally
-	// flags a plain bytea/mimetype-domain-over-bytea return for
-	// ## Templates' incompatibility check.
+	// ContentType is the default Content-Type, from the single return type or, when FullControl, the second OUT
+	// column (whose response "content_type" can still override it). ContentIsBinary flags a bytea-based return,
+	// which cannot be used with a template.
 	ContentType     string
 	ContentIsBinary bool
 
@@ -64,42 +49,31 @@ type Route struct {
 	// what the request Accepts.
 	ContentNative bool
 
-	// AnonymousAuthorized reports whether the anonymous role could reach
-	// this route/middleware at registry-build time, via an EXPLICIT grant —
-	// see applyAnonymousAuthorization. Meaningless when anonymous access is
-	// disabled (db.AnonymousRoleExists false).
+	// AnonymousAuthorized reports whether the anonymous role has an explicit grant on this function, as of
+	// registry build. Always false when there is no anonymous role.
 	AnonymousAuthorized bool
 
-	// FullControl is true for the two-trailing-OUT-column
-	// "..., OUT JSON/JSONB, OUT some_other_type) returns record" shape —
-	// see ## Function prototype and ## Middleware (middleware functions are
-	// always this shape).
+	// FullControl is true for the "..., OUT json/jsonb, OUT some_type) returns record" shape ; middleware always
+	// has it.
 	FullControl bool
 
 	Template     string
 	StreamUpload bool
 	IsMiddleware bool
 
-	// Source records where this entry's declaration came from, purely for
-	// the config-overrides-comment-with-warning log line.
+	// Source records where this entry's declaration came from.
 	Source string // "config" or "comment"
 }
 
-// Registry is BuildRegistry's full result : Routes sorted longest-
-// AnonPath-first (then alphabetically by schema.function to break a tie),
-// Middleware sorted shortest-AnonPath-first then alphabetically — see
-// ## How it works and ## Middleware.
+// Registry holds Routes sorted longest AnonPath first and Middleware shortest AnonPath first, ties broken by
+// schema.function.
 type Registry struct {
 	Routes     []Route
 	Middleware []Route
 }
 
-// MiddlewareChain returns every s.Middleware entry whose prefix applies to
-// targetPath — a declared route's own AnonPath (a precomputed-at-dispatch-
-// time chain) or a concrete request path for /rel or the static fallback,
-// which have no declared route of their own. Already shortest-prefix-first,
-// then alphabetical (s.Middleware's own sort order), since filtering
-// preserves order.
+// MiddlewareChain returns, shortest prefix first, the middleware whose prefix matches targetPath : a declared
+// route's AnonPath, or a concrete request path for /rel or the static fallback.
 func (s *Registry) MiddlewareChain(targetPath string) []Route {
 	var chain []Route
 	for _, mw := range s.Middleware {
@@ -110,14 +84,8 @@ func (s *Registry) MiddlewareChain(targetPath string) []Route {
 	return chain
 }
 
-// middlewarePrefixMatches implements ## Middleware's "prefix match ...
-// segment by segment" rule : mwAnonPath's segments must all match
-// targetPath's corresponding leading segments, where a "{}" segment
-// matches any single segment (targetPath's own placeholder segments are
-// already anonymized to "{}" too when it's a declared route's AnonPath ;
-// for a concrete request path — /rel or a static file — targetPath carries
-// real segment values instead, which a middleware's own "{}" placeholder
-// still matches).
+// middlewarePrefixMatches matches mwAnonPath against targetPath's leading segments, a "{}" segment matching any
+// one segment.
 func middlewarePrefixMatches(mwAnonPath, targetPath string) bool {
 	if mwAnonPath == "/" {
 		return true
@@ -138,9 +106,7 @@ func middlewarePrefixMatches(mwAnonPath, targetPath string) bool {
 	return true
 }
 
-// find is a test helper — production dispatch (Stage 2) matches a real
-// request path against Path/AnonPath through chi itself, not by exact
-// schema/function lookup.
+// find is a test helper ; dispatch goes through chi.
 func (s *Registry) find(schema, function string) (Route, bool) {
 	for _, e := range s.Routes {
 		if e.Function.Identifier.Schema == schema && e.Function.Identifier.Name == function {
@@ -155,9 +121,7 @@ func (s *Registry) find(schema, function string) (Route, bool) {
 	return Route{}, false
 }
 
-// reservedPrefixes lists the "path under a reserved prefix" rule : rel's own endpoints, always excluded from user
-// declaration regardless of source, at a higher priority than the
-// ordinary collision rule below.
+// reservedPrefixes are rel's own endpoints, which no declared route may use.
 var reservedPrefixes = []string{"/auth", "/rel"}
 
 func isReservedPath(anonPath string) bool {
@@ -169,13 +133,10 @@ func isReservedPath(anonPath string) bool {
 	return false
 }
 
-// placeholderPattern extracts a chi path placeholder's name, ignoring any
-// ":regexp" constraint — "{id:[0-9]+}" -> "id".
+// placeholderPattern extracts a chi path placeholder's name, ignoring any ":regexp" : "{id:[0-9]+}" -> "id".
 var placeholderPattern = regexp.MustCompile(`\{([^:}]+)(?::[^}]*)?\}`)
 
-// anonymizePath is ## How it works' "anonymizing" rule : every
-// "{name}"/"{name:regexp}" placeholder becomes the literal "{}" sort/
-// prefix-matching key.
+// anonymizePath replaces every placeholder with "{}".
 func anonymizePath(path string) string {
 	return placeholderPattern.ReplaceAllString(path, "{}")
 }
@@ -199,17 +160,12 @@ type resolvedDeclaration struct {
 	src  string
 }
 
-// BuildRegistry resolves every declared route/middleware — config
-// (route.<schema>.<function>.*) and database comment alike — to its
-// function, classifies its shape, and applies ## Method inference,
-// ## How it works' sorting/collision/reserved-path rules, and
-// ## Templates' template+binary incompatibility check.
+// BuildRegistry resolves every route and middleware declared in config or a function comment. An invalid
+// declaration only disables its function, with a logged error ; the returned error is a database failure.
 func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	byKey := map[string]resolvedDeclaration{}
 
-	// Comment-declared, first — config overrides these below, per
-	// ## In the configuration : "Routes in configuration override routes
-	// defined in the database with a warning."
+	// Comment declarations first ; config ones override them with a warning.
 	fnByKey := map[string]*pg.Function{}
 	for i := range db.Functions {
 		fn := db.Functions[i]
@@ -302,13 +258,8 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	return set, nil
 }
 
-// applyAnonymousAuthorization sets each entry's AnonymousAuthorized (an
-// EXPLICIT grant only — Postgres's own CREATE FUNCTION default EXECUTE-to-
-// PUBLIC never counts, so a route nobody explicitly decided the anonymous
-// role should reach isn't credited just because PUBLIC can call it) and
-// warns for every PUBLIC-reachable route/middleware. Ported from the old
-// domain-based registry's own version of this query — same aclexplode-
-// based check, walking Registry's entries instead.
+// applyAnonymousAuthorization sets each entry's AnonymousAuthorized, counting only an explicit grant (not the
+// default EXECUTE to PUBLIC), and warns for every function PUBLIC can execute.
 func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, set *Registry) error {
 	var oids []int
 	for _, e := range set.Routes {
@@ -399,9 +350,8 @@ func routeSortKey(e Route) string {
 	return e.Function.Identifier.Schema + "." + e.Function.Identifier.Name
 }
 
-// excludeCollisions implements ## How it works' "same simplified name AND
-// an overlapping resolved method -> warning, neither enabled" rule.
-// Disjoint methods at the same AnonPath coexist, dispatched by method.
+// excludeCollisions disables both routes of any pair with the same AnonPath and an overlapping method. Disjoint
+// methods at the same AnonPath coexist.
 func excludeCollisions(routes []Route) []Route {
 	byAnonPath := map[string][]int{}
 	for i, e := range routes {

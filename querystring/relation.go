@@ -30,7 +30,7 @@ const (
 	kindPlainString   fieldKind = iota // relation, function, schema, alias
 	kindOnMap                          // on : {local_column: parent_column}
 	kindExpr                           // where : one full `expr`
-	kindSelect                         // select : own/full/comma-list, see compileSelect
+	kindSelect                         // select : see compileSelect
 	kindCommaExprList                  // distinct_on : comma list of `expr`
 	kindOrderByList                    // order_by : comma list, each optionally "-"-prefixed
 	kindInt                            // limit, offset
@@ -63,8 +63,7 @@ var relationFieldKinds = map[string]fieldKind{
 	"arguments":      kindArguments,
 }
 
-// getOnlyForbiddenFields lists the fields rejected
-// anywhere in the decoded tree (root or any depth of join) on GET /rel.
+// getOnlyForbiddenFields are rejected anywhere in the tree, joins included, on GET /rel.
 var getOnlyForbiddenFields = map[string]bool{
 	"write_mode":     true,
 	"on_conflict":    true,
@@ -72,12 +71,7 @@ var getOnlyForbiddenFields = map[string]bool{
 	"update_columns": true,
 }
 
-// DecodeRelation decodes a GET /rel query string end to end :
-// raw query string -> structural decode -> per-field compile (expression
-// grammar for where/select/order_by/distinct_on/arguments, own/full for
-// select, dot-path recursion for join) -> the read-only/single-relation
-// restriction check -> a plain Go value tree ready for sonic.Marshal into
-// bytes query.ParseQuery accepts unchanged.
+// DecodeRelation decodes a GET /rel query string into query JSON for query.ParseQuery, rejecting write fields.
 func DecodeRelation(raw string) ([]byte, error) {
 	tree, err := DecodeStructural(raw)
 	if err != nil {
@@ -97,12 +91,8 @@ func DecodeRelation(raw string) ([]byte, error) {
 	return out, nil
 }
 
-// DecodeQueryField implements /route's `query` field : the structural layer
-// only (no filter expression grammar involvement), generalized to any shape, not scoped
-// to Relation's fixed keys. Returns nil (encodes as JSON null) for an empty
-// raw query string, matching "no query string at all" rather than "an empty
-// object" — a route function distinguishing the two is a reasonable thing
-// to want and costs nothing to preserve.
+// DecodeQueryField decodes a route request's `query` field through the structural layer only, any keys allowed.
+// Returns nil, not an empty map, for an empty query string.
 func DecodeQueryField(raw string) (any, error) {
 	trimmed := strings.TrimPrefix(raw, "?")
 	if trimmed == "" {
@@ -115,8 +105,7 @@ func DecodeQueryField(raw string) (any, error) {
 	return tree, nil
 }
 
-// compileRelation walks one structurally-decoded node (per DecodeStructural)
-// into query.ts's Relation JSON shape.
+// compileRelation compiles one structurally decoded node into a Relation ; an unknown key is an error.
 func compileRelation(node map[string]any) (map[string]any, error) {
 	out := map[string]any{}
 	for key, raw := range node {
@@ -253,8 +242,7 @@ func compileField(kind fieldKind, key string, raw any) (any, error) {
 	}
 }
 
-// asString requires raw to be a single (non-repeated) string value — every
-// Relation field this package compiles besides on/join/arguments/comma-lists.
+// asString requires raw to be a single string, not a repeated key.
 func asString(raw any) (string, error) {
 	s, ok := raw.(string)
 	if !ok {
@@ -286,8 +274,7 @@ func stringSlice(items []any) ([]string, error) {
 	return out, nil
 }
 
-// maxArgumentIndex bounds "arguments.<n>" against an unauthenticated GET
-// forcing a huge allocation — a sanity cap, not a functional limit.
+// maxArgumentIndex bounds "arguments.<n>" so a GET cannot force a huge allocation.
 const maxArgumentIndex = 4096
 
 // compileArguments : all-digit sibling keys compile to the positional
@@ -354,8 +341,7 @@ func isAllDigits(s string) bool {
 	return true
 }
 
-// parseArgumentToken parses one `arguments.*` value as a bare atom, never
-// a call — "arguments are values, not conditions" (spec).
+// parseArgumentToken parses one `arguments.*` value as an atom, never a call.
 func parseArgumentToken(s string) (any, error) {
 	p := newExprParser(s)
 	p.skipSpace()
@@ -390,8 +376,7 @@ func parseArgumentToken(s string) (any, error) {
 			if p.i < len(p.s) && p.s[p.i] == '(' {
 				return nil, oops.Errorf("argument values must be an identifier or a literal, not a call : %q", s)
 			}
-			// A bare identifier is now a [".", name] scope-lookup, not a
-			// literal — see expr.go's parseTopValue/identArg for the same flip.
+			// A bare identifier is a [".", name] lookup, not a literal.
 			v = []any{".", ident}
 		}
 	default:

@@ -1,9 +1,5 @@
-// This file implements stream_upload : the same
-// full-control function is called twice — once with request.upload
-// metadata-only (no bytes received yet, deciding the destination), once
-// with request.upload.size filled in (bytes already landed on disk). The
-// actual disk-streaming/atomic-swap mechanics are unchanged from the old
-// __prepare/mandatory-pair mechanism they replace.
+// stream_upload : the same full-control function is called twice, first with only the upload's metadata to decide
+// the destination, then with request.upload.size once the bytes are on disk.
 package route
 
 import (
@@ -32,17 +28,13 @@ import (
 	"github.com/rel-server/rel/static"
 )
 
-// requestUploadPayload is HttpRequest.upload's shape on the way IN to a
-// stream_upload function : only Part/Size are ever meaningful here — the
-// destination fields (path/mkdir/overwrite/max_size) are the function's own
-// decision, read back from its RESPONSE instead (responseUploadPayload).
+// requestUploadPayload is request.upload as sent to a stream_upload function.
 type requestUploadPayload struct {
 	Part json.RawMessage `json:"part,omitempty"`
 	Size *int64          `json:"size,omitempty"`
 }
 
-// responseUploadPayload is HttpResponse.upload's shape on the way OUT of a
-// stream_upload function's first call : its destination decision.
+// responseUploadPayload is the first call's response upload : its destination decision.
 type responseUploadPayload struct {
 	Path      *string `json:"path"`
 	Mkdir     bool    `json:"mkdir"`
@@ -50,23 +42,19 @@ type responseUploadPayload struct {
 	MaxSize   *int64  `json:"max_size"`
 }
 
-// firstCallEnvelope is only ever consulted for its "upload" field ; any
-// other field a first-call response sets (cookies, say) is meaningless and
-// ignored, since the first call's own response is never written to the
-// client — only the second call's is.
+// firstCallEnvelope reads only "upload" : the first call's response is never sent, so its other fields are ignored.
 type firstCallEnvelope struct {
 	Upload responseUploadPayload `json:"upload"`
 }
 
-// handleUploadRoute implements ## `stream_upload`'s two-call flow.
+// handleUploadRoute runs stream_upload's two calls.
 func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, route Route, staticSrv *static.Server, templates *TemplateSet, sess *reqauth.Session) {
 	ctx := r.Context()
 	rlog := logging.FromContext(ctx).With("module", "route")
 
 	staticInfo := staticInfoForRequest(staticSrv, r)
 
-	// Step : a JSON/text/form body is a 415, checked before either call
-	// runs, from Content-Type alone.
+	// A JSON/text/form body is a 415, checked from Content-Type before either call.
 	contentTypeHeader := r.Header.Get("Content-Type")
 	mt := mediaTypeOf(contentTypeHeader)
 	if mt == "application/json" || strings.HasSuffix(mt, "+json") ||
@@ -88,8 +76,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		boundary = params["boundary"]
 	}
 
-	// Read ONLY the incoming upload's headers — part is built without
-	// touching a single byte of the actual payload.
+	// Read only the upload's headers ; its bytes stay unread until the first call decides where they go.
 	partJSON := json.RawMessage("null")
 	hasUpload := false
 	var mr *multipart.Reader
@@ -112,8 +99,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 			}
 		}
 	} else if r.ContentLength != 0 {
-		// A missing Content-Type is treated as "might have a body" (like
-		// -1/chunked), not as "nothing to read" — only 0 is excluded.
+		// Only an explicit zero Content-Length means no upload ; unknown (-1, chunked) might have one.
 		hasUpload = true
 		if b, merr := sonic.Marshal(synthesizedPseudoPart(r, contentTypeHeader)); merr == nil {
 			partJSON = b
@@ -125,8 +111,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "internal error", err)
 		return
 	}
-	// buildFirstReq re-derives the first call's request JSON for a given
-	// request.context — nil unless middleware ran and set one.
+	// buildFirstReq derives the first call's request JSON with a given request.context, which only middleware sets.
 	buildFirstReq := func(reqContext json.RawMessage) ([]byte, error) {
 		return buildRelHttpRequest(r, json.RawMessage("null"), sess.Verified, sess.Claims, staticInfo, nil, reqContext, firstUpload, "")
 	}
@@ -138,11 +123,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	r = r.WithContext(withRequestJSON(ctx, reqJSON1))
 	ctx = r.Context()
 
-	// ## Middleware : "for a stream_upload route, the middleware chain runs
-	// once, ahead of the first call only" — same transaction as the first
-	// call itself, after the role switch, same as any other middleware.
-	// Renew (Lifecycle step 4) waits until after the middleware chain below
-	// decides not to reject — see route/handler.go's identical note.
+	// Middleware runs once, before the first call only, in the first call's transaction.
 	tx1, err := sess.Open(ctx, db.Pool)
 	if err != nil {
 		httperr.WritePlainError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
@@ -205,11 +186,9 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		writeDir = staticSrv.UploadDir
 	}
 
-	// Traversal validation/409 check/mkdir are skipped entirely when
-	// !hasUpload — the first call's path/mkdir/overwrite are never acted on.
+	// Without an upload, the first call's path/mkdir/overwrite are ignored.
 	var finalPath, tempPath, overwrite string
-	// One unconditional defer rather than repeating cleanup at every error
-	// return ; a no-op once swapUploadIntoPlace has already moved tempPath.
+	// A no-op once swapUploadIntoPlace has moved tempPath.
 	defer func() {
 		if tempPath != "" {
 			_ = os.Remove(tempPath)
@@ -273,10 +252,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 		if isMultipart {
 			src = currentPart
 		}
-		// The first call may tighten the upload cap further (e.g. a
-		// per-user quota) via Upload.max_size — it can only lower
-		// cfg.Http.Upload.MaxSize, never raise it, since limitedBody is
-		// already bounded to that ceiling upstream.
+		// The first call's max_size can lower http.upload.max_size, never raise it.
 		if upload.MaxSize != nil && *upload.MaxSize >= 0 && *upload.MaxSize < int64(cfg.Http.Upload.MaxSize) {
 			src = http.MaxBytesReader(w, src, *upload.MaxSize)
 		}
@@ -312,11 +288,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	secondUploadPayload := requestUploadPayload{Part: partJSON}
 	if hasUpload {
 		secondUploadPayload.Size = &size
-		// ## Content-type sniffing : the only place stream_upload's own
-		// Part.sniffed_content_type gets set — the first call has no bytes
-		// yet, so it never sniffs at all ; here the bytes already landed on
-		// disk, so sniff from the temp file's head rather than re-reading
-		// the (already-consumed) request body.
+		// Only the second call gets sniffed_content_type, read from the temp file's head.
 		if sniffed, ok := sniffFileHead(tempPath); ok {
 			secondUploadPayload.Part = withSniffedContentType(partJSON, sniffed)
 		}
@@ -370,11 +342,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	writeFullControlResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, secondEnvelope, secondContent, templates, staticSrv)
 }
 
-// sniffFileHead reads enough of path's head for net/http.DetectContentType
-// (512 bytes is its own documented ceiling — more is never useful) ; ok is
-// false for an empty file (nothing to sniff) or a read failure, in which
-// case the caller leaves Part.sniffed_content_type absent rather than
-// guessing.
+// sniffFileHead detects path's content type from its head ; ok is false for an empty file or a read failure.
 func sniffFileHead(path string) (sniffed string, ok bool) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -389,11 +357,7 @@ func sniffFileHead(path string) (sniffed string, ok bool) {
 	return http.DetectContentType(buf[:n]), true
 }
 
-// withSniffedContentType decodes partJSON, sets SniffedContentType, and
-// re-marshals — partJSON was already built once (requestPartFrom/
-// synthesizedPseudoPart) before any bytes were available, so sniffing
-// patches it in after the fact rather than threading sniffed-ness through
-// the earlier construction.
+// withSniffedContentType sets sniffed_content_type on an already-encoded part.
 func withSniffedContentType(partJSON json.RawMessage, sniffed string) json.RawMessage {
 	var part requestPart
 	if err := sonic.Unmarshal(partJSON, &part); err != nil {
@@ -425,8 +389,7 @@ func resolveUnderDir(dir, rel string) (string, bool) {
 	return full, true
 }
 
-// randomToken names a temp/backup file's suffix ; always dot-prefixed by
-// the caller, so ## Static files' dotfile rule keeps it unservable mid-stream.
+// randomToken names a temp/backup file's suffix ; callers dot-prefix it so the file is never served mid-stream.
 func randomToken() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)

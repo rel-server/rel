@@ -1,7 +1,4 @@
-// Pass 3, expression compilation : turns one already-resolved Expression
-// (query/expression.go, resolved by pass 2 — see expression_resolve.go) into
-// SQL text via the shared sqlCompiler (sql.go). One case per Expression
-// type, mirroring resolveExpr's own switch in expression_resolve.go.
+// Pass 3, expression compilation : turns one resolved Expression into SQL text.
 package query
 
 import (
@@ -14,10 +11,8 @@ import (
 	"github.com/samber/oops"
 )
 
-// errNoAlias reports a node the compiler needed an alias for before it
-// assigned one — an ordering bug in the compiler itself, never a
-// user-facing input error. what, if non-empty, names what was being
-// reached off that node (e.g. `column "foo"`).
+// errNoAlias reports a node needed before its alias was assigned : a compiler ordering bug, never a user error.
+// what, if non-empty, names what was reached off it (e.g. `column "foo"`).
 func errNoAlias(what string) error {
 	if what == "" {
 		return oops.Errorf("sql: no alias assigned for node — compiled out of order")
@@ -25,10 +20,8 @@ func errNoAlias(what string) error {
 	return oops.Errorf("sql: no alias assigned for node owning %s — compiled out of order", what)
 }
 
-// errToManyRelation reports child being reached somewhere only a to-one
-// relation is valid ; verbPhrase completes "is a to-many relation — "
-// with the specific construct and reason (each call site's wording
-// differs slightly with what it was trying to do with child).
+// errToManyRelation reports child reached where only a to-one relation is valid ; verbPhrase completes
+// "is a to-many relation — ".
 func errToManyRelation(child *QueryNode, verbPhrase string) error {
 	return oops.With("relation", child.OuterAlias).Errorf(
 		"sql: %q is a to-many relation — %s (aggregate it with \"agg\" instead)",
@@ -74,8 +67,7 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 		return nil
 
 	case DefaultKeyword:
-		// Only ever reached via compileColumnRead ; reaching this generic
-		// case is a codegen bug, not a user-facing error.
+		// Only valid through compileColumnRead ; reaching it here is a compiler bug.
 		return oops.Errorf("sql: DefaultKeyword reached outside a get/col default position")
 
 	case *Identifier:
@@ -183,13 +175,12 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 		return c.compileColumnRead(v.ResolvedColumn, n, v.DefaultValue)
 
 	case *SetExpr:
-		// Write-only : never fetched in query mode (query.ts's own note).
+		// Write-only : never fetched on read.
 		c.w.Write("null")
 		return nil
 
 	case ParamExpr:
-		// A named placeholder resolved later ; cast defaults to jsonb, not
-		// text.
+		// A named placeholder resolved later ; cast defaults to jsonb, not text.
 		c.w.BindParam(v.Name)
 		cast := v.Cast
 		if cast == "" {
@@ -232,11 +223,7 @@ func (c *sqlCompiler) compileResolvedField(field ResolvedField, n *QueryNode) er
 	}
 }
 
-// compileComputedFieldRef emits r as a plain function call over whatever
-// row it's bound to : "schema.fn(alias)" for a same-node reference,
-// delegating to compileScalarHopComputed for one reached by hopping into a
-// to-one child (r.Node != n) — the same split compileColumnPath makes
-// between a same-node column and one reached via compileScalarHop.
+// compileComputedFieldRef emits "schema.fn(alias)" for a same-node reference, or a scalar hop into a to-one child.
 func (c *sqlCompiler) compileComputedFieldRef(r ComputedFieldRef, n *QueryNode) error {
 	if r.Node != n {
 		return c.compileScalarHopComputed(r, n)
@@ -250,10 +237,7 @@ func (c *sqlCompiler) compileComputedFieldRef(r ComputedFieldRef, n *QueryNode) 
 	return nil
 }
 
-// compileScalarHopComputed is compileScalarHop's counterpart for a "."
-// hop landing on a to-one child's own computed field — same correlated
-// scalar-subquery shape, selecting a function call over the child's row
-// instead of a column.
+// compileScalarHopComputed is compileScalarHop for a to-one child's computed field.
 func (c *sqlCompiler) compileScalarHopComputed(r ComputedFieldRef, n *QueryNode) error {
 	child := r.Node
 	if !isOutgoingOf(child.Parent, child) {
@@ -351,8 +335,7 @@ func (c *sqlCompiler) compileChildRowValue(child *QueryNode, n *QueryNode) error
 // level here is its own subquery, never the same flat FROM-list scope.
 func (c *sqlCompiler) compileScalarHopWhere(child *QueryNode, alias string, n *QueryNode) error {
 	if len(child.JoinColumns) == 0 {
-		// query.ts : `on` is mandatory on joined relations ; zero here means
-		// an earlier pass let an invalid tree through uncaught.
+		// `on` is mandatory on joined relations ; none here means an earlier pass let an invalid tree through.
 		return oops.With("relation", child.OuterAlias).Errorf("sql: %q has no join columns to correlate a \".\" hop by — compiled out of order", child.OuterAlias)
 	}
 	c.w.Write(" where ")
@@ -460,8 +443,6 @@ func (c *sqlCompiler) compileFolded(v FoldedExpr, n *QueryNode) error {
 		return c.compileArgList([]Expression{v.Left, v.Right}, n)
 
 	case FoldConcatCoalescing:
-		// Postgres's own concat() already treats NULL as '' — query.ts's
-		// own note, no hand-rolled coalescing needed.
 		c.w.Write("concat")
 		return c.compileArgList([]Expression{v.Left, v.Right}, n)
 

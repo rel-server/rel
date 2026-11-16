@@ -1,8 +1,5 @@
-// This file implements the SAML half : /auth/saml/{name}/
-// login, .../acs, and .../metadata, on crewjam/saml's lower-level
-// *saml.ServiceProvider API directly — NOT samlsp.Middleware, which owns
-// its own session/cookie/attribute-name opinions ; we want every raw
-// assertion attribute handed to the callback function untouched, not samlsp's own guess at "the" username attribute.
+// The SAML half : /auth/saml/{name}/login, .../acs and .../metadata. Every assertion attribute is handed to
+// the callback function untouched.
 package sso
 
 import (
@@ -25,9 +22,8 @@ import (
 	"github.com/rel-server/rel/route"
 )
 
-// samlEndpoint is one configured saml.<name> entry's runtime state — same
-// "discover once, retry lazily on next login" shape oidcEndpoint uses,
-// applied to fetching the IdP's own metadata instead of OIDC discovery.
+// samlEndpoint is one saml.<name> entry's runtime state ; the IdP metadata is retried on login like
+// oidcEndpoint's discovery.
 type samlEndpoint struct {
 	name string
 	cfg  config.SamlProvider
@@ -41,10 +37,8 @@ func samlLoginPath(name string) string    { return "/auth/saml/" + name + "/logi
 func samlAcsPath(name string) string      { return "/auth/saml/" + name + "/acs" }
 func samlMetadataPath(name string) string { return "/auth/saml/" + name + "/metadata" }
 
-// newSamlEndpoint builds the *saml.ServiceProvider immediately — this is
-// what makes /auth/saml/{name}/metadata servable right away, independent
-// of whether the IdP's own metadata has ever resolved — and attempts the
-// IdP metadata fetch once, leaving a failure for the lazy retry.
+// newSamlEndpoint builds the *saml.ServiceProvider at once, so the metadata is served even before the IdP's
+// resolves, and attempts the IdP metadata fetch once.
 func newSamlEndpoint(name string, cfg config.SamlProvider, rootURL string, kp *spKeyPair) *samlEndpoint {
 	root := strings.TrimRight(rootURL, "/") + "/auth/saml/" + name + "/"
 	metadataURL, _ := url.Parse(root + "metadata")
@@ -68,9 +62,7 @@ func newSamlEndpoint(name string, cfg config.SamlProvider, rootURL string, kp *s
 	return e
 }
 
-// fetchMetadata is the shared body of construction and the lazy retry —
-// safe to call more than once ; a success is permanent (it clears the
-// not-ready mark for good).
+// fetchMetadata fetches the IdP metadata ; a success is permanent.
 func (e *samlEndpoint) fetchMetadata(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -90,8 +82,7 @@ func (e *samlEndpoint) fetchMetadata(ctx context.Context) error {
 	return nil
 }
 
-// ensureReady is the lazy metadata retry, mirroring
-// oidcEndpoint.ensureReady exactly.
+// ensureReady is the metadata retry, like oidcEndpoint.ensureReady.
 func (e *samlEndpoint) ensureReady(ctx context.Context) bool {
 	e.mu.Lock()
 	ready := e.ready
@@ -106,14 +97,8 @@ func (e *samlEndpoint) ensureReady(ctx context.Context) bool {
 	return true
 }
 
-// mountSaml registers /auth/saml/{name}/{login,acs,metadata} for every
-// configured saml.<name> entry. sharedKP is the default SP identity — one
-// keypair shared by every entry that doesn't override it. An entry with its own
-// certificate_path/private_key_path (resolveSamlKeyPair) instead loads or
-// generates a keypair of its own, under the same rules, so its own IdP
-// trusts a certificate distinct from the shared default. Each entry's own
-// root URL is resolveHost(p.PublicHost, cfg.Http.PublicHost), the
-// per-entry override.
+// mountSaml registers /auth/saml/{name}/{login,acs,metadata} for every saml.<name> entry. sharedKP is the
+// keypair of every entry that does not set its own.
 func mountSaml(router chi.Router, db *pg.DbInfos, cfg *config.Config, sharedKP *spKeyPair, templates *route.TemplateSet) {
 	if len(cfg.Saml.Providers) == 0 {
 		return
@@ -140,14 +125,8 @@ func mountSaml(router chi.Router, db *pg.DbInfos, cfg *config.Config, sharedKP *
 	}
 }
 
-// resolveSamlKeyPair is saml.<name>.certificate_path/private_key_path's
-// own-value-wins-else-shared rule (same shape as resolveHost) : an entry
-// setting neither reuses sharedKP as-is (one disk read/generation for the
-// whole deployment, and one SP identity for every IdP trusting it) ; an
-// entry setting either one loads or generates its OWN keypair instead,
-// falling back to the shared path list for whichever of the pair it left
-// unset, under the exact same load-or-generate-and-persist behavior as the
-// shared pair (sso/cert.go's LoadOrGenerateSPKeyPair).
+// resolveSamlKeyPair returns sharedKP for an entry setting neither certificate_path nor private_key_path ;
+// otherwise the entry gets its own keypair, the unset path falling back to the shared one.
 func resolveSamlKeyPair(name string, p config.SamlProvider, cfg *config.Config, host string, sharedKP *spKeyPair) (*spKeyPair, error) {
 	if p.CertificatePath == "" && p.PrivateKeyPath == "" {
 		return sharedKP, nil
@@ -163,11 +142,8 @@ func resolveSamlKeyPair(name string, p config.SamlProvider, cfg *config.Config, 
 	return LoadOrGenerateSPKeyPair(certPath, keyPath, []string{host}, nil)
 }
 
-// samlLoginHandler is the SP-initiated flow : redirect to the IdP with a
-// signed or unsigned AuthnRequest per force_signed_requests. Any query
-// string /login itself received travels as RelayState — previously hardcoded empty, since SAML's own CSRF/
-// replay protection comes from the signed assertion and InResponseTo
-// correlation, never from RelayState, so it's free to carry this.
+// samlLoginHandler redirects to the IdP with an AuthnRequest, signed per force_signed_requests. /login's query
+// string travels as RelayState, which SAML does not use for CSRF protection.
 func samlLoginHandler(e *samlEndpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !e.ensureReady(r.Context()) {
@@ -193,11 +169,8 @@ func samlLoginHandler(e *samlEndpoint) http.HandlerFunc {
 	}
 }
 
-// samlAcsHandler is the Assertion Consumer Service : parses the IdP's
-// response (SP-initiated or IdP-initiated alike, since AllowIDPInitiated
-// skips InResponseTo correlation, so nothing distinguishes the two and no
-// separate configuration is needed), extracts every attribute as string[], and
-// hands the result to the callback function.
+// samlAcsHandler parses the IdP's response, SP- or IdP-initiated alike, and hands every attribute to the
+// callback function.
 func samlAcsHandler(e *samlEndpoint, db *pg.DbInfos, cfg *config.Config, templates *route.TemplateSet) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !e.ensureReady(r.Context()) {
@@ -225,12 +198,8 @@ func samlAcsHandler(e *samlEndpoint, db *pg.DbInfos, cfg *config.Config, templat
 	}
 }
 
-// extractSamlClaims maps every assertion attribute, keyed by its attribute name, each value
-// ALWAYS a string[] even for a single-valued attribute — SAML attributes
-// are multi-valued, and rel does not guess at collapsing a
-// single-element array. The assertion's own NameID is folded in under the
-// literal key "NameID", matching the example callback function's own
-// candidate-key list.
+// extractSamlClaims maps every assertion attribute by name, each value always a string[] since SAML attributes
+// are multi-valued. The NameID goes under the key "NameID".
 func extractSamlClaims(assertion *saml.Assertion) map[string]any {
 	claims := map[string]any{}
 	for _, stmt := range assertion.AttributeStatements {
@@ -248,8 +217,7 @@ func extractSamlClaims(assertion *saml.Assertion) map[string]any {
 	return claims
 }
 
-// samlMetadataHandler always serves this deployment's own SP metadata —
-// independent of e.ready.
+// samlMetadataHandler serves the SP metadata, even when e is not ready.
 func samlMetadataHandler(e *samlEndpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		buf, err := xml.MarshalIndent(e.sp.Metadata(), "", "  ")

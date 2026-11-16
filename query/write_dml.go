@@ -1,5 +1,4 @@
-// Phase 1 (insert/update/upsert) and phase 2 (delete) DML. One dmlCompiler carries the shared state (connection,
-// node-ID assignment) across the whole tree walk.
+// Phase 1 (insert/update/upsert) and phase 2 (delete) DML.
 package query
 
 import (
@@ -19,60 +18,47 @@ type dmlCompiler struct {
 	conn Querier
 	ids  map[*QueryNode]int
 
-	// Resolves a well-known write's $param references against this
-	// request's params ; nil for a plain /rel write (never has a ParamExpr).
+	// paramValues resolves a well-known write's $param references ; nil for a plain /rel write.
 	paramValues map[string]any
 
-	// temps holds the temp table of every relation the request writes (write_temp.go).
+	// temps holds the temp table of every relation the request writes.
 	temps map[*pg.Relation]*tempTable
 
 	// tableNodes is, per relation, the node ids that have rows in its temp table so far in the request.
 	tableNodes map[*pg.Relation]map[int]bool
 
-	// Node IDs that received a row from denormalize; absent means
-	// unpopulated.
+	// populated holds the node ids that received a row from denormalize.
 	populated map[int]bool
 
-	// collectStats/submitted/statsByNode/statOrder back the `stats` response ;
-	// submitted is keyed by __node_id, precomputed once in
-	// write.go from denormalize's own row output. statOrder preserves
-	// first-touch order across phase1/phase2, since a Stat is one entry per
-	// node even when both phases touch it (e.g. MERGE's upsert then delete).
+	// These back the `stats` response ; submitted is keyed by __node_id. statOrder keeps first-touch order
+	// across both phases, since a node touched by both (MERGE's upsert then delete) has a single Stat.
 	collectStats bool
 	submitted    map[int]int
 	statsByNode  map[*QueryNode]*Stat
 	statOrder    []*QueryNode
 
-	// collectSQL/sqlByNode/sqlOrder back the `sql` response :
-	// every DML statement's already-compiled text, collected instead of
-	// only executed — never an extra round trip.
+	// These back the `sql` response : each DML statement's text, collected as it runs.
 	collectSQL bool
 	sqlByNode  map[*QueryNode]*SqlResult
 	sqlOrder   []*QueryNode
 
-	// explainAnalyze/planByNode/planOrder back the `query_plan` response :
-	// true wraps every DML statement in EXPLAIN (ANALYZE,
-	// FORMAT JSON), executed for real, instead of running it plainly.
-	// Mutually exclusive with collectStats — relexec's own job to
-	// reject that combination before calling in.
+	// These back the `query_plan` response : each DML statement runs for real under EXPLAIN (ANALYZE, FORMAT JSON).
+	// Never set with collectStats ; relexec rejects that combination.
 	explainAnalyze bool
 	planByNode     map[*QueryNode]*PlanResult
 	planOrder      []*QueryNode
 
-	// batcher, when the connection can pipeline, makes run* queue their statements
-	// in queue instead of sending each one ; flush sends them all in one round trip.
+	// batcher, when the connection can pipeline, makes run* queue statements ; flush sends them in one round trip.
 	batcher Batcher
 	queue   []queuedStmt
 
 	// format is how a fast write's response rows are produced (WriteOptions.Format).
 	format OutputFormat
 
-	// fast, when set, makes run* write straight from the request's rows and answer from
-	// the write statement's own RETURNING rows, without the general temp table (query/write_fast.go).
+	// fast, when set, makes run* write straight from the request's rows and answer from RETURNING, with no temp table.
 	fast *fastWrite
 
-	// nextRowID is the first free row id ; runUpdateWhere allocates
-	// one row per row it updates, past the ids denormalize used.
+	// nextRowID is the first free row id ; runUpdateWhere allocates one per updated row.
 	nextRowID int
 	// patchRowID is the row holding an "update" root's patch, and patchMask its presence words.
 	patchRowID int
@@ -84,10 +70,8 @@ func (dc *dmlCompiler) tempOf(node *QueryNode) *tempTable {
 	return dc.temps[node.Relation]
 }
 
-// soleNode reports whether every row in node's temp table belongs to node : a statement then needs no
-// "node_id = N" filter, and is better off without it, since the planner has no statistics on a temp table
-// and takes that equality to keep 0.5% of the rows, which turns a join of two thousand-row tables into a
-// million-comparison nested loop.
+// soleNode reports whether every row in node's temp table belongs to node, so statements can drop the
+// "node_id = N" filter : without statistics on a temp table, the planner guesses it keeps 0.5% of rows and picks a nested loop.
 func (dc *dmlCompiler) soleNode(node *QueryNode) bool {
 	if dc.fast != nil {
 		return true
@@ -168,13 +152,8 @@ func (dc *dmlCompiler) finalPlans() []PlanResult {
 	return out
 }
 
-// exec is every run*'s single execution point for its main DML statement
-// (never temp-table housekeeping, which stays a bare dc.conn.Exec — same
-// exclusion as for stats) : records kind's compiled text under
-// node when collectSQL, and — mutually exclusively with collectStats —
-// substitutes EXPLAIN (ANALYZE, FORMAT JSON) for the statement itself when
-// explainAnalyze, since the Writing Algorithm's later statements depend on
-// this one's real side effects having already happened.
+// exec runs a run*'s main DML statement (never temp-table housekeeping) : records its text when collectSQL, and
+// when explainAnalyze runs it under EXPLAIN ANALYZE, for real, since later statements depend on its side effects.
 func (dc *dmlCompiler) exec(ctx context.Context, node *QueryNode, kind string, w *writer.SQLWriter, args []any) (pgconn.CommandTag, error) {
 	if dc.collectSQL {
 		dc.recordSQL(node, kind, w.String())
@@ -205,10 +184,8 @@ type queuedStmt struct {
 	after func(pgconn.CommandTag)
 }
 
-// submit is exec for a statement whose outcome nothing later in Go depends on
-// beyond its command tag : with a Batcher it is queued, otherwise (or under
-// EXPLAIN ANALYZE, which reads rows back) it runs now. after runs once the
-// statement has run, before submit's caller's later statements are sent.
+// submit is exec for a statement whose only outcome Go needs is its command tag : queued with a Batcher, otherwise
+// (or under EXPLAIN ANALYZE) run now. after runs once the statement has run, before later statements are sent.
 func (dc *dmlCompiler) submit(ctx context.Context, node *QueryNode, kind string, w *writer.SQLWriter, args []any, after func(pgconn.CommandTag)) error {
 	if dc.batcher == nil || dc.explainAnalyze {
 		if err := dc.flush(ctx); err != nil {
@@ -243,9 +220,8 @@ func (dc *dmlCompiler) enqueue(ctx context.Context, node *QueryNode, label, sql 
 	return nil
 }
 
-// flush sends every queued statement in one round trip, in order, and runs
-// their after callbacks. The first failure stops everything after it, as in a
-// transaction, and is reported with the statement that caused it.
+// flush sends every queued statement in one round trip, in order, and runs their after callbacks. The first
+// failure stops everything after it and is reported with the statement that caused it.
 func (dc *dmlCompiler) flush(ctx context.Context) error {
 	if len(dc.queue) == 0 {
 		return nil
@@ -304,9 +280,7 @@ func (dc *dmlCompiler) recordPlan(node *QueryNode, kind string, raw json.RawMess
 	}
 }
 
-// runExplainAnalyze runs sql (with args) wrapped in EXPLAIN (ANALYZE, FORMAT
-// JSON) — for real, side effects included — and returns the single JSON
-// value Postgres reports (an array holding one plan object).
+// runExplainAnalyze runs sql under EXPLAIN (ANALYZE, FORMAT JSON), side effects included, and returns the plan JSON.
 func (dc *dmlCompiler) runExplainAnalyze(ctx context.Context, sql string, args []any) (json.RawMessage, error) {
 	rows, err := dc.conn.Query(ctx, "explain (analyze, format json)\n"+sql, args...)
 	if err != nil {
@@ -325,8 +299,7 @@ func (dc *dmlCompiler) runExplainAnalyze(ctx context.Context, sql string, args [
 	return json.RawMessage(raw), nil
 }
 
-// nodeStatPath is the chain of join-alias keys from root down to node — []
-// for the root itself (Stat.path).
+// nodeStatPath is the chain of join-alias keys from root down to node ; [] for the root.
 func nodeStatPath(node *QueryNode) []string {
 	path := []string{}
 	for n := node; n.Parent != nil; n = n.Parent {
@@ -335,8 +308,7 @@ func nodeStatPath(node *QueryNode) []string {
 	return path
 }
 
-// stat get-or-creates node's Stat entry — called only when collectStats,
-// since it's also what marks a node as "touched" for stats purposes.
+// stat get-or-creates node's Stat entry, which marks the node as touched ; call it only when collectStats.
 func (dc *dmlCompiler) stat(node *QueryNode) *Stat {
 	if s, ok := dc.statsByNode[node]; ok {
 		return s
@@ -354,8 +326,7 @@ func (dc *dmlCompiler) stat(node *QueryNode) *Stat {
 	return s
 }
 
-// finalStats orders statsByNode by first-touch (statOrder) into the slice
-// WriteResult.Stats reports ; nil when collectStats was never set.
+// finalStats orders statsByNode by first-touch ; nil when collectStats was never set.
 func (dc *dmlCompiler) finalStats() []Stat {
 	if !dc.collectStats {
 		return nil
@@ -369,8 +340,7 @@ func (dc *dmlCompiler) finalStats() []Stat {
 
 // ---- traversal --------------------------------------------------------------------
 
-// phase1 : outgoing children, then this node's own DML, then incoming
-// children (step 3) ; the whole subtree skips when unpopulated (a no-op).
+// phase1 : outgoing children, then this node's own DML, then incoming children ; an unpopulated subtree is skipped.
 func (dc *dmlCompiler) phase1(ctx context.Context, node *QueryNode) error {
 	nodeID, ok := dc.ids[node]
 	if !ok {
@@ -395,8 +365,8 @@ func (dc *dmlCompiler) phase1(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-// phase2 : incoming children deepest-first, then this node's own delete
-// (step 4). Delete gates on the PARENT's population — an absent subtree IS "delete everything here", never a short-circuit.
+// phase2 : incoming children deepest-first, then this node's own delete. Delete gates on the parent's population :
+// an absent subtree means "delete everything here", not "skip".
 func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *QueryNode) error {
 	nodeID, ok := dc.ids[node]
 	if !ok {
@@ -424,16 +394,14 @@ func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *Quer
 	return nil
 }
 
-// args resolves w's bind slots against dc.paramValues — the one place
-// every run* function turns a statement into its (sql, args) pair.
+// args resolves w's bind slots against dc.paramValues.
 func (dc *dmlCompiler) args(w *writer.SQLWriter) ([]any, error) {
 	return w.ResolveArgs(dc.paramValues)
 }
 
 // ---- shared column-set helpers -----------------------------------------------------
 
-// identityColumns is on_conflict's columns if set, else the primary key —
-// the same selection shape.go's identityIsWritable already applies.
+// identityColumns is on_conflict's columns if set, else the primary key.
 func identityColumns(node *QueryNode) []*pg.Column {
 	if len(node.OnConflictColumns) > 0 {
 		cols := make([]*pg.Column, 0, len(node.OnConflictColumns))
@@ -450,9 +418,7 @@ func identityColumns(node *QueryNode) []*pg.Column {
 	return nil
 }
 
-// requireIdentityColumns is identityColumns, rejecting the empty result
-// runUpdate/runUpsert/runDelete all need an identity set for (op names the
-// operation in the resulting error, e.g. "update" or "deleteonly/merge").
+// requireIdentityColumns is identityColumns, rejecting an empty result ; op names the operation in the error.
 func requireIdentityColumns(node *QueryNode, op string) ([]*pg.Column, error) {
 	identCols := identityColumns(node)
 	if len(identCols) == 0 {
@@ -461,8 +427,7 @@ func requireIdentityColumns(node *QueryNode, op string) ([]*pg.Column, error) {
 	return identCols, nil
 }
 
-// columnsFor applies an insert_columns/update_columns allowlist (empty = no
-// filtering) to node.Shape.Extractors ; ColumnPath since an Extractor may be a composite sub-field.
+// columnsFor applies an insert_columns/update_columns allowlist (empty = no filtering) to node.Shape.Extractors.
 func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
 	var cols []ColumnPath
 	seen := map[string]bool{}
@@ -491,8 +456,7 @@ func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
 			cols = append(cols, cp)
 		}
 	}
-	// Outgoing-child FK columns are structural, not payload content — never
-	// in Shape.Extractors, so they bypass "allowed" like identity columns do.
+	// Outgoing-child FK columns are never in Shape.Extractors, so they bypass the allowlist like identity columns do.
 	for _, c := range node.OutgoingNodes {
 		for _, jc := range c.JoinColumns {
 			cp := ColumnPath{Node: node, Path: []*pg.Column{jc.Distant}}
@@ -518,8 +482,7 @@ func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
 	return cols, nil
 }
 
-// wrapColumns wraps plain identity/key columns as single-segment
-// ColumnPaths, to merge with columnsFor's own []ColumnPath output.
+// wrapColumns wraps plain columns as single-segment ColumnPaths.
 func wrapColumns(node *QueryNode, cols []*pg.Column) []ColumnPath {
 	out := make([]ColumnPath, len(cols))
 	for i, c := range cols {
@@ -528,8 +491,7 @@ func wrapColumns(node *QueryNode, cols []*pg.Column) []ColumnPath {
 	return out
 }
 
-// withKeysColumns unions cols with keysColumns(node) ; runUpdate reads
-// keys off "t" (RETURNING) instead, so skips this.
+// withKeysColumns unions cols with keysColumns(node).
 func withKeysColumns(node *QueryNode, cols []ColumnPath) []ColumnPath {
 	return dedupeColumnPaths(cols, wrapColumns(node, keysColumns(node)))
 }
@@ -547,8 +509,7 @@ func outgoingKeySource(node *QueryNode, col *pg.Column) (child *QueryNode, keyCo
 	return nil, nil
 }
 
-// incomingKeySource reports whether col is node's own FK column pointing
-// at its literal JSON-tree parent (node ∈ parent.IncomingNodes).
+// incomingKeySource reports whether col is node's own FK column to its parent in the payload, node being incoming.
 func incomingKeySource(node *QueryNode, col *pg.Column) (keyCol *pg.Column, ok bool) {
 	if node.Parent == nil {
 		return nil, false
@@ -566,19 +527,17 @@ func incomingKeySource(node *QueryNode, col *pg.Column) (keyCol *pg.Column, ok b
 
 // ---- resolved CTE -------------------------------------------------------------------
 
-// writeResolvedCTE writes "resolved as (select ...)" (no leading "with"),
-// one row per temp row. withMasks
-// also exposes the row's presence words as "__m0", "__m1", ..., for statements
-// that must tell an absent column from a supplied one (runUpdate).
+// writeResolvedCTE writes "resolved as (select ...)" (no leading "with"), one row per temp row. withMasks also
+// exposes the row's presence words as "__m0", "__m1", ..., to tell an absent column from a supplied one.
 func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, cols []ColumnPath, withMasks bool) error {
 	t := dc.tempOf(node)
 
 	needsPar := false
 	outgoingAliases := map[*QueryNode]string{}
-	var outgoingOrder []*QueryNode // deterministic emission order — map iteration order isn't
+	var outgoingOrder []*QueryNode // deterministic emission order
 	for _, cp := range cols {
 		if len(cp.Path) != 1 {
-			continue // a composite sub-field is never FK-linkage — see writeColumnCase
+			continue // a composite sub-field is never FK-linkage
 		}
 		col := cp.Path[0]
 		if _, ok := incomingKeySource(node, col); ok {
@@ -660,9 +619,8 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 	return nil
 }
 
-// writeColumnCase writes the 3-way per-column resolution rule for a plain
-// column ; a composite sub-field (len(cp.Path)>1) always reads its field of the temp row's composite
-// value instead — never FK-linkage or default-backed.
+// writeColumnCase writes the 3-way resolution rule for a plain column ; a composite sub-field always reads its
+// field of the temp row's composite value.
 func (dc *dmlCompiler) writeColumnCase(w *writer.SQLWriter, node *QueryNode, cp ColumnPath, outgoingAliases map[*QueryNode]string) error {
 	t := dc.tempOf(node)
 	if len(cp.Path) > 1 {
@@ -729,8 +687,7 @@ func (dc *dmlCompiler) writeUpdateValue(w *writer.SQLWriter, node *QueryNode, cp
 	w.Write(" end")
 }
 
-// isKeyLinked reports whether col gets its value from a parent's or an outgoing
-// child's recovered key rather than from the payload (see writeColumnCase).
+// isKeyLinked reports whether col gets its value from a parent's or an outgoing child's recovered key, not the payload.
 func isKeyLinked(node *QueryNode, col *pg.Column) bool {
 	if _, ok := incomingKeySource(node, col); ok {
 		return true
@@ -739,8 +696,7 @@ func isKeyLinked(node *QueryNode, col *pg.Column) bool {
 	return child != nil
 }
 
-// keysColumns is identityColumns(node) plus every column an incoming
-// child's JoinColumns needs — not necessarily the same set as on_conflict's target.
+// keysColumns is identityColumns(node) plus every column an incoming child's JoinColumns needs.
 func keysColumns(node *QueryNode) []*pg.Column {
 	cols := append([]*pg.Column(nil), identityColumns(node)...)
 	seen := map[*pg.Column]bool{}
@@ -755,8 +711,7 @@ func keysColumns(node *QueryNode) []*pg.Column {
 			}
 		}
 	}
-	// Symmetric case : as an outgoing child, node's own jc.Local may not
-	// already be in identityColumns(node) (a join may target any unique column).
+	// As an outgoing child, node's jc.Local may be any unique column, not in identityColumns(node).
 	if node.Parent != nil && isOutgoingOf(node.Parent, node) {
 		for _, jc := range node.JoinColumns {
 			if !seen[jc.Local] {
@@ -810,15 +765,14 @@ func (dc *dmlCompiler) runPhase1Node(ctx context.Context, node *QueryNode) error
 	}
 }
 
-// runInsert : plain insert, or with doNothing (MERGE_NEW) an "on conflict
-// do nothing" plus a separate recovery select for pre-existing rows' keys.
+// runInsert : plain insert, or with doNothing (MERGE_NEW) "on conflict do nothing" plus recovery of existing keys.
 func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing bool) error {
 	cols, err := columnsFor(node, node.InsertColumns)
 	if err != nil {
 		return err
 	}
-	// Every keysColumns member must be forced into both the resolved CTE
-	// and the INSERT column list, or a member absent from cols is a flat SQL error (or a discarded, mismatched sequence value).
+	// Every keysColumns member must be in both the resolved CTE and the INSERT column list, or the statement fails or
+	// a generated key differs from the one written back.
 	cols = withKeysColumns(node, cols)
 	w := writer.NewSQL()
 	if err := dc.writeWith(w, node); err != nil {
@@ -888,9 +842,7 @@ func (dc *dmlCompiler) runInsert(ctx context.Context, node *QueryNode, doNothing
 	}
 	if err := dc.submit(ctx, node, "insert", w, args, func(tag pgconn.CommandTag) {
 		if dc.collectStats {
-			// The trailing key write-back only ever joins actually-inserted
-			// rows (via "ins" in the doNothing branch, or unconditionally
-			// otherwise) — its RowsAffected() is exactly the insert count.
+			// The key write-back only joins inserted rows, so its RowsAffected() is the insert count.
 			dc.stat(node).Inserted += int(tag.RowsAffected())
 		}
 	}); err != nil {
@@ -947,8 +899,7 @@ func (dc *dmlCompiler) recoverKeys(ctx context.Context, node *QueryNode) error {
 	return dc.enqueue(ctx, node, "recovering merge-new keys", w.String(), args)
 }
 
-// runUpdate : a single update ... from ... returning suffices, since the
-// row's identity is already known before the statement runs.
+// runUpdate : a single update ... from ... returning, since the row's identity is known before it runs.
 func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	updateAllowlist := node.UpdateColumns
 	if len(updateAllowlist) == 0 {
@@ -972,9 +923,8 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	}
 	w.Write(",\ndml as (\n")
 	w.Indent()
-	// The identity columns (on_conflict, else the primary key) locate the row, so
-	// they are never SET : "generated always" identity rejects even an unchanged
-	// value. A primary key that is not the matching key can be changed.
+	// The identity columns locate the row, so they are never SET : "generated always" rejects even an unchanged value.
+	// A primary key that is not the matching key can be changed.
 	setCols := excludeColumnPaths(cols, identCols)
 	writeIdentMatch := func() {
 		for i, col := range identCols {
@@ -988,8 +938,7 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 		}
 	}
 	if len(setCols) == 0 {
-		// Nothing to change (select holds only identity columns, e.g. a parent
-		// kept in place for its nested children) : read the row's keys instead.
+		// Nothing to change (only identity columns, e.g. a parent kept for its children) : read the row's keys instead.
 		w.Write("select resolved.__row_id, ")
 		if dc.fast != nil {
 			w.Write("t.*")
@@ -1018,8 +967,7 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 		w.Write("where ")
 		writeIdentMatch()
 		w.Write("\n")
-		// Keys read off "t" (post-update row via RETURNING), unlike runInsert :
-		// no need to force keysColumns' extras into the SET list here.
+		// Keys are read off the updated row "t", so keysColumns' extras need not be in the SET list.
 		w.Write("returning resolved.__row_id, ")
 		if dc.fast != nil {
 			w.Write("t.*")
@@ -1032,9 +980,7 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	if dc.fast != nil {
 		return dc.finishFast(ctx, node, w, "dml")
 	}
-	// Folded into "dml" itself (like runUpsert), not a separate per-row Go
-	// round trip : keeps this EXPLAIN-ANALYZE-safe for query_plan, since
-	// nothing downstream needs RETURNING back in Go.
+	// Folded into "dml" itself, so nothing needs RETURNING back in Go and it stays usable under EXPLAIN ANALYZE.
 	tt := dc.tempOf(node)
 	w.Write("update ")
 	w.Write(tt.qualifiedGeneral())
@@ -1058,8 +1004,8 @@ func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-// runUpsert : insert ... on conflict (...) do update ... returning,
-// correlated back via on_conflict columns (known pre-insert, unlike a generated PK).
+// runUpsert : insert ... on conflict (...) do update ... returning, matched back by the on_conflict columns, which
+// are known before the insert, unlike a generated primary key.
 func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	identCols, err := requireIdentityColumns(node, "upsert")
 	if err != nil {
@@ -1069,8 +1015,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	if err != nil {
 		return err
 	}
-	// Same reasoning as runInsert : "dml"'s RETURNING needs every
-	// keysColumns member selectable, and the insert side must write it.
+	// As in runInsert, every keysColumns member must be in the resolved CTE and written by the insert side.
 	insertCols = withKeysColumns(node, insertCols)
 	updateAllowlist := node.UpdateColumns
 	if len(updateAllowlist) == 0 {
@@ -1080,11 +1025,8 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	if err != nil {
 		return err
 	}
-	// Never update the identity columns themselves via excluded.* — they're
-	// the conflict target. The primary key is excluded too even when
-	// on_conflict names a different constraint : excluded.<pk> is a phantom
-	// pre-insert value (nextval() for a generated column) that must never
-	// overwrite a matched row's real, pre-existing identity.
+	// Never update the identity columns (the conflict target) from excluded.*, nor the primary key even when
+	// on_conflict names another constraint : excluded.<pk> may be a fresh nextval(), not the matched row's.
 	exclude := identCols
 	if node.Relation.PrimaryKey != nil {
 		exclude = append(append([]*pg.Column(nil), identCols...), node.Relation.PrimaryKey.Columns...)
@@ -1133,17 +1075,8 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	}
 	w.Write(") do ")
 	if len(updateCols) == 0 {
-		// Nothing to update ; still need a no-op update so RETURNING sees
-		// the conflicting row (ON CONFLICT DO NOTHING has no RETURNING).
-		// identCols[0] itself may be the relation's real, generated-always
-		// PK (the default on_conflict target) — Postgres rejects any SET on
-		// such a column besides the literal DEFAULT keyword, which would
-		// regenerate it. Self-reference some other real column by the
-		// target table's own name instead (not "excluded", whose value for
-		// an identity column is only a phantom pre-insert placeholder).
-		// Only the real PK is off-limits here — unlike updateCols above, a
-		// non-PK on_conflict column (identCols) is perfectly safe to
-		// self-reference.
+		// Nothing to update ; a no-op update is still needed for RETURNING to see the conflicting row. It sets a non-key
+		// column to itself, since a generated-always primary key rejects any SET.
 		var pkOnly []*pg.Column
 		if node.Relation.PrimaryKey != nil {
 			pkOnly = node.Relation.PrimaryKey.Columns
@@ -1166,8 +1099,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 			}
 			writeTargetPath(w, cp)
 			w.Write(" = ")
-			// "excluded" is a row, not a flat CTE : needs row-value
-			// parenthesization for a composite sub-field, verified against PG 16.
+			// "excluded" is a row : a composite sub-field needs row-value parenthesization.
 			WriteQualifiedPath(w, "excluded", cp.Path)
 		}
 	}
@@ -1185,9 +1117,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		}
 		w.Id(col.Name)
 	}
-	// one CommandTag can't tell an insert from an update on its own.
-	// Always present (negligible cost) ;
-	// only consumed by the collectStats branch below.
+	// __inserted splits inserts from updates for collectStats ; the command tag can't.
 	w.Write(", (xmax = 0) as __inserted")
 	w.Unindent()
 	w.Write("\n)")
@@ -1202,10 +1132,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 		return dc.submit(ctx, node, "upsert", w, args, nil)
 	}
 
-	// collectStats : the temp-row key write-back becomes its own CTE ("upd"), so
-	// the outermost statement can be a plain SELECT reading dml's __inserted
-	// split — a data-modifying CTE only executes when referenced downstream,
-	// so "upd" is force-referenced via a scalar subquery in that SELECT.
+	// collectStats : the key write-back becomes the CTE "upd", so the outer statement can be a SELECT reading counts.
 	w.Write(",\nupd as (\n")
 	w.Indent()
 	dc.writeUpsertKeyWriteBack(w, node, identCols)
@@ -1248,12 +1175,8 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-// writeInsertKeyWriteBack writes the key write-back shared by
-// runInsert's doNothing and plain-insert branches — identical shape, only
-// the source of each row's keys differs : "ins" joined by identity
-// columns (doNothing, since "ins" only RETURNs actually-inserted rows —
-// recoverKeys handles the rest) vs. "resolved" directly (plain insert,
-// every row was just inserted).
+// writeInsertKeyWriteBack writes runInsert's key write-back. With doNothing the keys come from "ins" joined by
+// identity columns, since only inserted rows are returned ; otherwise straight from "resolved".
 func (dc *dmlCompiler) writeInsertKeyWriteBack(w *writer.SQLWriter, node *QueryNode, identCols []*pg.Column, doNothing bool) {
 	tt := dc.tempOf(node)
 	src := "resolved"
@@ -1284,9 +1207,7 @@ func (dc *dmlCompiler) writeInsertKeyWriteBack(w *writer.SQLWriter, node *QueryN
 	w.Write(" = r.__row_id")
 }
 
-// writeUpsertKeyWriteBack writes the key write-back shared by
-// runUpsert's stats and non-stats tails — identical either way, only
-// where it's embedded (a bare statement vs. a "upd as (...)" CTE) differs.
+// writeUpsertKeyWriteBack writes runUpsert's key write-back, with or without stats.
 func (dc *dmlCompiler) writeUpsertKeyWriteBack(w *writer.SQLWriter, node *QueryNode, identCols []*pg.Column) {
 	tt := dc.tempOf(node)
 	w.Write("update ")
@@ -1308,8 +1229,7 @@ func (dc *dmlCompiler) writeUpsertKeyWriteBack(w *writer.SQLWriter, node *QueryN
 	w.Write(" = resolved.__row_id")
 }
 
-// dedupeColumnPaths dedupes by ColumnPath.Key(), not the terminal *pg.Column
-// pointer : two different composite sub-fields can share that same leaf pointer.
+// dedupeColumnPaths dedupes by ColumnPath.Key() : two composite sub-fields can share the same leaf *pg.Column.
 func dedupeColumnPaths(a, b []ColumnPath) []ColumnPath {
 	seen := map[string]bool{}
 	var out []ColumnPath
@@ -1330,8 +1250,7 @@ func dedupeColumnPaths(a, b []ColumnPath) []ColumnPath {
 	return out
 }
 
-// firstColumnNotIn returns the first of cols absent from exclude, nil if
-// every column is excluded.
+// firstColumnNotIn returns the first of cols absent from exclude, nil if every column is excluded.
 func firstColumnNotIn(cols []*pg.Column, exclude []*pg.Column) *pg.Column {
 	ex := map[*pg.Column]bool{}
 	for _, c := range exclude {
@@ -1345,8 +1264,7 @@ func firstColumnNotIn(cols []*pg.Column, exclude []*pg.Column) *pg.Column {
 	return nil
 }
 
-// excludeColumnPaths drops any cols entry matching exclude ; only
-// len(Path)==1 can match, since identity columns are never composite.
+// excludeColumnPaths drops any cols entry matching exclude ; only plain columns match, identity is never composite.
 func excludeColumnPaths(cols []ColumnPath, exclude []*pg.Column) []ColumnPath {
 	ex := map[*pg.Column]bool{}
 	for _, c := range exclude {
@@ -1362,8 +1280,7 @@ func excludeColumnPaths(cols []ColumnPath, exclude []*pg.Column) []ColumnPath {
 	return out
 }
 
-// writeTargetPath emits cp as an INSERT/UPDATE target — "col.field", not
-// parenthesized like a read reference (verified against Postgres 16).
+// writeTargetPath writes cp as an INSERT/UPDATE target : "col.field", not parenthesized like a read reference.
 func writeTargetPath(w *writer.SQLWriter, cp ColumnPath) {
 	for i, col := range cp.Path {
 		if i > 0 {
@@ -1375,8 +1292,7 @@ func writeTargetPath(w *writer.SQLWriter, cp ColumnPath) {
 
 // ---- phase 2 : delete -----------------------------------------------------------------
 
-// runDelete deletes node's rows absent from the payload, scoped to parent
-// (nil at root) via node's own FK-to-parent columns.
+// runDelete deletes node's rows absent from the payload, scoped to parent (nil at root) by node's FK-to-parent columns.
 func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *QueryNode) error {
 	identCols, err := requireIdentityColumns(node, "deleteonly/merge")
 	if err != nil {
@@ -1397,9 +1313,8 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 			if wroteCond {
 				w.Write(" and ")
 			}
-			// = any(array(...)) rather than in (select ...) : the planner has no statistics on the temp
-			// table and takes a one-row table for a full page of rows, which makes it scan the whole
-			// target table instead of probing its index ; an array it assumes small.
+			// = any(array(...)), not in (select ...) : with no statistics on the temp table, the planner then scans the
+			// whole target table instead of probing its index.
 			w.Write("t.")
 			w.Id(jc.Local.Name)
 			w.Write(" = any (array(select (")
@@ -1445,8 +1360,7 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 	writeWhere(w, keep)
 	w.Write(")")
 
-	// node.Where must scope every delete-bearing mode too (query.ts's
-	// write_mode doc), or a partial payload deletes rows never selected.
+	// node.Where scopes every delete-bearing mode, or a partial payload would delete rows never selected.
 	if node.Where != nil {
 		w.Write(" and (")
 		sc := &sqlCompiler{w: w, alias: map[*QueryNode]string{node: "t"}}
@@ -1529,10 +1443,8 @@ func patchSetColumns(node *QueryNode, mask []int64) ([]ColumnPath, error) {
 	return setCols, nil
 }
 
-// runUpdateWhere : write_mode "update" — applies the patch held in the temp row
-// dc.patchRowID to every row node's where selects, setting only the
-// columns the patch names. Each updated row's keys land in a fresh temp row,
-// which is what the read-back scopes by (like any other write).
+// runUpdateWhere : write_mode "update" — applies the patch in temp row dc.patchRowID to every row node's where
+// selects, setting only the columns it names. Each updated row's keys land in a fresh temp row for the read-back.
 func (dc *dmlCompiler) runUpdateWhere(ctx context.Context, node *QueryNode) error {
 	if dc.fast != nil {
 		return dc.runUpdateWhereFast(ctx, node)

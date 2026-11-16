@@ -8,7 +8,7 @@ This file specifies the shape of the JSON queries that rel is to understand.
  */
 export type Query = ComplexQuery | RelationQuery | WellKnownQuery | readonly Query[]
 
-/* Call a query that's registered in rel. This can be seen as a view, except it's a rel's signature bi-directional query that's both readable and writable. */
+/* Call a query registered in rel : like a view, but both readable and writable. */
 export interface WellKnownQuery {
   wellknown: string
   params?: unknown
@@ -100,11 +100,7 @@ export type Keys<T> = Extract<keyof T, string>
 export interface RelationQuery<
   Rel extends object = { [name: string]: unknown },
   Join extends { [name: string]: RelationQuery } = { [name: string]: RelationQuery },
-  // Unconstrained beyond `unknown` : a relation()/join() query has nothing here, and func()/call() (querier.ts)
-  // narrow it themselves against the called function's own `positional_args`/`args` (shapes.ts's
-  // FunctionArgs/DeferredFunctionArgs) rather than against Rel's columns the way every other Expression-typed
-  // field on this interface does — a function argument is a value the caller already has in hand, not a
-  // reference into the relation being queried.
+  // func()/call() narrow this against the function's declared arguments rather than Rel's columns.
   FunctionArguments = readonly Expression<Keys<Rel>>[] | { [name: string]: Expression<Keys<Rel>> },
 > {
   // Identifying fields for the relation : exactly one of `relation` or
@@ -114,8 +110,7 @@ export interface RelationQuery<
 
   /**
     The name of a function to call, instead of querying a table/view directly. Mutually exclusive with `relation`.
-    A function-rooted (or function-embedded) node is NEVER writable, even if its return type resolves to a
-    writable table — see `query-engine.md ## Reading Algorithm ### Function-rooted nodes`.
+    A function node is never writable, even if it returns a writable table's rows.
   */
   function?: string
 
@@ -127,14 +122,13 @@ export interface RelationQuery<
 
   /**
    Columns to join on : keys are this relation's columns, values are the enclosing query's columns. Mandatory on joined relations.
-   Limited to FK-backed columns, or unique-backed distant columns ; this relation's own `on` columns must also be indexed, or the query is rejected — see `query-engine.md` ### Join eligibility.
+   Limited to FK-backed columns, or unique-backed distant columns ; this relation's own `on` columns must also be indexed, or the query is rejected.
   */
   on?: { [local_column: string]: string }
 
   /**
-   Client-side sugar for a joined relation : one of the schema's `Relationships` shortcut strings, naming this
-   join by relationship rather than by raw `on`/`relation`/`schema`. Expanded into those fields by querier.ts's
-   `join()` before the query is built, and stripped before sending — the server never sees it.
+   Client-side only : one of the schema's `Relationships` shortcut strings, expanded into `on`/`relation`/`schema`
+   and never sent.
   */
   shortcut?: string
 
@@ -148,8 +142,7 @@ export interface RelationQuery<
     How this relation's data is handled when POSTing.
 
     Delete-bearing modes (`merge`, `merge-new`, `merge-update`, `deleteonly`) are only valid on an incoming
-    relation (rows exclusively owned by the parent through the join) — using one on an outgoing relation, or at
-    the root, is a validation error at prepare time ; see `query-engine.md` `### Definitions` / `### Join eligibility`.
+    relation (rows exclusively owned by the parent through the join) ; elsewhere, including the root, they are rejected.
 
     `update` and `delete` are the two where-driven modes : root only, `where` required, rows chosen by the `where`
     rather than by the payload. Joins under them can only be `readonly`, and `delete` takes no join at all.
@@ -195,11 +188,7 @@ export interface RelationQuery<
 
   /**
    The shape returned by the select. Defaults to `select *` plus every `join` embed ; an error is raised if a join
-   alias then conflicts with a column name.
-
-   Any Expression is valid here, not just a shape-producing one (own/full/an object literal/get/get-set) — a
-   non-shape-producing expression instead yields one bare JSON value per row ; see `query-engine.md ## Reading
-   Algorithm ### Scalar-selected nodes`.
+   alias then conflicts with a column name. An expression that doesn't produce an object yields one bare value per row.
   */
   select?: Expression<Keys<Rel> | Keys<Join>>
 
@@ -219,13 +208,8 @@ export interface RelationQuery<
   limit?: number
 
   /**
-   Attaches behaviour to this node's rows : a plain object of getters/methods, set as every row's prototype this
-   node produces, via `Object.setPrototypeOf`. `object` here (rather than some concrete row type) is deliberate :
-   relation()/func()/join() (querier.ts) re-type this field against the node's own actual row shape via
-   `WithProto` (shapes.ts's `ThisType`-based typing), which needs `proto`'s declared type to accept any object
-   here so it isn't narrowed twice. See `docs/content/typescript/index.md ## Attaching behavior to rows`, and
-   mix a `get` with a plain method in the same `proto` only with an explicit return type on each — see that
-   section's own caveat.
+   Getters/methods set as the prototype of every row this node produces. Client-side only. When mixing a `get` with
+   a plain method, give each an explicit return type.
   */
   proto?: object
 }
@@ -351,13 +335,7 @@ export type BinaryOperator =
 Never a combined "schema.name" string : a quoted Postgres identifier can itself contain a literal dot. */
 export type FunctionIdentifier = string | { schema: string; name: string }
 
-/**
- Every tuple/array variant below is `readonly` — nothing in the client ever mutates a built Expression, it's
- only ever serialized to JSON — so a pre-declared `as const` value (or any other readonly-typed array) can be
- passed in directly, not just an inline literal. Relevant to relation()'s own `const Q extends
- RelationQuery<...>` (querier.ts) : a `const` type parameter infers `readonly` from `as const`/readonly-typed
- inputs, which a mutable array/tuple type here would then reject.
- */
+// Every tuple/array variant below is `readonly` so `as const` values can be passed in.
 /** The options of an `"agg"` expression, each optional. */
 export interface AggOptions<K extends string = string> {
   /** Only the rows this condition holds for are aggregated (SQL's `filter (where ...)`). */
@@ -384,28 +362,13 @@ export type Expression<K extends string = string> =
   | readonly ["between", min: Expression<K>, exp: Expression<K>, max: Expression<K>]
   | readonly ["not_between", min: Expression<K>, exp: Expression<K>, max: Expression<K>]
 
-  // explicit bigint support for queries. in responses, the user can choose to have another parser than JSON.parse _if_ they absolutely need bigints
+  // Big integers as strings ; responses keep them exact only with a codec that does.
   | readonly ["bigint", value: string]
   | readonly ["numeric", value: string] // for really big numbers
-  /** "."/"dot" is the one operator whose hop names are always bare names, never a nested Expression — a bare
-  string elsewhere means a literal now, so this needs its own tuple form rather than the generic one below.
-  A bare name in the LEADING position — ["." | "dot", "name", ...] — always resolves `name` directly against the
-  current scope (K : a real column, an alias, a joined/embedded field, or an earlier computed key) — this is the
-  generic "reference this name" building block bare strings used to provide, unlike ["col", ...], which is
-  restricted to real columns. Only when the leading operand ISN'T a bare name (a real sub-expression —
-  ["col", "home"], a nested [".", ...], ["call", ...], ...) does it fall through to the second form below : that
-  base is used as-is instead.
-
-  Every operand AFTER the leading one is always a further bare-name hop off the previous result, chaining
-  arbitrarily deep — ["." | "dot", "chain", "name"] is ["." | "dot", ["." | "dot", "chain"], "name"], no nested
-  "." required just to get the first hop resolved as a lookup instead of a literal. These trailing hops are
-  typed as plain `string`, not K : K is this ONE relation's own column/alias/computed-key names, but a hop past
-  the first one lands on whatever the PREVIOUS hop resolved to — a different relation's own keys entirely, one
-  Expression<K> has no way to reference at this level (the same reason ShapeFromDotChain, shapes.ts, resolves
-  each hop structurally rather than through a second K). The leading operand is the one hop this type CAN check
-  ahead of time, and is worth checking — it's also by far the most common case (one hop into an immediate join
-  alias or computed field) ; hops past it fall back to the same unchecked-string trust the whole tree already
-  places in `on`/`schema`/`relation` elsewhere. */
+  /** "."/"dot" : its operands are bare names, not literals. A leading bare name resolves against the current scope
+  (a column, an alias, a joined field or an earlier computed key ; ["col", ...] only takes real columns) ; a leading
+  sub-expression is used as-is. Each further operand is a name looked up on the previous result, so
+  [".", "a", "b"] is [".", [".", "a"], "b"]. Only the leading name is type-checked. */
   | readonly ["." | "dot", name: K, ...hops: string[]]
   | readonly ["." | "dot", base: Expression<K>, hop: string, ...hops: string[]]
   | readonly [Exclude<FoldedOperator, "." | "dot">, ...Expression<K>[]]
@@ -421,10 +384,8 @@ export type Expression<K extends string = string> =
   | readonly ["format", format: string, ...Expression<K>[]]
 
   /** Aggregate an incoming relation's expression, callable only from the parent relation ; the optional last
-  operand is an options object (`AggOptions`). `identifier` is a FunctionIdentifier, not an Expression, so
-  allowlisting (query-engine.md ## Scoping) can check a static, schema-qualified name at compile time. An
-  overloaded aggregate (`sum`, `min`, ...) is fine : Postgres picks the overload from the argument types, so pin a
-  literal's type with `["::", value, "numeric"]` when it has none. */
+  operand is an options object (`AggOptions`). `identifier` must be allowed, so it is a static name, not an
+  Expression. For an overloaded aggregate, cast an untyped literal argument (`["::", value, "numeric"]`). */
   | readonly [
       "agg" | "aggregate",
       identifier: FunctionIdentifier,
@@ -438,10 +399,8 @@ export type Expression<K extends string = string> =
   /* an inline object that will become an object expression */
   | { [name: string]: Expression<K> }
   /** "*" = full (own columns + joined rels ; select's default value). "*~" = own (this relation's columns only).
-  Each trailing argument is either a K[] except-list (columns to drop) or an object and-map (computed columns to
-  add/override), dispatched by shape rather than position or count — any number of either, in any order. Every
-  except-list is concatenated, every and-map merged (later keys overriding earlier) — `and` may reintroduce an
-  omitted key, but not shadow a real, non-omitted one implicitly (error). */
+  Trailing arguments, any number in any order : K[] lists columns to drop, an object adds computed keys (later keys
+  win). A computed key may replace a dropped column, but shadowing a kept one is an error. */
   | readonly ["*" | "*~", ...(readonly K[] | { [name: string]: Expression<K> })[]]
   | readonly ["arr" | "array", ...Expression[]] // may need to be behind a flag ?
   | readonly ["index", array: Expression, index: Expression] // 1-indexed, just like PG

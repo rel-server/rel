@@ -35,23 +35,17 @@ type DbInfos struct {
 	Functions []*Function
 	Relations []*Relation
 
-	// AnonymousRoleExists reports whether the configured
-	// pg.query.anonymous_role name was found in pg_roles at introspection
-	// time. false means anonymous access is disabled outright — every
-	// unauthenticated request to /rel and /route alike must be rejected with
-	// 401, before route lookup, before any request body is read, before a
-	// pool connection is ever acquired.
+	// AnonymousRoleExists reports whether pg.query.anonymous_role was found in pg_roles. false disables anonymous
+	// access : every anonymous request gets 401 before route lookup, body read or connection.
 	AnonymousRoleExists bool
 
-	// SearchPath is the connecting role's resolved search path, in lookup
-	// order — see FillSearchPath (info_searchpath.go).
+	// SearchPath is the connecting role's resolved search path, in lookup order.
 	SearchPath []string
 
 	TypeMapByOid       map[int]*Type
 	RelationMapByRelid map[int]*Relation
 
-	// Built once by buildLookupIndices (info_lookup.go), after Relations/
-	// Functions are filled — see ResolveRelation/ResolveFunctionCandidates.
+	// Built by buildLookupIndices once Relations/Functions are filled.
 	RelationMapBySchemaName map[string]map[string]*Relation
 	FunctionsBySchemaName   map[string]map[string][]*Function
 }
@@ -79,27 +73,14 @@ func (d *DbInfos) GetRelationByType(typeOid int) *Relation {
 
 // ------------------------------------------------------------
 
-// NewInfos is NewInfosAdminQuery(uri, uri, 0, "") — the same URI for
-// introspection and the returned pool, pgx's own default pool size, no
-// anonymous role check.
+// NewInfos is NewInfosAdminQuery(uri, uri, 0, "") : one URI, default pool size, no anonymous role.
 func NewInfos(uri string) (*DbInfos, error) {
 	return NewInfosAdminQuery(uri, uri, 0, "")
 }
 
-// NewInfosAdminQuery introspects via a short-lived connection to
-// primaryURI, then builds the returned *DbInfos' long-lived Pool from
-// queryURI — the same URI for both when config.PgQuery's own login is
-// unset ; see that struct's doc comment for why a second, narrower
-// pg.query.* login is optional.
-//
-// poolSize caps the returned Pool's MaxConns (pg.pool_size) ; 0 leaves
-// pgx's own default in place. The introspection connection is never sized
-// by this — it's exactly one connection, closed before the query pool
-// exists.
-//
-// anonymousRole is pg.query.anonymous_role's configured value, checked
-// against pg_roles on the introspection connection to fill the returned
-// *DbInfos' AnonymousRoleExists. Empty leaves it false.
+// NewInfosAdminQuery introspects over a short-lived connection to primaryURI, then builds the returned Pool
+// from queryURI. poolSize caps the Pool's MaxConns, 0 keeps pgx's default. anonymousRole fills
+// AnonymousRoleExists ; empty leaves it false.
 func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole string, opts ...Option) (*DbInfos, error) {
 	o, err := applyOptions(opts)
 	if err != nil {
@@ -127,17 +108,9 @@ func NewInfosAdminQuery(primaryURI, queryURI string, poolSize int, anonymousRole
 	return db, nil
 }
 
-// ReIntrospect rebuilds a FRESH *DbInfos (fresh Types/Functions/Relations/
-// lookup maps/AnonymousRoleExists) the same way NewInfosAdminQuery does —
-// via a short-lived connection to primaryURI — but reuses the EXISTING pool
-// passed in for the returned DbInfos' own Pool field, rather than building
-// a new one : the caller owns that
-// pool's lifecycle entirely ; this function never builds or closes one.
-//
-// It does reset the pool once the schema is read : every connection is closed, idle
-// ones at once and busy ones when they are released. A connection holds temp tables built
-// for the previous schema (the write path's, query/write_temp.go), and a fresh one holds none.
-// The caller must have no request running, which is what a reload's maintenance mode guarantees.
+// ReIntrospect builds a fresh *DbInfos like NewInfosAdminQuery, but on the given pool, which the caller keeps
+// owning. It resets the pool, since its connections hold temp tables built for the previous schema ; the
+// caller must have no request running (a reload's maintenance mode).
 func ReIntrospect(ctx context.Context, primaryURI string, pool *pgxpool.Pool, anonymousRole string, opts ...Option) (*DbInfos, error) {
 	o, err := applyOptions(opts)
 	if err != nil {
@@ -152,8 +125,7 @@ func ReIntrospect(ctx context.Context, primaryURI string, pool *pgxpool.Pool, an
 	return db, nil
 }
 
-// introspect is NewInfosAdminQuery's/ReIntrospect's shared body. Pool is
-// left unset — each caller assigns its own afterward.
+// introspect is NewInfosAdminQuery's/ReIntrospect's shared body ; it leaves Pool unset.
 func introspect(ctx context.Context, primaryURI string, anonymousRole string, o *options) (*DbInfos, error) {
 	introspectConfig, err := pgxpool.ParseConfig(primaryURI)
 	if err != nil {
@@ -170,8 +142,6 @@ func introspect(ctx context.Context, primaryURI string, anonymousRole string, o 
 	if err != nil {
 		return nil, oops.Wrapf(err, "failed to acquire a connection to introspect the database")
 	}
-	// defer, not explicit release per return site : db.Fill can panic as
-	// well as error, and only defer covers both without leaking conn.
 	defer conn.Release()
 
 	var db = &DbInfos{
@@ -220,8 +190,7 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 		log.Debug("relation found", "schema", rel.Identifier.Schema, "name", rel.Identifier.Name, "column_count", len(rel.Columns))
 	}
 
-	// Constraints and indexes both need relations already resolved
-	// (correlated by PgRelId), but are independent of each other.
+	// Constraints and indexes need relations already resolved.
 	if err := FillConstraintInformations(db, conn); err != nil {
 		return err
 	}
@@ -233,8 +202,7 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 	// Needs only relations (and their columns' Index).
 	FillViewProvenance(db, conn)
 
-	// Types-filling reads back into both Functions and Relations, so it must
-	// run after both are populated.
+	// Types fill back into Functions and Relations, so they come after both.
 	if err := FillTypeInformations(db, conn); err != nil {
 		return err
 	}
@@ -242,8 +210,7 @@ func (db *DbInfos) Fill(conn *pgx.Conn) error {
 		log.Debug("type found", "schema", typ.PgIdentifier.Schema, "name", typ.PgIdentifier.Name)
 	}
 
-	// Needs every Function's argument types and every Relation's own
-	// composite Type already resolved — must run after FillTypeInformations.
+	// Needs types resolved.
 	FillComputedFields(db)
 
 	buildLookupIndices(db)

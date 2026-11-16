@@ -1,9 +1,6 @@
-// Pass 4, the Writing Algorithm : denormalizes a payload into typed temp
-// tables, one per destination table (write_denormalize.go, write_temp.go), then
-// executes phased DML off them (write_dml.go) . The temp tables are
-// created on the connection the first time a write touches their table
-// (PrepareWrite, called before the request's transaction begins ; ExecuteWriteNode
-// calls it too) and their rows go away at commit or rollback.
+// Pass 4, the Writing Algorithm : denormalizes a payload into typed temp tables, one per destination table, then
+// executes phased DML off them. A temp table is created on the connection the first time a write touches its table,
+// before the request's transaction begins ; its rows go away at commit or rollback.
 package query
 
 import (
@@ -22,56 +19,39 @@ import (
 	"github.com/samber/oops"
 )
 
-// Querier is the connection surface this package needs : enough to load
-// the temp tables and run the phased DML. Satisfied directly by
-// *pgxpool.Conn (and *pgx.Conn), so callers/tests can pass either. Creating the
-// temp tables also needs the underlying *pgx.Conn : a wrapper must expose it
-// with a Conn() *pgx.Conn method.
+// Querier is the connection surface writes need ; *pgxpool.Conn and *pgx.Conn satisfy it. Creating the temp tables
+// also needs the underlying *pgx.Conn : a wrapper must expose it with a Conn() *pgx.Conn method.
 type Querier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
 }
 
-// WriteResult is ExecuteWrite's report : just enough for a caller (or a
-// test) to go find what happened in the temp tables — the eventual read-back query
-// is what actually reconstructs a response from them.
+// WriteResult is a write's report ; the read-back builds the response from the temp tables.
 type WriteResult struct {
-	// NodeIDs is every writable node's assigned __node_id (see assignNodeIDs)
-	// — nodes pruned for being READONLY, or nested under a READONLY node,
-	// are absent.
+	// NodeIDs is every writable node's __node_id ; READONLY nodes and their subtrees are absent.
 	NodeIDs map[*QueryNode]int
 
-	// RowCount is the total number of temp rows this write produced,
-	// across every writable node.
+	// RowCount is the number of temp rows this write produced, across every writable node.
 	RowCount int
 
-	// Rows is non-nil when the write also built its own response : the JSON of
-	// each response row, in order (an empty, non-nil slice when there are none).
-	// The caller then has no read-back to run — there are no temp rows to scope one by.
-	// Nil when the response still has to be read back (query/write_fast.go).
+	// Rows is non-nil when the write built its own response : the JSON of each response row, in order (empty, non-nil
+	// when there are none), and there is no read-back to run. Nil when the response has to be read back.
 	Rows [][]byte
 
-	// Stats is populated only when WriteOptions.Stats was set — one entry
-	// per writable node an insert/update/upsert/delete statement actually
-	// ran against Nil otherwise.
+	// Stats is set only with WriteOptions.Stats : one entry per writable node a DML statement ran against.
 	Stats []Stat
 
-	// Sql is populated only when WriteOptions.Sql was set — one entry per
-	// writable node touched, the compiled text of whichever statement
-	// kind(s) it ran Nil otherwise.
+	// Sql is set only with WriteOptions.Sql : one entry per writable node touched, with each statement kind it ran.
 	Sql []SqlResult
 
-	// QueryPlan is populated only when WriteOptions.QueryPlan was set —
-	// every DML statement ran as EXPLAIN (ANALYZE, FORMAT JSON) instead of
-	// plainly Nil otherwise.
+	// QueryPlan is set only with WriteOptions.QueryPlan : every DML statement ran under EXPLAIN (ANALYZE, FORMAT JSON).
 	QueryPlan []PlanResult
 }
 
 // Stat is one writable node's row counts from a `stats` request.
 type Stat struct {
-	// Path is the chain of join-alias keys from the root down to this node
-	// ; [] for the root relation itself.
+	// Path is the chain of join-alias keys from the root down to this node ; [] for the root.
 	Path      []string `json:"path"`
 	Table     string   `json:"table"`     // fully-qualified relation name, "schema.table"
 	Submitted int      `json:"submitted"` // rows denormalized for this node, written or not
@@ -80,11 +60,8 @@ type Stat struct {
 	Deleted   int      `json:"deleted"`
 }
 
-// SqlResult is one node's compiled statement text(s) from a `sql` request
-// — at most one of Insert/Update/Upsert/
-// Delete is non-empty per statement kind the node actually ran ; Select is
-// left for relexec to fill in separately (the read-back, outside this
-// package's scope).
+// SqlResult is one node's statement texts from a `sql` request, one per statement kind it ran ; relexec fills Select
+// (the read-back).
 type SqlResult struct {
 	Path   []string `json:"path"`
 	Select string   `json:"select,omitempty"`
@@ -94,10 +71,8 @@ type SqlResult struct {
 	Delete string   `json:"delete,omitempty"`
 }
 
-// PlanResult is one node's EXPLAIN (ANALYZE, FORMAT JSON) output(s) from a
-// `query_plan` request on a write —
-// Select is left for relexec (the read-back, outside this package's
-// scope).
+// PlanResult is one node's EXPLAIN (ANALYZE, FORMAT JSON) outputs from a `query_plan` request on a write ; relexec
+// fills Select (the read-back).
 type PlanResult struct {
 	Path   []string        `json:"path"`
 	Select json.RawMessage `json:"select,omitempty"`
@@ -107,12 +82,8 @@ type PlanResult struct {
 	Delete json.RawMessage `json:"delete,omitempty"`
 }
 
-// WriteOptions augments ExecuteWriteNode with ComplexQuery's
-// write-side response-shaping flags. QueryPlan and
-// Stats are mutually exclusive — EXPLAIN ANALYZE's plan-row output leaves no
-// RowsAffected()/RETURNING data for Stats to read ; rejecting the
-// combination is the caller's responsibility (relexec), not enforced
-// here.
+// WriteOptions holds ComplexQuery's write-side response flags. QueryPlan and Stats are mutually exclusive, since
+// EXPLAIN ANALYZE leaves no row counts to read ; the caller must reject the combination, it is not checked here.
 type WriteOptions struct {
 	Stats     bool
 	QueryPlan bool
@@ -120,8 +91,7 @@ type WriteOptions struct {
 	// NoFastPath forces the general (temp table) path ; tests compare the two.
 	NoFastPath bool
 
-	// Format is how the fast path's response rows (WriteResult.Rows) are produced : JSON text, or the binary
-	// records of FormatCBOR, which a ResultEncoder reads.
+	// Format is how the fast path's WriteResult.Rows are produced : JSON text, or FormatCBOR records for a ResultEncoder.
 	Format OutputFormat
 }
 
@@ -193,33 +163,21 @@ func hasDeleteComponent(m WriteMode) bool {
 	}
 }
 
-// WriteState carries the node id and row id allocators across several
-// ExecuteWriteState calls that share their temp tables within a single
-// request — e.g. several write items in one Sequence, all run in a single transaction.
-// Each call must continue numbering where the previous one left off : both
-// counters restart from 0 internally (assignNodeIDs/denormalize), so two
-// items sharing a zero-valued WriteState would both assign node id 0 to
-// their own root and share row ids, which the statements joining the temp tables by row id
-// would mix up. The zero value is exactly what a single,
-// one-off ExecuteWrite call wants — see its own doc comment.
+// WriteState carries the node id and row id counters across the writes of one request, which share temp tables
+// (the write items of a Sequence). They must all use the same WriteState, or they reuse ids and the statements
+// joining temp tables by row id mix their rows up. The zero value is right for a request's first write.
 type WriteState struct {
 	nextNodeID int
 	nextRowID  int
 
-	// tableNodes is, per relation, the node ids that have rows loaded in its temp table so far, which
-	// tells a statement whether it may leave out the "node_id = N" filter (dmlCompiler.soleNode).
+	// tableNodes is, per relation, the node ids that have rows loaded in its temp table so far.
 	tableNodes map[*pg.Relation]map[int]bool
 }
 
-// ExecuteWriteNode runs the whole Writing Algorithm for one write item : denormalizes the payload
-// into the temp tables (created on conn when missing, which needs conn to be outside a transaction :
-// see PrepareWrite), phase 1 (insert/update/upsert, outgoing-before-self-before-incoming,
-// recursive), then phase 2 (deletes, post-order). root must already be Resolve'd. The payload is
-// decoded already, from JSON or CBOR ; nil is none (what a "delete" takes), and the Node is only
-// read, never retained. state numbers __node_id/__row_id across every write of one request, so it
-// must be shared by them and is mutated in place. paramValues resolves the $param references of a
-// well-known write query (nil for a plain /rel write). opts shapes the response
-// ; all-false does no extra work.
+// ExecuteWriteNode runs the Writing Algorithm for one write item ; root must be Resolve'd. Missing temp tables are
+// created on conn, which must then be outside a transaction (see PrepareWrite). payload is already decoded ; nil is
+// none (what a "delete" takes), and it is never retained. state must be shared by every write of the request and is
+// mutated in place. paramValues resolves a well-known write's $param references ; nil for a plain /rel write.
 func ExecuteWriteNode(ctx context.Context, conn Querier, root *QueryNode, payload Node, state *WriteState, paramValues map[string]any, opts WriteOptions) (*WriteResult, error) {
 	ids, nextNodeID := assignNodeIDs(root, state.nextNodeID)
 	if _, ok := ids[root]; !ok {
@@ -307,11 +265,8 @@ func ExecuteWriteNode(ctx context.Context, conn Querier, root *QueryNode, payloa
 	}, nil
 }
 
-// PrepareWrite creates, on conn, the temp tables the writes of roots go through, and
-// registers their types for it. It does nothing for a table already prepared. It must run outside
-// a transaction : a rolled back transaction would take the tables away. A server calls it
-// before beginning a request's transaction ; ExecuteWrite calls it itself, which is enough for a caller
-// that holds no transaction.
+// PrepareWrite creates on conn the temp tables the writes of roots go through, and registers their types ; tables
+// already prepared are skipped. It must run outside a transaction, since a rollback would drop the tables.
 func PrepareWrite(ctx context.Context, conn Querier, roots ...*QueryNode) error {
 	rels := map[*pg.Relation]bool{}
 	var walk func(n *QueryNode)
@@ -376,8 +331,7 @@ type zoneResult struct {
 	err error
 }
 
-// encodeContextFor builds the encoding context of conn : its session time zone, which the server
-// reports as the TimeZone parameter, read the way Go loads it.
+// encodeContextFor builds conn's encoding context from its session time zone (the TimeZone parameter).
 func encodeContextFor(q Querier) *encodeContext {
 	conn, ok := pgxConnOf(q)
 	if !ok {
@@ -432,9 +386,8 @@ func noData(payload Node) bool {
 	return false
 }
 
-// loadRows queues one statement putting every table's batch of rows in, in the same batch
-// as the statements that read them. The tables are loaded by data-modifying CTEs of a single statement,
-// which costs one statement's overhead however many tables the request writes.
+// loadRows queues a single statement, one data-modifying CTE per table, that loads every table's rows in the same
+// batch as the statements reading them.
 func (dc *dmlCompiler) loadRows(ctx context.Context, rows *writeRows) error {
 	tables := make([]*tempTable, 0, len(rows.batches))
 	for t, b := range rows.batches {

@@ -9,10 +9,8 @@ import (
 	"github.com/rel-server/rel/pg"
 )
 
-// idResolver decides which columns get a table-local id type (pg_values.ts's `Id` interface,
-// docs/content/typescript/index.md ## Typed wire values ### Table-local id types) : a column that Postgres
-// fills in from a sequence (serial/bigserial/smallserial, or identity), plus every foreign-key column that
-// points at one, directly or through a chain of foreign keys.
+// idResolver decides which columns get a table-local id type : a column filled from a sequence (serial or
+// identity), and every foreign key column pointing at one, directly or through a chain of foreign keys.
 type idResolver struct {
 	// key is the `Id` interface key a column's type is looked up under : "schema.table.column" of the root
 	// serial/identity column. Only holds columns that actually get an id type.
@@ -27,8 +25,7 @@ type idRoot struct {
 	base string // "number" or "Int8", the wire representation every column typed with this root shares
 }
 
-// isOwnIdColumn is true for a column Postgres fills in from a sequence : identity, or a serial default
-// (`nextval('...')`, which is also how info_relation.go reports an identity column's default).
+// isOwnIdColumn is true for a column Postgres fills in from a sequence : identity, or a `nextval('...')` default.
 func isOwnIdColumn(c *pg.Column) bool {
 	return c.IsIdentity || strings.HasPrefix(c.DefaultExpression, "nextval(")
 }
@@ -43,11 +40,9 @@ func idBase(c *pg.Column, tc *typeCollector) string {
 	return ""
 }
 
-// newIdResolver walks every target relation. A foreign key column is paired position by position with the
-// column it references (so a composite key maps column by column), and the chain is followed to its root. A
-// column that is itself serial/identity keeps its own type even when it also references another one. A column
-// whose wire representation differs from its root's (an int4 referencing a bigserial) is left alone, since the
-// brand can't describe both a number and a string.
+// newIdResolver walks every target relation, following each foreign key column to its root. A serial/identity
+// column keeps its own type even when it also references another one. A column whose wire representation
+// differs from its root's (an int4 referencing a bigserial) gets no id type.
 func newIdResolver(db *pg.DbInfos, relations []*pg.Relation, tc *typeCollector) *idResolver {
 	allowed := map[*pg.Relation]bool{}
 	for _, r := range relations {
@@ -60,8 +55,7 @@ func newIdResolver(db *pg.DbInfos, relations []*pg.Relation, tc *typeCollector) 
 	for _, r := range db.Relations {
 		for _, c := range r.Columns {
 			owner[c] = r
-			// A view column that is a plain pass-through of another column (pg.FillViewProvenance) behaves like
-			// a foreign key to it : it holds exactly that column's values.
+			// A view column passing another column through holds that column's values, like a foreign key.
 			if c.Source != nil {
 				references[c] = c.Source
 			}

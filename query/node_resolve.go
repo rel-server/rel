@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Pass 1, resolution step : turns a decoded rawRelation tree (node_parse.go)
-// into a fully DB-resolved *QueryNode tree . Expression-typed fields are copied through as-is
-// (already parsed by node_parse.go via parseNode) ; nothing here resolves
-// identifiers inside them, that's pass 2.
+// Pass 1, resolution step : turns a decoded rawRelation tree into a DB-resolved *QueryNode tree. Expressions are
+// copied as-is ; pass 2 resolves the names inside them.
 package query
 
 import (
@@ -41,10 +39,7 @@ type ResolveContext struct {
 	resolvingOwn map[*QueryNode]bool
 }
 
-// Resolve turns one decoded Relation (the root of a bare query or a
-// WriteQuery) into a fully resolved *QueryNode tree: tables, expressions and
-// shapes, in the order each step needs. Nothing else is needed before the
-// tree can be compiled.
+// Resolve turns one decoded root relation into a *QueryNode tree ready to compile : tables, expressions and shapes.
 func (ctx *ResolveContext) Resolve(raw *rawRelation) (*QueryNode, error) {
 	root, err := ctx.resolveQuery(raw)
 	if err != nil {
@@ -108,8 +103,8 @@ func checkWriteModePlacement(raw *rawRelation, m WriteMode, parent *QueryNode, o
 	return nil
 }
 
-// resolveNode resolves one node ; parent is nil for the root, depth counts
-// the root as 1 (bounded by pg.query.max_depth) ; see Pass 1's own ordering.
+// resolveNode resolves one node ; parent is nil for the root, depth counts the root as 1 (bounded by
+// pg.query.max_depth).
 func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, outerAlias string, depth int) (*QueryNode, error) {
 	name := raw.Relation
 	if raw.IsFunction {
@@ -135,12 +130,10 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 		node.Function = fn
 		node.FunctionArguments = raw.ArgumentsPositional
 		node.FunctionArgumentMap = raw.ArgumentsNamed
-		// A table-valued function is joinable/writable like the type it
-		// returns (query.ts) ; nil just means it isn't a known relation yet.
+		// A table-valued function is joinable/writable like the type it returns.
 		node.Relation = ctx.Db.GetRelationByType(fn.PgReturnTypeOid)
 		if node.Relation == nil {
-			// RETURNS TABLE(...)/OUT-params share one generic prorettype, so
-			// GetRelationByType can't resolve them — see RecordRelation's own doc.
+			// RETURNS TABLE(...)/OUT-params share one generic return type, which GetRelationByType can't resolve.
 			node.Relation = fn.RecordRelation
 		}
 	} else {
@@ -246,7 +239,7 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 			node.OnConflictColumns = raw.OnConflictColumns
 		}
 	} else if node.Relation != nil && node.Relation.PrimaryKey != nil {
-		// query.ts's documented default : PK when on_conflict is unspecified.
+		// The primary key when on_conflict is unspecified.
 		node.OnConflictConstraintName = node.Relation.PrimaryKey.Name
 	}
 
@@ -266,7 +259,7 @@ func (ctx *ResolveContext) resolveNode(raw *rawRelation, parent *QueryNode, oute
 	if raw.Select != nil {
 		node.Select = raw.Select
 	} else {
-		// query.ts's documented default when select is unspecified.
+		// The default when select is unspecified.
 		node.Select = StarExpr{}
 	}
 	node.Where = raw.Where
@@ -299,13 +292,9 @@ func (ctx *ResolveContext) resolveFunction(raw *rawRelation, oc oops.OopsErrorBu
 		raw.ArgumentsPositional, raw.ArgumentsNamed, (*pg.Function).IsPlainFunction, false, oc)
 }
 
-// resolveFunctionCandidate picks the *pg.Function candidate matching
-// schema/name/call shape, filtered by kindOK. More than one survivor is an
-// ambiguity error, unless allowOverloads : an "agg" or "call" only needs the
-// function's schema-qualified name in its SQL, and Postgres picks the overload
-// from the real argument types when it parses the statement. A relation root
-// needs exactly one, for the shape of its result. With allowOverloads the first
-// survivor is returned ; they all share one schema and name.
+// resolveFunctionCandidate picks the candidate matching schema/name/call shape, filtered by kindOK. More than one
+// survivor is an ambiguity error, unless allowOverloads ("agg"/"call", whose SQL names the function and lets
+// Postgres pick the overload) : the first is then returned. A relation root needs exactly one, for its result shape.
 func resolveFunctionCandidate(
 	db *pg.DbInfos, bl config.Blacklist,
 	schema, name string,

@@ -1,5 +1,5 @@
 // `codec=` without a time token : a timestamp or a date is the text JSON carries, written back as the same text.
-// No accessor is offered, so nothing here needs `Temporal`. docs/content/typescript/index.md ## Codecs.
+// No accessor is offered, so nothing here needs `Temporal`.
 import {
   type PgDate,
   type Timestamp,

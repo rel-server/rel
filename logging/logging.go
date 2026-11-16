@@ -1,11 +1,4 @@
-// Package logging builds Rel's one process-wide *slog.Logger from
-// config.Logging, derives
-// per-request child loggers (request.go : RequestMiddleware, FromContext),
-// and provides ResponseRecorder (response_recorder.go), the http.ResponseWriter wrapper route/handler.go
-// and server/rel.go each use to build the access log line.
-// Access, introspection, route registry and error logging live in the
-// packages they log (route, server, pg) instead, since their fields are
-// domain-specific.
+// Package logging builds rel's process-wide logger, per-request loggers and the access log.
 package logging
 
 import (
@@ -20,14 +13,8 @@ import (
 	"github.com/samber/oops"
 )
 
-// Error returns err as a flat run of alternating key/value args, meant to be
-// spread into a slog call (logger.Error("...", logging.Error(err)...)) :
-// "error" holds err.Error() itself, followed by every oops .With(key, value)
-// context entry attached anywhere in err's chain, as its own sibling
-// key/value pair — never nested under an "error"/"context" group, since
-// a key attached at the error site must be independently queryable (and
-// logging.filter/logging.exclude can't match a key
-// hidden inside a group at all).
+// Error returns err as slog key/value args : "error", then every oops .With context entry in err's chain as a
+// top-level pair, never grouped, so logging.filter/logging.exclude can match them.
 func Error(err error) []any {
 	if err == nil {
 		return nil
@@ -41,10 +28,8 @@ func Error(err error) []any {
 	return attrs
 }
 
-// Build constructs the *slog.Logger described by cfg, without installing it
-// as the process default — see Install for that. Every field is validated :
-// an unrecognized handler/level, or an invalid filter/exclude regexp, is a
-// configuration error (a malformed value is fatal), not silently ignored.
+// Build constructs cfg's logger without installing it as the default. An unrecognized handler/level or an invalid
+// filter/exclude regexp is an error.
 func Build(cfg config.Logging) (*slog.Logger, error) {
 	level, err := parseLevel(cfg.Level)
 	if err != nil {
@@ -69,17 +54,12 @@ func Build(cfg config.Logging) (*slog.Logger, error) {
 	return slog.New(filtered), nil
 }
 
-// colorEnabled is whether the pretty handler colors its output : always, unless the NO_COLOR
-// environment variable is set to a non-empty value (https://no-color.org).
+// colorEnabled is whether the pretty handler colors its output : always, unless NO_COLOR is set non-empty.
 func colorEnabled() bool {
 	return os.Getenv("NO_COLOR") == ""
 }
 
-// Install builds cfg's logger and installs it via slog.SetDefault — the one
-// place logging.handler/logging.level are read.
-// Returns the logger too, for callers that prefer passing it explicitly
-// (e.g. into http.Server.ErrorLog via slog.NewLogLogger) rather than relying
-// on the package-level default.
+// Install builds cfg's logger, sets it as slog's default and returns it.
 func Install(cfg config.Logging) (*slog.Logger, error) {
 	logger, err := Build(cfg)
 	if err != nil {
@@ -89,30 +69,13 @@ func Install(cfg config.Logging) (*slog.Logger, error) {
 	return logger, nil
 }
 
-// For returns a *slog.Logger tagged with a "module" attribute — see
-// docs/content/configuration/operations.md ## Logging for what the
-// attribute means to a reader of the logs. Loggers are attached once per package. Convention : one
-// package-level `var log = logging.For("<name>")` per package, `<name>`
-// matching the package/directory name (query, route, pg, reloadcmd, boot, ...),
-// used for every log call in that package instead of calling slog.Default()
-// or the slog package funcs directly.
-//
-// Deliberately safe to store in a package-level var regardless of
-// initialization order : Go runs package-level var initializers before
-// main() ever gets a chance to call Install, so a naive
-// `slog.Default().With("module", name)` here would permanently freeze in
-// whatever handler slog.Default() happened to return AT THAT MOMENT — the
-// stdlib's own built-in default, not rel's configured pretty/JSON one
-// Install sets up later. For's own handler (dynamicHandler, below) instead
-// resolves slog.Default()'s CURRENT handler fresh on every single log call,
-// so a logger built before Install runs still picks up the real handler
-// once it exists.
+// For returns a logger tagged with module, meant for one package-level `var log = logging.For("<package>")` per
+// package. Safe to build before Install : it uses slog's default handler as of each log call.
 func For(module string) *slog.Logger {
 	return slog.New(dynamicHandler{attrs: []slog.Attr{slog.String("module", module)}})
 }
 
-// dynamicHandler holds only the extra attrs a For(...) logger has
-// accumulated, resolving slog.Default()'s handler fresh on each call — see For.
+// dynamicHandler resolves slog.Default()'s handler on each call.
 type dynamicHandler struct {
 	attrs []slog.Attr
 }
@@ -136,14 +99,12 @@ func (h dynamicHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return dynamicHandler{attrs: merged}
 }
 
-// WithGroup is a no-op — nothing in this package's scope produces groups ;
-// see filterHandler's own doc comment for the same limitation.
+// WithGroup is a no-op : nothing in rel opens groups on these loggers.
 func (h dynamicHandler) WithGroup(name string) slog.Handler {
 	return h
 }
 
-// parseLevel maps logging.level's four accepted strings (default "info")
-// onto slog.Level ; anything else is a configuration error.
+// parseLevel maps logging.level (default "info") onto slog.Level.
 func parseLevel(level string) (slog.Level, error) {
 	switch strings.ToLower(level) {
 	case "", "info":
@@ -166,8 +127,7 @@ type filterHandler struct {
 	filter  map[string]*regexp.Regexp
 	exclude map[string]*regexp.Regexp
 
-	// attrs accumulates logger.With(...) attributes, which a Record's own
-	// Attrs() at Handle time doesn't include on its own.
+	// attrs accumulates WithAttrs attributes, which the record does not carry.
 	attrs []slog.Attr
 }
 

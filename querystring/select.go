@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// select.go compiles the `select=` value : either one
-// own/full-family call taking up the entire value, or a
-// plain comma-list of [alias:]expr entries compiling to the OBJECT variant
-// of Expression. The two are mutually exclusive,
-// tried in that order.
+// The `select=` value : either a "*"/"*~" call taking the whole value, or a comma-list of [alias:]expr entries
+// compiling to an object, tried in that order.
 package querystring
 
 import (
@@ -25,7 +22,6 @@ import (
 	"github.com/samber/oops"
 )
 
-// compileSelect implements ## select's two mutually-exclusive forms.
 func compileSelect(s string) (any, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -39,11 +35,8 @@ func compileSelect(s string) (any, error) {
 	return compileSelectCommaList(s)
 }
 
-// tryCompileStar matches only when "*"/"*~" (optionally called with an
-// except-list and/or and-map) takes up the entire value ; ok is false, no
-// error, otherwise — falls through to the comma-list. "*" isn't a valid
-// identifier-start character, so this is handled directly rather than
-// through parseIdentifier/parseCall.
+// tryCompileStar matches only when "*"/"*~", optionally called with an except-list and/or and-map, takes the whole
+// value ; otherwise ok is false with no error.
 func tryCompileStar(s string) (any, bool, error) {
 	p := newExprParser(s)
 	p.skipSpace()
@@ -121,18 +114,11 @@ func parseAndMapUntilClose(p *exprParser) (map[string]any, error) {
 	}
 }
 
-// parseExceptAndUntilClose parses "*"/"*~"'s call-form argument list :
-// an except-list, and/or (separated by a literal ';', special to this form
-// alone) an and-map — each optional, through the closing ')'. Both nil
-// means an empty call, "()". Unlike parseAndMapUntilClose, an absent and-map
-// is nil (not an empty map), so the caller can tell "omitted" from "given
-// but empty".
+// parseExceptAndUntilClose parses "*"/"*~"'s arguments through ')' : an optional except-list, then ';' and an
+// optional and-map. An absent and-map is nil, not empty, so the caller can tell omitted from empty.
 //
-// An and-only call MUST still lead with ';' (e.g. "*~(;actors)") even
-// though the except-list is empty — a bare identifier before ';' is
-// otherwise genuinely ambiguous between "except this column" and "and this
-// self-aliased column", and the old grammar's separate own_and/own_except
-// tags never had to resolve that ambiguity.
+// An and-only call still leads with ';' ("*~(;actors)"), since a bare identifier could be either an except or a
+// self-aliased and entry.
 func parseExceptAndUntilClose(p *exprParser) ([]string, map[string]any, error) {
 	var except []string
 	p.skipSpace()
@@ -209,7 +195,6 @@ func parseSelectEntry(p *exprParser) (alias string, value any, err error) {
 	return ident, []any{".", ident}, nil
 }
 
-// compileSelectCommaList implements ## select's plain-comma-list form.
 func compileSelectCommaList(s string) (any, error) {
 	p := newExprParser(s)
 	out := map[string]any{}
@@ -230,8 +215,7 @@ func compileSelectCommaList(s string) (any, error) {
 	}
 }
 
-// compileOrderBy's leading "-" immediately
-// followed by a digit opens a negative number, not a descending marker.
+// compileOrderBy : a leading "-" followed by a digit opens a negative number, not a descending marker.
 func compileOrderBy(s string) ([]any, error) {
 	p := newExprParser(s)
 	if p.atEnd() {

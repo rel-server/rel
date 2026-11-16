@@ -20,42 +20,28 @@ type Column struct {
 	// Index is the column's attnum (information_schema's ordinal_position).
 	Index int
 
-	// Source is the base column a view/materialized view column is a plain, unmodified pass-through of, one hop
-	// (a view over a view points at the inner view's column ; follow Source again to reach the table). nil for a
-	// table column and for any view column that is an expression. Filled by FillViewProvenance.
+	// Source is the column a view column is a plain pass-through of, one hop (a view over a view points at the
+	// inner view's column). nil for a table column or an expression. Filled by FillViewProvenance.
 	Source *Column `json:"-"`
 
 	PgTypeOid int
 
-	// DeclaredType is the column's type as Postgres' format_type prints it,
-	// modifiers included ("character varying(20)", "numeric(10,2)", a domain's
-	// own name) — what a temp table must repeat to behave like the column.
-	// Schema-qualified only where the introspecting session's search_path does
-	// not already see the type, so it resolves the same on a connection with
-	// the same search path.
+	// DeclaredType is the column's type as format_type prints it, modifiers included ("numeric(10,2)", a domain's
+	// name), for a temp table to repeat. Schema-qualified only where the introspecting search_path does not see it.
 	DeclaredType string
 
-	// PgDomainIdentifier is set only when the column's declared type is a
-	// domain — information_schema.columns' own udt_name/udt_schema (and so
-	// PgTypeOid, resolved from them) name the domain's BASE type, not the
-	// domain itself (SQL-standard information_schema behaviour) ; the
-	// domain's real identity only survives via domain_schema/domain_name,
-	// captured here instead. FillTypeInformations resolves this back into
-	// Type once every *Type is known — see its own domain-column pass.
+	// PgDomainIdentifier is set only when the column's type is a domain, since PgTypeOid names the domain's base
+	// type. FillTypeInformations swaps it into Type.
 	PgDomainIdentifier *SqlIdentifier `json:"DomainIdentifier"`
 
 	Type *Type
 
-	// The column's own COMMENT ON, if any — meant primarily for the
-	// TypeScript export to surface as a doc comment ; empty string if unset.
+	// The column's COMMENT ON, empty if unset.
 	Comment string
 
 	DefaultExpression string
 
-	// IsPrimaryKey/IsParOfUnique are filled by FillConstraintInformations
-	// (info_constraint.go), after relations/columns themselves are ; not
-	// available directly from information_schema.columns like the rest of
-	// this struct's fields.
+	// IsPrimaryKey/IsParOfUnique are filled later, by FillConstraintInformations.
 	IsPrimaryKey  bool
 	IsIdentity    bool
 	IsGenerated   bool // GENERATED ALWAYS AS ... STORED
@@ -64,9 +50,8 @@ type Column struct {
 	IsUpdatable   bool
 }
 
-// IsReallyNotNull reports !IsNullable OR a not-null constraint declared on
-// the column's own domain type — a domain-backed column/view can read as
-// nullable (IsNullable true) while still never actually holding NULL.
+// IsReallyNotNull reports !IsNullable or a not-null constraint on the column's domain, which IsNullable
+// does not show.
 func (c *Column) IsReallyNotNull() bool {
 	return !c.IsNullable || c.Type.PgDomainNotNull
 }

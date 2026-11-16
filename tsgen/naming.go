@@ -29,8 +29,7 @@ func viewInterfaceName(schema, name string) string {
 	return "View__" + pascalCase(schema) + "__" + pascalCase(name)
 }
 
-// relationInterfaceName picks the Table__ or View__ interface name
-// (same column rules either way).
+// relationInterfaceName picks the Table__ or View__ interface name.
 func relationInterfaceName(schema, name string, isView bool) string {
 	if isView {
 		return viewInterfaceName(schema, name)

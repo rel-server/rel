@@ -29,9 +29,8 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// runDmut applies the mutations found in cfg.Dmut.Path, in-process, with
-// the login dmutURI picks. ran is false when dmut.path is empty. logger
-// receives dmut's own records and is expected to carry module=dmut.
+// runDmut applies the mutations in cfg.Dmut.Path, in-process. ran is false when dmut.path is empty. logger
+// receives dmut's own records.
 func runDmut(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran bool, err error) {
 	paths := splitPaths(cfg.Dmut.Path)
 	if len(paths) == 0 {
@@ -61,8 +60,7 @@ func runDmut(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran 
 	return true, nil
 }
 
-// dmutMode maps rel's dmut.mode values onto dmut 3's modes: default is
-// normal, simple is safe and full is force.
+// dmutMode maps dmut.mode : default is normal, simple is safe and full is force.
 func dmutMode(mode string) model.Mode {
 	switch mode {
 	case config.DmutModeSimple:

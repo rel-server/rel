@@ -1,9 +1,4 @@
-// Package server implements POST/GET /rel — the read and
-// write algorithms wired into an HTTP request, including a
-// ParsedQuery.Sequence and a well-known query in either position query.ts's
-// Query union allows (bare read, or wrapped in WriteQuery.query for a
-// write), composable alongside a plain Relation in the same Sequence. See
-// the reqauth package for how the request becomes a user with a role.
+// Package server serves POST/GET /rel and the generated TypeScript client.
 package server
 
 import (
@@ -29,12 +24,8 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// NewRelHandler serves POST/GET /rel (GET only for a bare
-// relation or well-known query).
-// db.Pool is acquired from once per request ; wkReg resolves a well-known
-// item by name, rebuilt alongside db/cfg on every SIGUSR1 reload
-// (boot/reload.go). reqauth verifies the session and starts the request's
-// transaction as the user's role.
+// NewRelHandler serves POST/GET /rel (GET only for a bare relation or well-known query). Each request acquires one
+// connection from db.Pool and runs as the user's role.
 func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
@@ -46,8 +37,7 @@ func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry
 	})
 }
 
-// relQueryBytes returns the query.ts Query JSON the request describes :
-// the POST body verbatim, or GET's own query-json.md decoding below.
+// relQueryBytes returns the request's query : the POST body verbatim, or the GET query string decoded to JSON.
 func relQueryBytes(r *http.Request) ([]byte, error) {
 	if r.Method == http.MethodGet {
 		return decodeGETQuery(r.URL.RawQuery)
@@ -59,8 +49,8 @@ func relQueryBytes(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// isCBORRequest reports whether a POST body is CBOR (RFC 8949), by its Content-Type ; anything
-// else is JSON. A response is JSON either way : the two formats are chosen independently.
+// isCBORRequest reports whether a POST body is CBOR, by its Content-Type ; anything else is JSON. The response
+// format is chosen independently.
 func isCBORRequest(r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		return false
@@ -69,7 +59,6 @@ func isCBORRequest(r *http.Request) bool {
 	return err == nil && mt == "application/cbor"
 }
 
-// parseRelBody decodes the request body into a query, from CBOR or JSON per its Content-Type.
 func parseRelBody(r *http.Request, body []byte) (query.ParsedQuery, error) {
 	if isCBORRequest(r) {
 		n, err := query.NewCBORNode(body)
@@ -96,8 +85,8 @@ func decodeGETQuery(raw string) ([]byte, error) {
 	return querystring.DecodeRelation(raw)
 }
 
-// decodeWellKnownGET builds {"wellknown", "params"?} JSON from a decoded
-// GET query string ; rejects "data" (query-json.md's read-only rule).
+// decodeWellKnownGET builds {"wellknown", "params"?} JSON from a decoded GET query string ; rejects "data", since
+// GET is read-only.
 func decodeWellKnownGET(m map[string]any) ([]byte, error) {
 	name, ok := m["wellknown"].(string)
 	if !ok {
@@ -113,8 +102,7 @@ func decodeWellKnownGET(m map[string]any) ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// coerceQueryStringLeaves re-parses each string leaf of v as JSON, keeping
-// the parsed value when valid — query-json.md's %22-quoted escape hatch.
+// coerceQueryStringLeaves re-parses each string leaf of v as JSON, keeping the parsed value when valid.
 func coerceQueryStringLeaves(v any) any {
 	switch t := v.(type) {
 	case string:
@@ -150,8 +138,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	var anyWrite bool
 	var targets []string
 
-	// Runs on every return path (including an early rejection), so itemCount/anyWrite/targets
-	// not yet known at that point are simply the zero value.
+	// Runs on every return path, early rejections included, with whatever is known by then.
 	defer func() {
 		role := ""
 		if sess != nil {
@@ -160,8 +147,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		logging.AnnotateAccess(ctx, role, "item_count", itemCount, "write", anyWrite, "targets", targets)
 	}()
 
-	// Anonymous role existence : reject
-	// before reading the body or acquiring a connection when disabled.
+	// Rejects (e.g. anonymous with no anonymous role) before reading the body or acquiring a connection.
 	sess, err := reqauth.Authenticate(cfg, db, r)
 	if err != nil {
 		writeError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
@@ -184,15 +170,11 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	// query-json.md ## Scope / ## Well-known queries on GET /rel : GET
-	// never decodes to a Sequence ; asserted explicitly, not just assumed.
 	if r.Method == http.MethodGet && pq.Sequence != nil {
 		writeError(ctx, w, httperr.BadRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
 		return
 	}
-	// GET rule : a ComplexQuery
-	// wrapper (data present or not) is GET-ineligible, only a bare
-	// RelationQuery/WellKnownQuery is convenience-served there.
+	// A ComplexQuery wrapper is never allowed on GET, with or without data.
 	if r.Method == http.MethodGet && pq.Write != nil {
 		writeError(ctx, w, httperr.BadRequest(errcode.QueryComplexNotAllowedOnGet, fmt.Errorf("/rel GET accepts only a bare relation or well-known query, not a ComplexQuery wrapper")), cfg.Dev)
 		return
@@ -204,8 +186,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	itemCount = len(items)
 
-	// Resolving before touching a connection : a 400 here means nothing has been opened yet,
-	// nothing to roll back.
+	// Before acquiring a connection : a 400 here has nothing to roll back.
 	prepared, err := relexec.Prepare(&query.ResolveContext{Db: db, Config: cfg}, wkReg, items, relexec.Options{
 		Format: wire,
 		Policy: relexecPolicy(cfg),
@@ -224,10 +205,8 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 	defer conn.Release()
 
-	// Begin, claims and SET LOCAL ROLE go out in one round trip ; both revert at the
-	// single commit/rollback relexec ends the transaction with (## Transactions).
-	// The session is renewed when the transaction has begun, so a request that fails
-	// to start gets no fresh cookie.
+	// Begin, claims and SET LOCAL ROLE go out in one round trip. The session is renewed only once the transaction
+	// has begun, so a request that fails to start gets no fresh cookie.
 	begin := sess.RelexecBegin()
 	if err := prepared.Execute(ctx, conn, func(ctx context.Context, conn *pgxpool.Conn) error {
 		if err := begin(ctx, conn); err != nil {
@@ -238,8 +217,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}, &bodyWriter{w: w, contentType: wire.MediaType()}); err != nil {
 		var e *relexec.Error
 		if errors.As(err, &e) && e.Started {
-			// The status and part of the body are gone already : truncated output is the only
-			// signal left (writeError's own doc comment covers this).
+			// The status and part of the body are sent : truncated output is the only signal left.
 			logging.FromContext(ctx).Error("response cut short", append([]any{"code", e.Code}, logging.Error(err)...)...)
 			return
 		}
@@ -269,9 +247,8 @@ func relexecPolicy(cfg *config.Config) relexec.Policy {
 	return relexec.Policy{Count: q.AllowCount, Stats: q.AllowStats, QueryPlan: q.AllowQueryPlan, SQL: q.AllowSql, Rollback: q.AllowRollback}
 }
 
-// relexecRequestError maps a relexec failure to the response it deserves : a Postgres error is
-// classified (PG_*/RSxxx, never err.Error(), which can embed generated SQL), anything else is a 400
-// or a 500 by whose fault it is.
+// relexecRequestError maps a relexec failure to its response : a Postgres error is classified (never err.Error(),
+// which can embed generated SQL), anything else is a 400 or a 500 by whose fault it is.
 func relexecRequestError(err error) *httperr.Error {
 	e, ok := errors.AsType[*relexec.Error](err)
 	if !ok {

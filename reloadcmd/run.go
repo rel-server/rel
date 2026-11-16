@@ -12,12 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package reloadcmd runs the dmut step (dmut.go) then reload.cmd
-// (docs/content/configuration/reload.md), the single entry point both
-// cmd/rel's startup sequence and boot's reload sequence call. This package does
-// not decide the "log and continue" policy on failure itself — both call
-// sites apply that policy identically, in exactly one place each, rather
-// than duplicating it here.
+// Package reloadcmd runs the dmut step then reload.cmd, for both startup and reload. Callers decide what a
+// failure means.
 package reloadcmd
 
 import (
@@ -42,25 +38,17 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// Run performs the dmut step (dmut.go), then interpolates and runs
-// cfg.Reload.Cmd, per docs/content/configuration/reload.md. Both are always
-// attempted, and err joins both failures. logger must carry no "module"
-// attribute of its own : Run tags the dmut step "dmut" and reload.cmd
-// "reloadcmd". ran is false when both are unconfigured — nothing to run,
-// not an error ; err is
-// non-nil when the dmut run fails or times out, or when interpolation
-// fails, the command line can't be parsed/started, it exits non-zero, or
-// cfg.Reload.Timeout elapses first.
+// Run runs the dmut step, then interpolates and runs cfg.Reload.Cmd. Both are always attempted ; err joins both
+// failures, timeouts included. ran is false when neither is configured. logger must carry no "module" attribute :
+// Run adds its own.
 func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran bool, err error) {
 	dmutRan, dmutErr := runDmut(ctx, cfg, logger.With("module", "dmut"))
 	cmdRan, cmdErr := runCmd(ctx, cfg, logger.With("module", "reloadcmd"))
 	return dmutRan || cmdRan, errors.Join(dmutErr, cmdErr)
 }
 
-// ErrorAttrs returns err as slog key/value arguments for the call sites that
-// log a failure of Run. Besides "error", it carries the context dmut attaches
-// to a failing statement (mutation, file, namespace, statement_index, sql,
-// position, sqlstate, detail, hint), which err.Error() alone drops.
+// ErrorAttrs returns a Run failure as slog arguments, including the failing statement's context dmut attaches,
+// which err.Error() drops.
 func ErrorAttrs(err error) []any {
 	return mutations.ErrorAttrs(err)
 }
@@ -89,10 +77,7 @@ func runCmd(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran b
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)
-	// The full parent environment, unmodified — docs/content/configuration/reload.md : "this
-	// allows for Docker-style configuration mechanisms that rely on the
-	// ambient environment" — on top of whatever interpolate already
-	// substituted into the command line itself.
+	// The full parent environment, for Docker-style configuration.
 	cmd.Env = os.Environ()
 
 	stdout, perr := cmd.StdoutPipe()
@@ -124,19 +109,12 @@ func runCmd(ctx context.Context, cfg *config.Config, logger *slog.Logger) (ran b
 	return true, nil
 }
 
-// placeholderRe matches docs/content/configuration/reload.md's `{name}`/`{name:...:default}`
-// interpolation syntax : brace-delimited content, split into `:`-separated
-// segments by interpolate itself. Content may not contain "{" or "}".
+// placeholderRe matches a `{name}`/`{name:...:default}` placeholder ; its content may not contain "{" or "}".
 var placeholderRe = regexp.MustCompile(`\{([^{}]*)\}`)
 
-// interpolate resolves every `{name}`/`{name1:name2:...:default}` placeholder
-// in s against raw (a dotted configuration key, when a name contains ".") or
-// the process environment (otherwise), per docs/content/configuration/reload.md. All but the last
-// `:`-separated segment are names tried in order ; the first that resolves
-// to a non-empty value wins. The last segment is always a literal default,
-// never resolved as a name. A single-segment placeholder (no default) whose
-// name is unset is an error — aborting before reload.cmd ever runs, rather
-// than silently substituting an empty string.
+// interpolate resolves every `{name1:name2:...:default}` placeholder in s : names are tried in order and the first
+// non-empty one wins, else the last segment is a literal default. A placeholder with no default whose name is
+// unset is an error, so reload.cmd never runs with an empty substitution.
 func interpolate(s string, raw map[string]any) (string, error) {
 	var firstErr error
 	result := placeholderRe.ReplaceAllStringFunc(s, func(match string) string {
@@ -182,10 +160,7 @@ func resolve(name string, raw map[string]any) (string, bool) {
 	return os.LookupEnv(name)
 }
 
-// toString stringifies a resolved config value the way its config file/
-// flag/env-var representation would already have looked (koanf.All()'s
-// values are string/bool/int/float64 — never anything requiring %v-style
-// struct formatting).
+// toString stringifies a config value (always a string, bool or number) as it would be written in the config.
 func toString(v any) string {
 	if s, ok := v.(string); ok {
 		return s
@@ -193,14 +168,7 @@ func toString(v any) string {
 	return fmt.Sprint(v)
 }
 
-// logLines scans r line by line, tagging each with stream, merging a
-// JSON-object line's own keys on top when it parses as one — docs/content/configuration/reload.md :
-// "for commands that support structured output." No separate component tag :
-// the caller's module attr plus stream already identify these as reload.cmd's
-// subprocess output (Run's own status/error lines never carry stream).
-// A bufio.Scanner, not a naive per-Write split : os/exec pipes output
-// through io.Copy in arbitrary chunks, never guaranteed to align with line
-// boundaries the way a single formatted log call would.
+// logLines logs each line of r tagged with stream, merging a JSON-object line's keys as attributes.
 func logLines(r io.Reader, logger *slog.Logger, stream string) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)

@@ -9,8 +9,7 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// signingMethod maps jwt.algorithm's three accepted values to the
-// library's SigningMethod ; anything else errors rather than panics.
+// signingMethod maps jwt.algorithm's three accepted values to the library's SigningMethod ; anything else errors.
 func signingMethod(algorithm string) (*jwtlib.SigningMethodHMAC, error) {
 	switch algorithm {
 	case "HS256":
@@ -24,8 +23,7 @@ func signingMethod(algorithm string) (*jwtlib.SigningMethodHMAC, error) {
 	}
 }
 
-// Sign produces a signed token string for claims, using cfg.Jwt.Algorithm/
-// Secret.
+// Sign produces a signed token string for claims, using cfg.Jwt.Algorithm/Secret.
 func Sign(cfg config.Jwt, claims Claims) (string, error) {
 	method, err := signingMethod(cfg.Algorithm)
 	if err != nil {
@@ -35,17 +33,10 @@ func Sign(cfg config.Jwt, claims Claims) (string, error) {
 	return token.SignedString([]byte(cfg.Secret))
 }
 
-// Verify parses and validates token per Lifecycle step 2 : signature,
-// jwt.algorithm (via WithValidMethods — rejects any token whose header
-// claims a different algorithm, including "none", as required), and exp (the library's own default validation, since exp is
-// always present on a rel-minted token). auth_time + jwt.maxsessionage is
-// NOT a standard JWT claim the library validates on its own, so it's
-// checked separately here.
+// Verify checks token's signature, its algorithm (any other, "none" included, is rejected), exp, and
+// auth_time + jwt.maxsessionage.
 //
-// A verification failure of ANY kind returns a plain error — the caller
-// (route package) treats that as "no session", per Lifecycle step 2 : "Failing
-// any of these is equivalent to no session at all", never a request-level
-// error in its own right.
+// Any failure is a plain error, which callers treat as no session.
 func Verify(cfg config.Jwt, token string) (Claims, error) {
 	claims := Claims{}
 	_, err := jwtlib.ParseWithClaims(token, claims, func(t *jwtlib.Token) (any, error) {

@@ -1,6 +1,5 @@
-// Binary field encoders for the typed write path : each turns a request Node into the bytes Postgres'
-// binary receive function for the column's type reads. A column whose type has
-// no encoder is loaded as text instead (text mode).
+// Binary field encoders for the typed write path : each turns a request Node into the binary form of its column's
+// type. A column whose type has no encoder is loaded as text instead.
 package query
 
 import (
@@ -123,9 +122,8 @@ func kindName(k NodeKind) string {
 	return "invalid value"
 }
 
-// A value that cannot be written is reported as the error Postgres itself raises for the same
-// value, SQLSTATE included, so it classifies and reaches the client the way it always has
-// (server's relexecRequestError, pgerr.Classify).
+// A value that cannot be written is reported as the error Postgres itself raises for it, SQLSTATE included, so the
+// client sees the same error either way.
 
 // isDateTimeType reports whether typ is one of the date and time types.
 func isDateTimeType(typ string) bool {

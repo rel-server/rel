@@ -1,6 +1,6 @@
 // `codec=temporal` : a timestamp is a `Temporal.Instant` (or a `PlainDateTime` for a wall clock), a `date` a
 // `Temporal.PlainDate`, and an interval or a date range gets its accessor. Needs a runtime with `Temporal`, or a
-// polyfill installed before the first query. docs/content/typescript/index.md ## Codecs.
+// polyfill installed before the first query.
 import {
   type DateRange,
   type GetOnlyDescriptor,
@@ -21,7 +21,7 @@ import {
 const isoOf = (value: Date | Temporal.Instant | Temporal.PlainDateTime | string): string =>
   typeof value === "string" ? value : value instanceof Date ? value.toISOString() : value.toString()
 
-// What JSON carries : the ISO text. `cbor` replaces these (codecs/cbor-time-temporal.ts).
+// What JSON carries : the ISO text. `cbor` replaces these.
 pgWireCasts.timestamptz = (value: Date | Temporal.Instant | string) => requireOffset(isoOf(value))
 pgWireCasts.timestamp = (value: Temporal.PlainDateTime | Temporal.Instant | Date | string) =>
   isoOf(value)
@@ -105,10 +105,8 @@ export function dateAccessor<Col extends string>(column: Col) {
   }
 }
 
-// Assumes IntervalStyle = postgres (Postgres's own default) and throws on a string it doesn't recognize, rather
-// than silently misinterpreting a value produced under a different style. Sub-millisecond precision (a 4th+
-// fractional-second digit) is rounded to the nearest millisecond — Temporal.Duration's own millisecond field is
-// the finest granularity used here, not a fundamental limit of the format itself.
+// Assumes IntervalStyle = postgres (the default) and throws on anything else rather than misread it. Rounds to the
+// millisecond.
 function parseInterval(text: string): Temporal.Duration {
   let years = 0
   let months = 0

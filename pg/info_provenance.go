@@ -6,26 +6,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// FillViewProvenance sets Column.Source on every view/materialized view column that is a plain pass-through of
-// another relation's column (`select id from t`, `select t.id as other_name from t join u ...`), with no
-// SQL parsing of our own : Postgres reports, for every column of a query's result, the table and column number
-// it came from (the wire protocol's RowDescription ; zero for an expression, a function call, a cast...). So each
-// view's definition is prepared — parsed and analyzed by the server, never executed — and that description read.
+// FillViewProvenance sets Column.Source on every view column that is a plain pass-through of another relation's
+// column, by preparing (never executing) each view's definition and reading the source table and column the
+// server reports for each result column.
 //
-// A view over another view points at the inner view's column (the FROM item is the view itself) ; follow Source
-// repeatedly to get to a table.
+// A view over another view points at the inner view's column.
 //
-// Best effort, never an error : a view that can't be prepared (a definition that doesn't re-parse under the
-// introspection connection's search path, say) is logged and left with no Source, which only means its columns
-// are treated as plain values.
+// Best effort : a view that can't be prepared (its definition does not re-parse under the introspection
+// search path, say) is logged and left with no Source.
 func FillViewProvenance(db *DbInfos, conn *pgx.Conn) {
 	ctx := context.Background()
 	for _, view := range db.Relations {
 		if !view.IsViewLike() {
 			continue
 		}
-		// Nothing outside the user's own schemas can usefully be a source of table-local ids, and the system
-		// views are numerous.
+		// System views are numerous and never a source of table-local ids.
 		if s := view.Identifier.Schema; s == "pg_catalog" || s == "information_schema" || s == "pg_toast" {
 			continue
 		}

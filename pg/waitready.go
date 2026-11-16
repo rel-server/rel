@@ -40,8 +40,7 @@ const (
 //
 // Each attempt is capped at 5 seconds and the last one is clipped to the
 // remaining budget. Every failed attempt that will be retried is logged as a
-// warning. The returned error is the last attempt's. It opens and closes its
-// own connection and leaves no state behind.
+// warning. The returned error is the last attempt's.
 func WaitReady(ctx context.Context, uri string, budget time.Duration) error {
 	return waitReady(ctx, budget, time.Sleep, func(ctx context.Context) error {
 		conn, err := pgx.Connect(ctx, uri)

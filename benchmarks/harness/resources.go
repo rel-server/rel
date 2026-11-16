@@ -23,7 +23,7 @@ import (
 
 // Resources is the CPU split between the three roles that share the machine :
 // the load generator, Postgres and the server under test. Each role gets its
-// own cores so none starves another (benchmarks/README.md ## Fairness).
+// own cores so none starves another.
 type Resources struct {
 	LoadCPUs   []int
 	DBCPUs     []int

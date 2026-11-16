@@ -12,11 +12,9 @@ import (
 	"github.com/samber/oops"
 )
 
-// Native CBOR results. In CBOR mode the read compiler returns the rows as records and
-// arrays of records instead of JSON text (OutputFormat), and a ResultEncoder turns the binary form Postgres sends them in
-// into CBOR, a value at a time, as the rows stream. Every field of a record carries its own type, so the
-// encoder needs no per-column setup : a field named by the query's shape is a map key, and the type decides
-// the CBOR item.
+// Native CBOR results. In CBOR mode the read compiler returns records and arrays of records instead of JSON text,
+// and a ResultEncoder turns their binary form into CBOR as the rows stream. Each record field carries its own type,
+// so the encoder needs no per-column setup.
 
 // OutputFormat is how a query's rows are produced.
 type OutputFormat uint8
@@ -28,7 +26,6 @@ const (
 	FormatCBOR
 )
 
-// Type OIDs the result encoder knows beside the ones write_encode.go names.
 // RecordOID is the type of a row of a FormatCBOR statement : a record.
 const RecordOID = 2249
 
@@ -154,9 +151,8 @@ func (e *ResultEncoder) AppendValue(dst []byte, oid uint32, data []byte) ([]byte
 
 func errShort(what string) error { return oops.Errorf("cbor result: %s is truncated", what) }
 
-// appendValue's scalar cases must be the scalar OIDs nativeCBORType admits (TestResultCBOR_EveryNativeScalarHasAnEncoder
-// checks it). They stay a switch and not one table both read from : a table of readers measured 21% slower on the
-// per-value dispatch (BenchmarkAppendValue_Scalars), and this runs for every value of every row.
+// appendValue's scalar cases must be the scalar OIDs nativeCBORType admits. They stay a switch rather than a shared
+// table : a table of readers measured 21% slower on this per-value dispatch.
 func (e *ResultEncoder) appendValue(dst []byte, oid uint32, d []byte, plan *recordPlan) ([]byte, error) {
 	switch oid {
 	case oidBool:
@@ -481,9 +477,7 @@ func floorDiv(a, b int64) int64 {
 	return q
 }
 
-// nativeCBORType's scalar list must be the scalar cases of appendValue (see there).
-//
-// nativeCBORType reports whether a value of type t has a CBOR form of its own : the scalar types the encoder maps,
+// nativeCBORType reports whether a value of type t has a CBOR form of its own : the scalar types appendValue maps,
 // enums, domains of those, and arrays and composites made only of them. A column of any other type is read
 // as its JSON form (to_jsonb) when the rows are produced in CBOR.
 func nativeCBORType(t *pg.Type) bool { return nativeCBORTypeDepth(t, 0) }

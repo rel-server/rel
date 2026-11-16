@@ -12,11 +12,8 @@ import (
 // baseScalarTypes maps a built-in pg_catalog type name to its TS equivalent. Anything not listed here falls
 // back to `unknown`.
 //
-// The temporal/precision-sensitive/other types below map to a branded string type from pg_values.ts
-// (docs/content/typescript/index.md ## Typed wire values), not to `Date`/`number`/`unknown` — each of those
-// lies about the actual JSON wire value in some way (a plain string typed `Date`, or a value that silently
-// loses precision through `JSON.parse`) ; see that doc for the full reasoning per type and the accessors
-// (pg_values.ts) that derive a richer client-side value from each branded string without losing type safety.
+// Types whose wire value `Date`/`number` would misdescribe (a string, or a number JSON.parse rounds) map to a
+// branded string type from pg_values.ts.
 var baseScalarTypes = map[string]string{
 	"text":    "string",
 	"varchar": "string",
@@ -25,14 +22,7 @@ var baseScalarTypes = map[string]string{
 	"name":    "string",
 	"citext":  "string",
 	"uuid":    "string",
-	// bytea's row_to_json wire format is NOT raw bytes or base64 : Postgres
-	// renders it via its own bytea_output setting (default "hex"), giving a
-	// JSON string shaped like "\\x0123abcd" (backslash-x, then hex digits) —
-	// a real `string` on the wire, but one the caller must still decode
-	// (strip the "\x" prefix, Buffer.from(hex, "hex")/equivalent) before
-	// it's usable as binary content. No separate Type__ marks this ; nothing
-	// in the introspected schema JSON distinguishes "true text" from
-	// "bytea-shaped string" once it's collapsed to `string` here.
+	// bytea arrives as a hex string ("\\x0123abcd").
 	"bytea":  "Bytea",
 	"bool":   "boolean",
 	"int2":   "number",
@@ -43,18 +33,13 @@ var baseScalarTypes = map[string]string{
 	"json":   "unknown",
 	"jsonb":  "unknown",
 
-	// Precision-sensitive : Postgres emits these as bare, unquoted JSON numerals, so JSON.parse rounds each to
-	// the nearest float64 before any client code runs. The query compiler casts both to text (query/sql.go) ;
-	// pg_values.ts's Int8/PgNumeric are the branded string types that land in.
+	// JSON.parse would round these : the query compiler casts both to text.
 	"int8":    "Int8",
 	"numeric": "PgNumeric",
-	// money renders as a locale-formatted, quoted string ("$10.50") today already — mapping it to `number` was
-	// already a lie before this table's other corrections, not something the query compiler needs to change.
+	// money arrives as a locale-formatted string ("$10.50").
 	"money": "Money",
 
-	// Temporal : all arrive as plain strings today ; `date`/`time`/`timetz` are also currently mistyped as
-	// `Date` even though nothing about them is unsafe to read (only `timestamp`, no time zone, actually has an
-	// ambiguity to caveat).
+	// Temporal types arrive as strings.
 	"date":        "PgDate",
 	"time":        "PgTime",
 	"timetz":      "PgTimetz",
@@ -62,8 +47,7 @@ var baseScalarTypes = map[string]string{
 	"timestamptz": "Timestamptz",
 	"interval":    "Interval",
 
-	// Range types : matched by name like every other entry in this map, no structural range introspection
-	// needed — see docs/content/typescript/index.md ## Typed wire values ## Ranges for why.
+	// Range types, matched by name.
 	"int4range":      "Int4Range",
 	"int8range":      "Int8Range",
 	"numrange":       "NumRange",
@@ -77,9 +61,7 @@ var baseScalarTypes = map[string]string{
 	"tsmultirange":   "TsMultiRange",
 	"tstzmultirange": "TstzMultiRange",
 
-	// Network, bit string, geometric, text search, and misc types (docs/content/typescript/index.md ## Typed
-	// wire values) : branded for hover clarity and to stop them being confused with an unrelated plain string,
-	// most with no accessor beyond the branded type itself (pg_values.ts's own accessor helpers say which).
+	// Network, bit string, geometric, text search and misc types : branded so they are not mixed with plain strings.
 	"inet":     "Inet",
 	"cidr":     "Cidr",
 	"macaddr":  "MacAddr",
@@ -99,9 +81,8 @@ var baseScalarTypes = map[string]string{
 	"pg_lsn":   "PgLsn",
 }
 
-// typeCollector accumulates the named (Type__) declarations discovered while
-// walking column/argument types, de-duplicated by "schema.name" — a type
-// referenced from two different columns must only be declared once.
+// typeCollector accumulates the Type__ declarations met while walking column/argument types, once per
+// "schema.name".
 type typeCollector struct {
 	// ids is set by GenerateSchema once the target relations are known ; nil leaves every column untouched.
 	ids   *idResolver
@@ -124,10 +105,8 @@ func (tc *typeCollector) declarations() string {
 	return b.String()
 }
 
-// tsTypeExpr returns the TS type expression a column/argument of type t
-// should use, registering any composite/enum/domain type it (transitively)
-// references into tc exactly once (one Type__<Schema>__<Name> per introspected
-// composite/enum/domain type referenced by a column or function argument).
+// tsTypeExpr returns the TS type expression for t, registering every composite/enum/domain type it references
+// into tc.
 func tsTypeExpr(t *pg.Type, tc *typeCollector) string {
 	if t == nil {
 		return "unknown"
@@ -165,18 +144,15 @@ func tsTypeExpr(t *pg.Type, tc *typeCollector) string {
 	return "unknown"
 }
 
-// namedTypeExpr registers a Type__<Schema>__<Name> declaration for t (once,
-// via tc's own de-dup), then returns its name as the reference expression.
-// body renders the right-hand side ("interface Name { ... }"'s body, or a
-// type alias's target) ; called lazily, only on the first registration.
+// namedTypeExpr registers a Type__<Schema>__<Name> declaration for t once, and returns its name. body renders
+// the interface body or alias target, only on the first registration.
 func namedTypeExpr(t *pg.Type, tc *typeCollector, body func() string) string {
 	key := t.PgIdentifier.String()
 	name := typeInterfaceName(t.PgIdentifier.Schema, t.PgIdentifier.Name)
 	if tc.seen[key] {
 		return name
 	}
-	// Marked seen BEFORE body() runs : a composite type whose own columns
-	// reference itself (e.g. a self-referencing tree type) would otherwise recurse forever.
+	// Marked seen before body() runs : a composite type may reference itself.
 	tc.seen[key] = true
 	tc.order = append(tc.order, key)
 
@@ -193,8 +169,7 @@ func namedTypeExpr(t *pg.Type, tc *typeCollector, body func() string) string {
 	return name
 }
 
-// docComment renders s as a /** ... */ block, indented by indent ; empty
-// when s is empty, so a column/type with no COMMENT ON emits nothing.
+// docComment renders s as a /** ... */ line, indented by indent ; empty when s is empty.
 func docComment(s, indent string) string {
 	if s == "" {
 		return ""
@@ -202,8 +177,7 @@ func docComment(s, indent string) string {
 	return indent + "/** " + strings.ReplaceAll(s, "\n", " ") + " */\n"
 }
 
-// columnTSType is a column's own read type : its scalar/array/named type
-// expression, unioned with `null` unless the column is genuinely not-null.
+// columnTSType is a column's read type, with `| null` unless the column is really not null.
 func columnTSType(c *pg.Column, tc *typeCollector) string {
 	expr := tsTypeExpr(c.Type, tc)
 	if id := tc.ids.typeExpr(c); id != "" {
@@ -215,9 +189,7 @@ func columnTSType(c *pg.Column, tc *typeCollector) string {
 	return expr + " | null"
 }
 
-// relationColumnsBlock renders one Table__/View__/composite-Type__'s column
-// list — the interface BODY, one line per column, shared by every caller
-// that needs "the same column rules as Table__" (## Schema interfaces).
+// relationColumnsBlock renders the interface body of a Table__/View__/composite Type__, one line per column.
 func relationColumnsBlock(r *pg.Relation, tc *typeCollector) string {
 	var b strings.Builder
 	for _, c := range r.Columns {
@@ -227,8 +199,7 @@ func relationColumnsBlock(r *pg.Relation, tc *typeCollector) string {
 	return b.String()
 }
 
-// identifierField quotes a column name only when it isn't already a valid
-// bare TS identifier — keeps generated output readable for the common case.
+// identifierField quotes a column name only when it isn't a valid bare TS identifier.
 func identifierField(name string) string {
 	if name == "" {
 		return `""`

@@ -1,8 +1,6 @@
 /*!
-docs/content/typescript/index.md ## Typed wire values : branded string types for every Postgres type whose JSON wire representation
-isn't the JS type it might look like, plus the write-side casts and read-side accessors for deriving a richer
-client-side value from one, without losing type safety or requiring a runtime dependency. Concatenated first
-(tsgen/embed.go), so the generated schema section and every other section can reference these names directly.
+Branded types for every Postgres type whose wire value isn't the JS type it looks like, plus write-side casts and
+read-side accessors. Concatenated first in the generated file, so every other section can use these names.
 */
 
 // ---- Branded date and time types ----
@@ -17,10 +15,9 @@ export type Interval = string & { readonly __pg: "interval" }
 // ---- Types whose JS value depends on the codec : typed by what the codec in use yields ----
 
 /**
- What the JS values of the Postgres types that the codec in use may hand over as something other than the JSON
- default actually are. It is empty here : the generated file adds the members of the codec options it was built
- with (`?codec=` of docs/content/typescript/index.md ## Codecs) in an `interface PgWire` of its own, at the end of
- the file. The values the write-side casts build must match what a member says : see `pgWireCasts`.
+ The JS types of the Postgres values the codec in use hands over as something other than the JSON default. Empty
+ here : the generated file adds the members of the codec options it was built with. The write-side casts in
+ `pgWireCasts` must build what a member says.
  */
 // biome-ignore lint/suspicious/noEmptyInterface: filled in by the generated file's codec block
 export interface PgWire {}
@@ -40,8 +37,8 @@ export type PgNumeric = PgWireType<"numeric", number> & { readonly __pg: "numeri
 
 /**
  Id types of the serial/bigserial/identity columns (and of the foreign keys pointing at them), keyed by the raw
- "schema.table.column" of the serial/identity column. Declared empty here and filled in by the generated schema
- (tsgen/ids.go) : `Id["hotel.properties.id"]` is `number & { readonly __id: "hotel.properties.id" }`, or the
+ "schema.table.column" of the serial/identity column. Filled in by the generated schema :
+ `Id["hotel.properties.id"]` is `number & { readonly __id: "hotel.properties.id" }`, or the
  same over `Int8` for a bigserial. An id assigns to a bare `number`/`Int8`, never the other way round, and never
  to another table's id : write `1 as Id["hotel.properties.id"]` for a literal.
  */
@@ -66,8 +63,7 @@ export type DateMultiRange = string & { readonly __pg: "datemultirange" }
 export type TsMultiRange = string & { readonly __pg: "tsmultirange" }
 export type TstzMultiRange = string & { readonly __pg: "tstzmultirange" }
 
-// ---- Other branded string types — no accessor written out for any of these yet ; docs/content/typescript/
-// index.md ## Typed wire values says which ones a future accessor would even make sense for. ----
+// ---- Other branded string types, no accessor yet ----
 
 export type Inet = string & { readonly __pg: "inet" }
 export type Cidr = string & { readonly __pg: "cidr" }
@@ -90,10 +86,8 @@ export type PgLsn = string & { readonly __pg: "pg_lsn" }
 // ---- Write-side casts ----
 
 /**
- How a write-side cast builds the wire value of a date or time type (or of `bytea`) from what client code hands
- over. The time and wire chunks of the generated file fill it in (`codecs/time-*.ts`, `codecs/cbor-*.ts`), so the
- cast and the codec that writes the value stay one decision. A cast is the place to override how a value is
- turned into what the codec writes.
+ How a write-side cast builds the wire value of a date or time type (or of `bytea`). Filled in by the time and wire
+ chunks of the generated file, so a cast always matches the codec. Override an entry to change what is written.
  */
 // biome-ignore lint/suspicious/noExplicitAny: each chunk narrows the argument its own cast takes
 export const pgWireCasts: Record<string, (value: any) => unknown> = {
@@ -167,8 +161,7 @@ export function compareNumeric(
   return fa === fb ? 0 : sign * (fa > fb ? 1 : -1)
 }
 
-// Postgres quotes a range bound's own text when it would otherwise be ambiguous (tsrange/tstzrange's bounds,
-// which contain a space) ; strips that quoting and un-escapes \" / \\ before parseBound ever sees it.
+// Postgres quotes a range bound that contains a space (tsrange/tstzrange) ; strips that and un-escapes \" / \\.
 function unquoteBound(raw: string): string {
   if (raw.length >= 2 && raw[0] === '"' && raw[raw.length - 1] === '"') {
     return raw.slice(1, -1).replace(/\\(.)/g, "$1")
@@ -176,10 +169,7 @@ function unquoteBound(raw: string): string {
   return raw
 }
 
-// ---- Range<T> : one shared, immutable class ; each range kind is Range<T> for whichever T
-// its own accessor parses bounds into (Range<number> for Int4Range, Range<bigint> for Int8Range, Range<string>
-// for NumRange — the decimal text, not parsed further, so it stays exact — Range<Temporal.PlainDate|PlainDateTime|Instant>
-// for the temporal ranges, see codecs/time-temporal.ts). ----
+// ---- Range<T> : immutable ; NumRange bounds stay decimal text, so they are exact. ----
 
 export class Range<T> {
   private constructor(
@@ -256,7 +246,7 @@ export class Range<T> {
     )
   }
 
-  // Round-trips back to Postgres's own range text ; formatBound is the accessor's own inverse of parseBound.
+  // Back to Postgres range text ; formatBound is the inverse of parseBound.
   toString(formatBound: (v: T) => string): string {
     if (this.isEmpty) return "empty"
     const lb = this.lowerInclusive ? "[" : "("
@@ -267,8 +257,7 @@ export class Range<T> {
   }
 }
 
-// ---- MultiRange<T> : `{` + comma-joined segments, each parsed the same way a single range's
-// own accessor would. ----
+// ---- MultiRange<T> : `{` + comma-joined ranges ----
 
 function splitTopLevelCommas(text: string): string[] {
   const segments: string[] = []
@@ -309,14 +298,10 @@ export class MultiRange<T> {
   }
 }
 
-// ---- Accessor helpers : each is a function taking a column
-// name and returning a one-entry descriptor map keyed by a derived name, composed into `proto` via ordinary
-// object spread. A helper's own get/set type `this` explicitly (ThisType doesn't apply outside the literal
-// `proto` is checked against directly). ----
+// ---- Accessor helpers : each takes a column name and returns a one-entry descriptor map, spread into `proto`.
+// Their get/set type `this` explicitly, since ThisType only applies inside the `proto` literal. ----
 
-// shapes.ts's ExtractDescriptor/IsWritable read a `proto` entry's `get`/`set` as REQUIRED members, so a
-// get-only vs. get+set distinction survives to the type level ; casting to `TypedPropertyDescriptor<T>` instead
-// would make every field optional-shaped, so neither check could tell writable apart from read-only at all.
+// Required `get`/`set`, not `TypedPropertyDescriptor<T>`, so shapes.ts can tell get-only from writable.
 export type GetSetDescriptor<T, S = T> = { get(): T; set(value: S): void; enumerable: true }
 export type GetOnlyDescriptor<T> = { get(): T; enumerable: true }
 
@@ -372,9 +357,7 @@ export function numRangeAccessor<Col extends string>(column: Col) {
   } as { [K in `${Col}_as_range`]: GetOnlyDescriptor<Range<string>> }
 }
 
-// ---- Point accessor : the one geometric type prioritized for a real accessor, since it's the
-// simplest and most commonly used ; line/lseg/box/path/polygon/circle stay branded strings with no accessor,
-// see that section's own Why. ----
+// ---- Point accessor : the only geometric type with one ----
 
 export function pointAccessor<Col extends string>(column: Col) {
   return {
@@ -391,15 +374,9 @@ export function pointAccessor<Col extends string>(column: Col) {
   } as { [K in `${Col}_as_point`]: GetOnlyDescriptor<{ x: number; y: number }> }
 }
 
-// ---- Money accessor : confirmed against a live Postgres instance
-// (en_US.utf8 lc_monetary) — money always renders exactly 2 fractional digits, a leading '-' before the currency
-// symbol for a negative value, and ',' as its grouping separator ("$1,234.50", "-$1,234.50", "$0.00"). Returns
-// exact whole cents as a bigint, the same reasoning as int8Accessor : a Number()-based conversion would
-// reintroduce float precision loss for a large amount. ----
+// ---- Money accessor : exact cents as a bigint. Money renders as "-$1,234.50" (en_US.utf8 lc_monetary). ----
 
-// Strips every character except digits/'.'/'-' before matching, so any currency symbol or grouping character is
-// tolerated ; throws instead of silently misparsing under a locale using different separators (e.g. '.' as the
-// grouping character), the same discipline as parseInterval's own IntervalStyle assumption.
+// Ignores currency symbol and grouping ; throws under a locale with other separators rather than misparse.
 function parseMoneyCents(text: string): bigint {
   const negative = text.includes("-")
   const digits = text.replace(/[^0-9.]/g, "")
@@ -411,8 +388,7 @@ function parseMoneyCents(text: string): bigint {
   return negative ? -cents : cents
 }
 
-// A plain, unformatted decimal string (no currency symbol, no grouping) — confirmed Postgres's own money input
-// parser accepts this regardless of lc_monetary, unlike its output formatting.
+// A plain decimal, which Postgres accepts as money input whatever lc_monetary is.
 function formatMoneyCents(cents: bigint | number): string {
   const value = BigInt(cents)
   const negative = value < 0n
@@ -436,9 +412,7 @@ export function moneyAccessor<Col extends string>(column: Col) {
   } as { [K in `${Col}_as_cents`]: GetSetDescriptor<bigint, bigint | number> }
 }
 
-// ---- Bytes accessor : bytea (a bare `string` in hex form, per
-// tsgen/types.go's own comment — no brand, unlike every other type here — unless a codec says otherwise) decodes to a Uint8Array, including the
-// empty case, confirmed to still render "\\x" (the prefix alone, no digits after it). ----
+// ---- Bytes accessor : bytea is unbranded `\x…` hex text unless a codec says otherwise ; empty is "\\x". ----
 
 function parseBytea(text: string): Uint8Array {
   if (!text.startsWith("\\x")) {

@@ -1,11 +1,5 @@
-// --help support : a single declarative table of every dotted config key
-// this package understands (Options below), rendered by Help(). Kept next
-// to loader.go's assemble() deliberately — assemble() is the actual
-// authority on which keys exist ; this table must be kept in sync with it
-// by hand when a key is added/removed/renamed, but every DEFAULT value
-// quoted here is the same exported constant assemble() itself passes to
-// *OrDefault, so a default can never drift out of sync the way a
-// hand-copied literal could.
+// --help : a table of every dotted config key, kept in sync with assemble by hand. Defaults quote the same
+// constants assemble uses.
 package config
 
 import (
@@ -13,32 +7,24 @@ import (
 	"strings"
 )
 
-// Option documents one dotted config key for --help : Env and Flag are
-// mechanically derived from Key (EnvVar/FlagOf below), never hand-typed,
-// so they can't drift from Key itself.
+// Option documents one dotted config key for --help.
 type Option struct {
 	Key     string
 	Default string // human-readable ; "" means "no default — see Description"
 	Desc    string
 }
 
-// EnvVar derives a dotted key's REL_ environment variable form —
-// "pg.query.anonymous_role" -> "REL_PG__QUERY__ANONYMOUS_ROLE" — matching
-// loader.go's own env.Provider TransformFunc exactly (uppercase, "." ->
-// "__"), just run in reverse.
+// EnvVar derives a dotted key's REL_ environment variable : "pg.query.anonymous_role" -> "REL_PG__QUERY__ANONYMOUS_ROLE".
 func EnvVar(key string) string {
 	return "REL_" + strings.ToUpper(strings.ReplaceAll(key, ".", "__"))
 }
 
-// FlagOf derives a dotted key's CLI flag form — "query.host" ->
-// "--query.host" — matching parseFlags' own dotted-key convention exactly.
+// FlagOf derives a dotted key's CLI flag : "query.host" -> "--query.host".
 func FlagOf(key string) string {
 	return "--" + key
 }
 
-// Options is every dotted key assemble() (loader.go) reads, in the same
-// order assemble() reads them, grouped by section for --help's own
-// rendering (Sections below defines the group boundaries).
+// Options is every dotted key assemble reads, in the order it reads them.
 var Options = []Option{
 	// ---- dev : top-level, ungrouped ----
 	{"dev", "false", "Development mode : shows the real Postgres error text/stack trace on an otherwise-generic 5xx, and the real message on a permission-denied error, instead of a safe generic one. See error-handling.md ## Postgres error detail / ## Stack traces."},
@@ -103,10 +89,7 @@ var Options = []Option{
 	{"jwt.renew_after", fmt.Sprint(DefaultJwtRenewAfter), "Fraction of a token's lifespan after which it's renewed on next use."},
 	{"jwt.max_session_age", fmt.Sprint(DefaultJwtMaxSessionAge) + " (seconds)", "Hard ceiling on a session's total lifetime, from first auth — survives renewal."},
 
-	// ---- saml.* : the shared SP identity across every saml.<name> IdP ;
-	// per-name saml.<name>.*/openid.<name>.* entries are prose-documented
-	// below (## Dynamic namespaces), not table rows, same as
-	// route.<schema>.<function>.* ----
+	// ---- saml.* : the SP identity shared by every saml.<name> IdP ; per-name entries are documented below ----
 	{"saml.certificate_path", DefaultSamlCertificatePath, "Colon-separated search list for this deployment's SAML SP certificate. Loaded if found ; generated and persisted to the first candidate whose parent directory exists, otherwise."},
 	{"saml.private_key_path", DefaultSamlPrivateKeyPath, "Colon-separated search list for the SP certificate's private key — see saml.certificate_path."},
 
@@ -132,8 +115,7 @@ var Options = []Option{
 	{"typescript.schemas", "(every schema, aside from pg_catalog)", "Comma-separated whitelist of schemas GET /rel/database.ts and GET /rel/database.json may export ; intersected with either endpoint's own ?schemas= query param."},
 }
 
-// sections groups Options for --help's rendering ; checked in order, first
-// match wins, with an unmatched key falling into a catch-all "Other".
+// sections groups Options for --help ; first match wins, an unmatched key goes under "Other".
 var sections = []struct {
 	Heading string
 	Prefix  string
@@ -156,10 +138,7 @@ func sectionFor(key string) string {
 	return "Other"
 }
 
-// Help renders the full --help text : usage, sources/precedence, config
-// file discovery, then every Options entry grouped by section, then the
-// dynamic namespaces Options can't enumerate individually
-// (logging.filter.*/exclude.*, blacklist.*), then $FILE$ indirection.
+// Help renders the full --help text.
 func Help() string {
 	var b strings.Builder
 
@@ -283,8 +262,7 @@ plain scalars is one comma-separated string.
 	return b.String()
 }
 
-// wrapIndented word-wraps s to a fixed 78-column budget (fits an 80-column
-// terminal after indent), continuation lines aligned under the description.
+// wrapIndented word-wraps s to 78 columns, continuation lines aligned under the description.
 func wrapIndented(s string, indent int) string {
 	const width = 78
 	words := strings.Fields(s)

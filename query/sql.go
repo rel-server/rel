@@ -1,8 +1,4 @@
-// Pass 3, SQL codegen : compiles an already-resolved *QueryNode tree (pass
-// 1 + pass 2 — see node_resolve.go/expression_resolve.go/shape.go) into one
-// executable SQL statement.
-// Covers the read path only ; the Writing Algorithm (temp tables,
-// extractors, phased DML) is separate, later work.
+// Pass 3, SQL codegen : compiles a resolved *QueryNode tree into one SELECT statement. Read path only.
 package query
 
 import (
@@ -26,22 +22,18 @@ type sqlCompiler struct {
 	// compileNode's select-list emission) ; saved/restored per recursion.
 	laterals map[*QueryNode]*lateralPlan
 
-	// Set only by CompileSelectForDataNode, checked only when compiling
-	// that exact node (never a descendant).
+	// Set only by CompileSelectForDataNode, and only applied to that node, never a descendant.
 	dataScopeRoot   *QueryNode
 	dataScopeNodeID int
 	dataScopeAlias  string
 	dataScopeTable  *tempTable
 
-	// countMode is CompileCount's own flag : compileNodeCorrelated emits
-	// "select 1" and skips distinct/order-by/limit-offset/lateral-join-into-FROM,
-	// keeping FROM/WHERE identical to CompileSelect's.
+	// countMode, for CompileCount, emits "select 1" without distinct/order by/limit/offset/laterals, keeping
+	// FROM/WHERE identical to CompileSelect's.
 	countMode bool
 
-	// fromCTE, when set, makes the root node read from that CTE instead of its
-	// table : the response of a write built from the write statement's own
-	// RETURNING rows (query/write_fast.go). orderByRowID adds the CTE's
-	// __row_id as the default order, like the temp-row scope does.
+	// fromCTE, when set, makes the root read from that CTE instead of its table : a fast write's response from its
+	// RETURNING rows. orderByRowID adds the CTE's __row_id as the default order.
 	fromCTE      string
 	orderByRowID bool
 
@@ -58,26 +50,16 @@ func (c *sqlCompiler) allocAlias() string {
 	return fmt.Sprintf("t%d", c.nextAlias)
 }
 
-// qualify writes "alias.name" (escaped) ; centralized since
-// c.w.Write(alias).Write(".") returns a *Writer with no .Id (writer/pg.go).
+// qualify writes "alias.name", name escaped.
 func (c *sqlCompiler) qualify(alias, name string) {
 	c.w.Write(alias)
 	c.w.Write(".")
 	c.w.Id(name)
 }
 
-// CompileSelect compiles root into one executable SQL statement returning
-// one row per root row, each with a single "json" column produced by
-// row_to_json — exactly parallel to how a to-one embed is wrapped (see
-// compileEmbedField). The one exception is a genuinely scalar function
-// root (Relation == nil, a bare non-composite return type) : its result
-// contributes directly, with no row_to_json wrapping. A function returning a
-// single composite row (Relation != nil, not SETOF) is not this case ; it
-// goes through the ordinary compileNode path below like any other node.
-//
-// The caller owns executing the statement and manually streaming the
-// response's "["/","/"]" — this function's contract
-// stops at "here is one valid, executable statement plus its bind args".
+// CompileSelect compiles root into a statement returning one row per root row, each a single "json" column built
+// by row_to_json. A scalar function root (Relation nil) returns its value unwrapped. The caller executes it and
+// writes the surrounding "[", ",", "]".
 func CompileSelect(root *QueryNode) (*writer.SQLWriter, error) {
 	return CompileSelectFormat(root, FormatJSON)
 }
@@ -108,13 +90,8 @@ func CompileSelectFormat(root *QueryNode, format OutputFormat) (*writer.SQLWrite
 	return c.w, nil
 }
 
-// CompileCount compiles root into "select count(*) from (<FROM/WHERE>) t" —
-// the same FROM/JOIN/WHERE CompileSelect would emit for root (a WHERE
-// referencing a join always compiles as its own correlated subquery,
-// regardless of root's own select list — see compileAgg/compileScalarHop),
-// but no SELECT projection, ORDER BY, LIMIT, or OFFSET. Rejects a genuinely
-// scalar function root (count is only defined
-// for a relation-shaped query) — mirrors CompileSelect's own special case.
+// CompileCount compiles root into "select count(*) from (<FROM/WHERE>) t", with CompileSelect's FROM/WHERE but no
+// projection, ORDER BY, LIMIT or OFFSET. It rejects a scalar function root.
 func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
 	if root.IsFunction() && !root.Function.ReturnsSet && root.Relation == nil {
 		return nil, oops.With("node", root.InnerName).Errorf("sql: count is not meaningful on a scalar function root")
@@ -134,18 +111,9 @@ func CompileCount(root *QueryNode) (*writer.SQLWriter, error) {
 	return c.w, nil
 }
 
-// CompileSelectForDataNode compiles root exactly like CompileSelect, with
-// one addition : restricted to the rows this write request actually
-// touched, via the temp table of its relation — nodeID is root's own assigned __node_id (see
-// ExecuteWrite/WriteResult.NodeIDs), and only its root-level rows
-// (__parent_id is null) are in scope. Used for the write-then-reread
-// response (the response is built by
-// a separate, read-only statement issued after the write transaction's
-// commit, never from inside it) — the temp table must already exist and hold this
-// request's rows on the connection this statement later runs against.
-//
-// A function-rooted node is rejected : functions aren't writable
-// (query/node.go), so there's never a temp row for one to scope against.
+// CompileSelectForDataNode is CompileSelect restricted to the rows the write wrote for nodeID (root's __node_id),
+// root-level only, through its relation's temp table : the read-back. The temp table must hold this request's rows
+// on the connection the statement runs on. A function root is rejected, since functions are never written.
 func CompileSelectForDataNode(root *QueryNode, nodeID int) (*writer.SQLWriter, error) {
 	return CompileSelectForDataNodeFormat(root, nodeID, FormatJSON)
 }
@@ -229,9 +197,7 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 				c.w.Id(f.key)
 			}
 		} else {
-			// A scalar-selected node : to_jsonb(...),
-			// not a bare emission, since streamRows writes this column raw. In CBOR the value
-			// comes out as it is, and its own type says how to encode it.
+			// A scalar select : to_jsonb(...) in JSON, since streamRows writes this column raw ; as is in CBOR.
 			if c.format == FormatCBOR {
 				if err := c.compileExpr(node.Select, node); err != nil {
 					return err
@@ -362,8 +328,7 @@ func (c *sqlCompiler) compileWhere(node *QueryNode, alias string, onParentAlias 
 func (c *sqlCompiler) compileOrderBy(node *QueryNode) error {
 	if len(node.OrderBy) == 0 {
 		if c.dataScopeRoot != nil && node == c.dataScopeRoot {
-			// Default to payload order only when the write query specified
-			// no order_by of its own ; an explicit one is left untouched.
+			// Payload order, only when the write query has no order_by of its own.
 			c.w.Write(" order by ")
 			c.w.Write(c.dataScopeTable.rowIDRef(c.dataScopeAlias))
 		}
@@ -389,8 +354,7 @@ func (c *sqlCompiler) compileOrderTerms(terms []OrderByTerm, node *QueryNode) er
 		}
 		switch term.Direction {
 		case OrderDesc:
-			// Postgres defaults DESC to NULLS FIRST, but query.ts promises
-			// nulls-last for both asc and desc ; must say so explicitly.
+			// query.ts promises nulls last for desc too, unlike Postgres's default.
 			c.w.Write(" desc nulls last")
 		case OrderAscNullsFirst:
 			c.w.Write(" asc nulls first")
@@ -513,8 +477,7 @@ func selectFieldsFor(node *QueryNode) ([]selectField, error) {
 	case *GetExpr:
 		fields = append(fields, selectField{key: v.ResolvedColumn.Name, expr: v})
 	default:
-		// A scalar select has no named fields or embeddable children ;
-		// write_denormalize.go's walkNode relies on that empty result, not an error.
+		// A scalar select has no fields ; denormalize relies on this empty result, not an error.
 	}
 	return fields, nil
 }
@@ -539,8 +502,7 @@ func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f select
 	}
 }
 
-// embedChildOf returns the child node f refers to (f.embed, or a bare-alias
-// computed field) or nil ; shared with write_denormalize.go's same question.
+// embedChildOf returns the child node f refers to (f.embed, or a bare-alias computed field) or nil.
 func embedChildOf(f selectField) *QueryNode {
 	if f.embed != nil {
 		return f.embed
@@ -562,8 +524,7 @@ func (c *sqlCompiler) compileEmbedField(child *QueryNode, parent *QueryNode, par
 	}
 
 	if child.IsFunction() && !child.Function.ReturnsSet && child.Relation == nil {
-		// Scalar function embed (Relation == nil) : contributes directly,
-		// no row_to_json/json_agg — see CompileSelect's own doc comment.
+		// Scalar function embed (Relation == nil) : its value, with no row_to_json/json_agg.
 		var err error
 		c.w.Paren(func() {
 			c.w.Write("select ")
@@ -603,8 +564,7 @@ func isOutgoingOf(parent *QueryNode, child *QueryNode) bool {
 	return slices.Contains(parent.OutgoingNodes, child)
 }
 
-// lateralPlan is one IncomingNode's LATERAL-materialization plan, built by
-// analyzeLaterals only for a child consumed by >1 output position (step 5).
+// lateralPlan is the LEFT JOIN LATERAL plan of one incoming child used by more than one output position.
 type lateralPlan struct {
 	alias    string
 	hasArray bool
@@ -616,8 +576,8 @@ type aggConsumer struct {
 	alias string
 }
 
-// analyzeLaterals counts each incoming child's consumers (embedded array,
-// each *AggExpr) ; >1 needs step 5's LEFT JOIN LATERAL exception.
+// analyzeLaterals counts each incoming child's consumers (embedded array, each *AggExpr) ; more than one
+// shares a LEFT JOIN LATERAL.
 func (c *sqlCompiler) analyzeLaterals(node *QueryNode) (map[*QueryNode]*lateralPlan, error) {
 	if len(node.IncomingNodes) == 0 {
 		return nil, nil
@@ -698,8 +658,7 @@ func (c *sqlCompiler) compileLateralJoin(child *QueryNode, parentAlias string, p
 				c.w.Write(", ")
 			}
 			first = false
-			// compileAggFunctionCall, not compileExpr/compileAgg : this
-			// emits the aggregate's own definition (see compileAgg's doc comment).
+			// compileAggFunctionCall, not compileAgg : this emits the aggregate's own definition.
 			if e := c.compileAggFunctionCall(a.expr, child, childAlias); e != nil {
 				err = e
 				return
@@ -801,8 +760,6 @@ func walkAggs(e Expression, fn func(*AggExpr)) {
 	case *SetExpr:
 		walkAggs(v.DefaultValue, fn)
 	default:
-		// Identifier, literals, StringLiteral, ParamExpr, DefaultKeyword :
-		// no computed subtree, nothing to recurse into.
 	}
 }
 
@@ -862,9 +819,7 @@ func rootQueryNodeOf(e Expression) *QueryNode {
 	return nil
 }
 
-// bareResolvedField returns e's Resolved field when e is a bare reference —
-// *Identifier (a "." reference/hop name) or *ColExpr (["col", ...], a real
-// physical column) — nil otherwise.
+// bareResolvedField returns e's Resolved field when e is an *Identifier or *ColExpr, nil otherwise.
 func bareResolvedField(e Expression) ResolvedField {
 	switch v := e.(type) {
 	case *Identifier:

@@ -24,25 +24,16 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// NewHandler builds a standalone chi.Router with every reg.Routes entry
-// registered at its own declared path (used directly by this package's own
-// tests). boot.BuildMux calls RegisterRoutes directly instead, since a
-// declared route's arbitrary path has to live on the SAME router as /rel
-// and the static root-fallback, not a separately-mounted sub-router.
+// NewHandler builds a standalone router with every route registered, for tests. The server uses RegisterRoutes,
+// since declared routes must share the router with /rel and the static fallback.
 func NewHandler(db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server, wkReg *wellknown.Registry) http.Handler {
 	mux := chi.NewRouter()
 	RegisterRoutes(mux, db, cfg, reg, staticSrv, wkReg)
 	return mux
 }
 
-// RegisterRoutes registers every reg.Routes entry at its own declared chi
-// pattern on r — arbitrary, per-route paths rather than a fixed
-// /route/{schema}/{function} dispatch. staticSrv is used to compute
-// request.static for every request ; nil means no http.static.path directory
-// exists at all. wkReg backs rel() for this
-// package's own TemplateSet, built here rather than reusing boot.BuildMux's
-// (a distinct jet.Set, own cache — pre-existing, not something this change
-// consolidates).
+// RegisterRoutes registers every route at its declared path on r. staticSrv may be nil when there is no static
+// directory ; wkReg backs rel() in the templates.
 func RegisterRoutes(r chi.Router, db *pg.DbInfos, cfg *config.Config, reg *Registry, staticSrv *static.Server, wkReg *wellknown.Registry) {
 	var staticDirs []string
 	if staticSrv != nil {
@@ -63,8 +54,7 @@ func RegisterRoutes(r chi.Router, db *pg.DbInfos, cfg *config.Config, reg *Regis
 func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *config.Config, reg *Registry, route Route, templates *TemplateSet, staticSrv *static.Server) {
 	ctx := r.Context()
 
-	// Verify (Lifecycle step 2) needs no DB connection — run first, so
-	// anonymity is knowable before anything DB-related happens.
+	// Needs no connection, so anonymity is known before anything touches the database.
 	sess, authErr := reqauth.Authenticate(cfg, db, r)
 
 	// Runs on every return path, an early rejection included.
@@ -87,9 +77,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		return
 	}
 
-	// ## `stream_upload` : a different request flow entirely (the same
-	// function called twice), dispatched before the single-transaction
-	// path below.
+	// stream_upload calls the function twice, outside the single-transaction path below.
 	if route.StreamUpload {
 		handleUploadRoute(w, r, db, cfg, reg, route, staticSrv, templates, sess)
 		return
@@ -103,9 +91,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 
 	staticInfo := staticInfoForRequest(staticSrv, r)
 
-	// buildReq re-derives the request JSON with a given request.context —
-	// nil for the route's own call unless middleware ran and set one (##
-	// Middleware).
+	// buildReq derives the request JSON with a given request.context, which only middleware sets.
 	buildReq := func(reqContext json.RawMessage) ([]byte, error) {
 		return buildRelHttpRequest(r, resolved.BodyJSON, sess.Verified, sess.Claims, staticInfo, resolved.Parts, reqContext, nil, resolved.SniffedContentType)
 	}
@@ -119,18 +105,11 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "encoding request", err)
 		return
 	}
-	// Stashed for ## Templates' "Req" var — the exact JSON the route
-	// function received, not re-derived independently. Updated again below
-	// once middleware (if any) has resolved the final request.context.
+	// Stashed for the templates' "Req" var ; updated again below once middleware has set request.context.
 	r = r.WithContext(withRequestJSON(ctx, reqJSON))
 	ctx = r.Context()
 
-	// SET LOCAL ROLE/set_config(..., true) only hold for the current
-	// transaction, so middleware/role-switch/the route call all share one.
-	// Renew (Lifecycle step 4) deliberately waits until AFTER the middleware
-	// chain below decides not to reject : a revocation middleware must never
-	// hand back a freshly renewed cookie for the very session it just
-	// rejected.
+	// The role switch only holds for the transaction, so middleware and the route call share one.
 	tx, err := sess.Open(ctx, db.Pool)
 	if err != nil {
 		httperr.WritePlainError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
@@ -139,9 +118,7 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	defer tx.Release()
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// ## Middleware : runs after the role switch, same transaction,
-	// sequential — a terminating middleware or an invocation error has
-	// already written the response ; either way there's nothing left to do.
+	// A terminating middleware or an invocation error has already written the response.
 	handled, mergedContext, accumulated, err := runMiddlewareChain(ctx, tx, w, r, cfg, reg, route.AnonPath, buildReq, templates, staticSrv)
 	if err != nil {
 		return
@@ -153,10 +130,8 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 		}
 		return
 	}
-	// Renew now that the chain has let the request through — a renewed
-	// cookie never reaches the client for a request middleware just
-	// rejected. The route function's own request.jwt keeps the claims as
-	// received.
+	// Renew only after middleware let the request through, so a session middleware rejected is never renewed.
+	// The route function's request.jwt keeps the claims as received.
 	sess.Renew(w)
 
 	if mergedContext != nil {
@@ -205,10 +180,8 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	writeSingleReturnResponse(w, r, cfg, route.Function.Identifier.String(), route, accumulated, raw, nativeCBOR, templates)
 }
 
-// buildInvokeCall builds the positional-argument SQL call for route, in
-// ## Function prototype's fixed argument order : the request object (if
-// HasRequestArg), then the upload-bytes argument (if any), then each
-// PathArgs value in declared order.
+// buildInvokeCall builds the SQL call for route with arguments in the fixed order : the request object, the upload
+// bytes, then each path argument.
 func buildInvokeCall(route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) (string, []any) {
 	ident := route.Function.Identifier.EscapedString()
 	var placeholders []string
@@ -240,9 +213,7 @@ func buildInvokeCall(route Route, reqJSON []byte, resolved resolvedRequestBody, 
 	return call, args
 }
 
-// invokeSingleReturnRoute calls a non-full-control route, returning its raw
-// (already-final-form : real bytes/text/JSON, never itself JSON-wrapped)
-// return value.
+// invokeSingleReturnRoute calls a non-full-control route, returning its raw value, not JSON-wrapped.
 func invokeSingleReturnRoute(ctx context.Context, tx *reqauth.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) ([]byte, error) {
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
 	logging.FromContext(ctx).Debug("invoking route",
@@ -290,9 +261,7 @@ func invokeNativeCBORRoute(ctx context.Context, tx *reqauth.Tx, db *pg.DbInfos, 
 	return enc.AppendValue(nil, oid, raw)
 }
 
-// invokeFullControlRoute calls a two-OUT-column route via "select * from
-// fn(...)" — the only way to get its two OUT columns back as two separate
-// result columns rather than one composite value.
+// invokeFullControlRoute calls a two-OUT-column route with "select * from", to get the columns separately.
 func invokeFullControlRoute(ctx context.Context, tx *reqauth.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) (envelope, content []byte, err error) {
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
 	logging.FromContext(ctx).Debug("invoking route",

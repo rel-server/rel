@@ -1,6 +1,5 @@
 // `codec=cbor,date` : tag 1 (an instant) is a `Date`, and a date (tag 100) stays the `YYYY-MM-DD` text JSON gives. A
 // `Date` holds milliseconds : the microseconds of a timestamp are lost on read.
-// docs/content/typescript/index.md ## Codecs.
 import { pgWireCasts, requireOffset } from "../pg_values"
 import { defineCborTag } from "./wire-cbor"
 

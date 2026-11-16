@@ -1,8 +1,4 @@
-// Command rel is the process entrypoint : loads configuration,
-// builds the process-wide logger, connects
-// to Postgres, and serves POST /rel (server.NewRelHandler) and
-// /route/{schema}/{function} (route.NewHandler) until an interrupt/terminate
-// signal requests a graceful shutdown.
+// Command rel loads the configuration and serves until SIGINT/SIGTERM ; SIGUSR1 reloads.
 package main
 
 import (
@@ -39,8 +35,6 @@ func main() {
 
 	logger, err := logging.Install(cfg.Logging)
 	if err != nil {
-		// The real logger doesn't exist yet ; fall back to slog.Default(),
-		// same as config.Load's own error paths above.
 		slog.Default().Error("building logger", "error", err.Error())
 		os.Exit(1)
 	}
@@ -51,11 +45,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --typescript-out is a one-shot action, not the server : introspects
-	// and writes database.ts, then exits — no reload.cmd, no route/
-	// well-known registries, no mux, no listener. See runTypeScriptExport's
-	// own doc comment for why reload.cmd is skipped here even though the
-	// server always runs it before introspecting.
+	// --typescript-out writes database.ts and exits, without serving.
 	if out, ok := typescriptOutFlag(os.Args[1:]); ok {
 		codec, _ := oneShotFlag(os.Args[1:], "--typescript-codec")
 		if err := runTypeScriptExport(cfg, out, codec); err != nil {
@@ -65,8 +55,6 @@ func main() {
 		return
 	}
 
-	// http.Server.Handler is reloader.Wrapper, permanently ; only its own
-	// atomic.Pointer is swapped, by the reload sequence.
 	reloader, err := boot.Start(context.Background(), cfg, logger)
 	if err != nil {
 		logger.Error("starting", logging.Error(err)...)
@@ -95,8 +83,7 @@ func main() {
 			reloader.Reload(context.Background())
 		}
 	}()
-	// Waits for any in-progress Reload() to return before the pool closes
-	// below — otherwise shutdown could race a reload using the same pool.
+	// Waits for an in-progress Reload to return before the pool is closed.
 	stopReloader := func() {
 		signal.Stop(sigusr1)
 		close(sigusr1)
@@ -128,19 +115,11 @@ func main() {
 
 	stopReloader()
 
-	// reloader.CurrentDbInfos, not the original db : a reload since startup
-	// may have reintrospected into a fresh *pg.DbInfos.
 	reloader.CurrentDbInfos().Pool.Close()
 	logger.Info("stopped")
 }
 
-// typescriptOutFlag scans for --typescript-out=<path>/--typescript-out
-// <path>, same "=value or separate arg" shape config.parseFlags' own dotted
-// flags accept — but handled here, directly, rather than as a dotted config
-// key : it names a one-shot CLI action (where to write database.ts and
-// exit), not a piece of the server's own runtime configuration, so it has
-// no business living in config.Config or --help's Options table alongside
-// pg.*/http.*/etc. path == "-" means stdout.
+// typescriptOutFlag reads --typescript-out, a one-shot action kept out of config.Config. "-" means stdout.
 func typescriptOutFlag(args []string) (path string, ok bool) {
 	return oneShotFlag(args, "--typescript-out")
 }
@@ -161,16 +140,8 @@ func oneShotFlag(args []string, name string) (value string, ok bool) {
 	return "", false
 }
 
-// runTypeScriptExport is --typescript-out's entire body : introspect, build
-// the well-known registry (Wellknowns generation needs it), generate,
-// write, done — no reload.cmd, no /route registry, no mux, no HTTP
-// listener. reload.cmd is deliberately skipped here, unlike the server's
-// own startup sequence (docs/content/configuration/reload.md) : running an arbitrary migration
-// command as a side effect of "print me the current types" would be a
-// surprising thing for a read-only inspection command to do. The
-// well-known registry, unlike reload.cmd/route, does its own read-only
-// file I/O + validation against db — no side effects, so building it here
-// doesn't carry the same objection.
+// runTypeScriptExport introspects and writes database.ts. Unlike startup it never runs reload.cmd : a read-only
+// export must not migrate.
 func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
 	primaryURI := cfg.Pg.URI
 
@@ -189,7 +160,6 @@ func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
 		return fmt.Errorf("building well-known query registry: %w", err)
 	}
 
-	// codecOverride is --typescript-codec : it replaces typescript.codec for this export.
 	opts, err := tsgen.Resolve(cfg, tsgen.Overrides{Codec: codecOverride})
 	if err != nil {
 		return err
@@ -203,8 +173,7 @@ func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
 	return os.WriteFile(out, []byte(generated), 0o644)
 }
 
-// wantsHelp scans for a bare "--help"/"-h" token, checked before
-// config.Load since parseFlags otherwise expects a value after every flag.
+// wantsHelp scans for "--help"/"-h", before config.Load, which expects a value after every flag.
 func wantsHelp(args []string) bool {
 	for _, a := range args {
 		if a == "--help" || a == "-h" {

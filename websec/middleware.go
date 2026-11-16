@@ -1,7 +1,3 @@
-// Middleware composes CORS and CSP into one func(http.Handler)
-// http.Handler, applied uniformly to /rel, /route, AND /static — same
-// func(http.Handler) http.Handler style jwt/middleware.go already uses.
-// Nonce generation is a separate, narrower layer — see NonceMiddleware.
 package websec
 
 import (
@@ -10,24 +6,11 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// Middleware answers a CORS preflight directly (never reaching next at
-// all), and otherwise sets the default (process-wide) CSP header — no
-// nonce token in it — BEFORE calling next, so a plain-text error response
-// emitted by next still carries it, and so a route function's own
-// writeRelHttpResponse can overwrite Content-Security-Policy on top when
-// resp.csp is set (see route/encode.go). Mounted around every path
-// uniformly ; NonceMiddleware, mounted only around /route and /auth,
-// overwrites this base header again with a nonce
-// appended, for the paths that can actually use one.
+// Middleware applies CORS and CSP to every path. It answers a preflight itself, and otherwise sets the base CSP
+// header, without nonce, before calling next, so an error response carries it and a route's resp.csp or
+// NonceMiddleware can overwrite it.
 func Middleware(cfg *config.Config) func(http.Handler) http.Handler {
-	// Logged once here, not per request : Middleware is built exactly once
-	// per boot/reload cycle (boot.BuildMux's own doc comment — startup and
-	// every SIGUSR1), the same lifecycle schema introspection's own "info"
-	// summary line (docs/content/configuration/operations.md ## Logging)
-	// logs at. The base (no-override, no-nonce) policy is what actually
-	// governs /rel and /static ; NonceMiddleware/a route's own resp.csp can
-	// still change it per-request, but this is the value to check first
-	// when a configured directive doesn't seem to be taking effect.
+	// Logged once per boot or reload : this is the policy /rel and /static get.
 	log.Info("effective content-security-policy", "policy", Policy(cfg.Http.Csp, "", ""))
 
 	return func(next http.Handler) http.Handler {
@@ -36,8 +19,7 @@ func Middleware(cfg *config.Config) func(http.Handler) http.Handler {
 			requestMethod := r.Header.Get("Access-Control-Request-Method")
 
 			if IsPreflight(r.Method, origin, requestMethod) {
-				// ### Preflight handling : answered entirely by rel itself.
-				// No CSP header here — a 204 has no body for it to govern.
+				// No CSP header : a 204 has no body.
 				h, ok := BuildCorsHeaders(cfg.Http.Cors, origin, true)
 				if ok {
 					writeCorsHeaders(w, h)
@@ -57,19 +39,11 @@ func Middleware(cfg *config.Config) func(http.Handler) http.Handler {
 	}
 }
 
-// NonceMiddleware generates a fresh nonce for every request it sees
-// (cheap — one crypto/rand read — so this happens unconditionally within
-// its scope), stashes it in the request context for a downstream handler
-// to read back (RelHttpRequest.csp_nonce, Jet's Nonce variable — see
-// NonceFromContext), and re-sets the Content-Security-Policy header
-// Middleware already set, this time with the nonce appended.
+// NonceMiddleware puts a fresh nonce in the request context (see NonceFromContext) and re-sets the
+// Content-Security-Policy header with it.
 //
-// Mounted only around /route and /auth (SSO callbacks), both of which can
-// render HTML through the shared route.WriteRelHttpResponse/Jet-template
-// path — never around /rel (JSON only) or /static (files as-is, no
-// per-request templating to inject a nonce into), which keep Middleware's
-// plain, nonce-less baseline policy instead of paying for a nonce neither
-// can ever use (docs/content/http/cors-csp.md ## CSP ### Nonce).
+// Mounted only around /route and /auth, which can render HTML ; /rel and /static have nothing to put a
+// nonce in.
 func NonceMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

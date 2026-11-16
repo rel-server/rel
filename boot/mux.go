@@ -31,21 +31,9 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// BuildMux assembles the full inner http.Handler — /rel, every declared
-// route at its own arbitrary path, and a root-level
-// static fallback for any path no declared route claims — wrapped
-// uniformly in logging.RequestMiddleware, logging.AccessLog (one access line for every request,
-// static files and rejections included) and websec.Middleware
-// (CORS and CSP apply uniformly). Declared routes and /auth (the SSO mount)
-// additionally sit behind websec.NonceMiddleware, scoped via a chi.Group
-// (docs/content/http/cors-csp.md ## CSP ### Nonce explains why /rel doesn't
-// get one). The static fallback gets a nonce too, but only inline, on the
-// specific request that resolves to a jet render —
-// route.NewStaticHandler generates and injects it itself rather than this
-// package mounting NonceMiddleware unconditionally on every static request. A well-known query is invoked through
-// /rel, not a separate route ; wkReg is handed to server.NewRelHandler
-// directly. Build is its only caller outside tests, for startup and
-// every reload alike.
+// BuildMux assembles /rel, every declared route and a root-level static fallback, all behind the access log and
+// CORS/CSP. Declared routes and /auth also get a CSP nonce ; the static fallback only gets one on a jet render,
+// injected by route.NewStaticHandler itself. Well-known queries go through /rel, not a route of their own.
 func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) http.Handler {
 	staticSrv := static.New(cfg.Http)
 	var staticDirs []string
@@ -55,13 +43,9 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 	templates := route.NewTemplateSet(cfg, staticDirs, db, wkReg)
 
 	mux := chi.NewRouter()
-	// ## Middleware : "applies uniformly across /rel, since it's served by
-	// the same router" — its own dedicated transaction, distinct from
-	// /rel's own internal one.
+	// The gate middleware runs in its own transaction, distinct from /rel's.
 	mux.Handle("/rel", route.GateMiddleware(db, cfg, reg, templates, staticSrv, server.NewRelHandler(db, cfg, wkReg)))
-	// Gated by http.typescript.enable,
-	// not mounted at all otherwise (no 404 handler needed for the disabled case).
-	// The database.json endpoint shares the same gate.
+	// Not mounted at all when disabled.
 	if cfg.Http.TypeScript.Enable {
 		mux.Handle("/rel/database.ts", server.NewTypeScriptHandler(db, cfg, wkReg))
 		mux.Handle("/rel/database.json", server.NewDatabaseJSONHandler(db, cfg, wkReg))
@@ -72,19 +56,12 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 
 		route.RegisterRoutes(r, db, cfg, reg, staticSrv, wkReg)
 
-		// /auth/oidc/* and /auth/saml/* — a no-op when
-		// neither openid.* nor saml.* has any entry configured. Mount resolves
-		// each entry's own host (http.public_host or its own public_host
-		// override) and logs/skips individually, rather than an all-or-nothing
-		// gate here.
+		// /auth/oidc/* and /auth/saml/* ; Mount skips misconfigured entries one by one.
 		sso.Mount(r, db, cfg, wkReg)
 	})
 
-	// Static path masking : a path no declared route
-	// claims falls through to a static file, if any exist, at the router
-	// ROOT — not a fixed /static/* prefix, which is what makes masking "/"
-	// (index override) meaningful. An exact-path route always wins first,
-	// since chi tries every registered route before NotFound.
+	// A path no declared route claims falls through to a static file at the router root, so a static index can
+	// mask "/". Declared routes always win.
 	if staticSrv != nil {
 		mux.NotFound(route.GateMiddleware(db, cfg, reg, templates, staticSrv, route.NewStaticHandler(db, cfg, staticSrv, templates)).ServeHTTP)
 	} else if logger != nil {

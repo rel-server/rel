@@ -27,8 +27,7 @@ func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, "\"", "\"\"")
 }
 
-// scanIntoThroughJsonAgg decodes a json_agg(...) result into target via
-// encoding/json — simpler than pgx row types for a one-shot introspection query.
+// scanIntoThroughJsonAgg decodes a json_agg(...) result into target.
 func scanIntoThroughJsonAgg(conn *pgx.Conn, query string, target any) error {
 	oc := oops.With("query", query)
 
@@ -38,8 +37,7 @@ func scanIntoThroughJsonAgg(conn *pgx.Conn, query string, target any) error {
 	}
 	defer rows.Close()
 
-	// json_agg over zero rows is SQL NULL, not '[]' — scan into a *string so an
-	// empty result set doesn't error, and leave target at its zero value.
+	// json_agg over zero rows is NULL : target is then left at its zero value.
 	var jsonstr *string
 
 	if !rows.Next() {

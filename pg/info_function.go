@@ -25,8 +25,7 @@ const (
 	MODE_OUT      = "o"
 	MODE_INOUT    = "b"
 	MODE_VARIADIC = "v"
-	// MODE_TABLE ('t') is RETURNS TABLE(...)'s proargmode, distinct from a
-	// plain OUT parameter (MODE_OUT) — kept as its own predicate.
+	// MODE_TABLE is a RETURNS TABLE(...) column, distinct from a plain OUT parameter.
 	MODE_TABLE = "t"
 )
 
@@ -65,43 +64,29 @@ func (f *FunctionArgument) IsVariadic() bool {
 type Function struct {
 	Identifier SqlIdentifier
 
-	// PgOid is the function's own Postgres OID (pg_proc.oid), used for
-	// has_function_privilege(role, oid, 'EXECUTE') privilege checks.
+	// PgOid is pg_proc.oid, for EXECUTE privilege checks.
 	PgOid int
 
-	// The function's own COMMENT ON, if any — meant primarily for the
-	// TypeScript export to surface as a doc comment ; empty string if unset.
+	// The function's COMMENT ON, empty if unset.
 	Comment string
 
 	Arguments []FunctionArgument
 
-	// PgNargs is pronargs : the number of *input* arguments (IN/INOUT/VARIADIC
-	// only — unlike len(Arguments), OUT-only arguments never inflate this),
-	// i.e. exactly the callable arity a positional call needs to match.
-	// PgNargsDefaults is pronargdefaults : how many of the trailing input
-	// arguments have a default, so a positional call is valid for any count
-	// in [PgNargs-PgNargsDefaults, PgNargs] — see AcceptsArity.
+	// PgNargs is the number of input arguments (OUT ones excluded, unlike len(Arguments)), PgNargsDefaults how
+	// many trailing ones have a default.
 	PgNargs         int
 	PgNargsDefaults int
 
-	// PgKind is prokind : "f" plain function, "p" procedure, "a" aggregate,
-	// "w" window function. Kept (not filtered out at introspection time)
-	// because "agg" expressions need aggregates resolvable too ; a
-	// relation-root or "call" resolution should restrict itself to "f" — see
-	// IsPlainFunction/IsAggregate.
+	// PgKind is prokind : "f" plain function, "p" procedure, "a" aggregate, "w" window function. Aggregates are
+	// kept for "agg" expressions ; a relation root or "call" only takes "f".
 	PgKind string
 
 	ReturnsSet      bool // Whether this function returns a table() or a setof ReturnType
 	ReturnType      *Type
 	PgReturnTypeOid int
 
-	// RecordRelation is set only for a function with at least one OUT-mode
-	// or TABLE-mode argument — a synthetic *Relation built from those
-	// arguments' own name/type (info_type.go's FillTypeInformations),
-	// since every such function shares one generic pg_catalog.record
-	// pseudo-type with no real composite backing ReturnType.Relation could
-	// resolve instead. Nil for every other function, including one
-	// returning SETOF a real relation (resolves via ReturnType.Relation).
+	// RecordRelation is a synthetic relation built from the OUT/TABLE arguments, since such a function returns a
+	// plain record. Nil for any other function, including one returning SETOF a relation (see ReturnType.Relation).
 	RecordRelation *Relation
 
 	// Other function attributes that are not relevant as of now
@@ -118,10 +103,8 @@ func (f *Function) ReturnsSingleRow() bool {
 	return !f.ReturnsSet
 }
 
-// FirstInputArg returns f's first IN/INOUT/VARIADIC argument — the argument
-// Postgres's own computed-column call syntax (`t.func_name()`/`func_name(t)`)
-// always binds the row to, regardless of how many further arguments f
-// declares. Returns nil for a function with no input argument at all.
+// FirstInputArg returns f's first IN/INOUT/VARIADIC argument, the one a computed field binds the row to ;
+// nil when there is none.
 func (f *Function) FirstInputArg() *FunctionArgument {
 	for i := range f.Arguments {
 		a := &f.Arguments[i]
@@ -141,12 +124,8 @@ func (f *Function) String() string {
 	return fmt.Sprintf("Function(%s())", f.Identifier.String())
 }
 
-// AcceptsArity reports whether a positional call with n arguments is valid
-// for this function. Base range is [PgNargs-PgNargsDefaults, PgNargs] ; a
-// trailing VARIADIC argument widens both ends independently of defaults —
-// it absorbs any extra above PgNargs, and can also absorb zero, lowering
-// the minimum to PgNargs-1 regardless of PgNargsDefaults (whichever of the
-// two produces the smaller minimum wins, not their sum).
+// AcceptsArity reports whether a positional call with n arguments is valid : [PgNargs-PgNargsDefaults, PgNargs],
+// widened by a VARIADIC argument to any count above and down to PgNargs-1.
 func (f *Function) AcceptsArity(n int) bool {
 	min := f.PgNargs - f.PgNargsDefaults
 	variadic := false

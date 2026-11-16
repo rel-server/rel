@@ -26,8 +26,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// resolveExpressions resolves every Expression-typed field of node and its
-// entire subtree, bottom-up.
+// resolveExpressions resolves every Expression-typed field of node and its subtree, bottom-up.
 func (ctx *ResolveContext) resolveExpressions(node *QueryNode) error {
 	for _, c := range node.OutgoingNodes {
 		if err := ctx.resolveExpressions(c); err != nil {
@@ -54,8 +53,7 @@ func (ctx *ResolveContext) resolveExpressions(node *QueryNode) error {
 	if node.Where, err = ctx.resolveExpr(node.Where, node, oc); err != nil {
 		return err
 	}
-	// selectShape, not resolveExpr : caches the resulting Shape onto
-	// node.Shape too, so deriveShapes (shape.go) gets a cache hit later.
+	// selectShape, not resolveExpr : it also caches the Shape onto node.Shape for deriveShapes.
 	if _, err = ctx.selectShape(node, oc); err != nil {
 		return err
 	}
@@ -149,8 +147,7 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 		}
 		v.Left = left
 		if v.Op == BinaryCast {
-			// "::" : Right is a type name, never a column/alias — left
-			// untouched so sql_expr.go's castTypeName reads it directly.
+			// "::" : Right is a type name, never a column/alias, so it stays untouched.
 			return v, nil
 		}
 		right, err := ctx.resolveExpr(v.Right, n, oc)
@@ -316,8 +313,6 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 		return v, nil
 
 	case *ColExpr, *GetExpr:
-		// Both chainable : delegate to resolveChain, same reasoning as the
-		// shape-producing case above.
 		resolved, _, err := ctx.resolveChain(e, n, oc)
 		return resolved, err
 
@@ -337,8 +332,6 @@ func (ctx *ResolveContext) resolveExpr(e Expression, n *QueryNode, oc oops.OopsE
 		return v, nil
 
 	default:
-		// Every remaining literal/keyword type has no Expression-typed
-		// children and nothing to resolve.
 		return e, nil
 	}
 }

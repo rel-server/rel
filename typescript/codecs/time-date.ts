@@ -1,7 +1,6 @@
 // `codec=date` : a timestamp is a `Date`. A `Date` holds milliseconds, so the microseconds of a timestamp are lost
 // when it is read through an accessor (and on the wire, with `cbor`). A Postgres `date` stays the `YYYY-MM-DD` text,
 // since a `Date` does not reach every year a `date` does : `temporal` gives a `Temporal.PlainDate`.
-// docs/content/typescript/index.md ## Codecs.
 import {
   type GetSetDescriptor,
   type PgDate,
@@ -14,7 +13,7 @@ import {
 const isoOf = (value: Date | string): string =>
   typeof value === "string" ? value : value.toISOString()
 
-// What JSON carries : the ISO text. `cbor` replaces these (codecs/cbor-time-date.ts).
+// What JSON carries : the ISO text. `cbor` replaces these.
 pgWireCasts.timestamptz = (value: Date | string) => requireOffset(isoOf(value))
 pgWireCasts.timestamp = (value: Date | string) => isoOf(value)
 pgWireCasts.date = (value: string) => value

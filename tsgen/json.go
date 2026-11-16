@@ -1,9 +1,5 @@
-// GET /rel/database.json : the same introspected
-// structure GenerateSchema (schema.go) renders as TypeScript, exported as
-// plain JSON instead — for a caller that isn't a TypeScript project, or that
-// wants the raw introspected facts (nullability, domain identity, constraint
-// names, foreign-key eligibility) database.ts's own collapsed TS type
-// expressions don't preserve.
+// GET /rel/database.json : what GenerateSchema renders as TypeScript, as plain JSON, keeping the facts the
+// TypeScript types collapse (nullability, domains, constraint names, join eligibility).
 package tsgen
 
 import (
@@ -16,9 +12,7 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// databaseJSONVersion is the `version` field : this JSON payload's own format version, bumped whenever a
-// breaking shape change is made to any section below — unrelated to the
-// database's own schema version (there isn't one).
+// databaseJSONVersion is the payload's format version, bumped on any breaking shape change.
 const databaseJSONVersion = 1
 
 // DatabaseJSON is the top-level shape of the database.json payload.
@@ -34,9 +28,7 @@ type DatabaseJSON struct {
 	Wellknowns         map[string]WellknownInfoJSON                `json:"wellknowns"`
 }
 
-// TypeInfoJSON is a `types` entry — one Go
-// struct standing in for a discriminated union ; MarshalJSON
-// below emits only the fields the "kind" it holds actually specifies.
+// TypeInfoJSON is a `types` entry ; MarshalJSON emits only the fields of its kind.
 type TypeInfoJSON struct {
 	Schema   string
 	Name     string
@@ -51,8 +43,7 @@ type TypeInfoJSON struct {
 
 func (t *TypeInfoJSON) MarshalJSON() ([]byte, error) {
 	m := map[string]any{"schema": t.Schema, "name": t.Name, "kind": t.Kind}
-	// Postgres never comments an array's own auto-generated pseudo-type ;
-	// omitted for that kind rather than always present-but-empty.
+	// An array type is auto-generated and never commented.
 	if t.Comment != "" && t.Kind != "array" {
 		m["comment"] = t.Comment
 	}
@@ -82,8 +73,7 @@ type RelationInfoJSON struct {
 	Indexes           []IndexInfoJSON     `json:"indexes"`
 }
 
-// ConstraintRefJSON is a named, ordered column list — RelationInfo's own
-// `primary_key`/`unique_constraints` entries.
+// ConstraintRefJSON is a named, ordered column list : a `primary_key`/`unique_constraints` entry.
 type ConstraintRefJSON struct {
 	Name    string   `json:"name"`
 	Columns []string `json:"columns"`
@@ -109,8 +99,7 @@ type IndexInfoJSON struct {
 	Columns []string `json:"columns"`
 }
 
-// RelationshipVariantJSON is one `relationships` entry : a foreign key
-// seen from one side.
+// RelationshipVariantJSON is one `relationships` entry : a foreign key seen from one side.
 type RelationshipVariantJSON struct {
 	Target         string            `json:"target"`
 	Direction      string            `json:"direction"` // "outgoing" | "incoming"
@@ -191,10 +180,8 @@ func buildDatabaseJSON(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) 
 		built[key] = true
 		relInfos[key] = buildRelationInfo(r, tc)
 
-		// A composite type referenced by this relation's own columns (## types
-		// ## Endpoint's transitive-closure rule) may have pulled in a backing
-		// relation neither whitelisted nor yet queued — enqueue it too, so ITS
-		// own columns get the same treatment (a composite-of-composite chain).
+		// A composite column type pulls in its backing relation even outside the whitelist ; queue it so its own
+		// columns are walked too.
 		for k, extra := range tc.extraRelations {
 			if !built[k] {
 				pending = append(pending, extra)
@@ -254,7 +241,7 @@ func buildDatabaseJSON(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) 
 	}
 }
 
-// relationKind is RelationInfo's own "kind" discriminator.
+// relationKind is RelationInfo's "kind".
 func relationKind(r *pg.Relation) string {
 	switch {
 	case r.IsView:
@@ -311,10 +298,8 @@ func buildRelationInfo(r *pg.Relation, tc *jsonTypeCollector) *RelationInfoJSON 
 	}
 }
 
-// buildRelationships builds the `relationships` section : every
-// declared foreign key touching an exported relation, both directions,
-// whether or not it's actually usable in a `join()` — unlike
-// renderRelationships (schema.go), which drops an ineligible one outright.
+// buildRelationships builds the `relationships` section : every foreign key touching an exported relation, both
+// directions, usable in a `join()` or not.
 func buildRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool) map[string][]RelationshipVariantJSON {
 	out := map[string][]RelationshipVariantJSON{}
 
@@ -340,8 +325,7 @@ func buildRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool)
 			ownerKey := relationKey(owner.Identifier.Schema, owner.Identifier.Name)
 			referencedKey := relationKey(referenced.Identifier.Schema, referenced.Identifier.Name)
 
-			// `shortcut`'s incoming marker mirrors `unique` below : `<` when this relation's own FK
-			// columns are themselves unique (a 1:1 reverse relationship), `*` otherwise.
+			// The incoming marker is `<` when the foreign key columns are unique (one to one), `*` otherwise.
 			incomingUnique := owner.FindUniqueConstraint(ownerCols) != nil
 			incomingMarker := "*"
 			if incomingUnique {
@@ -352,7 +336,7 @@ func buildRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool)
 				Target:         referencedKey,
 				Direction:      "outgoing",
 				On:             onOutgoing,
-				Unique:         true, // an FK's target columns are always PRIMARY KEY/UNIQUE-backed
+				Unique:         true, // a foreign key always targets a PRIMARY KEY/UNIQUE
 				Eligible:       eligible,
 				Shortcut:       referencedKey + ">" + pairStr,
 				ConstraintName: c.Name,
@@ -381,8 +365,7 @@ func buildRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool)
 	return out
 }
 
-// argModeString is FunctionArgInfo's own "mode" : pg.FunctionArgument's
-// PgMode constants, spelled out.
+// argModeString spells out a pg.FunctionArgument PgMode.
 func argModeString(mode string) string {
 	switch mode {
 	case pg.MODE_OUT:
@@ -393,7 +376,7 @@ func argModeString(mode string) string {
 		return "variadic"
 	case pg.MODE_TABLE:
 		return "table"
-	default: // pg.MODE_IN, and INFO_QUERY_FUNCTIONS' own coalesce(..., 'i') default
+	default: // pg.MODE_IN
 		return "in"
 	}
 }
@@ -423,9 +406,7 @@ func buildFunctionInfo(f *pg.Function, allowed map[*pg.Relation]bool, tc *jsonTy
 			inputIdx = append(inputIdx, i)
 		}
 	}
-	// has_default only ever applies to a trailing IN/INOUT/VARIADIC input
-	// argument — PgNargsDefaults' own trailing count, mirrored from
-	// schema.go's renderFunctionArgs/inputArgs.
+	// PgNargsDefaults counts trailing input args with a default.
 	firstOptional := len(inputIdx) - f.PgNargsDefaults
 	for pos, idx := range inputIdx {
 		if pos >= firstOptional {
@@ -486,12 +467,9 @@ func buildWellknowns(wkReg *wellknown.Registry) map[string]WellknownInfoJSON {
 	return out
 }
 
-// jsonTypeCollector accumulates TypeInfoJSON entries discovered while
-// walking column/argument/return types, de-duplicated by "schema.name" —
-// tsgen's own typeCollector (types.go), keyed by type identity instead of
-// rendering a TS expression. Also records every composite type's own
-// backing relation (extraRelations) — transitive closure : that relation must resolve in
-// `relations` regardless of the schema whitelist/blacklist.
+// jsonTypeCollector accumulates the TypeInfoJSON entries met while walking types, de-duplicated by "schema.name".
+// extraRelations holds each composite type's backing relation, which must appear in `relations` regardless of
+// the whitelist/blacklist.
 type jsonTypeCollector struct {
 	seen           map[string]bool
 	entries        map[string]*TypeInfoJSON
@@ -506,10 +484,7 @@ func newJSONTypeCollector() *jsonTypeCollector {
 	}
 }
 
-// register resolves t (and, transitively, whatever it references) into tc,
-// returning its own "schema.name" key — tsTypeExpr's (types.go) same
-// array/domain/enum/composite/scalar order, but recording identity rather
-// than rendering a TS type expression.
+// register records t and whatever it references into tc, and returns its "schema.name" key.
 func (tc *jsonTypeCollector) register(t *pg.Type) string {
 	if t == nil {
 		return ""
@@ -518,9 +493,7 @@ func (tc *jsonTypeCollector) register(t *pg.Type) string {
 	if tc.seen[key] {
 		return key
 	}
-	// Marked seen BEFORE recursing : a composite type whose own columns
-	// reference itself would otherwise recurse forever (typeCollector's own
-	// guard, types.go).
+	// Marked seen before recursing : a composite type may reference itself.
 	tc.seen[key] = true
 
 	entry := &TypeInfoJSON{

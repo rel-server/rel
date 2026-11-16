@@ -11,28 +11,12 @@ import (
 	koanf "github.com/knadh/koanf/v2"
 )
 
-// ConfigReader is the typed accessor over the merged koanf tree. k is always the SAME shared,
-// whole-tree *koanf.Koanf across every ConfigReader derived from one root —
-// path is this reader's own dotted scope prefix ("" at the root), prepended
-// to every sub-path an accessor is called with. Addressing by full dotted
-// path against one shared tree (rather than physically scoping via
-// koanf.Cut) is deliberate : Cut only works when the target is itself an
-// object, which breaks for a scalar leaf (e.g. logging.filter.<key>, whose
-// value is a plain string) — GetIterator needs to yield readers over BOTH
-// object and scalar children uniformly.
+// ConfigReader is the typed accessor over the merged koanf tree, scoped to path. Every reader derived from one root
+// shares the tree, errs and tracker, and addresses by full dotted path so that a scalar child can be read like an
+// object one.
 //
-// errs, when non-nil, is a pointer to a slice shared by every ConfigReader
-// derived from one root (see assemble in loader.go) : every *OrDefault
-// accessor appends to it when the path was PRESENT but malformed (never for
-// a merely absent path, the expected/common case an *OrDefault call
-// tolerates by design). This is how a wrong-type value survives past a
-// call site that only wanted a default to still make Load fail overall,
-// per ## The assembled Config object : "every error... is collected rather
-// than raised immediately... If any errors were collected, Rel logs all of
-// them together and exits."
-//
-// tracker, likewise shared and likewise nilable, is unusedKeys' (loader.go)
-// own bookkeeping — see keyTracker's own doc comment.
+// errs, when non-nil, collects every present-but-malformed value an *OrDefault accessor met, so Load still fails on
+// it ; an absent path is never an error.
 type ConfigReader struct {
 	k       *koanf.Koanf
 	path    string
@@ -40,17 +24,9 @@ type ConfigReader struct {
 	tracker *keyTracker
 }
 
-// keyTracker is shared by every ConfigReader derived from one root, the
-// same way errs is : attempted records every full dotted path ANY accessor
-// below ever computed, present in the merged config or not — practically,
-// the full set of keys assemble() (loader.go) knows how to read, since a
-// *OrDefault call touches it unconditionally regardless of presence. found
-// records only the paths an accessor actually resolved a value FOR (the
-// key was present, and something consulted it by name). unusedKeys diffs
-// the merged tree's own full key set against found to catch a
-// configuration-looking key — from a config file, a REL_ environment
-// variable, or a CLI flag alike — that nothing in rel ever reads ; attempted
-// is then the candidate pool "did you mean" matches against.
+// keyTracker records, across every reader derived from one root, each dotted path an accessor tried (attempted)
+// and each it found a value for (found). Keys in the merged tree but not in found are reported as unused, with
+// attempted as the "did you mean" pool.
 type keyTracker struct {
 	attempted map[string]struct{}
 	found     map[string]struct{}
@@ -60,10 +36,7 @@ func newKeyTracker() *keyTracker {
 	return &keyTracker{attempted: map[string]struct{}{}, found: map[string]struct{}{}}
 }
 
-// touch records that full was consulted by some accessor ; present marks
-// whether a value actually existed there. A nil tracker (every test-only
-// newReader call in loader_test.go passes one) makes this a no-op, same as
-// recordMalformed's own nil-errs tolerance.
+// touch records that full was consulted, and whether a value existed there. A nil tracker is a no-op.
 func (t *keyTracker) touch(full string, present bool) {
 	if t == nil {
 		return
@@ -74,14 +47,11 @@ func (t *keyTracker) touch(full string, present bool) {
 	}
 }
 
-// newReader wraps k, scoped to path ("" for the root reader), sharing errs
-// and tracker with every reader derived from it.
+// newReader wraps k, scoped to path ("" for the root), sharing errs and tracker with every reader derived from it.
 func newReader(k *koanf.Koanf, path string, errs *[]error, tracker *keyTracker) *ConfigReader {
 	return &ConfigReader{k: k, path: path, errs: errs, tracker: tracker}
 }
 
-// join builds the full dotted path for a sub-lookup : r's own scope prefix
-// plus the sub-path being looked up.
 func (r *ConfigReader) join(sub string) string {
 	if r.path == "" {
 		return sub
@@ -92,35 +62,28 @@ func (r *ConfigReader) join(sub string) string {
 	return r.path + "." + sub
 }
 
-// recordMalformed appends err to the shared errs slice (ConfigReader's doc
-// comment) ; called whenever GetX fails for a reason other than "absent".
+// recordMalformed appends err to the shared errs ; called whenever GetX fails for a reason other than absence.
 func (r *ConfigReader) recordMalformed(err error) {
 	if r.errs != nil {
 		*r.errs = append(*r.errs, err)
 	}
 }
 
-// errNotFound is the sentinel a merely-absent key's error wraps — silent
-// (use the default), unlike logErr's malformed-value case (logged, recorded).
+// errNotFound is wrapped by an absent key's error : the default applies silently.
 var errNotFound = errors.New("not found")
 
-// logErr logs path only, never the value (## Error handling and secrets).
-// slog.Default(), not logging.For(...) : logging imports config, so importing back would cycle.
+// logErr logs path only, never the value. slog.Default() since logging imports config.
 func logErr(path string, err error) error {
 	slog.Default().Error("config: retrieval error", "path", path, "error", err.Error())
 	return err
 }
 
-// notFoundErr is a plain "key absent" miss — silent, unlike logErr's
-// logged malformed-value case ; errNotFound is what *OrDefault checks for.
 func notFoundErr(path string) error {
 	return fmt.Errorf("config: %q: %w", path, errNotFound)
 }
 
-// Exists reports whether path is present in the merged configuration,
-// distinguishing "absent" from "present but equal to a default" — used
-// where precedence between two keys depends on which was actually set, not
-// merely on its resolved value.
+// Exists reports whether path is present, distinguishing "absent" from "set to the default" for precedence between
+// two keys.
 func (r *ConfigReader) Exists(path string) bool {
 	full := r.join(path)
 	ok := r.k.Exists(full)
@@ -128,9 +91,7 @@ func (r *ConfigReader) Exists(path string) bool {
 	return ok
 }
 
-// GetObject scopes to path, returning a ConfigReader over just that
-// sub-tree. An error, not an empty result, if path doesn't exist or isn't an
-// object.
+// GetObject scopes to path ; an error if path is absent or not an object.
 func (r *ConfigReader) GetObject(path string) (*ConfigReader, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
@@ -144,10 +105,8 @@ func (r *ConfigReader) GetObject(path string) (*ConfigReader, error) {
 	return newReader(r.k, full, r.errs, r.tracker), nil
 }
 
-// GetObjectOrDefault returns def() instead of an error on a missing/bad
-// path — a bad (wrong-type) path is still logged via GetObject/logErr AND
-// recorded as a real error (see ConfigReader's doc comment) ; a merely
-// absent one is neither.
+// GetObjectOrDefault returns def() on a missing or bad path ; a bad path is still logged and recorded in errs, an
+// absent one is not.
 func (r *ConfigReader) GetObjectOrDefault(path string, def func() *ConfigReader) *ConfigReader {
 	obj, err := r.GetObject(path)
 	if err != nil {
@@ -159,12 +118,8 @@ func (r *ConfigReader) GetObjectOrDefault(path string, def func() *ConfigReader)
 	return obj
 }
 
-// GetIterator scopes to path like GetObject, then yields its immediate
-// children as (key, *ConfigReader) pairs in alphabetical order, so
-// iteration is deterministic. A child may itself be an object or a scalar — GetIterator makes
-// no assumption either way, unlike GetObject ; the caller's own accessor
-// call on the yielded reader (GetString("") for a scalar, another
-// GetIterator for a nested object, ...) determines that.
+// GetIterator yields path's immediate children as readers, in alphabetical order. A child may be an object or a
+// scalar ; the caller's accessor decides.
 func (r *ConfigReader) GetIterator(path string) (iter.Seq2[string, *ConfigReader], error) {
 	full := r.join(path)
 	v := r.k.Get(full)
@@ -187,9 +142,8 @@ func (r *ConfigReader) GetIterator(path string) (iter.Seq2[string, *ConfigReader
 	}, nil
 }
 
-// GetString reads path (relative to r's own scope — "" reads r's own scope
-// itself, used to read a scalar leaf reached via GetIterator) as a string.
-// Only a native string value is valid.
+// GetString reads path as a string ("" reads r's own scope, for a scalar reached through GetIterator). Only a native
+// string is valid.
 func (r *ConfigReader) GetString(path string) (string, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
@@ -204,9 +158,7 @@ func (r *ConfigReader) GetString(path string) (string, error) {
 	return s, nil
 }
 
-// GetStringOrDefault returns def instead of an error on a missing/bad path
-// — see GetObjectOrDefault's doc comment for the absent-vs-malformed
-// distinction this (and every other *OrDefault accessor below) applies.
+// GetStringOrDefault returns def on a missing or bad path, like GetObjectOrDefault (and every *OrDefault below).
 func (r *ConfigReader) GetStringOrDefault(path string, def string) string {
 	s, err := r.GetString(path)
 	if err != nil {
@@ -218,12 +170,8 @@ func (r *ConfigReader) GetStringOrDefault(path string, def string) string {
 	return s
 }
 
-// GetInt reads path as an int : a native numeric value (TOML/YAML-sourced,
-// koanf.Get preserves the original int64/float64), or a string value (the
-// only type env vars/flags can produce) that parses cleanly via strconv —
-// this is the one deliberate reconciliation of "never silently coerced"
-// with "env vars are inherently strings" ; anything else (bool, object,
-// slice, or a string that doesn't parse) is an error.
+// GetInt reads path as an int : a native number, or a string that parses cleanly, since env vars and flags only
+// produce strings. Anything else is an error.
 func (r *ConfigReader) GetInt(path string) (int, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
@@ -264,9 +212,7 @@ func (r *ConfigReader) GetIntOrDefault(path string, def int) int {
 	return i
 }
 
-// GetFloat64 reads path as a float64 : a native numeric value, or a string
-// (env vars/flags) that parses cleanly via strconv.ParseFloat — same
-// native-or-parseable-string rule as GetInt.
+// GetFloat64 reads path as a float64, with the same native-or-parseable-string rule as GetInt.
 func (r *ConfigReader) GetFloat64(path string) (float64, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
@@ -304,11 +250,8 @@ func (r *ConfigReader) GetFloat64OrDefault(path string, def float64) float64 {
 	return f
 }
 
-// GetBool reads path as a bool : a native bool, or a string (env vars/
-// flags) accepted by strconv.ParseBool. Note this is a stricter set than
-// config.IsTruthy's "y"/"yes"/"true"/"1" convention used elsewhere for the
-// Blacklist's own raw-string values — GetBool's contract is "this really is
-// a bool", not "does this look truthy".
+// GetBool reads path as a bool : a native bool, or a string strconv.ParseBool accepts. Stricter than IsTruthy on
+// purpose : the value must really be a bool.
 func (r *ConfigReader) GetBool(path string) (bool, error) {
 	full := r.join(path)
 	v := r.k.Get(full)
@@ -342,9 +285,7 @@ func (r *ConfigReader) GetBoolOrDefault(path string, def bool) bool {
 	return b
 }
 
-// GetStrings reads path as a comma-separated string, trimmed and filtered
-// of empty entries — configuration.md ## No arrays' convention for "a
-// list of plain, unnamed scalars".
+// GetStrings reads path as a comma-separated string, trimmed, empty entries dropped.
 func (r *ConfigReader) GetStrings(path string) ([]string, error) {
 	s, err := r.GetString(path)
 	if err != nil {
@@ -365,8 +306,6 @@ func (r *ConfigReader) GetStringsOrDefault(path string, def []string) []string {
 	return ss
 }
 
-// splitStrings implements ## No arrays' comma-separated convention : split,
-// trim, drop empties.
 func splitStrings(s string) []string {
 	parts := strings.Split(s, ",")
 	out := make([]string, 0, len(parts))

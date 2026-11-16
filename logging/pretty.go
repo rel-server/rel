@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// accessLogMessage is the message StartAccessLog logs with. The pretty handler shows such a line
+// accessLogMessage is the message AccessLog logs with. The pretty handler shows such a line
 // as "GET /path" in place of the message, and leaves out its method and path attributes.
 const accessLogMessage = "request"
 

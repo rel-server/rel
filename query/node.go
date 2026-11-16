@@ -30,36 +30,20 @@ type QueryNode struct {
 
 	// If parent is non-nil, how it's being joined to it
 	JoinColumns []QueryJoinColumn
-	// the key name of the join ; accessible from the parent. Named OuterAlias
-	// (not just "alias") to distinguish it (usable by the parent) from InnerName
-	// (usable by this node and its own descendants).
+	// OuterAlias is the join's key name, usable by the parent (InnerName is usable by this node and below).
 	OuterAlias string
 
-	// Populated from "join" in the JSON, then classified per child via
-	// pg.Relation.ResolveJoin's isToOne result — outgoing when the child's own
-	// on-columns are unique (this node's on-columns point at a unique set),
-	// incoming when this node's own on-columns are the unique side (the
-	// child's on-columns, which must be indexed, point at them). This is
-	// cardinality-based, not FK-based : a join is classified this way whether
-	// or not a real foreign key backs it.
+	// The "join" children : outgoing when the child's on-columns are unique, incoming when this node's are.
+	// Classified by uniqueness, whether or not a foreign key backs the join.
 	OutgoingNodes []*QueryNode
 	IncomingNodes []*QueryNode
 
-	// Relation is what this node's children/on_conflict/insert_columns/
-	// update_columns resolve against. Function != nil is what decides
-	// whether this node IS a function call (arguments was present in the
-	// JSON) — Relation is populated for a function node too whenever its
-	// return type maps to a known relation (via pg.DbInfos.GetRelationByType),
-	// since a table-valued function is joinable/writable exactly like the
-	// type it returns (query.ts's own note). Relation is nil only for a
-	// function node whose return type isn't a relation at all (e.g. a
-	// scalar-returning function used as a query root, which then can't be
-	// joined into or have on_conflict/insert_columns/update_columns —
-	// resolution rejects those as a hard error rather than nil-panicking).
+	// Relation is what children/on_conflict/insert_columns/update_columns resolve against. A function node has
+	// one too when its return type is a relation, and is then joinable/writable like it ; it is nil only for a
+	// function returning a non-relation, which resolution then refuses to join into or write.
 	Relation *pg.Relation
 
-	// Function is non-nil iff this node is a function call — check this,
-	// not Relation, to tell a function node from a plain relation node.
+	// Function is non-nil iff this node is a function call ; check this, not Relation.
 	Function *pg.Function
 
 	// One or the other
@@ -91,9 +75,7 @@ type QueryNode struct {
 	Offset *int
 	Limit  *int
 
-	// Shape is pass 2's shape/writability derivation output for this node,
-	// computed from the already-resolved Select — see deriveShapes
-	// (shape.go). nil until pass 2's second step has run.
+	// Shape is derived by pass 2 from the resolved Select ; nil until then.
 	Shape *NodeShape
 }
 

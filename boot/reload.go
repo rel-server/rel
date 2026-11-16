@@ -25,11 +25,8 @@ import (
 	"github.com/rel-server/rel/reloadcmd"
 )
 
-// Reloader owns the mutable state a SIGUSR1 reload needs across calls : the reload-aware handler wrapper, and
-// the *pg.DbInfos currently backing it (so the NEXT reload's ReIntrospect
-// reuses this one's own Pool). Built once, at startup, right
-// after the initial mux is wrapped ; Reload is then called once per
-// SIGUSR1, from cmd/rel's persistent signal-handling goroutine.
+// Reloader holds what is kept across SIGUSR1 reloads : the handler wrapper and the *pg.DbInfos backing it, whose
+// Pool the next reload reuses. Built once at startup.
 type Reloader struct {
 	Wrapper    *ReloadableHandler
 	PrimaryURI string
@@ -40,8 +37,7 @@ type Reloader struct {
 	db *pg.DbInfos
 }
 
-// NewReloader builds a *Reloader around the *pg.DbInfos already produced by
-// the initial pg.NewInfosAdminQuery call at startup.
+// NewReloader builds a *Reloader around the startup *pg.DbInfos.
 func NewReloader(wrapper *ReloadableHandler, db *pg.DbInfos, primaryURI string, cfg *config.Config, logger *slog.Logger) *Reloader {
 	return &Reloader{
 		Wrapper:    wrapper,
@@ -52,30 +48,21 @@ func NewReloader(wrapper *ReloadableHandler, db *pg.DbInfos, primaryURI string, 
 	}
 }
 
-// CurrentDbInfos returns the *pg.DbInfos currently backing the wrapper's
-// inner handler — the one whose Pool must be closed at process shutdown.
+// CurrentDbInfos returns the *pg.DbInfos currently served, whose Pool must be closed at shutdown.
 func (rl *Reloader) CurrentDbInfos() *pg.DbInfos {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	return rl.db
 }
 
-// Reload runs docs/content/configuration/reload.md's reload sequence : begin maintenance, drain
-// in-flight requests, run reload.cmd, reintrospect (skipped when reload.cmd
-// failed), build a new snapshot, swap it in, resume serving. A reload.cmd failure skips
-// reintrospection specifically (docs/content/configuration/reload.md : "the introspection reload is
-// not performed, but wellknown and templates still get updated, rebuilt against the previous,
-// still-loaded schema") — the build still runs, against the OLD *pg.DbInfos. Any other step
-// failing (reintrospection itself, the build) logs and resumes serving the OLD snapshot entirely,
-// never half-swapped and never stuck in maintenance mode.
+// Reload enters maintenance, drains in-flight requests, runs reload.cmd, reintrospects, builds a new snapshot and
+// swaps it in. A reload.cmd failure only skips reintrospection : the snapshot is still rebuilt against the old
+// schema. Any other failure logs and keeps serving the old snapshot. Maintenance always ends.
 func (rl *Reloader) Reload(ctx context.Context) {
-	// New requests stop being served immediately.
 	rl.Wrapper.BeginMaintenance()
-	// Whatever happens below, serving resumes (against the new snapshot if it was swapped in).
 	defer rl.Wrapper.EndMaintenance()
 
-	// Wait for in-flight requests, bounded by reload.drain_timeout ; past
-	// that, their contexts are cancelled.
+	// Past reload.drain_timeout, in-flight requests' contexts are cancelled.
 	rl.Wrapper.Drain(time.Duration(rl.Cfg.Reload.DrainTimeout) * time.Second)
 
 	rl.mu.Lock()
@@ -87,8 +74,7 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	if _, err := reloadcmd.Run(ctx, rl.Cfg, slog.Default()); err != nil {
 		rl.Logger.Error("reload: reload.cmd or dmut failed, skipping schema reintrospection", reloadcmd.ErrorAttrs(err)...)
 	} else {
-		// Reintrospect, reusing the EXISTING request-serving pool
-		// (pg.ReIntrospect re-checks anonymous-role existence internally).
+		// Reuses the request-serving pool.
 		newDb, err := pg.ReIntrospect(ctx, rl.PrimaryURI, oldDb.Pool, rl.Cfg.Pg.Query.AnonymousRole, pg.WithNoticeLevel(rl.Cfg.Pg.NoticesLevel))
 		if err != nil {
 			rl.Logger.Error("reload: reintrospection failed, resuming under the old schema", "error", err.Error())
@@ -98,8 +84,6 @@ func (rl *Reloader) Reload(ctx context.Context) {
 		}
 	}
 
-	// Built against db : the freshly reintrospected schema, or the old one when
-	// reload.cmd/reintrospection didn't succeed.
 	snap, err := Build(db, rl.Cfg, rl.Logger)
 	if err != nil {
 		rl.Logger.Error("reload: building the new snapshot failed, resuming under the old schema", "error", err.Error())
@@ -111,7 +95,7 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	rl.db = db
 	rl.mu.Unlock()
 
-	// Rewrite the TypeScript helper_path file only once the new snapshot is the one served.
+	// Only once the new snapshot is the one served.
 	snap.WriteTypeScriptHelper(rl.Cfg, rl.Logger)
 
 	rl.Logger.Info("reload: succeeded")

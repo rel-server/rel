@@ -20,26 +20,15 @@ import (
 
 var log = logging.For("wellknown")
 
-// candidate is one file's parsed-and-resolved definition, before the
-// cross-file collision check runs.
+// candidate is one parsed and resolved definition, before the cross-file name collision check.
 type candidate struct {
 	def  query.RawWellKnownDefinition
 	root *query.QueryNode
 	path string
 }
 
-// BuildRegistry loads every well-known query file under
-// pg.query.wellknown_path (a colon-separated directory
-// list, consumed exactly like http.static.path — split at the point of
-// use, a missing directory silently skipped, no cap on recursion depth or
-// file count) and returns a *Registry of every one that parsed, resolved,
-// and validated cleanly. A per-file or per-definition failure logs a
-// warning and excludes just that definition
-// (docs/content/query-language/well-known-queries.md ## Defining one : "a
-// query with any other definition error is deactivated the same way") —
-// nothing here is fatal, since a
-// broken well-known file is the deploying developer's own authoring
-// mistake, not a reason to refuse to boot at all.
+// BuildRegistry loads every well-known query file under pg.query.wellknown_path (colon-separated, a missing
+// directory skipped). A failing file or definition is logged and left out ; nothing here is fatal.
 func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	var dirs []string
 	for _, d := range config.SplitPathList(cfg.Pg.Query.WellKnownDirs) {
@@ -93,8 +82,7 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	return reg, nil
 }
 
-// loadFile reads, normalizes YAML/HUML to JSON if needed, parses, and
-// resolves every definition in one file, appending each success onto byName.
+// loadFile parses (YAML/HUML or JSON) and resolves every definition in one file, appending each success to byName.
 func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]candidate) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -138,8 +126,7 @@ func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]
 	}
 }
 
-// compile finalizes one resolved definition : compiles its read statement,
-// cross-checks every $param against declared Params both ways.
+// compile compiles one resolved definition's read statement and checks its $params against Params both ways.
 func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled, error) {
 	params := make(map[string]ParamDef, len(def.Params))
 	for name, p := range def.Params {

@@ -12,12 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package boot houses the maintenance/reload mechanics that sit above
-// server+route, per docs/content/configuration/reload.md : a permanent, reload-aware
-// http.Handler wrapper (ReloadableHandler) that becomes http.Server.Handler
-// exactly once, at startup, and the orchestration (Start and Reloader.Reload) tying
-// together reloadcmd.Run/pg.ReIntrospect/route.BuildRegistry/server.NewRelHandler/
-// route.NewHandler for both the startup path and every subsequent SIGUSR1.
+// Package boot holds startup and reload : the permanent reload-aware handler and the sequence that builds and
+// swaps snapshots.
 package boot
 
 import (
@@ -28,34 +24,25 @@ import (
 	"time"
 )
 
-// maintenancePageBody is the fixed 503 page for a reload in progress
-// (migrations.md ## Reloading step 1 : "no templating").
+// maintenancePageBody is the fixed, untemplated 503 page for a reload in progress.
 const maintenancePageBody = "rel is applying migrations, please retry shortly.\n"
 
-// ReloadableHandler is http.Server.Handler's own, permanent value : a
-// small reload-aware wrapper holding an atomic.Pointer. The
-// inner *http.Handler is only ever swapped via Swap ; ServeHTTP always
-// dispatches through the current pointer, so http.Server.Handler itself
-// never needs to change after startup.
+// ReloadableHandler is the permanent http.Server.Handler ; reloads swap its inner handler. Safe for concurrent use.
 type ReloadableHandler struct {
 	inner atomic.Pointer[http.Handler]
 
-	// mu guards maintenance and inflight together : both must be checked
-	// under the same lock, or a request could register after BeginMaintenance has already moved on to draining.
+	// mu guards maintenance and inflight together, or a request could register after draining began.
 	mu          sync.Mutex
 	maintenance bool
 	inflight    map[*inflightRequest]struct{}
 	wg          sync.WaitGroup
 }
 
-// inflightRequest is one in-flight request's own cancel func, individually
-// cancellable on drain-timeout — a plain sync.WaitGroup alone can't do that.
+// inflightRequest lets Drain cancel each request on timeout.
 type inflightRequest struct {
 	cancel context.CancelFunc
 }
 
-// NewReloadableHandler wraps initial as the wrapper's starting inner
-// handler.
 func NewReloadableHandler(initial http.Handler) *ReloadableHandler {
 	h := &ReloadableHandler{
 		inflight: make(map[*inflightRequest]struct{}),
@@ -64,10 +51,8 @@ func NewReloadableHandler(initial http.Handler) *ReloadableHandler {
 	return h
 }
 
-// ServeHTTP either serves the fixed maintenance page (new requests during a
-// reload never reach the inner handler at all) or dispatches to the
-// current inner handler, tracking this request as in-flight — under its
-// own individually-cancellable context — for the duration.
+// ServeHTTP serves the maintenance page during a reload, else the current inner handler under a context Drain can
+// cancel.
 func (h *ReloadableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	if h.maintenance {
@@ -90,8 +75,6 @@ func (h *ReloadableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		delete(h.inflight, entry)
 		h.mu.Unlock()
 		h.wg.Done()
-		// Always cancel, even on the happy path : avoids leaking
-		// context.WithCancel's goroutine ; a no-op if Drain already fired it.
 		cancel()
 	}()
 
@@ -99,29 +82,21 @@ func (h *ReloadableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	inner.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// Swap stores next as the current inner handler — a single atomic pointer
-// store, never a write to http.Server.Handler itself (the last step of a reload).
+// Swap makes next the inner handler for every request from now on.
 func (h *ReloadableHandler) Swap(next http.Handler) {
 	h.inner.Store(&next)
 }
 
-// BeginMaintenance flips into maintenance mode : every NEW request from
-// this point gets 503 + the maintenance page. Returns immediately —
-// requests already in flight keep running until Drain deals with them.
+// BeginMaintenance makes every new request get the 503 maintenance page. Returns immediately ; in-flight requests
+// keep running until Drain.
 func (h *ReloadableHandler) BeginMaintenance() {
 	h.mu.Lock()
 	h.maintenance = true
 	h.mu.Unlock()
 }
 
-// Drain waits for every request that was already in flight when
-// BeginMaintenance was called to finish, up to timeout. Past that, it
-// cancels each still-running request's context (docs/content/configuration/reload.md) and then
-// waits for them to actually return : a cancelled context only asks
-// pgx/handlers to unwind, it doesn't force ServeHTTP to return
-// synchronously, and reload.cmd's own DDL needs those handlers to have
-// actually released their locks before it starts, not merely have been
-// asked to.
+// Drain waits up to timeout for in-flight requests, then cancels their contexts and waits for them to return :
+// reload.cmd's DDL needs their locks released.
 func (h *ReloadableHandler) Drain(timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {
@@ -141,15 +116,11 @@ func (h *ReloadableHandler) Drain(timeout time.Duration) {
 	}
 	h.mu.Unlock()
 
-	// Unbounded wait : cancellation is a request, not a guarantee of
-	// immediate return, but every handler here is expected to honor ctx promptly (pgx does).
+	// Unbounded : every handler is expected to honor ctx promptly.
 	<-done
 }
 
-// EndMaintenance flips back to normal serving against whatever the current
-// inner handler is — either the newly Swap-ed one, or the original one if
-// the caller never called Swap (e.g. reload.cmd failed and reload aborted
-// before reaching the mux swap).
+// EndMaintenance resumes serving with the current inner handler, swapped or not.
 func (h *ReloadableHandler) EndMaintenance() {
 	h.mu.Lock()
 	h.maintenance = false

@@ -8,7 +8,7 @@ import (
 
 // Codec is the codec options of a generated database.ts : how requests and responses travel (Wire), what a date
 // or time type is on the client (Time) and whether an int8 keeps every digit (BigInt). The zero value is the plain
-// JSON file with no import. docs/content/typescript/index.md ## Codecs.
+// JSON file with no import.
 type Codec struct {
 	// Wire is "json" (also ""), or "cbor".
 	Wire string
@@ -103,8 +103,7 @@ func (c Codec) chunks() []string {
 	return out
 }
 
-// pgWireMembers lists the `PgWire` members c retypes, as TypeScript source lines : what the values the codec
-// hands over are, for the types a plain JSON.parse leaves as numbers, text or hex.
+// pgWireMembers lists the `PgWire` members c retypes, as TypeScript source lines.
 func (c Codec) pgWireMembers() []string {
 	c = c.normalized()
 	var out []string

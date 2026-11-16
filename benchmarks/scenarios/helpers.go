@@ -44,8 +44,7 @@ func restGet(path string) req { return req{Method: "GET", Path: path} }
 
 // gvar is one GraphQL variable : its declared type and the value for this request. Every
 // value that changes from one request to the next travels as a variable, so a scenario
-// always sends the same document text, as a real client does ; inlining values would make
-// each request a new document for the server to parse, validate and plan.
+// always sends the same document text, as a real client does.
 type gvar struct {
 	Name, Type string
 	Value      any

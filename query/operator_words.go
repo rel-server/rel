@@ -14,26 +14,9 @@
 
 package query
 
-// OperatorWords is the single source of truth for the filter expression
-// grammar's operator table : every word-form spelling
-// (used by the query-string filter-expression grammar's `call` identifier,
-// see the querystring package) mapped 1:1 onto the exact query.ts tag string
-// it means. Two things reuse this exact table, never a second copy :
-//
-//  1. The querystring package's filter-expression-grammar compiler, which
-//     looks up a `call`'s bare identifier here to decide whether it's a
-//     known operator (and which query.ts tag/arity it compiles to) or an
-//     unrecognized name that falls back to `["call", ident, ...args]`.
-//  2. This package's own pass-1 JSON parsing (parseArrayExpression in
-//     expression_parse.go), which normalizes a word-form tag to its
-//     canonical query.ts spelling immediately upon reading it — see that
-//     file's use of operatorWordToCanonical.
-//
-// Entries whose word form is spelled identically to the canonical query.ts
-// tag (e.g. "and", "in", "between", "agg", "like") are included too, as
-// harmless identity mappings — this keeps the table a complete, exhaustive
-// transcription of the operator table, not just the
-// entries that happen to differ.
+// OperatorWords maps every word-form operator spelling onto its query.ts tag ; the only copy of the table. The
+// querystring filter grammar uses it to tell a known operator from a plain `["call", ...]`, and the JSON parser
+// to normalize word-form tags. Identity entries ("and", "in", ...) are kept so the table is exhaustive.
 var OperatorWords = map[string]string{
 	"and": "and",
 	"or":  "or",
@@ -104,8 +87,7 @@ var OperatorWords = map[string]string{
 	"overlaps_or_left":  "&<",
 	"overlaps_or_right": "&>",
 
-	// op_qcolon : name still provisional — kept
-	// as-is, this is a naming choice not a semantic one.
+	// op_qcolon : name still provisional.
 	"op_qcolon":  "?:",
 	"matches_ts": "@@",
 

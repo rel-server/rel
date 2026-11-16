@@ -1,11 +1,5 @@
-// This file assembles the
-// Content-Security-Policy header value from either the individual
-// http.csp.* directives or a raw http.csp.policy/RelHttpResponse.csp
-// override, and injecting the per-request nonce into script-src/style-src
-// — synthesizing either directive from the effective default-src value
-// when it isn't otherwise present. The exact same injection logic applies
-// whether the base policy came from the eleven named config directives, a raw
-// http.csp.policy, or a route function's own resp.csp.
+// Assembles the Content-Security-Policy header from the http.csp.* directives or a raw policy, and injects the
+// per-request nonce.
 package websec
 
 import (
@@ -14,16 +8,13 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// Directive is one CSP directive name/value pair, kept in an ordered slice
-// (not a map) so a raw http.csp.policy's own directive ORDER survives
-// round-tripping through ParsePolicy/SerializePolicy unchanged.
+// Directive is one CSP directive ; kept in a slice so a raw policy's order survives ParsePolicy/SerializePolicy.
 type Directive struct {
 	Name  string
 	Value string
 }
 
-// cspDirectiveOrder is the eleven named directives, in
-// emission order — default-src first, since script/style-src synthesize from it.
+// cspDirectiveOrder is the eleven named directives, in emission order.
 var cspDirectiveOrder = []struct {
 	name string
 	get  func(config.HttpCsp) string
@@ -41,11 +32,7 @@ var cspDirectiveOrder = []struct {
 	{"form-action", func(c config.HttpCsp) string { return c.FormAction }},
 }
 
-// BuildPolicyFromConfig assembles the directive list from the eleven
-// individual http.csp.* keys — only directives with a non-empty value are
-// emitted ; an unset one simply doesn't appear in the header (CSP's own
-// fallback rule then applies it to default-src at the BROWSER level, not
-// something rel needs to emulate here).
+// BuildPolicyFromConfig assembles the directive list from the http.csp.* keys, skipping empty ones.
 func BuildPolicyFromConfig(csp config.HttpCsp) []Directive {
 	var out []Directive
 	for _, d := range cspDirectiveOrder {
@@ -56,10 +43,8 @@ func BuildPolicyFromConfig(csp config.HttpCsp) []Directive {
 	return out
 }
 
-// ParsePolicy splits a raw, semicolon-separated Content-Security-Policy
-// header value into its own Directive list : rel splits it on ';' and matches each segment's
-// directive NAME as a whole token. Each segment's first whitespace-
-// separated token is the name ; the rest (re-joined) is the value.
+// ParsePolicy splits a raw Content-Security-Policy value on ';' ; each segment's first token is the name, the
+// rest the value.
 func ParsePolicy(policy string) []Directive {
 	var out []Directive
 	for _, seg := range strings.Split(policy, ";") {
@@ -75,8 +60,7 @@ func ParsePolicy(policy string) []Directive {
 	return out
 }
 
-// SerializePolicy re-joins a Directive list into a header value, "name
-// value; name value; ...".
+// SerializePolicy re-joins a Directive list into a header value, "name value; name value; ...".
 func SerializePolicy(directives []Directive) string {
 	parts := make([]string, len(directives))
 	for i, d := range directives {
@@ -89,17 +73,9 @@ func SerializePolicy(directives []Directive) string {
 	return strings.Join(parts, "; ")
 }
 
-// InjectNonce injects the nonce : 'nonce-<value>'
-// is appended to BOTH script-src and style-src, synthesizing either as a
-// copy of the effective default-src value (plus the nonce) when neither
-// directive is otherwise present — never a bare "script-src 'nonce-x'" on
-// its own, which would silently narrow CSP's own default-src fallback.
-// Directives are matched by whole-token NAME (script-src-elem/
-// script-src-attr are distinct directives, never touched by this). An
-// empty nonce is not a degenerate nonce value to inject — it means "no
-// nonce facility active for this response" (the /rel and /static case,
-// which never reach a NonceMiddleware), so directives pass
-// through completely untouched rather than gaining a hollow "'nonce-'".
+// InjectNonce appends 'nonce-<value>' to script-src and style-src, creating a missing one as a copy of
+// default-src plus the nonce, since a nonce alone would narrow the policy. script-src-elem/-attr are not
+// touched. An empty nonce (/rel, /static) leaves directives untouched.
 func InjectNonce(directives []Directive, nonce string) []Directive {
 	if nonce == "" {
 		return directives
@@ -127,8 +103,7 @@ func InjectNonce(directives []Directive, nonce string) []Directive {
 			out[i].Value = appendToken(out[i].Value, nonceToken)
 		}
 	}
-	// Skip when default-src is ALSO absent : a nonce-only script-src would
-	// narrow the policy past what it asked for — ### Nonce's "never nonce-alone".
+	// Skip when default-src is absent too : a nonce-only script-src would narrow the policy.
 	if !haveScript && haveDefault {
 		out = append(out, Directive{Name: "script-src", Value: appendToken(defaultSrc, nonceToken)})
 	}
@@ -145,11 +120,8 @@ func appendToken(value, token string) string {
 	return value + " " + token
 }
 
-// Policy assembles the full Content-Security-Policy header value for one
-// response : override (RelHttpResponse.csp, "" when unset) takes
-// precedence over csp.Policy (http.csp.policy, "" when unset), which in
-// turn REPLACES the individual directives entirely when set ; otherwise
-// the eleven named directives are used. The nonce is always injected on top.
+// Policy assembles one response's Content-Security-Policy : override (RelHttpResponse.csp), else
+// http.csp.policy, else the named directives ; the nonce is injected on top. "" means unset.
 func Policy(csp config.HttpCsp, override string, nonce string) string {
 	var directives []Directive
 	switch {

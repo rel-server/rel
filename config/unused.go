@@ -1,9 +1,4 @@
-// Unused-key detection : no configuration-looking value is silently
-// ignored, regardless of which of the
-// three sources (config file, REL_ environment variable, CLI flag) it came
-// from — they're all merged into one koanf tree before assemble ever runs,
-// so one pass over that tree, diffed against keyTracker's own bookkeeping
-// (reader.go), covers all three uniformly.
+// Unused-key detection, over the tree merged from every source.
 package config
 
 import (
@@ -13,15 +8,9 @@ import (
 	koanf "github.com/knadh/koanf/v2"
 )
 
-// warnUnusedKeys logs one "warn" line per dotted key present in k that
-// nothing in assemble ever read — almost always a typo or a stale/renamed
-// setting. Non-fatal, and not collected into assemble's own errs : a
-// deployment that intentionally carries extra REL_ vars (a shared .env
-// across several services, say) shouldn't be forced to fail startup over
-// it, only told about it. Must run before assemble's own trailing
-// k.Set("pg.uri", ...)/... block (Config.Raw's doc comment) — those write
-// pg.host/pg.port/... back onto k unconditionally, even when the user
-// never set them, which would otherwise show up here as false positives.
+// warnUnusedKeys logs a warning per dotted key in k that nothing read, usually a typo or a renamed setting. Not an
+// error : a shared .env may carry extra REL_ vars. Must run before assemble writes pg.host/pg.port/... back onto k,
+// or those show up as unused.
 func warnUnusedKeys(k *koanf.Koanf, tracker *keyTracker) {
 	if tracker == nil {
 		return
@@ -47,14 +36,8 @@ func warnUnusedKeys(k *koanf.Koanf, tracker *keyTracker) {
 	}
 }
 
-// closestKey returns the candidate (from candidates — keyTracker.attempted,
-// every dotted key assemble actually tried to read this run, present or
-// not) with the smallest Levenshtein distance to key ; ok is false if
-// candidates is empty or nothing is close enough to be worth suggesting.
-// The threshold (a quarter of key's own length, minimum 3) is deliberately
-// loose — a missed suggestion costs nothing, but a wildly-off one actively
-// misleads, so this is biased toward silence over noise. Candidates are
-// walked in sorted order so a tie always resolves to the same suggestion.
+// closestKey returns the candidate closest to key by edit distance ; ok is false when none is within a quarter of
+// key's length (minimum 3), since a wrong suggestion misleads more than none. Ties resolve in sorted order.
 func closestKey(key string, candidates map[string]struct{}) (string, bool) {
 	names := make([]string, 0, len(candidates))
 	for c := range candidates {
@@ -82,10 +65,7 @@ func closestKey(key string, candidates map[string]struct{}) (string, bool) {
 	return best, true
 }
 
-// levenshtein is the classic single-row dynamic-programming edit distance
-// (insert/delete/substitute, each cost 1) between two strings, rune-aware
-// (dotted config keys are ASCII in practice, but this makes no assumption
-// beyond that).
+// levenshtein is the rune-aware edit distance between a and b.
 func levenshtein(a, b string) int {
 	ar, br := []rune(a), []rune(b)
 	prev := make([]int, len(br)+1)

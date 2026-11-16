@@ -10,14 +10,12 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// importStatement matches one `import ... from "<module>"` statement, single- or multi-line alike ; its body can't
-// cross a quote, so it can't swallow the next statement's module path. The embedded files import each other with
-// relative paths so the typescript/ directory type-checks as separate files, which means nothing once they are
-// concatenated into one.
+// importStatement matches one `import ... from "<module>"` statement, single- or multi-line ; its body can't
+// cross a quote, so it can't swallow the next statement's module path.
 var importStatement = regexp.MustCompile(`(?m)^import\b[^"]*?from\s+"([^"]+)"\n`)
 
-// splitImports removes every import from src and returns the ones that name a package (the relative ones are
-// dropped), for hoisting to the top of the generated file.
+// splitImports removes every import from src and returns the package ones, for hoisting ; relative ones are
+// dropped, since the files are concatenated into one.
 func splitImports(src string) (body string, packages []string) {
 	body = importStatement.ReplaceAllStringFunc(src, func(stmt string) string {
 		if m := importStatement.FindStringSubmatch(stmt); !strings.HasPrefix(m[1], ".") {
@@ -28,11 +26,9 @@ func splitImports(src string) (body string, packages []string) {
 	return body, packages
 }
 
-// GenerateDatabaseTS produces database.ts's full output : a single, self-sufficient .ts file — pg_values.ts
-// (docs/content/typescript/index.md ## Typed wire values' branded types/Range, first so the generated schema below
-// can reference its names) + querier.ts + the generated schema (GenerateSchema) + query.ts + shapes.ts, then the
-// chunks of typescript/codecs that opts.Codec asks for (Codec.chunks) and the `PgWire` members it implies, in that
-// fixed order. It has no import unless a codec needs a package (cbor-x, lossless-json), hoisted to the top.
+// GenerateDatabaseTS produces database.ts, one self-sufficient file : pg_values.ts + querier.ts + the generated
+// schema + query.ts + shapes.ts, then the codec chunks opts.Codec asks for and their `PgWire` members. Its only
+// imports are the packages a codec needs (cbor-x, lossless-json).
 func GenerateDatabaseTS(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) string {
 	var imports []string
 	section := func(src string) string {

@@ -47,9 +47,8 @@ func Resolve(cfg *config.Config, ov Overrides) (Options, error) {
 	return Options{Schemas: schemas, Blacklist: cfg.Blacklist, Codec: codec}, nil
 }
 
-// narrowSchemas is the `schemas` override intersected with typescript.schemas' whitelist : the
-// override never widens past the whitelist, and a name outside it is an error, not a silent drop,
-// so a typo surfaces instead of quietly exporting less than asked.
+// narrowSchemas is the `schemas` override intersected with typescript.schemas' whitelist ; a name outside the
+// whitelist is an error, so a typo surfaces.
 func narrowSchemas(configured, override []string) ([]string, error) {
 	if len(configured) == 0 {
 		return override, nil // no whitelist means every schema ; the override alone decides

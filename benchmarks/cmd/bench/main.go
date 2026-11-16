@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Command bench runs the cross-server benchmark. See benchmarks/README.md.
+// Command bench runs the cross-server benchmark.
 //
 //	go run ./benchmarks/cmd/bench -profile quick -sizes small
 package main

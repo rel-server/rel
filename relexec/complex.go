@@ -1,7 +1,4 @@
-// ComplexQuery support : per-item response-shaping
-// flags, their validation/availability gating, and the envelope response
-// writer. Split out of relexec.go since the execution flow already carries
-// plenty of state ; every piece here is wired directly into its per-item loops.
+// ComplexQuery flags, their validation, and the envelope response.
 package relexec
 
 import (
@@ -16,9 +13,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// validateComplexFlags checks the structural rules a ComplexQuery's flags
-// must satisfy regardless of ## Availability's per-flag grants — errors
-// here are about the request's own shape, not what this server allows.
+// validateComplexFlags checks the flag combinations a ComplexQuery may use, whatever the server grants.
 func validateComplexFlags(ri *resolvedItem) error {
 	if ri.count && ri.isWrite {
 		return oops.Code(errcode.QueryCountIsReadOnly).Errorf("query: \"count\" is valid only on a read, not alongside \"data\"")
@@ -35,10 +30,7 @@ func validateComplexFlags(ri *resolvedItem) error {
 	return nil
 }
 
-// checkRollbackGrant is separate from validateComplexFlags : an ungranted
-// rollback is a hard error (## Availability), unlike count/stats/query_plan/
-// sql's silent degrade, since silently ignoring it would let effects persist
-// the caller believed were undone.
+// checkRollbackGrant refuses an ungranted rollback instead of degrading it, or the user would believe effects undone.
 func checkRollbackGrant(ri *resolvedItem, policy Policy) error {
 	if ri.rollback && !policy.Rollback {
 		return oops.Code(errcode.QueryRollbackNotGranted).Errorf(`query: "rollback" is not enabled on this server`)
@@ -46,25 +38,16 @@ func checkRollbackGrant(ri *resolvedItem, policy Policy) error {
 	return nil
 }
 
-// usesEnvelope reports whether ri's response is the envelope shape or the
-// bare selection (## Response shape) — decided by the flags as requested,
-// independent of ## Availability's grants (a client asking for an ungranted
-// flag still gets an envelope, just with that flag's content degraded).
+// usesEnvelope reports whether ri is answered with an envelope, from the flags as requested, granted or not.
 func (ri *resolvedItem) usesEnvelope() bool {
 	return ri.returns == "none" || ri.count || ri.stats || ri.queryPlan || ri.sql
 }
 
-// emptyPath is JSON-marshaled as "[]", never "null" — every Path field
-// below is built from this, not a nil slice.
+// emptyPath marshals as "[]", not "null".
 var emptyPath = []string{}
 
-// bufferReadback compiles and runs a write's read-back SELECT right away,
-// capturing every row's raw JSON — used only to give a rolled-back write's
-// "result" something to stream from, since by the time the normal per-item
-// streaming loop runs, the rollback has already erased both the real rows
-// and this item's own temp rows the read-back would otherwise join
-// against. A write is never function-rooted (findUnwritableNode rejects
-// it), so root.IsFunction()'s scalar special case never applies here.
+// bufferReadback runs a rolled-back write's read-back before the rollback erases the rows it reads. A write is
+// never function-rooted, so there is no scalar case.
 func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, nodeID int, paramValues map[string]any, format query.OutputFormat) ([][]byte, error) {
 	sw, err := query.CompileSelectForDataNodeFormat(root, nodeID, format)
 	if err != nil {
@@ -100,8 +83,7 @@ func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNo
 	return out, nil
 }
 
-// runCount compiles and runs CompileCount(root), returning the total
-// matching row count.
+// runCount returns the total matching row count, ignoring offset/limit.
 func runCount(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, paramValues map[string]any) (int, error) {
 	cw, err := query.CompileCount(root)
 	if err != nil {
@@ -118,8 +100,7 @@ func runCount(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, pa
 	return n, nil
 }
 
-// explainFormatJSON runs "explain (format json) <sql>" — never executed for
-// real beyond what EXPLAIN itself runs. Used both for a plain read and for a write's read-back.
+// explainFormatJSON runs "explain (format json) <sql>", without ANALYZE.
 func explainFormatJSON(ctx context.Context, conn *pgxpool.Conn, sql string, args []any) (json.RawMessage, error) {
 	rows, err := conn.Query(ctx, "explain (format json)\n"+sql, args...)
 	if err != nil {
@@ -138,9 +119,8 @@ func explainFormatJSON(ctx context.Context, conn *pgxpool.Conn, sql string, args
 	return json.RawMessage(raw), nil
 }
 
-// writeKey writes ,"key":<json of val> (no leading comma if first) ; used
-// only by writeEnvelope's own hand-rolled JSON, since "result" must stream
-// row-by-row alongside these already-known keys, never buffered whole.
+// writeKey writes ,"key":<json of val>, without the comma if first. The envelope is written by hand so "result"
+// can stream instead of being buffered.
 func writeKey(w io.Writer, first *bool, key string, val any) error {
 	prefix := ","
 	if *first {
@@ -155,12 +135,8 @@ func writeKey(w io.Writer, first *bool, key string, val any) error {
 	return err
 }
 
-// envelopeData is every non-"result" envelope key's already-resolved value,
-// computed and error-checked before any response byte is written (## sql/##
-// query_plan/## count : "knowable before read-back streaming begins").
-// A nil slice/pointer field means "not requested" (key absent) ; a
-// non-nil-but-empty slice means "requested, degraded by ## Availability"
-// (key present as [], per that section's own rule).
+// envelopeData holds the envelope's keys other than "result", computed before any byte is written. nil means not
+// requested (key absent) ; an empty slice means requested but not granted (key present as []).
 type envelopeData struct {
 	count         *int
 	offset, limit *int
@@ -169,9 +145,7 @@ type envelopeData struct {
 	sql           []query.SqlResult
 }
 
-// writeEnvelope writes the ComplexResult envelope : precomputed keys first,
-// then "result" (streamResult does the actual streaming, called with the
-// writer positioned right after "result":) unless returns=="none".
+// writeEnvelope writes the envelope's precomputed keys, then "result" through streamResult unless returns=="none".
 func writeEnvelope(w io.Writer, ri *resolvedItem, data envelopeData, streamResult func(io.Writer) error) error {
 	if _, err := io.WriteString(w, "{"); err != nil {
 		return err

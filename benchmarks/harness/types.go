@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package harness runs the cross-server benchmark described in
-// benchmarks/README.md : it starts one server at a time, drives a closed-loop
-// load against it, checks that servers answer equivalently, and writes the
-// results. Scenario definitions live in benchmarks/scenarios.
+// Package harness runs the cross-server benchmark : it starts one server at a time, drives a closed-loop load
+// against it, checks that servers answer equivalently, and writes the results.
 package harness
 
 import (
@@ -166,8 +164,8 @@ func (c *Client) Do(r Request) ([]byte, error) {
 }
 
 // Prepare builds, outside any timing, the one request operation n of impl would send, converted for this client's
-// format (building a request is the load generator's work for every server, not only for rel-cbor's conversion). ok is false when the operation is not a single request (or fails to build) ; the caller then runs it whole.
-// A request already converted is sent as it is by Send.
+// format ; Send sends it as is. ok is false when the operation is not a single request (or fails to build) : the
+// caller then runs it whole.
 func (c *Client) Prepare(impl Impl, env *Env, n uint64) (r Request, ok bool) {
 	var got []Request
 	cc := &Client{Base: c.Base, cbor: c.cbor, captured: &got}

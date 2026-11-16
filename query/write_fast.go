@@ -11,11 +11,9 @@ import (
 	"github.com/samber/oops"
 )
 
-// The fast write path : for the common case of a flat write (one relation, no
-// nested writes, a select of plain columns), skip the general temp table. The
-// request's rows go in as one binary array parameter of the table's fast row type,
-// the write statement returns the written rows (RETURNING), and the response is
-// built from them in the same statement. See write.go for where it is chosen.
+// The fast write path : a flat write (one relation, no nested writes, a select of plain columns) skips the general
+// temp table. The rows go in as one binary array parameter of the table's fast row type, and the response is built
+// in the same statement from the written rows (RETURNING).
 
 // fastWrite is the state of one fast write.
 type fastWrite struct {
@@ -45,9 +43,8 @@ func fastWriteEligible(root *QueryNode, opts WriteOptions) bool {
 	if !isShapeProducingSelect(root.Select) {
 		return false
 	}
-	// The response reads columns off the written rows, so every output must be a
-	// plain expression over the relation's own columns : no computed field, join
-	// or aggregate, which need the table's own row type.
+	// The response reads columns off the written rows, so every output must be a plain expression over the relation's
+	// own columns : no computed field, join or aggregate.
 	fields, err := selectFieldsFor(root)
 	if err != nil {
 		return false

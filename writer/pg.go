@@ -1,8 +1,4 @@
-// Postgres/SQL-specific generation concerns : bind-parameter tracking and
-// identifier quoting/reserved-keyword rules. Kept out of writer.go (which
-// stays target-agnostic) so a future TypeScript generator — with entirely
-// different identifier and literal rules — doesn't inherit any of this ; see
-// writer.go's package doc comment for the full split rationale.
+// SQL generation : bind parameters and identifier quoting.
 package writer
 
 import (
@@ -13,26 +9,8 @@ import (
 	"github.com/samber/oops"
 )
 
-// SQLWriter wraps *Writer with the Postgres-specific pieces : Write/Indent/
-// Surround/Paren/SeparatedBy are all still reached directly through the
-// embedded *Writer (promoted, unchanged) ; List/ListSeq/SurroundList are
-// free generic functions, so call them as writer.List(w.Writer, ...) —
-// Go's method promotion doesn't extend to generic free functions, and
-// duplicating them here just to accept *SQLWriter would defeat the point of
-// keeping them generic in the first place.
-//
-// Chaining caveat : Bind/Id return *SQLWriter (so they keep chaining into
-// each other), but a promoted call like w.Write("x") returns the embedded
-// *Writer, which has no Bind/Id — so w.Write("x").Bind(v) doesn't compile.
-// Call Write and Bind/Id as separate statements on w rather than chaining
-// across the two ; this is the first place a new call site tends to hit it.
-//
-// Every package-level SQL-specific identifier here (EscapeSQLId and friends)
-// is deliberately prefixed rather than left as the bare "EscapeId" the type
-// itself might suggest — a future TypeScript-target file added to this same
-// package needs its own identifier-escaping rules and name, and an unwary
-// bare name here is exactly the kind of thing that would collide with it
-// (or worse, get silently reused by mistake).
+// SQLWriter is a Writer for one SQL statement. Call the generic list helpers as writer.List(w.Writer, ...).
+// w.Write returns the embedded *Writer, so it cannot chain into Bind/Id.
 type SQLWriter struct {
 	*Writer
 	slots []sqlBindSlot
@@ -45,49 +23,28 @@ type sqlBindSlot struct {
 	value any
 }
 
-// NewSQL returns a fresh SQLWriter, ready to write one SQL statement.
+// NewSQL returns an SQLWriter for one SQL statement.
 func NewSQL() *SQLWriter {
 	return &SQLWriter{Writer: New()}
 }
 
-// Bind appends value as the next positional placeholder ($1, $2, ...) and
-// writes the placeholder, never the value itself — standard parameterized
-// SQL, so pgx sends values out-of-band instead of interpolating them into
-// the query text. Params are expected to be encountered and bound in
-// tree-walk order; there's no name-based dedup here.
-//
-// One SQLWriter per statement : Postgres's extended protocol binds params
-// per-statement, so a multi-statement write (per-node INSERT/UPDATE/DELETE)
-// needs a fresh SQLWriter — and thus a fresh $1.. sequence — per statement,
-// not a shared running counter across all of them.
+// Bind writes the next $N placeholder for value ; equal values are not deduplicated. The $N sequence is per
+// statement, so each statement needs its own SQLWriter.
 func (w *SQLWriter) Bind(value any) *SQLWriter {
 	w.slots = append(w.slots, sqlBindSlot{value: value})
 	w.Write(fmt.Sprintf("$%d", len(w.slots)))
 	return w
 }
 
-// BindParam reserves the next $N placeholder for a well-known query's named
-// parameter (`["$param", ...]` in a well-known definition)
-// instead of binding a value immediately : a well-known query's SQL text is
-// compiled once, at load time, while a param's actual value only exists per
-// request. Shares the same $N sequence as Bind, so a statement mixing
-// literal binds (e.g. from the query's own where clause) and named params
-// still gets one coherent, gap-free placeholder list. Resolve the final
-// per-request args with ResolveArgs, not Args — Args rejects a statement
-// that has any unresolved named slot.
+// BindParam reserves the next $N placeholder for a well-known query's named parameter, whose value only exists per
+// request. Shares Bind's $N sequence ; get the args with ResolveArgs, not Args.
 func (w *SQLWriter) BindParam(name string) *SQLWriter {
 	w.slots = append(w.slots, sqlBindSlot{name: name})
 	w.Write(fmt.Sprintf("$%d", len(w.slots)))
 	return w
 }
 
-// Args returns the bind values collected via Bind, in $N order — pass
-// alongside String() as the arguments to a prepared statement exec. Panics
-// if any placeholder on this statement was reserved via BindParam instead :
-// those have no value here to return, only a name to resolve later against
-// a specific request's own params (see ResolveArgs) — a caller reaching for
-// plain Args() on such a statement is a genuine programming error, not a
-// runtime condition to recover from.
+// Args returns the bind values in $N order. Panics if the statement has a BindParam placeholder.
 func (w *SQLWriter) Args() []any {
 	out := make([]any, len(w.slots))
 	for i, s := range w.slots {
@@ -99,10 +56,7 @@ func (w *SQLWriter) Args() []any {
 	return out
 }
 
-// ParamNames returns every distinct name reserved via BindParam on this
-// statement, in first-occurrence order — the well-known loader's own
-// unused/unknown-param validation pass walks this per compiled statement rather than re-walking the
-// expression tree itself.
+// ParamNames returns every distinct name reserved via BindParam, in first-occurrence order.
 func (w *SQLWriter) ParamNames() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -116,12 +70,8 @@ func (w *SQLWriter) ParamNames() []string {
 	return out
 }
 
-// ResolveArgs builds one request's final positional args slice : literal
-// slots (from Bind) pass through unchanged, named slots (from BindParam)
-// are substituted from paramValues — already validated and defaulted by the
-// caller (a missing key here is checked defensively, but should be
-// unreachable once request-time validation has run ; see
-// WELL_KNOWN_PARAM_REQUIRED).
+// ResolveArgs returns one request's args, named slots taken from paramValues, which the caller has already
+// validated and defaulted. A missing name is an error.
 func (w *SQLWriter) ResolveArgs(paramValues map[string]any) ([]any, error) {
 	out := make([]any, len(w.slots))
 	for i, s := range w.slots {
@@ -140,8 +90,7 @@ func (w *SQLWriter) ResolveArgs(paramValues map[string]any) ([]any, error) {
 
 var validUnquotedSQLId = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
-// sqlReservedKeywords are Postgres's fully "reserved" keywords, never valid
-// unquoted — not exhaustive of every keyword, just the ones that matter here.
+// sqlReservedKeywords are Postgres's fully reserved keywords, never valid unquoted.
 var sqlReservedKeywords = map[string]bool{
 	"all": true, "analyse": true, "analyze": true, "and": true, "any": true,
 	"array": true, "as": true, "asc": true, "asymmetric": true, "both": true,
@@ -162,10 +111,7 @@ var sqlReservedKeywords = map[string]bool{
 	"when": true, "where": true, "window": true, "with": true,
 }
 
-// EscapeSQLId escapes a Postgres identifier, quoting only when needed: a
-// "schema.name" input is split and each part quoted independently, so
-// hotel.rooms stays unquoted but hotel."order" gets quoted only where it
-// must be.
+// EscapeSQLId quotes each dot-separated part of id only when needed : hotel.rooms, hotel."order".
 func EscapeSQLId(id string) string {
 	parts := strings.Split(id, ".")
 	for i, p := range parts {

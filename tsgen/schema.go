@@ -13,11 +13,7 @@ import (
 
 // Options configures GenerateSchema/GenerateDatabaseTS.
 type Options struct {
-	// Schemas is the already-resolved whitelist
-	// (docs/content/typescript-client.md ## Fetching it's `schemas` query
-	// param intersected with `typescript.schemas`, done by the caller) ;
-	// empty means every schema found, minus
-	// pg_catalog and whatever Blacklist excludes.
+	// Schemas is the resolved whitelist (see Resolve) ; empty means every schema but pg_catalog and the Blacklist.
 	Schemas []string
 
 	Blacklist config.Blacklist
@@ -41,11 +37,8 @@ func (o Options) schemaAllowed(schema string) bool {
 	return false
 }
 
-// targetRelation reports whether r is a real, exportable Table__/View__
-// candidate — not a function's own synthetic RecordRelation, not a bare
-// composite type's backing pseudo-relation (that surfaces via Type__
-// instead ; info_relation.go's IsStandaloneCompositeType), in an allowed,
-// non-blacklisted schema.
+// targetRelation reports whether r gets a Table__/View__ : a real table or view, in an allowed schema, not
+// blacklisted.
 func (o Options) targetRelation(r *pg.Relation) bool {
 	if r.IsSynthetic || r.IsStandaloneCompositeType {
 		return false
@@ -66,9 +59,7 @@ func (o Options) targetFunction(f *pg.Function) bool {
 	return !o.Blacklist.IsFunctionBlacklisted(f.Identifier.Schema, f.Identifier.Name)
 }
 
-// GenerateSchema renders the schema section of database.ts : Relations/Relationships/ComputedProperties/Functions/
-// FunctionsByName/Wellknowns and the Table__/View__/Type__/Computed__
-// interfaces they reference, from db filtered by opts.
+// GenerateSchema renders the schema section of database.ts, from db filtered by opts.
 func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) string {
 	tc := newTypeCollector()
 
@@ -89,18 +80,8 @@ func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) str
 	functionsByName := renderFunctionsByName(fns, db.SearchPath)
 
 	var b strings.Builder
-	// A bare `{}` type accepts anything non-null (biome's own noBannedTypes
-	// rule flags it for exactly that reason) — EmptyObject is what an
-	// actually-empty object shape (a zero-argument function's own `args`, a
-	// zero-column relation/composite type — CREATE TABLE t() is legal
-	// Postgres) generates instead. NOT used for Wellknowns/Functions/
-	// FunctionsByName/Relations/Relationships/ComputedProperties themselves
-	// even when they have no entries : those stay a literal empty interface
-	// (biome-ignored) because their `keyof` is load-bearing (F extends keyof
-	// Functions, Id extends keyof FunctionsByName, ...) — `keyof
-	// Record<string, never>` is `string`, not `never`, which would make
-	// every unrecognized name type-check as valid instead of correctly
-	// falling back to DefaultRow/unknown.
+	// EmptyObject types an empty object shape (no-argument `args`, zero-column relation). The lookup interfaces
+	// (Functions, Wellknowns...) stay literal empty interfaces instead : their `keyof` must be `never`, not `string`.
 	b.WriteString("type EmptyObject = Record<string, never>\n\n")
 	b.WriteString(tc.declarations())
 	b.WriteString(tc.ids.declaration())
@@ -115,10 +96,8 @@ func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) str
 	return b.String()
 }
 
-// wellknownConstIdent derives a collision-safe TS identifier for a
-// well-known's own raw-query const from its (arbitrary, possibly
-// hyphenated/dotted) declared name — only this identifier needs sanitizing;
-// Wellknowns' own property key stays the literal, quoted name.
+// wellknownConstIdent derives a TS identifier for a well-known query's const from its name, which may hold any
+// character ; the Wellknowns key stays the quoted name.
 func wellknownConstIdent(name string) string {
 	var b strings.Builder
 	b.WriteString("__wellknown_")
@@ -135,27 +114,9 @@ func wellknownConstIdent(name string) string {
 	return b.String()
 }
 
-// renderWellknowns renders the Wellknowns section : rather than
-// re-deriving a well-known query's row shape in Go (duplicating shapes.ts'
-// own type-level inference), each compiled query's raw "query" JSON is
-// embedded verbatim as a `const ... as const` literal and
-// RootShapeFromLiteralQuery/WriteShapeFromRelationQuery (shapes.ts) infer its
-// shape from that literal directly — the unconstrained entry points, not
-// ShapeFromQuery/WriteShapeFromQuery, since the literal already carries its
-// own `relation`/`schema`/`function` fields (ResolveModel<Q> reads Rel
-// straight off Q itself), unlike relation()/func()'s own Q (querier.ts),
-// which never carries them and needs Rel threaded in as a separate type
-// argument. `shape` goes through RootShapeFromLiteralQuery, not the
-// bare ShapeFromRelationQuery : a well-known query's root is array-shaped
-// like any other root (docs/content/query-language/writing.md — "an array
-// of rows at the root" ; relexec's streamItem), whether it's
-// relation-rooted or (set-returning/scalar) function-rooted ; shapes.ts's
-// own "## Root cardinality" section carries the full reasoning.
-// `write_shape` is wrapped the same way : a function-rooted well-known query
-// isn't writable at all (query/write.go's CompileSelectForDataNode rejects
-// any function-rooted node), so this always resolves through the
-// relation-rooted case in practice. Always emits the interface, even empty —
-// same reasoning as Functions/FunctionsByName above.
+// renderWellknowns renders the Wellknowns section : each query's raw JSON is embedded as a `const ... as const`
+// literal, and shapes.ts infers the row shape from it, since the literal carries its own relation/function.
+// Always emitted, even empty : shapes.ts references it unconditionally.
 func renderWellknowns(wkReg *wellknown.Registry) string {
 	entries := wkReg.All()
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
@@ -239,10 +200,7 @@ func renderRelationInterfaces(relations []*pg.Relation, tc *typeCollector) strin
 		b.WriteString(docComment(r.Comment, ""))
 		body := relationColumnsBlock(r, tc)
 		if body == "" {
-			// CREATE TABLE t() is legal Postgres — a zero-column relation
-			// has no columns to interface-body, so it's a type alias to
-			// EmptyObject instead of an empty `interface X {}` (this one
-			// isn't a lookup map ; nothing needs its `keyof`).
+			// A zero-column relation (CREATE TABLE t()) is an alias to EmptyObject.
 			fmt.Fprintf(&b, "type %s = EmptyObject\n\n", name)
 			continue
 		}
@@ -263,27 +221,14 @@ func renderRelationsMap(relations []*pg.Relation) string {
 	return b.String()
 }
 
-// isRequiredColumn reports whether c MUST be given a value on insert —
-// not nullable, no default expression, and not
-// identity/generated (both of which Postgres fills in itself, the same way
-// a default would). IsUpdatable/view-writability aren't factored in here ;
-// RequiredColumns describes the relation's own shape, not what a given
-// write is actually allowed to touch — the same "best-effort narrowing, not
-// a validator" stance WriteShapeFromQuery's own doc comment (shapes.ts)
-// already takes.
+// isRequiredColumn reports whether an insert must give c a value : not null, no default, not identity or
+// generated. Whether the column is writable is not considered.
 func isRequiredColumn(c *pg.Column) bool {
 	return c.IsReallyNotNull() && c.DefaultExpression == "" && !c.IsIdentity && !c.IsGenerated
 }
 
-// renderRequiredColumns renders RequiredColumns : for
-// every target relation, the physical columns a write actually MUST supply
-// a value for — shapes.ts's WriteShapeFromRelationQuery uses this to mark
-// exactly those keys mandatory in a relation's write shape, leaving every
-// other column (nullable, defaulted, identity, generated) optional instead
-// of the physical-shape-verbatim, everything-mandatory shape tsgen used to
-// produce. `never` for a relation with no required column at all, rather
-// than omitting its key — RequiredColumns[key] is meant to be indexed
-// unconditionally by every target relation's own key (ResolveKey, shapes.ts).
+// renderRequiredColumns renders RequiredColumns : per target relation, the columns a write must supply, which
+// shapes.ts makes mandatory in the write shape. `never` when there is none : every relation key must be present.
 func renderRequiredColumns(relations []*pg.Relation) string {
 	var b strings.Builder
 	b.WriteString("export interface RequiredColumns {\n")
@@ -310,10 +255,8 @@ func renderRequiredColumns(relations []*pg.Relation) string {
 	return b.String()
 }
 
-// relationshipVariant is one FK-derived entry under Relationships[key] —
-// see renderRelationships. Cardinality is carried
-// entirely by shortcut's own direction marker (`>`/`<`/`*` — docs/content/typescript/index.md
-// ## Building a query), not a separate field.
+// relationshipVariant is one foreign key entry under Relationships[key] ; the shortcut's marker (`>`/`<`/`*`)
+// carries its cardinality.
 type relationshipVariant struct {
 	key      string // owning key this variant is filed under
 	shortcut string
@@ -321,15 +264,9 @@ type relationshipVariant struct {
 	reason   string // IneligibleRelationships only : why join() can't use it
 }
 
-// renderRelationships walks every target relation's own OutgoingForeignKeys
-// exactly once (a constraint belongs to exactly one relation's own list),
-// producing up to two variants per FK — see the type's own doc
-// comment. A
-// foreign key whose own columns aren't indexed isn't a legal join target in
-// either direction (query.ts's `on` doc comment) : its variants go to
-// IneligibleRelationships instead, carrying the reason, so join() can say why
-// instead of just not offering them. Both interfaces are always emitted
-// (biome-ignored when empty), since querier.ts indexes them unconditionally.
+// renderRelationships renders two variants per foreign key, one per direction. A foreign key whose columns are
+// not indexed can't be joined either way : its variants go to IneligibleRelationships with the reason, so join()
+// can say why. Both interfaces are always emitted, even empty, since querier.ts indexes them unconditionally.
 func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool, tc *typeCollector) string {
 	eligible := newVariantSet()
 	ineligible := newVariantSet()
@@ -353,8 +290,7 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 			ownerKey := relationKey(owner.Identifier.Schema, owner.Identifier.Name)
 			referencedKey := relationKey(referenced.Identifier.Schema, referenced.Identifier.Name)
 
-			// `>` outgoing is always to-one (an FK's target columns are always PK/UNIQUE-backed) ;
-			// incoming is `<` (to-one, a unique reverse FK) or `*` (to-many), never a separate field.
+			// `>` outgoing is always to-one ; incoming is `<` (to-one, a unique reverse FK) or `*` (to-many).
 			incomingMarker := "*"
 			if owner.FindUniqueConstraint(ownerCols) != nil {
 				incomingMarker = "<"
@@ -363,9 +299,6 @@ func renderRelationships(relations []*pg.Relation, allowed map[*pg.Relation]bool
 			outgoing := relationshipVariant{key: ownerKey, shortcut: referencedKey + ">" + pairStr, relation: referencedName}
 			incoming := relationshipVariant{key: referencedKey, shortcut: ownerKey + incomingMarker + pairStr, relation: ownerName}
 
-			// Eligibility (see query.ts's `on` doc comment) : the FK-holding
-			// side's own columns must be indexed, or neither direction is a
-			// legal join target.
 			if owner.IsIndexed(ownerCols) {
 				eligible.add(outgoing)
 				eligible.add(incoming)
@@ -401,7 +334,6 @@ func (vs *variantSet) add(v relationshipVariant) {
 func renderVariantInterface(name string, vs *variantSet, withReason bool) string {
 	var b strings.Builder
 	if len(vs.order) == 0 {
-		// Stays a literal empty interface : its `keyof` is load-bearing (querier.ts), same as Functions/Wellknowns.
 		b.WriteString("// biome-ignore lint/suspicious/noEmptyInterface: always emitted, see renderRelationships's doc comment\n")
 		fmt.Fprintf(&b, "export interface %s {}\n\n", name)
 		return b.String()
@@ -440,22 +372,9 @@ func columnNames(columns []*pg.Column) []string {
 	return names
 }
 
-// bareNameWinners maps each bare (unqualified) function name shared by one
-// or more of fns to the ONE "schema.name" key an unqualified call to that
-// name would actually resolve to at runtime — the same search_path-based
-// winner Postgres itself picks for a bare `func_name(...)` call, including
-// Postgres' own dot-syntax for computed columns (`t.func_name()`). A name
-// whose only candidates all live outside searchPath resolves to nothing
-// (matches Postgres : nothing on the path, nothing found) and is omitted.
-//
-// This does NOT replicate Postgres' real overload resolution — matching
-// candidates across every search_path schema by argument-type compatibility
-// — only "which SCHEMA wins," by its own position in searchPath, ignoring
-// argument compatibility entirely. A same-named function in an
-// earlier-searched schema whose arguments don't actually fit a given call
-// site still "wins" here and shadows a later, better-fitting schema :
-// accepted as a best-effort heuristic, not a validator, the same stance
-// taken for write-shape derivation.
+// bareNameWinners maps each bare function name to the "schema.name" key an unqualified call resolves to : the
+// first schema of searchPath holding that name. A name with no candidate on the path is omitted. Argument types
+// are ignored, so an earlier schema wins even when its overloads don't fit the call.
 func bareNameWinners(fns []*pg.Function, searchPath []string) map[string]string {
 	pathIndex := make(map[string]int, len(searchPath))
 	for i, s := range searchPath {
@@ -485,18 +404,8 @@ func bareNameWinners(fns []*pg.Function, searchPath []string) map[string]string 
 	return winners
 }
 
-// renderFunctionsByName is the bare-name half of the
-// computed-column story : shapes.ts's ShapeFromCallTag consults this
-// UNCONDITIONALLY (unlike ComputedProperties, purely a discoverability
-// aid), so `["call", "func_name", ...]` (the unqualified form — the whole
-// point of Postgres' `t.func_name()` computed-column sugar) type-resolves
-// the same way `["call", {schema,name}, ...]` already does through
-// Functions. Always emitted, even empty (Wellknowns' own pattern) : a
-// downstream reference to a type that doesn't exist in the file at all is a
-// hard compile error, not a graceful "no matches." Each entry is a plain
-// indexed reference into Functions, not a re-rendered copy, so an
-// overloaded name's union (renderFunctions' own grouping) carries through
-// automatically.
+// renderFunctionsByName renders FunctionsByName, which types `["call", "func_name", ...]` ; each entry indexes
+// into Functions, so overloads carry through. Always emitted, even empty : shapes.ts references it unconditionally.
 func renderFunctionsByName(fns []*pg.Function, searchPath []string) string {
 	winners := bareNameWinners(fns, searchPath)
 	names := make([]string, 0, len(winners))
@@ -517,20 +426,8 @@ func renderFunctionsByName(fns []*pg.Function, searchPath []string) string {
 	return b.String()
 }
 
-// renderComputedProperties is the discoverability half of
-// computed fields — pg.Relation.ComputedFields (pg/info_computed.go) is the
-// one place eligibility is decided (same schema as the relation, callable
-// with exactly one argument, first argument typed as the relation's own row
-// type) ; this only renders whatever that introspection step already found,
-// filtered down to the relations/functions this export is actually allowed
-// to expose. Kept alongside, never merged into, Table__/View__ (own/full
-// deliberately never include a computed field) ; purely a "what's callable
-// here, and what does it return" discovery aid for authoring `select` — the
-// ACTUAL type of a `["call", ...]` expression still resolves through
-// FunctionsByName/Functions (shapes.ts's ShapeFromCallTag), independently.
-// Deliberately redundant with FunctionsByName rather than derived from it at
-// the type level : the two answer different questions ("what can I call
-// here" vs "what does this specific call produce").
+// renderComputedProperties lists each relation's computed fields and their return types, minus blacklisted
+// functions, for discovery only : a `["call", ...]` is typed through FunctionsByName/Functions.
 func renderComputedProperties(relations []*pg.Relation, bl config.Blacklist, tc *typeCollector) string {
 	byRelation := map[*pg.Relation]map[string]string{}
 	for _, rel := range relations {
@@ -590,17 +487,10 @@ func renderComputedProperties(relations []*pg.Relation, bl config.Blacklist, tc 
 	return interfaces.String() + mapBody.String()
 }
 
-// renderFunctions renders the Functions interface. Always emits the interface, even empty (a real deployment
-// exporting zero functions) : shapes.ts references `Functions`
-// unconditionally (ResolveFunctionModel, FunctionsByName's own indexed
-// entries, ShapeFromCallTag), and a downstream reference to a type absent
-// from the file entirely is a hard compile error, not a graceful "no
-// matches" — the same reasoning Wellknowns/FunctionsByName already follow.
+// renderFunctions renders the Functions interface. Always emitted, even empty : shapes.ts references it
+// unconditionally.
 func renderFunctions(fns []*pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) string {
-	// Postgres allows several functions to share one name, distinguished
-	// only by argument list (overloading) — grouped by key here so each
-	// gets its own union variant instead of colliding on one object-literal
-	// key (TS2300 "Duplicate identifier").
+	// Overloads share a key : each becomes a union variant.
 	byKey := map[string][]*pg.Function{}
 	var order []string
 	for _, f := range fns {
@@ -632,9 +522,7 @@ func renderFunctions(fns []*pg.Function, allowed map[*pg.Relation]bool, tc *type
 	return b.String()
 }
 
-// functionShapeLiteral renders one function's { positional_args; args;
-// relation?; returns } object literal — shared by the single-overload and
-// unioned-overloads cases in renderFunctions above.
+// functionShapeLiteral renders one function's { positional_args; args; relation?; returns } object literal.
 func functionShapeLiteral(f *pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) string {
 	var b strings.Builder
 	b.WriteString("{\n")
@@ -644,8 +532,7 @@ func functionShapeLiteral(f *pg.Function, allowed map[*pg.Relation]bool, tc *typ
 	return b.String()
 }
 
-// inputArg is one callable (IN/INOUT/VARIADIC) argument, in declaration
-// order — the same set positional_args/args both describe.
+// inputArg is one IN/INOUT/VARIADIC argument.
 type inputArg struct {
 	name     string
 	tsType   string
@@ -661,8 +548,7 @@ func inputArgs(f *pg.Function, tc *typeCollector) []inputArg {
 		}
 	}
 	out := make([]inputArg, len(in))
-	// PgNargsDefaults counts trailing input args with a default —
-	// info_function.go's own doc comment on Function.PgNargsDefaults.
+	// PgNargsDefaults counts trailing input args with a default.
 	firstOptional := len(in) - f.PgNargsDefaults
 	for i, a := range in {
 		name := a.Name
@@ -688,18 +574,15 @@ func renderFunctionArgs(b *strings.Builder, f *pg.Function, tc *typeCollector) {
 		obj[i] = fmt.Sprintf("%s%s: %s", identifierField(a.name), opt, a.tsType)
 	}
 	fmt.Fprintf(b, "    positional_args: [%s]\n", strings.Join(tuple, ", "))
-	argsType := "EmptyObject" // a zero-argument function's own args object — see EmptyObject's own doc comment
+	argsType := "EmptyObject"
 	if len(obj) > 0 {
 		argsType = "{ " + strings.Join(obj, "; ") + " }"
 	}
 	fmt.Fprintf(b, "    args: %s\n", argsType)
 }
 
-// renderFunctionReturns renders the `relation`/`returns` half of
-// Functions entries : `relation` present
-// only for a set-returning function whose row shape matches a real target
-// Table__/View__ ; a RETURNS TABLE/OUT-parameter function with no matching
-// real relation falls back to an inline object shape instead.
+// renderFunctionReturns renders `relation`/`returns` : `relation` only for a set-returning function of a target
+// relation ; a RETURNS TABLE/OUT-parameter function gets an inline object shape.
 func renderFunctionReturns(b *strings.Builder, f *pg.Function, allowed map[*pg.Relation]bool, tc *typeCollector) {
 	if f.ReturnsSet {
 		if rel := f.ReturnType.CompositeRelation(); rel != nil && allowed[rel] {
@@ -722,12 +605,7 @@ func renderFunctionReturns(b *strings.Builder, f *pg.Function, allowed map[*pg.R
 	fmt.Fprintf(b, "    returns: %s\n", tsTypeExpr(f.ReturnType, tc))
 }
 
-// recordRelationTypeExpr renders a function's own synthetic RecordRelation
-// (RETURNS TABLE/OUT-parameter columns) as an inline object type. info_type.
-// go only ever builds a RecordRelation when it has at least one column, so
-// this can't actually be empty today — guarded anyway, defensively, the
-// same as renderRelationInterfaces' own zero-column case, rather than
-// relying on that upstream invariant never changing.
+// recordRelationTypeExpr renders a function's RecordRelation as an inline object type.
 func recordRelationTypeExpr(r *pg.Relation, tc *typeCollector) string {
 	body := relationColumnsBlock(r, tc)
 	if body == "" {
@@ -736,9 +614,7 @@ func recordRelationTypeExpr(r *pg.Relation, tc *typeCollector) string {
 	return "{\n" + indentBlock(body, "    ") + "    }"
 }
 
-// indentBlock prepends prefix to every line of s (relationColumnsBlock's own
-// two-space indent is meant for a top-level interface body, one level
-// shallower than an inline `returns:` object needs).
+// indentBlock prepends prefix to every non-empty line of s.
 func indentBlock(s, prefix string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	for i, l := range lines {

@@ -16,12 +16,9 @@ import (
 	"github.com/samber/oops"
 )
 
-// The CBOR adapter : a Node over a CBOR document, read in one pass over
-// its bytes into a flat arena. Nothing is decoded into Go values : a node records what kind of item it is and where
-// its data sits in the request body, and a string or a number is only built when a column asks for it. The pass
-// also validates the whole document, so a malformed body is refused before anything else happens.
-//
-// The reference implementation this one is tested against, over fxamacker/cbor's decode into any, is in node_cbor_ref_test.go.
+// The CBOR adapter : a Node over a CBOR document, read in one pass into a flat arena of item positions in the
+// request body ; a string or number is only built when a column asks for it. The pass validates the whole
+// document, so a malformed body is refused before anything else happens.
 
 const (
 	cborMaxDepth = 64 // nesting of arrays, maps and tags

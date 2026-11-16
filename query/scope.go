@@ -20,23 +20,10 @@ import (
 	"github.com/samber/oops"
 )
 
-// LookupInScope resolves a first-hop bare name against n's own Scope : n's
-// own relation columns, n's own relation's computed fields
-// (pg.Relation.ComputedFields), n's own declared alias (InnerName,
-// self-referencing n itself), and n's visible children's join aliases
-// (OuterAlias, both OutgoingNodes and IncomingNodes) — never a parent's or a
-// sibling's.
-//
-// A name matching more than one of these is a hard error, not silently
-// resolved by precedence (decided this session) : picking one on a
-// collision would let a query run and silently return data other than what
-// the author meant, with no signal anything was ambiguous. The author
-// controls the alias that collided ; renaming it is the fix. A computed
-// field can never collide with a column of the same relation this way — pg's
-// own introspection (FillComputedFields) already excludes that case, since
-// it's a schema-authoring problem, not a per-query one — but it can still
-// collide with a join alias or this node's own declared alias, which are
-// chosen per query and so are exactly this check's job to catch.
+// LookupInScope resolves a first-hop name against n's Scope : its relation's columns and computed fields, its own
+// InnerName (n itself) and its children's join aliases, never a parent's or sibling's. A name matching more than
+// one is an ambiguity error, not resolved by precedence, so a query never silently reads the wrong thing.
+// Introspection already keeps computed fields from shadowing columns.
 func (n *QueryNode) LookupInScope(name string) (ResolvedField, error) {
 	oc := oops.With("name", name).Code(errcode.UnknownIdentifier)
 	if n.InnerName != "" {

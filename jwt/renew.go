@@ -8,8 +8,7 @@ import (
 	"github.com/rel-server/rel/config"
 )
 
-// ShouldRenew is Lifecycle step 4's own condition : "more than
-// jwt.renewafter of its own lifespan has elapsed since its iat".
+// ShouldRenew reports whether more than jwt.renewafter of the token's lifespan has elapsed since its iat.
 func ShouldRenew(cfg config.Jwt, claims Claims) bool {
 	iat := IssuedAt(claims)
 	exp := ExpiresAt(claims)
@@ -21,11 +20,8 @@ func ShouldRenew(cfg config.Jwt, claims Claims) bool {
 	return float64(elapsed) > cfg.RenewAfter*float64(lifespan)
 }
 
-// Renew re-mints claims per Lifecycle step 4 : fresh iat/exp reusing the
-// current token's own exp-iat width (preserving a jwt_attrs.maxage
-// override across renewals), every other key copied as-is. The renewed
-// cookie's SameSite always reverts to cfg.Jwt.SameSite ; it is never
-// carried as a claim.
+// Renew re-mints claims with a fresh iat/exp of the same exp-iat width (keeping a jwt_attrs.maxage override),
+// every other key copied as-is. The renewed cookie's SameSite reverts to cfg.Jwt.SameSite.
 func Renew(cfg config.Jwt, claims Claims) Claims {
 	width := ExpiresAt(claims).Sub(IssuedAt(claims))
 	now := time.Now().UTC()
@@ -37,11 +33,8 @@ func Renew(cfg config.Jwt, claims Claims) Claims {
 	return renewed
 }
 
-// RenewIfDue is Lifecycle step 4 in full : ShouldRenew's check, then Renew,
-// signing, and writing the fresh Set-Cookie. Nothing happens when renewal
-// isn't due ; a signing failure is silently ignored — a renewal is a
-// courtesy, never worth failing the request over. The renewed claims are not
-// returned : only the cookie changes, never the claims the request is served with.
+// RenewIfDue renews, signs and writes a fresh Set-Cookie when ShouldRenew says so. A signing failure is
+// ignored : a renewal never fails the request. The request keeps being served with the old claims.
 func RenewIfDue(cfg config.Jwt, w http.ResponseWriter, claims Claims) {
 	if !ShouldRenew(cfg, claims) {
 		return
@@ -52,18 +45,13 @@ func RenewIfDue(cfg config.Jwt, w http.ResponseWriter, claims Claims) {
 	}
 }
 
-// ClearSessionCookie deletes any Set-Cookie header already written to w,
-// then writes the clearing cookie — http.SetCookie only ever Adds, so
-// without the Del a cookie already written this request would linger
-// alongside the clear.
+// ClearSessionCookie deletes any Set-Cookie header already written to w, then writes the clearing cookie.
 func ClearSessionCookie(cfg config.Jwt, w http.ResponseWriter) {
 	w.Header().Del("Set-Cookie")
 	http.SetCookie(w, ClearCookie(cfg))
 }
 
-// ResolveRole is Lifecycle step 5's role selection : anonymousRole for an
-// unverified request, the claims' own "role" key otherwise — the same
-// three-line if reqauth applies for every SET LOCAL ROLE.
+// ResolveRole is the "role" claim when verified, anonymousRole otherwise.
 func ResolveRole(anonymousRole string, claims Claims, verified bool) string {
 	if verified {
 		return Role(claims)

@@ -1,13 +1,5 @@
-// Pass 1, decode step for well-known query definition files — parses
-// WellKnownQuery{name, params,
-// query} shape (and its WellKnownQuery[] array form), reusing
-// parseRawRelation (node_parse.go) for the "query" field's own Relation
-// tree unchanged. Distinct from ParseQuery/node_parse.go's rawWellKnown :
-// that one decodes a REQUEST invoking an already-loaded well-known query
-// ({wellknown, params, data}) ; this one decodes the DEFINITION FILE that
-// creates one in the first place. Nothing here touches pg or config —
-// resolving the parsed *rawRelation against a live schema is
-// node_resolve.go's job, same split ParseQuery already follows.
+// Pass 1, decode step for well-known query definition files : {name, params, query} or an array of them. A request
+// invoking one is rawWellKnown instead. Nothing here touches pg or config.
 package query
 
 import (
@@ -17,35 +9,25 @@ import (
 	"github.com/bytedance/sonic/ast"
 )
 
-// RawWellKnownParam is one WellKnownParam{type?, default?} declaration.
-// HasDefault distinguishes "no default key at all" (required — ##
-// Definition : WELL_KNOWN_PARAM_REQUIRED if the caller omits it) from
-// "default: null" (optional, defaults to SQL NULL) from "default: <value>"
-// (optional, defaults to that value) — a plain map[string]any lookup can't
-// tell the first two apart, so this is decoded presence-aware directly off
-// the ast.Node instead.
+// RawWellKnownParam is one {type?, default?} declaration. HasDefault false means required ; a "default": null
+// makes it optional with SQL NULL.
 type RawWellKnownParam struct {
 	Type       string
 	HasDefault bool
 	Default    []byte // raw JSON, meaningful only when HasDefault is true
 }
 
-// RawWellKnownDefinition is one parsed (not yet DB-resolved) entry from a
-// well-known query file.
+// RawWellKnownDefinition is one parsed, not yet resolved, entry of a well-known query file.
 type RawWellKnownDefinition struct {
 	Name   string
 	Params map[string]RawWellKnownParam
 	Query  *rawRelation
 
-	// QueryRaw is "query"'s own verbatim JSON text, captured alongside the
-	// parsed *rawRelation — the TypeScript generation embeds this
-	// directly as a TS literal and lets ShapeFromRelationQuery (shapes.ts)
-	// infer its type, rather than duplicating that inference in Go.
+	// QueryRaw is "query"'s verbatim JSON text : the TypeScript generation embeds it so TS infers its type.
 	QueryRaw []byte
 }
 
-// ParseWellKnownFile decodes one well-known query file's top-level content
-// — "either one WellKnownQuery or WellKnownQuery[]".
+// ParseWellKnownFile decodes a well-known query file : one definition or an array of them.
 func ParseWellKnownFile(data []byte) ([]RawWellKnownDefinition, error) {
 	root, perr := ast.NewParser(string(bytes.TrimSpace(data))).Parse()
 	if perr != 0 {

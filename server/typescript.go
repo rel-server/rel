@@ -1,7 +1,4 @@
-// GET /rel/database.ts — docs/content/typescript-client.md ## Fetching it :
-// the introspected, schema-whitelisted database exported as a single,
-// self-sufficient TypeScript file (github.com/rel-server/rel/tsgen does the
-// actual generation ; this file is only the HTTP wiring).
+// GET /rel/database.ts and /rel/database.json.
 package server
 
 import (
@@ -17,9 +14,8 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// NewTypeScriptHandler serves GET /rel/database.ts. Mounting is conditional
-// on http.typescript.enable (boot/mux.go) — this handler assumes it's
-// already gated, and doesn't re-check the flag itself.
+// NewTypeScriptHandler serves GET /rel/database.ts. It does not check http.typescript.enable : the caller only
+// mounts it when set.
 func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -41,10 +37,8 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 	})
 }
 
-// NewDatabaseJSONHandler serves GET /rel/database.json — the same schemas-param/whitelist/
-// blacklist gating as /rel/database.ts, just a different generator. Mounting
-// is conditional on http.typescript.enable too (boot/mux.go) — this handler
-// assumes it's already gated, and doesn't re-check the flag itself.
+// NewDatabaseJSONHandler serves GET /rel/database.json, with the same schema filtering as /rel/database.ts. It
+// does not check http.typescript.enable either.
 func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

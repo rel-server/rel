@@ -5,10 +5,8 @@ import (
 	"sync"
 )
 
-// holdWriter keeps the first limit bytes written to it instead of passing them on, so that a
-// failure while a small response is produced can still be answered with an error: nothing has left
-// the process. Once more than limit bytes are written, everything held so far is passed on and the
-// writer becomes a plain pass-through. A limit of 0 passes everything on at once.
+// holdWriter holds back the first limit bytes, so a failure in a small response can still be answered with an
+// error. Past limit it passes everything on ; a limit of 0 holds nothing.
 type holdWriter struct {
 	w     io.Writer
 	buf   []byte

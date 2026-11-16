@@ -1,25 +1,8 @@
 package config
 
-// Test returns a hand-written Config for tests : the default values
-// (DefaultBlacklist, DefaultMaxDepth) plus credentials matching this repo's
-// testcontainers convention (pg/info_test.go's postgres:16-alpine container,
-// and testcontainers-go's own default superuser). Exported from a non-_test
-// file, deliberately, so packages other than config itself (query execution,
-// once that exists) can import it directly rather than duplicating it.
-//
-// Host/Port are left at their zero value : testcontainers assigns an
-// ephemeral port per container run, so there's no fixed value to hand-write
-// here — callers fill those in from the actual container connection info.
-// AnonymousRole is left unset for the same reason this whole file exists :
-// nothing exercises it yet, so there's nothing to hand-write that wouldn't
-// just be a guess.
-//
-// Not meant to represent a real deployment's config : User here is the
-// container's superuser, which query-engine.md ## Scoping explicitly says a
-// real deployment's login must never be. Fine for exercising query
-// building/running against a disposable test database ; not something to
-// reach for once the role-restriction check from that section actually
-// exists.
+// Test returns a hand-written Config for tests, in a non-test file so other packages can import it. Host and Port
+// are left zero for the caller to fill from the test container. User is the container's superuser, which a real
+// deployment's login must never be.
 func Test() *Config {
 	return &Config{
 		Pg: Pg{
@@ -51,8 +34,7 @@ func Test() *Config {
 				DefaultSrc: DefaultHttpCspDefaultSrc,
 			},
 		},
-		// A fixed literal, not DefaultJwtSecret's "$FILE$..." form : Test()
-		// bypasses loader.go's $FILE$ resolution entirely (hand-built, not loaded).
+		// A literal : Test() is not loaded, so $FILE$ is never resolved.
 		Jwt: Jwt{
 			Secret:        "test-jwt-secret-not-for-production-use",
 			CookieName:    DefaultJwtCookieName,

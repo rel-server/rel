@@ -1,7 +1,6 @@
 package route
 
-// This file implements route.md ## Request bodies : multipart/form-data
-// and single-raw-binary-POST support, plus the 415 shape-mismatch rules.
+// Route request bodies : multipart/form-data, raw binary POST, and the 415 shape-mismatch rules.
 
 import (
 	"context"
@@ -17,29 +16,23 @@ import (
 	"github.com/rel-server/rel/httperr"
 )
 
-// requestPart describes one multipart part : parts_
-// headers[i] describes files[i].
+// requestPart describes one multipart part : parts[i] describes files[i].
 type requestPart struct {
-	// Name is Content-Disposition name= ; nil when absent, including for
-	// the synthesized pseudo-part a raw binary POST produces.
+	// Name is Content-Disposition name= ; nil when absent, including for a raw binary POST's pseudo-part.
 	Name *string `json:"name"`
 	// Filename is Content-Disposition filename= ; nil when this part
 	// isn't a file.
 	Filename *string `json:"filename"`
 	// ContentType is nil, not "", when the part had no header at all.
 	ContentType *string `json:"content_type"`
-	// SniffedContentType is ## Content-type sniffing's own detection of the
-	// part's actual bytes, via net/http.DetectContentType — omitted
-	// (absent, not null) until those bytes are actually in hand :
-	// stream_upload's first call builds a requestPart before reading any
-	// bytes at all, so it stays nil there.
+	// SniffedContentType is detected from the part's bytes ; omitted until they are read, so absent in
+	// stream_upload's first call.
 	SniffedContentType *string `json:"sniffed_content_type,omitempty"`
 	// Headers is never nil — an empty map marshals as "{}".
 	Headers map[string][]string `json:"headers"`
 }
 
-// requestBodyError resolves directly to a status (400/413/415) ; kept
-// distinct from badQueryError/badBodyError, which are always 400.
+// requestBodyError carries its own status (400/413/415).
 type requestBodyError struct {
 	status  int
 	code    errcode.Code
@@ -68,8 +61,7 @@ func tooLargeIfContentLengthExceeds(r *http.Request, maxBodySize int64, configKe
 	return nil
 }
 
-// writeRequestBodyError : *requestBodyError carries its own status,
-// *badBodyError is always 400, anything else is a generic 500.
+// writeRequestBodyError : *requestBodyError carries its own status, *badBodyError is 400, anything else is 500.
 func writeRequestBodyError(ctx context.Context, w http.ResponseWriter, err error) {
 	if rbe, ok := errors.AsType[*requestBodyError](err); ok {
 		httperr.WritePlain(w, rbe.status, rbe.code, rbe.message)
@@ -82,25 +74,17 @@ func writeRequestBodyError(ctx context.Context, w http.ResponseWriter, err error
 	httperr.WriteServer(ctx, w, http.StatusInternalServerError, errcode.Internal, "reading request body", err)
 }
 
-// resolvedRequestBody is everything handleRoute needs to build
-// RelHttpRequest.body/parts ; Files/PartsRaw are always non-nil. SingleBytes
-// is only set for a route.AcceptsBytes (singular, non-array) function's
-// non-multipart binary body.
+// resolvedRequestBody is what builds the request's body/parts. SingleBytes is only set for an AcceptsBytes route.
 type resolvedRequestBody struct {
 	BodyJSON    json.RawMessage
 	SingleBytes []byte
 	Files       [][]byte
 	Parts       []requestPart
-	// SniffedContentType is ## Content-type sniffing's HttpRequest.
-	// sniffed_content_type — "" (omitted) for a multipart body, whose
-	// per-part sniffing lives on each Parts entry instead, or for a body-
-	// less request.
+	// SniffedContentType is "" for an empty or multipart body ; multipart sniffing is per part.
 	SniffedContentType string
 }
 
-// resolveRequestBody reads r.Body (bounded by maxBodySize), dispatching on
-// route.AcceptsBytes/AcceptsBytesArray and Content-Type ; w is only for
-// MaxBytesReader's signature.
+// resolveRequestBody reads r.Body, bounded by maxBodySize, according to the route's bytes argument and Content-Type.
 func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, maxBodySize int64, maxPartCount int) (resolvedRequestBody, error) {
 	contentTypeHeader := r.Header.Get("Content-Type")
 
@@ -137,10 +121,7 @@ func resolveRequestBody(w http.ResponseWriter, r *http.Request, route Route, max
 	return finishSingleBody(route, contentTypeHeader, body)
 }
 
-// finishMultipartBody applies the
-// multipart mismatch rule : bytea[] (AcceptsBytesArray) is the only shape
-// multipart can populate ; parts is always filled in the request for a
-// multipart body, regardless of whether the route even accepts bytes.
+// finishMultipartBody : multipart can only fill a bytea[] argument ; files sent to any other route are a 415.
 func finishMultipartBody(route Route, files [][]byte, parts []requestPart) (resolvedRequestBody, error) {
 	if !route.AcceptsBytesArray {
 		if len(files) > 0 {
@@ -155,10 +136,8 @@ func finishMultipartBody(route Route, files [][]byte, parts []requestPart) (reso
 	}, nil
 }
 
-// finishSingleBody applies ## Function prototype's body content-type
-// dispatch (no bytea argument) or single-raw-binary-POST rule (AcceptsBytes)
-// to a non-multipart body. A bytea[]-declaring route never receives bytes
-// this way — bytea[] is multipart-only (see finishMultipartBody).
+// finishSingleBody decodes a non-multipart body into body, or into the bytea argument. A bytea[] route only takes
+// bytes through multipart.
 func finishSingleBody(route Route, contentTypeHeader string, body []byte) (resolvedRequestBody, error) {
 	if !route.AcceptsBytes && !route.AcceptsBytesArray {
 		bodyJSON, err := encodeBody(contentTypeHeader, body, false)
@@ -178,16 +157,13 @@ func finishSingleBody(route Route, contentTypeHeader string, body []byte) (resol
 	}
 
 	if route.AcceptsBytesArray {
-		// bytea[] only ever gets bytes through multipart ; a non-multipart
-		// body with actual content has nowhere to go.
 		return resolvedRequestBody{}, unsupportedMediaType("route only accepts multipart file uploads (bytea[] parameter)")
 	}
 
 	mt := mediaTypeOf(contentTypeHeader)
 	if mt == "application/json" || strings.HasSuffix(mt, "+json") ||
 		strings.HasPrefix(mt, "text/") || mt == "application/x-www-form-urlencoded" {
-		// This content-type would populate body, leaving no separate byte
-		// payload to deliver as the bytea argument.
+		// This content-type would fill body, leaving nothing for the bytea argument.
 		return resolvedRequestBody{}, unsupportedMediaType("route only accepts a raw byte body, but content_type " + contentTypeHeader + " has no separate byte payload to deliver")
 	}
 
@@ -199,8 +175,7 @@ func finishSingleBody(route Route, contentTypeHeader string, body []byte) (resol
 	}, nil
 }
 
-// sniffedContentTypeOf is ## Content-type sniffing's own detection, "" for
-// an empty body (nothing to sniff, and "" json-omits via omitempty).
+// sniffedContentTypeOf is "" for an empty body.
 func sniffedContentTypeOf(body []byte) string {
 	if len(body) == 0 {
 		return ""
@@ -223,8 +198,7 @@ func synthesizedPseudoPart(r *http.Request, contentTypeHeader string) requestPar
 	}
 }
 
-// parseMultipart enforces maxPartCount incrementally, not after fully
-// parsing an oversized set ; byte size is bounded by the caller's MaxBytesReader.
+// parseMultipart enforces maxPartCount as it reads ; byte size is bounded by the caller's MaxBytesReader.
 func parseMultipart(mr *multipart.Reader, maxPartCount int) ([][]byte, []requestPart, error) {
 	files := [][]byte{}
 	parts := []requestPart{}

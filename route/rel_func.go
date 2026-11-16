@@ -1,7 +1,4 @@
-// This file implements rel(), a
-// read-only query entrypoint bound into the shared jet.Set (see templates.go).
-// It runs /rel's own resolve-and-run path (relexec) in a per-call, role-scoped
-// transaction, after refusing every write shape up front.
+// rel(), the read-only query function templates can call.
 package route
 
 import (
@@ -21,9 +18,8 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// executeRelRead runs one rel() call : parseQuery, reject any write shape, then the same
-// resolve-and-run path /rel uses (relexec) in its own short-lived role-scoped transaction, and
-// return the results as JSON — a single item's result, or an array of results for a Sequence.
+// executeRelRead runs one rel() call through relexec in its own role-scoped transaction, after rejecting any write.
+// Returns a single item's result, or an array of results for a Sequence.
 func executeRelRead(ctx context.Context, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry, sess *reqauth.Session, queryJSON []byte) ([]byte, error) {
 	pq, err := query.ParseQuery(queryJSON)
 	if err != nil {
@@ -66,11 +62,8 @@ func relFuncError(err error) error {
 	return oops.Wrapf(err, "rel()")
 }
 
-// rejectRelWrite enforces that rel() only executes reads — a ComplexQuery/write wrapper (item.Write) is
-// out of scope regardless of whether its own Data is set, mirroring
-// relexec's own isWrite derivation (checked at the parse level, since
-// QueryNode.WriteMode defaults to a write mode even for a plain read once
-// resolved, and so isn't a reliable signal here).
+// rejectRelWrite refuses any ComplexQuery, even one without data. Checked on the parsed item, since a resolved
+// QueryNode.WriteMode defaults to a write mode even for a plain read.
 func rejectRelWrite(item query.ParsedQuery) error {
 	if item.Write != nil {
 		return oops.Code(errcode.RelFuncWriteNotAllowed).Errorf("rel(): write queries are not allowed from templates")
@@ -78,9 +71,7 @@ func rejectRelWrite(item query.ParsedQuery) error {
 	return nil
 }
 
-// jsonRawToAny decodes raw into a plain any (nil for empty/JSON null),
-// matching jet's own dot-access expectations — the same shape
-// templateDataValue produces for Data.
+// jsonRawToAny decodes raw into a plain any (nil for empty/JSON null), the same shape templateDataValue gives Data.
 func jsonRawToAny(raw []byte) any {
 	if len(raw) == 0 {
 		return nil

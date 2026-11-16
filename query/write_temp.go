@@ -96,9 +96,8 @@ func quoteIdent(name string) string { return pgx.Identifier{name}.Sanitize() }
 
 func (tt *tempType) qualified() string { return "pg_temp." + quoteIdent(tt.name) }
 
-// keepRowsAtCommit makes the general temp tables created from now on keep their rows past a commit.
-// Only tests set it : they run each statement in its own transaction and read the rows back
-// afterwards, while the server writes and reads back within one transaction.
+// keepRowsAtCommit makes the general temp tables created from now on keep their rows past a commit. Only tests set
+// it, since they read rows back after the write's transaction.
 var keepRowsAtCommit = false
 
 // createStatements returns the statements creating both temp tables and granting them to public.
@@ -126,9 +125,8 @@ func (t *tempTable) createStatements() []string {
 	}
 }
 
-// lookupSQL returns the one statement reading the oids of both row types and their array types. It
-// reads pg_type rather than casting a name to regtype : Postgres resolves such a cast when it
-// prepares the statement, before the batch has created the temp schema.
+// lookupSQL returns the one statement reading the oids of both row types and their array types. It reads pg_type
+// rather than casting to regtype, which would be resolved before the batch has created the temp schema.
 func (t *tempTable) lookupSQL() string {
 	one := func(name string) string {
 		return fmt.Sprintf("(select oid from pg_type where typname = '%s' and typnamespace = pg_my_temp_schema())", name)
@@ -187,10 +185,9 @@ func pgxConnOf(q Querier) (*pgx.Conn, bool) {
 	return nil, false
 }
 
-// ensureTempTables makes sure rel's temp tables exist on conn and that conn can send parameters of
-// their types, creating them on first use and doing nothing after. The connection's type map is the
-// record of what is ready, so it goes with the connection. It must run outside a transaction : a
-// rolled back transaction would take the tables away and leave the record stale.
+// ensureTempTables creates rel's temp tables on conn on first use and registers their types in conn's type map,
+// which records what is ready. It must run outside a transaction : a rollback would drop the tables and leave the
+// record stale.
 func ensureTempTables(ctx context.Context, q Querier, rel *pg.Relation) (*tempTable, error) {
 	t, err := newTempTable(rel)
 	if err != nil {

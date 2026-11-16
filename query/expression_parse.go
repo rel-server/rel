@@ -8,20 +8,8 @@ import (
 	"github.com/bytedance/sonic/ast"
 )
 
-// ParseExpression decodes one query.ts Expression node from raw JSON, via
-// sonic's ast package rather than encoding/json — see this session's
-// discussion for why : sonic's native (SIMD/JIT) path is active for this
-// repo's Go version, and the ast API lets recursive descent walk an
-// already-parsed tree instead of re-decoding raw bytes at every level.
-//
-// Every type read off a node uses the Strict* accessors (StrictString,
-// StrictBool, StrictFloat64), never the lenient String()/Bool()/Float64()
-// ones — those coerce across JSON types (a JSON number's .String() silently
-// returns "42"), which would corrupt the tag-dispatch and [string]-literal
-// detection below exactly the way a wrong json.Unmarshal target type would
-// have with encoding/json. Purely syntactic otherwise, same as before : bare
-// strings become Identifier (or Star for "*"), never resolved against a
-// scope — see Expression's doc comment.
+// ParseExpression decodes one query.ts Expression from raw JSON, without any scope lookup. Empty input is
+// NullLiteral. Values are read with the Strict* accessors only, since the lenient ones coerce across JSON types.
 func ParseExpression(data []byte) (Expression, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
@@ -135,8 +123,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: expression array must start with a string tag: %w", err)
 	}
-	// Word-form synonyms normalize to their canonical
-	// tag here, before anything downstream sees it — see OperatorWords.
+	// Word-form synonyms normalize to their canonical tag before anything downstream sees it.
 	if canonical, ok := OperatorWords[tag]; ok {
 		tag = canonical
 	}
@@ -280,25 +267,13 @@ func parseArrayExpression(n Node) (Expression, error) {
 		return &CallExpr{Identifier: ident, Arguments: args}, nil
 
 	case ".":
-		// Unlike every other position, a "." hop name is always a bare name,
-		// never a general Expression — otherwise it'd parse as a
-		// StringLiteral like any other bare string now does. Left-associative
-		// fold, same shape foldExpression would produce, but Right is always
-		// an *Identifier (see resolveHopInto/compileFolded).
+		// A "." hop name is always a bare name, never an Expression. Folds left-associatively, with Right always
+		// an *Identifier.
 		if rest.len < 1 {
 			return nil, fmt.Errorf("query: %q needs at least 1 operand, got %d", tag, rest.len)
 		}
-		// The chain's own starting point : a bare JSON string in this leading
-		// position is ALWAYS a name to resolve against the current scope —
-		// same rule the old degenerate one-hop case already applied to a
-		// lone operand, now just the natural start of a longer chain too, so
-		// [".", "chain", "name"] IS [".", [".", "chain"], "name"] — no need
-		// to nest an inner "." just to get the base resolved as a lookup
-		// rather than parsed as a StringLiteral. Only when the leading
-		// operand ISN'T a bare name (["col", "home"], a nested [".", ...],
-		// ["call", ...], ...) does it fall through to a genuine
-		// sub-expression base, same as before ; that form still requires at
-		// least one hop after it; there's nothing else it could mean.
+		// A bare string base is a name in the current scope, so [".", "a", "b"] is [".", [".", "a"], "b"]. Any
+		// other base is a sub-expression and needs at least one hop after it.
 		var result Expression
 		hopsFrom := 1
 		if name, err := rest.at(0).StrictString(); err == nil {
@@ -425,8 +400,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 	return nil, fmt.Errorf("query: unrecognized expression tag %q (array length %d)", tag, items.len)
 }
 
-// foldExpression collapses an N-ary folded-operator array into nested,
-// always-binary FoldedExpr nodes — see FoldedExpr's doc comment.
+// foldExpression collapses an N-ary folded-operator array into nested binary FoldedExpr nodes.
 func foldExpression(op FoldedOperator, operands []Expression) (Expression, error) {
 	if len(operands) == 0 {
 		return nil, fmt.Errorf("query: folded operator %q needs at least one operand", op)
@@ -448,8 +422,7 @@ func foldExpression(op FoldedOperator, operands []Expression) (Expression, error
 	return result, nil
 }
 
-// parseDefaultPosition parses a default-value slot, where a bare "default"
-// string means DefaultKeyword rather than an Identifier.
+// parseDefaultPosition parses a default-value slot, where a bare "default" string means DefaultKeyword.
 func parseDefaultPosition(n Node) (Expression, error) {
 	if s, err := n.StrictString(); err == nil && s == "default" {
 		return DefaultKeyword{}, nil
@@ -548,11 +521,8 @@ func parseObjectFields(n Node) (map[string]Expression, error) {
 	return out, nil
 }
 
-// parseStarTag parses "*"/"*~"'s trailing arguments : any number of except
-// []string arrays and/or and map[string]Expression objects, dispatched by
-// JSON type rather than position or count — every array is concatenated
-// into one except list, every object merged into one and map (later keys
-// overriding earlier), in the order given.
+// parseStarTag parses "*"/"*~"'s trailing arguments : arrays are concatenated into the except list, objects
+// merged into the and map with later keys winning.
 func parseStarTag(own bool, rest nodeList) (Expression, error) {
 	tagName := "*"
 	if own {
@@ -586,8 +556,7 @@ func parseStarTag(own bool, rest nodeList) (Expression, error) {
 	return StarExpr{Own: own, Except: except, And: and}, nil
 }
 
-// parseFunctionRef parses AggExpr/CallExpr's identifier : a bare string
-// (unqualified, never split on ".") or an explicit {schema, name} object.
+// parseFunctionRef parses a bare string (unqualified, never split on ".") or a {schema, name} object.
 func parseFunctionRef(n Node) (FunctionRef, error) {
 	switch n.Kind() {
 	case KindString:
@@ -620,8 +589,7 @@ func parseFunctionRef(n Node) (FunctionRef, error) {
 	}
 }
 
-// validBigIntLiteral/validNumericLiteral gate v so a malformed value is a
-// clean 400 at parse time, not a raw Postgres "invalid input syntax" error.
+// validBigIntLiteral/validNumericLiteral make a malformed value a 400 at parse time, not a Postgres error.
 var (
 	validBigIntLiteral  = regexp.MustCompile(`^-?[0-9]+$`)
 	validNumericLiteral = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$`)

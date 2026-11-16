@@ -10,18 +10,8 @@ import (
 	"github.com/samber/oops"
 )
 
-// ResolveParams validates and defaults one request's own "params" object
-// against c's declared Params,
-// returning one Go value per declared param — ready to hand straight to
-// writer.SQLWriter.ResolveArgs (the read path) or
-// query.ExecuteWriteStateParams (the write path). raw is the caller's own
-// "params" JSON object verbatim, or nil/empty if the request omitted it
-// entirely (equivalent to every declared param being absent).
-//
-// A key present in raw but not declared in c.Params is silently ignored —
-// WELL_KNOWN_UNKNOWN_PARAM is only raised for a *query* referencing an
-// undeclared param at load time, not for a caller sending an unused
-// extra key ; there's nothing unsafe about ignoring it.
+// ResolveParams validates and defaults a request's "params" JSON object against c.Params, returning one value per
+// declared param. raw may be nil or empty. A key not declared in c.Params is ignored.
 func (c *Compiled) ResolveParams(raw []byte) (map[string]any, error) {
 	supplied := map[string]json.RawMessage{}
 	if len(bytes.TrimSpace(raw)) > 0 {
@@ -100,8 +90,7 @@ func (k jsonKind) String() string {
 	}
 }
 
-// jsonKindOf sniffs raw's outermost JSON kind from its first non-whitespace
-// byte ; checkParamType only needs the coarse bucket, not a full decode.
+// jsonKindOf sniffs raw's outermost JSON kind from its first non-whitespace byte.
 func jsonKindOf(raw json.RawMessage) jsonKind {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
@@ -147,11 +136,8 @@ var textPgTypes = map[string]bool{
 
 var booleanPgTypes = map[string]bool{"boolean": true, "bool": true}
 
-// TSTypeForParam maps a declared param's "type" string to the TypeScript
-// type tsgen emits for it, reusing
-// classifyPgType's own buckets rather than a second, divergent mapping —
-// so a param's generated TS type always matches what checkParamType (the
-// wire-level check for the SAME declared type) actually accepts.
+// TSTypeForParam maps a declared param's "type" to its TypeScript type, from the same buckets checkParamType
+// accepts.
 func TSTypeForParam(pgType string) string {
 	switch classifyPgType(pgType) {
 	case pgTypeNumeric:

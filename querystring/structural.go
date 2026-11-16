@@ -12,25 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package querystring implements GET /rel's and
-// /route's `query` field's textual encoding of a subset of query.ts's JSON
-// shapes, carried in a URL query string. Two cooperating layers :
+// Package querystring decodes the URL query string of GET /rel and a route's `query` field into the JSON query
+// shapes. It has a structural layer (dot-path keys -> nested objects, repeated keys -> arrays) and an expression
+// grammar for `where` and comma-list entries.
 //
-//   - structural.go : the structural decoder (this file) — dot-path query
-//     keys -> nested JSON, repeated keys -> arrays. Generic, reusable for
-//     both Relation's own shape and /route's free-form `query` field.
-//   - expr.go : the filter expression grammar — a small S-expression-style
-//     parser for `where` and each comma-list entry.
-//   - relation.go : glues both together into one GET /rel query string ->
-//     query.ts Relation JSON pipeline, plus the read-only/single-relation
-//     restriction check.
-//
-// Every function in this package builds a plain Go value tree (string,
-// float64, bool, nil, []any, map[string]any) — never a second, parallel
-// Expression AST. The tree is handed to sonic.Marshal and then to the
-// EXISTING query.ParseQuery/query.ParseExpression pipeline, unchanged —
-// reusing it keeps one JSON-consuming Expression parser in the codebase,
-// not two to keep in sync.
+// It only builds plain JSON-like Go values, which then go through query.ParseQuery like any JSON query.
 package querystring
 
 import (
@@ -40,8 +26,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// parseRawPairs splits on '&' only, by hand — not net/url.ParseQuery,
-// which rejects any raw ';' even grammar-internal to a value (query-json.md).
+// parseRawPairs splits on '&' by hand : net/url.ParseQuery rejects a raw ';', which the grammar uses.
 func parseRawPairs(raw string) ([][2]string, error) {
 	raw = strings.TrimPrefix(raw, "?")
 	if raw == "" {
@@ -54,8 +39,7 @@ func parseRawPairs(raw string) ([][2]string, error) {
 			continue
 		}
 		k, v, _ := strings.Cut(p, "=")
-		// url.QueryUnescape, not url.PathUnescape : decodes '+' as a literal
-		// space, which callers rely on.
+		// QueryUnescape, not PathUnescape : '+' is a space.
 		kd, err := url.QueryUnescape(k)
 		if err != nil {
 			return nil, oops.Wrapf(err, "decoding query key %q", k)
@@ -69,12 +53,8 @@ func parseRawPairs(raw string) ([][2]string, error) {
 	return out, nil
 }
 
-// DecodeStructural implements the structural layer :
-// every query key is a dot-separated path into a nested JSON object,
-// repeating the exact same key builds an array. Values stay plain strings
-// — a caller needing number/bool coercion or the filter expression grammar
-// applies that on top, per key, since only the caller knows which keys
-// need it (see relation.go).
+// DecodeStructural decodes raw : each key is a dot-separated path into nested objects, a repeated key builds an
+// array. Values stay strings ; the caller applies any coercion or expression grammar per key.
 func DecodeStructural(raw string) (map[string]any, error) {
 	pairs, err := parseRawPairs(raw)
 	if err != nil {
@@ -95,8 +75,7 @@ func DecodeStructural(raw string) (map[string]any, error) {
 	return root, nil
 }
 
-// setPath walks/creates node along path, setting the final segment to
-// value. Repeating a leaf key builds an array — first repeat makes a []any.
+// setPath sets value at path under node, creating objects ; a repeated leaf key builds an array.
 func setPath(node map[string]any, path []string, value string) error {
 	key := path[0]
 	if len(path) == 1 {

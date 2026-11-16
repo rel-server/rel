@@ -1,8 +1,6 @@
 package route
 
-// Middleware execution : chain resolution lives in routeset.go
-// (Registry.MiddlewareChain) ; this file runs the resolved chain against a
-// shared transaction, merging request.context and side-effecting fields.
+// Middleware execution : runs a chain in a shared transaction, merging request.context and side-effecting fields.
 
 import (
 	"context"
@@ -21,12 +19,8 @@ import (
 	"github.com/rel-server/rel/static"
 )
 
-// mergeSideEffects folds resp's side-effecting fields into acc — per-key
-// overwrite for headers/cookies (an earlier middleware's other keys in the
-// same field still apply), whole-field overwrite for jwt/jwt_attrs/csp
-// (only when resp actually set them ; nil/"" means "didn't touch this
-// field", not "clear it" — jwt:null is itself a non-nil raw value, "null",
-// so it still overwrites here, same as any other jwt value).
+// mergeSideEffects folds resp's side-effecting fields into acc : per key for headers/cookies, whole field for
+// jwt/jwt_attrs/csp when resp sets them. jwt:null is set (raw "null"), so it still overwrites.
 func mergeSideEffects(acc *relHttpResponsePayload, resp relHttpResponsePayload) {
 	for k, v := range resp.Headers {
 		if acc.Headers == nil {
@@ -51,17 +45,13 @@ func mergeSideEffects(acc *relHttpResponsePayload, resp relHttpResponsePayload) 
 	}
 }
 
-// isTerminalResponse is ## Middleware's "none of status/template/
-// content_type/static_file set" test — Status 0 (unset) is never a real
-// HTTP status a function would deliberately send, so it doubles as
-// "wasn't set" without needing a pointer/omitempty round trip.
+// isTerminalResponse reports whether a middleware response ends the request : any of status, template,
+// content_type or static_file set.
 func isTerminalResponse(resp relHttpResponsePayload) bool {
 	return resp.Status != 0 || resp.Template != "" || resp.ContentType != "" || resp.StaticFile != ""
 }
 
-// mergeContext shallow-merges content's top-level keys into ctx — ## Middleware
-// : "content (if any) shallow-merged into request.context ... a later
-// middleware's keys win over an earlier one's on conflict."
+// mergeContext shallow-merges content's top-level keys into ctx ; a later middleware's keys win.
 func mergeContext(ctx map[string]json.RawMessage, content json.RawMessage) error {
 	if len(content) == 0 {
 		return nil
@@ -76,21 +66,12 @@ func mergeContext(ctx map[string]json.RawMessage, content json.RawMessage) error
 	return nil
 }
 
-// runMiddlewareChain executes every middleware applicable to anonPath in
-// order, on tx, per ## Middleware. buildReq re-derives the request JSON for
-// each call (context grows as the chain proceeds) — reusing
-// buildRelHttpRequest's own logic rather than patching JSON after the fact.
+// runMiddlewareChain runs every middleware applicable to anonPath in order, on tx ; buildReq derives each call's
+// request JSON from the context so far.
 //
-// handled is true once the request has been fully answered — either a
-// terminating middleware wrote a response, or a call errored (an error
-// response has already been written ; the caller's own tx.Rollback defer
-// unwinds the transaction, same as any other invocation error). When
-// handled is false, mergedContext (nil if no middleware ran, or none set
-// content) is what the caller folds into its own final request JSON before
-// proceeding, and accumulated carries every pass-through middleware's own
-// cookies/headers/jwt/jwt_attrs/csp — the caller merges it into whatever
-// response it ultimately renders (## Middleware : these apply "whether or
-// not [a middleware] terminates the request").
+// handled is true once a response was written : a terminating middleware, or an error (then err is set too).
+// Otherwise mergedContext (nil when no middleware set content) goes into the route's request.context, and
+// accumulated holds the pass-through middleware's side-effecting fields for the final response.
 func runMiddlewareChain(
 	ctx context.Context,
 	tx *reqauth.Tx,
@@ -136,10 +117,7 @@ func runMiddlewareChain(
 			return true, nil, accumulated, callErr
 		}
 
-		// ## Middleware : "nothing (NULL), letting the request proceed
-		// unchanged" — a genuine SQL NULL envelope (not the JSON literal
-		// "null") scans as a zero-length raw ; treat that the same as an
-		// empty {} object rather than a decode error.
+		// A SQL NULL envelope lets the request proceed unchanged, like {}.
 		var resp relHttpResponsePayload
 		if len(envelope) > 0 {
 			if unmarshalErr := sonic.Unmarshal(envelope, &resp); unmarshalErr != nil {
@@ -172,21 +150,11 @@ func runMiddlewareChain(
 	return false, mergedContext, accumulated, nil
 }
 
-// GateMiddleware wraps next (== /rel, or the root-level static fallback) so
-// that every applicable middleware runs first, per ## Middleware : "for a
-// request resolving to a static file or /rel ... middleware runs in its
-// own dedicated transaction" — distinct from whatever transaction next's
-// own handler opens internally. anonPath for a concrete request is just
-// r.URL.Path : neither /rel nor a static file has an anonymized form of
-// its own to compare against, and middleware's own "{}" segments still
-// match arbitrary literal ones (see middlewarePrefixMatches).
+// GateMiddleware wraps next (/rel, or the static fallback) so every applicable middleware runs first, in its own
+// transaction, matched against the concrete request path.
 //
-// /auth and /auth/* are exempt UNCONDITIONALLY (## Middleware's explicit
-// login-recoverability exemption), checked here rather than relying solely
-// on sso.Mount living outside this wrapper — an UNCONFIGURED /auth/* path
-// (no matching openid/saml entry) falls through to chi's own NotFound,
-// which is exactly this static/rel fallback, so the exemption has to be
-// enforced here too, not just structurally by where sso.Mount is mounted.
+// /auth and /auth/* are always exempt, so login stays reachable ; checked here too because an unconfigured /auth/*
+// path falls through to this fallback.
 func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates *TemplateSet, staticSrv *static.Server, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/auth" || strings.HasPrefix(r.URL.Path, "/auth/") {
@@ -205,9 +173,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 			return
 		}
 
-		// No renewal here : /rel renews itself after this gate passes (a second
-		// renewal here would double the Set-Cookie), and the static fallback
-		// never renewed even before middleware existed.
+		// No renewal here : /rel renews itself after this gate, and the static fallback never renews.
 		tx, err := sess.Open(ctx, db.Pool)
 		if err != nil {
 			httperr.WritePlainError(ctx, w, reqauth.HTTPError(err), cfg.Dev)
@@ -221,12 +187,7 @@ func GateMiddleware(db *pg.DbInfos, cfg *config.Config, reg *Registry, templates
 			return buildRelHttpRequest(r, json.RawMessage("null"), sess.Verified, sess.Claims, staticInfo, nil, reqContext, nil, "")
 		}
 
-		// mergedContext/accumulated have no consumer here — /rel and the
-		// static fallback don't read request.context or an envelope's own
-		// side-effecting fields the way a route function does ; a
-		// pass-through middleware's cookies/headers/jwt still land on w
-		// directly via applyResponseSideEffects, same as any terminating
-		// middleware's would.
+		// /rel and the static fallback have no request.context ; pass-through side effects are applied to w directly.
 		handled, _, accumulated, err := runMiddlewareChain(ctx, tx, w, r, cfg, reg, r.URL.Path, buildReq, templates, staticSrv)
 		if err != nil {
 			return

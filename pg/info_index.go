@@ -18,16 +18,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// An index, distinct from (though sometimes backing) a Constraint : a table's
-// index inventory and its constraint inventory are related but separate facts.
+// An index, distinct from the Constraint it may back.
 type Index struct {
 	Name     string
 	RelId    int
 	IsUnique bool
 
-	// True declared key-column order, INCLUDE-only columns already excluded
-	// (see the introspection query : sliced to indnkeyatts). A join is only
-	// ever checked against a leading prefix of these, never the tail.
+	// Key columns in declared order, INCLUDE columns excluded. A join is checked against a leading prefix.
 	Columns []string
 }
 
@@ -41,7 +38,7 @@ func FillIndexInformations(infos *DbInfos, conn *pgx.Conn) error {
 		idx := raw[i]
 		relation := infos.GetRelation(idx.RelId)
 		if relation == nil {
-			continue // index on a relation outside information_schema.columns's relkinds (e.g. a TOAST table) ; irrelevant, skip
+			continue // a relation we do not introspect (a TOAST table...)
 		}
 		relation.Indexes = append(relation.Indexes, &idx)
 		relation.registerIndexCoverage(idx.Columns)
@@ -61,8 +58,7 @@ func (r *Relation) registerIndexCoverage(columns []string) {
 	}
 }
 
-// IsIndexed reports whether columns (as a set) form a usable leading prefix of
-// some index's key columns on r (join eligibility requires an index, not just correctness).
+// IsIndexed reports whether columns (as a set) form a leading prefix of some index's key columns on r.
 func (r *Relation) IsIndexed(columns []string) bool {
 	_, ok := r.indexCoverage[sortedColumnKey(columns)]
 	return ok

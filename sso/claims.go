@@ -1,6 +1,5 @@
-// Package sso implements the /auth/oidc/{name}/* and /auth/saml/{name}/*
-// endpoints. This file is the part both protocols converge on — the
-// callback function's payload shape and invocation, and writing the RelHttpResponse it returns.
+// Package sso implements the /auth/oidc/{name}/* and /auth/saml/{name}/* endpoints. This file is the part both
+// protocols share : calling the callback function and writing its RelHttpResponse.
 package sso
 
 import (
@@ -19,11 +18,7 @@ import (
 
 var log = logging.For("sso")
 
-// ssoIdentity is the per-protocol answer — what the SSO round trip itself actually verified — nested
-// under the callback payload's "identity" key, never flattened into it
-// directly : keeping "claims" meaning exactly one thing (the protocol-
-// supplied identity claims) regardless of nesting depth is worth the
-// extra level, rather than a payload.claims.claims stutter.
+// ssoIdentity is what the SSO round trip verified, under the callback payload's "identity" key.
 type ssoIdentity struct {
 	Protocol     string         `json:"protocol"`
 	Name         string         `json:"name"`
@@ -32,32 +27,19 @@ type ssoIdentity struct {
 	RefreshToken string         `json:"refresh_token,omitempty"`
 }
 
-// ssoCallbackPayload is the jsonb argument handed to the configured
-// callback function, docs/content/http/authentication.md ## OpenID
-// Connect and SAML's SsoCallback shape :
+// ssoCallbackPayload is the jsonb argument of the callback function :
 //
-//   - Jwt is the browser's OWN current session, read directly off the
-//     callback request the same way jwt.VerifyRequest reads any other
-//     request's — NEVER threaded through the IdP (that would leak a live
-//     session credential to a third party). nil (encodes as JSON null)
-//     for no session, which is the expected case for SAML's callback
-//     under rel's default jwt.same_site=Lax : that cookie isn't sent on a
-//     cross-site POST, which /acs always is, so a callback function can't
-//     assume Jwt reflects reality there unless the deployment has set
-//     jwt.same_site=None.
-//   - Identity is what the SSO round trip verified — see ssoIdentity.
-//   - State is whatever /login's own query string decoded to (see
-//     state.go) — attacker-influenceable and IdP-visible, same trust
-//     level as any other query string ; never something rel itself
-//     trusts or acts on.
+//   - Jwt is the browser's current session, read off the callback request, never passed through the IdP ;
+//     nil for none. Under jwt.same_site=Lax a SAML /acs POST is cross-site, so it is always nil there.
+//   - Identity is what the SSO round trip verified.
+//   - State is /login's decoded query string : attacker-controlled and IdP-visible, never trusted.
 type ssoCallbackPayload struct {
 	Jwt      jwtpkg.Claims `json:"jwt"`
 	Identity ssoIdentity   `json:"identity"`
 	State    any           `json:"state"`
 }
 
-// resolveCallbackFunction applies the fallback rule :
-// per-entry callback_function first, http.functions.sso_callback second.
+// resolveCallbackFunction picks the entry's callback_function, else http.functions.sso_callback.
 func resolveCallbackFunction(perEntry string, cfg *config.Config) string {
 	if perEntry != "" {
 		return perEntry
@@ -65,14 +47,8 @@ func resolveCallbackFunction(perEntry string, cfg *config.Config) string {
 	return cfg.Http.Functions.SsoCallback
 }
 
-// invokeCallback calls the resolved function with the assembled
-// ssoCallbackPayload (Jwt filled in here, from r itself — callers only
-// ever supply identity/state), writing the resulting RelHttpResponse
-// (mint/cookies/headers, exactly like an ordinary /route function's own
-// response — WriteRelHttpResponse is route's shared implementation, see
-// route/encode.go's own doc comment on why it no longer needs a
-// discovered Route to do this). No function configured at all is a 500,
-// (the endpoints always 500 until a function is configured).
+// invokeCallback calls the resolved function with identity, state and the session read from r, and writes the
+// RelHttpResponse it returns like a /route response. No function configured is a 500.
 func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, db *pg.DbInfos, templates *route.TemplateSet, functionName string, identity ssoIdentity, state any) {
 	if functionName == "" {
 		log.Error("sso: no callback function configured for this endpoint, and http.functions.sso_callback is also unset", "protocol", identity.Protocol, "name", identity.Name)
@@ -87,11 +63,8 @@ func invokeCallback(w http.ResponseWriter, r *http.Request, cfg *config.Config, 
 		return
 	}
 
-	// Deliberately NOT reqauth's role-scoped transaction : the user is not signed in yet (this
-	// call is what signs them in), so the callback runs as the connection's own role, and is
-	// "security definer" to read what it needs. It is one
-	// statement, so Postgres already wraps it in a transaction, and it sets no claims or role.
-	// Only Verify is shared with the rest (above), for payload.jwt.
+	// Not reqauth's role-scoped transaction : the user is not signed in yet, so the callback runs as the
+	// connection's own role, and is "security definer" to read what it needs.
 	raw, err := dbauth.CallJSONBFunctionReturningJSON(r.Context(), db.Pool, functionName, payload)
 	if err != nil {
 		httperr.WritePostgres(r.Context(), w, err, cfg.Dev)

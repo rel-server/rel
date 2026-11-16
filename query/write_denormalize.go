@@ -1,8 +1,6 @@
-// Denormalization : walks a payload alongside the resolved query tree and loads one
-// row per node instance into the typed temp table of that node's relation. The payload is expected to mirror the same shape reads produce
-// for this tree : the same selectFieldsFor (sql.go) that answers "what does this
-// node's JSON shape look like" for compiling a SELECT answers it here too, for
-// walking the payload's mirror shape.
+// Denormalization : walks a payload alongside the resolved query tree and loads one row per node instance into the
+// temp table of that node's relation. The payload mirrors the shape reads produce, so the walk uses selectFieldsFor
+// like SELECT compilation does.
 package query
 
 import (
@@ -301,8 +299,7 @@ func (d *denormalizer) walkNode(node *QueryNode, raw Node, parentID *int32) erro
 	return nil
 }
 
-// isIncoming reports to-many (array payload) vs OutgoingNodes' to-one
-// (object payload) ; isOutgoingOf (sql.go) is its counterpart.
+// isIncoming reports to-many (array payload) vs OutgoingNodes' to-one (object payload).
 func isIncoming(node, child *QueryNode) bool {
 	return slices.Contains(node.IncomingNodes, child)
 }

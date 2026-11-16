@@ -1,7 +1,4 @@
-// Jet rendering for static serving : the
-// root-level static fallback mount (boot.BuildMux) and masking's
-// static_file (route/encode.go) both need the same Resolve-then-maybe-
-// render behavior, so it lives here once rather than twice.
+// Jet rendering for static serving, shared by the static fallback and a response's static_file.
 package route
 
 import (
@@ -26,12 +23,7 @@ import (
 	"github.com/rel-server/rel/websec"
 )
 
-// NewStaticHandler is the root-level static-fallback mount — Resolve picks
-// a plain file (served exactly as static.Server.Handler already would) or a
-// .jet candidate, rendered here. Replaces staticSrv.Handler(db, cfg) at
-// boot.BuildMux's mux.NotFound, which has no rendering capability of its
-// own (static/static.go's own package doc comment explains why that stays
-// true there).
+// NewStaticHandler is the static fallback : serves a plain file, or renders a .jet candidate.
 func NewStaticHandler(db *pg.DbInfos, cfg *config.Config, staticSrv *static.Server, templates *TemplateSet) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upath := strings.TrimPrefix(r.URL.Path, "/")
@@ -39,10 +31,8 @@ func NewStaticHandler(db *pg.DbInfos, cfg *config.Config, staticSrv *static.Serv
 	})
 }
 
-// serveStaticFileOrJet is masking's static_file — the jet-aware twin of static.Server.ServeFile,
-// used instead of it wherever rendering matters (route/encode.go). Returns
-// false when relPath resolves to nothing at all, leaving 404 rendering to
-// the caller, exactly like static.Server.ServeFile's own contract.
+// serveStaticFileOrJet serves a response's static_file, rendering .jet. Returns false when relPath resolves to
+// nothing, leaving the 404 to the caller.
 func serveStaticFileOrJet(w http.ResponseWriter, r *http.Request, cfg *config.Config, staticSrv *static.Server, templates *TemplateSet, relPath string) bool {
 	if staticSrv == nil {
 		return false
@@ -59,8 +49,7 @@ func serveStaticFileOrJet(w http.ResponseWriter, r *http.Request, cfg *config.Co
 	return true
 }
 
-// serveResolvedStatic is NewStaticHandler's body, factored out so it can be
-// unit-driven without going through a full http.Handler wrap.
+// serveResolvedStatic is NewStaticHandler's body.
 func serveResolvedStatic(w http.ResponseWriter, r *http.Request, cfg *config.Config, staticSrv *static.Server, templates *TemplateSet, upath string) {
 	if staticSrv.NeedsTrailingSlash(upath) {
 		to := path.Base(r.URL.Path) + "/"
@@ -82,14 +71,8 @@ func serveResolvedStatic(w http.ResponseWriter, r *http.Request, cfg *config.Con
 	renderStaticJet(w, r, cfg, templates, jc)
 }
 
-// renderStaticJet renders jc (jet-in-static rendering) : nonce/CSP/JWT verification run only here, on the jet-
-// execution branch, never mounted unconditionally on /static (see
-// websec.NonceMiddleware's own doc comment for why /rel and /static don't
-// get one today ; this keeps that true for the common plain-file case,
-// adding it back only where a render actually happens). An excluded
-// candidate (falls under http.upload.dir) 404s, never renders, regardless
-// of how it was reached (top-level request or {{include}}, enforced once
-// in the shared jet.Set's own loader — see templates.go's multiRootLoader).
+// renderStaticJet renders jc. Nonce, CSP and JWT verification happen only here, not for plain static files.
+// A candidate under http.upload.dir 404s.
 func renderStaticJet(w http.ResponseWriter, r *http.Request, cfg *config.Config, templates *TemplateSet, jc *static.JetCandidate) {
 	rlog := logging.FromContext(r.Context()).With("module", "route")
 	if jc.Excluded {
@@ -120,9 +103,7 @@ func renderStaticJet(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 	ctx := websec.WithNonce(r.Context(), nonce)
 	r = r.WithContext(ctx)
 
-	// request.static isn't meaningful for a request that IS the static
-	// render itself, unlike /route or /rel where it describes a DIFFERENT,
-	// possibly-masked path.
+	// No request.static : this request is the static file itself.
 	reqPayload, rerr := buildRelHttpRequest(r, json.RawMessage("null"), verified, claims, nil, nil, nil, nil, "")
 	if rerr != nil {
 		rlog.Error("route: building Req", "error", rerr.Error())

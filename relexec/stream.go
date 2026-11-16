@@ -11,13 +11,8 @@ import (
 	"github.com/rel-server/rel/writer"
 )
 
-// writeItemResponse is streamItem for the bare shape (## Response shape's
-// "no flag set"), or writeEnvelope wrapping it for any other shape. sw is
-// nil only for a write whose "returns": "none" skipped the read-back
-// entirely — nothing to execute or stream then. buffered is non-nil only
-// for a rolled-back write (## rollback) : its rows were already captured
-// before "rollback to savepoint" erased them, so they're replayed here
-// instead of re-querying.
+// writeItemResponse writes the bare result, or the envelope around it. sw is nil when a write skipped its
+// read-back ; buffered is non-nil for a rolled-back write, whose rows were captured before the rollback.
 func writeItemResponse(ctx context.Context, w io.Writer, conn *pgxpool.Conn, item *resolvedItem, sw *writer.SQLWriter, args []any, env envelopeData, buffered [][]byte) error {
 	if !item.usesEnvelope() {
 		if buffered != nil {
@@ -26,9 +21,7 @@ func writeItemResponse(ctx context.Context, w io.Writer, conn *pgxpool.Conn, ite
 		return streamItem(ctx, w, conn, item, sw, args)
 	}
 
-	// A read's "returns": "none" still executes (a side-effecting function/
-	// view still runs), only suppressing "result" itself — unlike a write,
-	// where "returns": "none" already skipped compiling sw at all.
+	// A read's "returns": "none" still runs, for a function's side effects, only "result" is left out.
 	if item.returns == "none" && !item.isWrite && sw != nil {
 		if err := executeDiscard(ctx, conn, sw, args); err != nil {
 			return err
@@ -55,8 +48,7 @@ func (ri *resolvedItem) writeBuffered(w io.Writer, rows [][]byte) error {
 	return writeBufferedRows(w, rows)
 }
 
-// writeBufferedRows writes rows (captured by bufferReadback) as the same
-// manually-streamed JSON array streamRows produces for a live query.
+// writeBufferedRows writes rows captured by bufferReadback as streamRows would.
 func writeBufferedRows(w io.Writer, rows [][]byte) error {
 	if _, err := io.WriteString(w, "["); err != nil {
 		return err
@@ -75,8 +67,7 @@ func writeBufferedRows(w io.Writer, rows [][]byte) error {
 	return err
 }
 
-// executeDiscard runs sw for its side effects only, scanning no column —
-// relexec's own answer to a read's "returns": "none" + "rollback".
+// executeDiscard runs sw for its side effects only, scanning no column.
 func executeDiscard(ctx context.Context, conn *pgxpool.Conn, sw *writer.SQLWriter, args []any) error {
 	logging.FromContext(ctx).Debug("executing read", "sql", sw.String(), "args", args)
 	rows, err := conn.Query(ctx, sw.String(), args...)
@@ -92,8 +83,7 @@ func executeDiscard(ctx context.Context, conn *pgxpool.Conn, sw *writer.SQLWrite
 	return nil
 }
 
-// streamItem runs sw and streams the result : a bare scalar for a scalar
-// function root, a JSON array otherwise (## Response Shape).
+// streamItem runs sw and streams the result : a bare scalar for a scalar function root, an array otherwise.
 func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, item *resolvedItem, sw *writer.SQLWriter, args []any) error {
 	root := item.root
 	logging.FromContext(ctx).Debug("executing read", "sql", sw.String(), "args", args)
@@ -130,8 +120,7 @@ func streamItem(ctx context.Context, w io.Writer, conn *pgxpool.Conn, item *reso
 	return streamRows(w, rows)
 }
 
-// streamRows writes rows as a manually streamed JSON array (## Response
-// Shape).
+// streamRows streams rows as a JSON array.
 func streamRows(w io.Writer, rows pgx.Rows) error {
 	hasFirst := rows.Next()
 	if err := rows.Err(); err != nil {

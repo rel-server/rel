@@ -24,70 +24,44 @@ import (
 type Relation struct {
 	Identifier SqlIdentifier
 
-	// The relation's own COMMENT ON, if any — meant primarily for the
-	// TypeScript export to surface as a doc comment ; empty string if unset.
+	// The relation's COMMENT ON, empty if unset.
 	Comment string
 
-	// IsSynthetic is true only for a Function's own RecordRelation
-	// (info_function.go) — a column list built from a RETURNS TABLE/OUT-
-	// parameter function's own arguments, not backed by a real pg_class
-	// row. Never appears in DbInfos.Relations/RelationMapByRelid, only
-	// reachable via its owning *Function.
+	// IsSynthetic is true only for a Function's RecordRelation, which is not in DbInfos.Relations/RelationMapByRelid.
 	IsSynthetic bool
 
 	IsView             bool
 	IsMaterializedView bool
 
-	// IsStandaloneCompositeType is true for a bare `CREATE TYPE ... AS
-	// (...)` composite type's own pseudo-relation (relkind 'c') — reachable
-	// only via its owning *Type's own Relation field, never a real
-	// queryable table/view. Meant primarily for the TypeScript export
-	// to tell a real Table__/
-	// View__ candidate apart from a composite type's backing row shape.
+	// IsStandaloneCompositeType is true for a `CREATE TYPE ... AS (...)` pseudo-relation, never queryable.
 	IsStandaloneCompositeType bool
 
 	Columns    []*Column
 	ColumnsMap map[string]*Column
 
-	// ComputedFields holds every function eligible to be used as a computed
-	// field on this relation — a function living in this relation's own
-	// schema, callable with exactly one argument (Function.AcceptsArity(1) —
-	// every argument after the first has a default), whose first argument's
-	// type is this relation's own composite row type. Populated by
-	// FillComputedFields, once Functions/Relations/Types are all resolved.
-	//
-	// Deliberately separate from Columns/ColumnsMap, never merged into
-	// either : a computed field is never a physical column, must never be
-	// included by own/full (query-engine's own writability rule), and is
-	// never itself writable. A function whose name collides with a real
-	// column of this relation is never registered here at all — the real
-	// column wins by construction, a schema-authoring problem to fix at the
-	// source, not something query-time ambiguity handling should resolve.
+	// ComputedFields holds the functions usable as computed fields on this relation (see FillComputedFields).
+	// Kept apart from Columns : a computed field is never included by own/full and never writable.
 	ComputedFields map[string]*Function
 
 	Type *Type // The related type
 
 	PrimaryKey *Constraint
 
-	// UniqueConstraints is every UNIQUE constraint on this relation, the
-	// primary key excluded (it's already its own field above) — populated
-	// alongside PrimaryKey by FillConstraintInformations' own "u" case.
+	// UniqueConstraints is every UNIQUE constraint on this relation, the primary key excluded.
 	UniqueConstraints   []*Constraint
 	IncomingForeignKeys []*Constraint
 	OutgoingForeignKeys []*Constraint
 
-	// Indexes backs IsIndexed's query-plan-safety checks — a distinct
-	// capability from Constraints' data-integrity purpose.
+	// Indexes backs IsIndexed.
 	Indexes []*Index
 
-	// Unexported : callers use the lookup API (FindConstraintByName,
-	// FindUniqueConstraint, RelationshipsTo, ResolveJoin, IsIndexed) instead.
+	// Read through FindConstraintByName, FindUniqueConstraint, RelationshipsTo, ResolveJoin and IsIndexed.
 	byName             map[string]*Constraint
 	uniqueColumnGroups map[string]*Constraint
 	byOtherRelation    map[int][]*Constraint
 	indexCoverage      map[string]struct{}
 
-	// mask backs MaskSlots (info_mask.go) ; built on first use.
+	// mask backs MaskSlots ; built on first use.
 	maskOnce sync.Once
 	mask     *maskLayout
 
@@ -115,8 +89,7 @@ func FillRelationInformations(infos *DbInfos, conn *pgx.Conn) error {
 	return nil
 }
 
-// IsViewLike is true for a view or a materialized view : both are read-only, query-defined relations (tsgen
-// generates a View__ interface for either).
+// IsViewLike is true for a view or a materialized view.
 func (r *Relation) IsViewLike() bool { return r.IsView || r.IsMaterializedView }
 
 var INFO_QUERY_RELATIONS = /* sql */ `

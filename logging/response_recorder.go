@@ -7,18 +7,14 @@ import (
 	"time"
 )
 
-// ResponseRecorder wraps an http.ResponseWriter to capture the status code
-// and byte count actually written for access logging —
-// callers keep writing through it exactly as they would the original
-// http.ResponseWriter ; no downstream response helper needs to change.
+// ResponseRecorder captures the status code and byte count written, for the access log.
 type ResponseRecorder struct {
 	http.ResponseWriter
 	Status int
 	Size   int
 }
 
-// NewResponseRecorder wraps w. Status defaults to 200, matching
-// net/http's own behavior when a handler never calls WriteHeader.
+// NewResponseRecorder wraps w. Status defaults to 200, for a handler that never calls WriteHeader.
 func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
 	return &ResponseRecorder{ResponseWriter: w, Status: http.StatusOK}
 }
@@ -77,10 +73,8 @@ func AnnotateAccess(ctx context.Context, role string, attrs ...any) {
 	}
 }
 
-// AccessLog writes one line per request once next returns, whichever handler served it : path,
-// method, role (when a handler annotated one), status, response size and duration, then the
-// attributes the handler added with AnnotateAccess. It logs through the request logger, so it
-// must sit inside RequestMiddleware.
+// AccessLog writes one line per request once next returns, with what AnnotateAccess added. It must sit inside
+// RequestMiddleware.
 func AccessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := NewResponseRecorder(w)

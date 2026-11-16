@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 )
 
-// requestJSONContextKey is unexported so no other package can collide with
-// it by constructing an equal-by-value context key.
 type requestJSONContextKey struct{}
 
-// withRequestJSON stashes the exact request JSON sent to the route
-// function ; templates.go's "Req" var reads it back rather than re-deriving.
+// withRequestJSON stashes the exact request JSON sent to the route function, read back by the templates' "Req" var.
 func withRequestJSON(ctx context.Context, raw json.RawMessage) context.Context {
 	return context.WithValue(ctx, requestJSONContextKey{}, raw)
 }

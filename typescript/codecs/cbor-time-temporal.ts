@@ -1,6 +1,5 @@
 // `codec=cbor,temporal` : tag 1 (an instant) is a `Temporal.Instant` and tag 100 (a date) a `Temporal.PlainDate`.
 // Needs a runtime with `Temporal`, or a polyfill installed before the first query.
-// docs/content/typescript/index.md ## Codecs.
 import { pgWireCasts } from "../pg_values"
 import { defineCborTag } from "./wire-cbor"
 

@@ -81,8 +81,7 @@ func itemError(i int, fault Fault, code errcode.Code, err error) *Error {
 	return &Error{Item: i, Fault: fault, Code: code, Err: fmt.Errorf("item %d: %w", i, err)}
 }
 
-// codeOrUnclassified reads back the query package's own oc.Code(...) tag
-// off err (or a wrapped ancestor), falling back to errcode.Unclassified.
+// codeOrUnclassified is err's errcode, or errcode.Unclassified.
 func codeOrUnclassified(err error) errcode.Code {
 	oe, ok := oops.AsOops(err)
 	if !ok {
@@ -101,12 +100,10 @@ type resolvedItem struct {
 	isWrite bool
 	data    query.Node
 
-	// Non-nil only for a well-known item ; threaded into ResolveArgs so a
-	// $param slot resolves without a separate code path for ordinary items.
+	// paramValues is non-nil only for a well-known item.
 	paramValues map[string]any
 
-	// Non-nil only for a well-known READ item, reusing the statement
-	// compiled once at load time (well-known-queries.md ## Behaviour).
+	// precompiledRead is non-nil only for a well-known read, compiled once at load time.
 	precompiledRead *writer.SQLWriter
 	// precompiledReadCBOR is the same statement for a CBOR response.
 	precompiledReadCBOR *writer.SQLWriter
@@ -114,10 +111,7 @@ type resolvedItem struct {
 	// enc is non-nil when the response is CBOR ; it turns the binary rows into CBOR.
 	enc *query.ResultEncoder
 
-	// returns/count/stats/queryPlan/sql/rollback are ComplexQuery's own
-	// response-shaping flags — zero values (no
-	// flag set) for a bare RelationQuery/WellKnownQuery item, since a bare
-	// "wellknown" object never takes them directly.
+	// ComplexQuery's flags ; zero for a bare item.
 	returns   string
 	count     bool
 	stats     bool
@@ -233,8 +227,7 @@ func prepareItem(rctx *query.ResolveContext, wk *wellknown.Registry, item query.
 	return ri, checkRollbackGrant(&ri, policy)
 }
 
-// resolveWellKnownItem resolves name via wk (well-known-queries.md ## Execution Errors for the
-// codes) ; data non-nil means a write.
+// resolveWellKnownItem resolves name via wk ; data non-nil means a write.
 func resolveWellKnownItem(wk *wellknown.Registry, name string, paramsRaw []byte, data query.Node) (resolvedItem, error) {
 	def, ok := wk.Lookup(name)
 	if !ok {
@@ -389,9 +382,7 @@ func (p *Prepared) Execute(ctx context.Context, conn *pgxpool.Conn, begin Begin,
 type writeState struct {
 	nodeIDs []int
 	results []*query.WriteResult
-	// buffered holds a rolled-back write's own read-back rows, captured while its SAVEPOINT is
-	// still live : the response must still show what happened, but the rows (and this item's temp
-	// rows) are gone the instant "rollback to savepoint" runs.
+	// buffered holds a rolled-back write's read-back rows, captured before "rollback to savepoint" drops them.
 	buffered [][][]byte
 }
 
@@ -443,8 +434,7 @@ func (p *Prepared) writePhase(ctx context.Context, conn *pgxpool.Conn) (*writeSt
 				}
 				ws.buffered[i] = rows
 			}
-			// Undoes only this item's own effects, immediately after its own execution — the rest
-			// of the request's transaction is unaffected.
+			// Undoes only this item's effects.
 			if _, err := conn.Exec(ctx, "rollback to savepoint "+spName); err != nil {
 				return nil, itemError(i, ServerFault, errcode.TransactionError, fmt.Errorf("rollback to savepoint: %w", err))
 			}
@@ -460,8 +450,6 @@ func (p *Prepared) readPhase(ctx context.Context, conn *pgxpool.Conn, ws *writeS
 	args = make([][]any, len(p.items))
 	envelopes = make([]envelopeData, len(p.items))
 	for i, item := range p.items {
-		// returns=="none" on a write skips compiling/running the read-back
-		// SELECT entirely.
 		skipReadback := item.isWrite && (item.returns == "none" || item.root.WriteMode == query.DELETE ||
 			(ws.results[i] != nil && ws.results[i].Rows != nil))
 
@@ -483,8 +471,7 @@ func (p *Prepared) readPhase(ctx context.Context, conn *pgxpool.Conn, ws *writeS
 				return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, fmt.Errorf("compiling response: %w", cerr))
 			}
 			statements[i] = sw
-			// ResolveArgs, not Args() : degrades to Args() when paramValues is
-			// nil, but also resolves a well-known item's named $param slots.
+			// ResolveArgs, not Args() : a well-known item has named $param slots.
 			a, aerr := sw.ResolveArgs(item.paramValues)
 			if aerr != nil {
 				return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, fmt.Errorf("resolving params: %w", aerr))

@@ -22,10 +22,7 @@ import (
 type Type struct {
 	PgIdentifier SqlIdentifier
 
-	// The type's own COMMENT ON, if any — meant primarily for the TypeScript
-	// export to surface as a doc comment ; empty string if unset. Most useful
-	// for domains and composite types ; built-in scalar types are never
-	// commented in practice.
+	// The type's COMMENT ON, empty if unset.
 	Comment string
 
 	ArrayType   *Type     // The array type of this type
@@ -40,10 +37,7 @@ type Type struct {
 	PgRelId         int // When this type is a composite type
 	PgRealTypeId    int // The oid of the real type, if this is a domain
 
-	// EnumLabels is pg_enum's own label list, in declaration order
-	// (enumsortorder) — nil unless this type is a CREATE TYPE ... AS ENUM,
-	// which IsEnum() below tests directly. Meant primarily for the
-	// TypeScript export (an enum becomes a string-literal union).
+	// EnumLabels is an enum's labels in declaration order ; nil unless this type is an enum.
 	EnumLabels []string
 }
 
@@ -65,12 +59,8 @@ func (t *Type) IsDomain() bool {
 	return t != nil && t.BaseType != nil
 }
 
-// Underlying unwraps t through any chain of domains, returning the first
-// non-domain type — t itself if t isn't a domain. A domain's own PgRelId is
-// always 0 (only the base type carries one), so IsComposite()/IsArray()
-// naively checked directly on a domain type report false even when the
-// domain wraps a composite/array type ; callers that need to know the
-// actual represented shape should check Underlying() instead of t directly.
+// Underlying unwraps t through any chain of domains. IsComposite()/IsArray() report false on a domain over a
+// composite or array : check them on Underlying().
 func (t *Type) Underlying() *Type {
 	for t != nil && t.IsDomain() {
 		t = t.BaseType
@@ -78,9 +68,7 @@ func (t *Type) Underlying() *Type {
 	return t
 }
 
-// CompositeRelation returns the *Relation t represents as a composite value,
-// unwrapping any domain wrapping first — nil if t isn't composite even after
-// unwrapping.
+// CompositeRelation returns the *Relation of composite t, through domains ; nil if t isn't composite.
 func (t *Type) CompositeRelation() *Relation {
 	u := t.Underlying()
 	if u == nil {
@@ -99,8 +87,6 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 		return err
 	}
 
-	// Index directly, never range-by-value — that mutates a throwaway
-	// copy, the same bug class as the f.Arguments fix below.
 	for i := range infos.Types {
 		infos.TypeMapByOid[infos.Types[i].PgOid] = &infos.Types[i]
 	}
@@ -136,8 +122,7 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 		}
 	}
 
-	// A composite type's backing relation, resolved now both maps exist —
-	// needs introspection to never exclude pg_catalog.
+	// Needs introspection to never exclude pg_catalog.
 	for i := range infos.Types {
 		t := &infos.Types[i]
 		if t.PgRelId > 0 {
@@ -153,8 +138,6 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 			return oops.With("function", f.Identifier.String()).With("returnTypeOid", f.PgReturnTypeOid).Errorf("failed to find return type (this should not happen)")
 		}
 
-		// Arguments is a value slice ; index directly rather than ranging
-		// by value, or the assignment below mutates a throwaway copy.
 		for i := range f.Arguments {
 			a := &f.Arguments[i]
 			if a.Type, ok = infos.TypeMapByOid[a.PgTypeOid]; !ok {
@@ -162,14 +145,11 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 			}
 		}
 
-		// PrimaryKey/ForeignKeys/Indexes and every lookup map stay nil — a
-		// nil-map read safely reports "not found," so no separate guard is needed.
+		// PrimaryKey/ForeignKeys/Indexes and the lookup maps stay nil.
 		var outCols []*Column
 		outColsMap := map[string]*Column{}
 		for i := range f.Arguments {
 			a := &f.Arguments[i]
-			// MODE_TABLE and MODE_OUT are distinct (see MODE_TABLE's own
-			// doc comment) ; both count as this function's own output.
 			if !a.IsOut() && !a.IsTableColumn() {
 				continue
 			}
@@ -197,11 +177,7 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 			if c.Type, ok = infos.TypeMapByOid[c.PgTypeOid]; !ok {
 				return oops.With("relation", r.Identifier.String()).With("column", c.Name).With("typeOid", c.PgTypeOid).Errorf("failed to find type for column (this should not happen)")
 			}
-			// A domain-typed column's PgTypeOid/Type resolved above is its
-			// BASE type (information_schema.columns' own udt_name/udt_schema
-			// substitution) ; PgDomainIdentifier, when set, names the real
-			// domain type instead — swap it in so callers (the TypeScript
-			// export in particular) see the domain, not its underlying type.
+			// A domain column's Type above is the domain's base type : swap the domain in.
 			if c.PgDomainIdentifier != nil {
 				dt, ok := typeByIdentifier[c.PgDomainIdentifier.String()]
 				if !ok {

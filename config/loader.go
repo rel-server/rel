@@ -1,6 +1,4 @@
-// Package config assembles Rel's runtime Config from three sources — a
-// config file, REL_ environment variables, and CLI flags. Load is the entry point ; everything else in
-// this file is Load's own machinery.
+// Package config assembles rel's runtime Config from a config file, REL_ environment variables and CLI flags.
 package config
 
 import (
@@ -27,23 +25,17 @@ import (
 	koanf "github.com/knadh/koanf/v2"
 )
 
-// configFileNames is the ## Config file discovery search order's per-step
-// filename set, tried at each of the three search locations.
+// configFileNames are the file names tried at each discovery location.
 var configFileNames = []string{"rel.toml", "rel.yaml", "rel.yml", "rel.huml"}
 
-// Load builds a *Config from a config file (if any), an inline config
-// document (REL_CONFIG__TOML/YAML/HUML), REL_ environment
-// variables, and CLI-style args (dotted "--key=value"/"--key value" pairs),
-// later sources overriding earlier ones, per ## Sources and precedence.
-// args is normally os.Args[1:] ; passed explicitly so callers/tests don't
-// depend on the real process argv.
+// Load builds a *Config from, by increasing precedence : a config file, an inline config document, REL_ environment
+// variables and dotted "--key=value" args. Every invalid value is reported together.
 func Load(args []string) (*Config, error) {
 	k := koanf.New(".")
 
 	path, err := resolveConfigFilePath(args, os.Getenv("REL_CONFIG"), discoveryRoots())
 	if err != nil {
-		// slog.Default() throughout this file, not logging.For(...) : see
-		// reader.go's logErr doc comment (ordering, plus an import cycle).
+		// slog.Default() throughout this file : logging imports config.
 		slog.Default().Error("config: resolving config file path", "error", err.Error())
 		return nil, err
 	}
@@ -54,8 +46,7 @@ func Load(args []string) (*Config, error) {
 			return nil, perr
 		}
 		if err := k.Load(file.Provider(path), parser); err != nil {
-			// Not err.Error() : TOML/YAML/HUML parse errors can echo a
-			// fragment of the offending value verbatim (## Error handling and secrets).
+			// Not err.Error() : a parse error can echo part of a value.
 			slog.Default().Error("config: loading config file: parse error", "path", path)
 			return nil, fmt.Errorf("config: %s: parse error", path)
 		}
@@ -103,8 +94,7 @@ func Load(args []string) (*Config, error) {
 	return assemble(k)
 }
 
-// resolveConfigFilePath is ## Config file discovery : --config/-c or
-// REL_CONFIG take precedence, else the first root with exactly one match.
+// resolveConfigFilePath : --config/-c or REL_CONFIG take precedence, else the first root with exactly one match.
 func resolveConfigFilePath(args []string, envConfig string, roots []string) (string, error) {
 	if explicit := explicitConfigFlag(args); explicit != "" {
 		if _, err := os.Stat(explicit); err != nil {
@@ -138,8 +128,7 @@ func resolveConfigFilePath(args []string, envConfig string, roots []string) (str
 	return "", nil
 }
 
-// explicitConfigFlag scans args for --config/-c (either "=path" or a
-// separate " path" arg) before the general flag-loading pass runs.
+// explicitConfigFlag scans args for --config/-c, before the general flag pass.
 func explicitConfigFlag(args []string) string {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -157,8 +146,8 @@ func explicitConfigFlag(args []string) string {
 	return ""
 }
 
-// discoveryRoots is ## Config file discovery's three search locations, in
-// order : ./, $XDG_CONFIG_HOME/rel (default ~/.config/rel), /etc/rel.
+// discoveryRoots are the config file search locations, in order : ./, $XDG_CONFIG_HOME/rel (default ~/.config/rel),
+// /etc/rel.
 func discoveryRoots() []string {
 	xdg := os.Getenv("XDG_CONFIG_HOME")
 	if xdg == "" {
@@ -182,10 +171,8 @@ var inlineConfigVars = map[string]string{
 	"REL_CONFIG__HUML": ".huml",
 }
 
-// loadInlineConfig merges the document held in REL_CONFIG__TOML,
-// REL_CONFIG__YAML or REL_CONFIG__HUML into k, on top of any config file
-// and below individual REL_ variables and flags. Setting more than one is
-// an error.
+// loadInlineConfig merges the document in REL_CONFIG__TOML, REL_CONFIG__YAML or REL_CONFIG__HUML into k, above any
+// config file and below individual REL_ variables and flags. Setting more than one is an error.
 func loadInlineConfig(k *koanf.Koanf) error {
 	var name string
 	for v := range inlineConfigVars {
@@ -238,8 +225,7 @@ func parserForExt(ext string) (koanf.Parser, bool) {
 	return nil, false
 }
 
-// parseFlags is ## Sources and precedence's highest-precedence source ;
-// not stdlib flag/pflag, which need flags pre-registered by name.
+// parseFlags reads the highest-precedence source ; flags are not registered by name, so no stdlib flag package.
 func parseFlags(args []string) (map[string]any, error) {
 	out := map[string]any{}
 	for i := 0; i < len(args); i++ {
@@ -268,8 +254,7 @@ func parseFlags(args []string) (map[string]any, error) {
 	return out, nil
 }
 
-// resolveFileIndirection is ## $FILE$ value indirection, run once over the
-// fully merged tree, before any type coercion or validation.
+// resolveFileIndirection resolves $FILE$ values over the merged tree, before any type check.
 func resolveFileIndirection(k *koanf.Koanf) error {
 	for key, v := range k.All() {
 		s, ok := v.(string)
@@ -288,12 +273,8 @@ func resolveFileIndirection(k *koanf.Koanf) error {
 	return nil
 }
 
-// resolveFileValue implements the three $FILE$ forms (plain/$DEFAULT$/$GEN$) ;
-// the marker is found via its LAST occurrence, since a path can itself contain it as a substring.
-// The path portion of any of the three forms may itself be
-// SplitPathList's colon-separated search list — see resolveGenValue's own
-// doc comment for why $GEN$ needs a stricter per-candidate rule than the
-// two read-only forms below.
+// resolveFileValue resolves the three $FILE$ forms (plain, $DEFAULT$, $GEN$), each of whose path may be a
+// colon-separated search list. The marker is found by its last occurrence, since a path can contain it.
 func resolveFileValue(raw string) (string, error) {
 	rest := strings.TrimPrefix(raw, "$FILE$")
 
@@ -305,8 +286,7 @@ func resolveFileValue(raw string) (string, error) {
 		return fallback, nil
 	}
 
-	// A split that doesn't parse as a valid length falls through to the
-	// plain-path case instead of erroring — handles a literal "$GEN$" in a path segment.
+	// A length that doesn't parse falls through to the plain form, for a literal "$GEN$" in a path.
 	if idx := strings.LastIndex(rest, "$GEN$"); idx >= 0 {
 		pathList, lenStr := rest[:idx], rest[idx+len("$GEN$"):]
 		if n, cerr := parseGenLength(lenStr); cerr == nil {
@@ -322,13 +302,8 @@ func resolveFileValue(raw string) (string, error) {
 	return trimOneNewline(data), nil
 }
 
-// readFirstExisting returns the first candidate (in order) that reads
-// successfully — any read error, including "doesn't exist", just moves on
-// to the next candidate, matching http.static.path/pg.query.wellknown_path's
-// own "first match wins, a missing entry is silently skipped" convention.
-// Used by the plain and $DEFAULT$ forms only ; $GEN$ needs the stricter,
-// error-distinguishing walk in resolveGenValue instead, since a write is
-// involved.
+// readFirstExisting returns the first candidate that reads ; any read error moves on to the next. Not for $GEN$,
+// which writes.
 func readFirstExisting(paths []string) (data []byte, path string, err error) {
 	var errs []error
 	for _, p := range paths {
@@ -341,43 +316,14 @@ func readFirstExisting(paths []string) (data []byte, path string, err error) {
 	return nil, "", errors.Join(errs...)
 }
 
-// resolveGenValue is $GEN$'s own branch, split out so resolveFileValue's
-// "isn't shaped like $GEN$" fallthrough stays a plain early return.
-// pathList is SplitPathList's colon-separated search list — e.g. jwt.secret's
-// own default, "/secrets/jwt-secret:./jwt-secret", tries the deployment's
-// intended mount point first and falls back to a plain cwd-relative file for
-// an unconfigured dev run.
-//
-// Three passes, each over the FULL candidate list before falling through to
-// the next pass — never per-candidate interleaved, so an earlier candidate
-// always wins over a later one regardless of which pass satisfies it :
-//
-//  1. Any candidate that already holds a value (i.e. its file exists and
-//     reads successfully) wins immediately — the first such candidate, in
-//     list order. A length mismatch against an existing candidate's value is
-//     immediately fatal (never skipped to the next candidate) : it almost
-//     certainly means two keys share this $GEN$ reference with different
-//     declared lengths, the exact mistake the single-path version of this
-//     check has always caught.
-//  2. Nothing has a value yet ; try to CREATE one, at the first candidate
-//     whose parent directory exists. A candidate whose parent directory is
-//     simply missing is skipped, not fatal (it means that path's deployment
-//     mechanism — a volume mount, typically — was never wired up). A
-//     candidate whose parent directory DOES exist but still refuses the
-//     write (permissions, read-only filesystem, ...) is immediately fatal,
-//     not skipped : the operator went to the trouble of creating that
-//     directory, so a write failure there is a real misconfiguration to
-//     surface loudly, not a signal to go looking for value in some other,
-//     unintended location.
-//  3. Every candidate's parent directory is missing : nothing was ever
-//     configured to receive this secret. Rather than fail to boot outright,
-//     generate an EPHEMERAL, unpersisted value for this run only — purely a
-//     convenience for a developer spinning up rel with no volumes wired at
-//     all — and print it, loudly flagged, since it is otherwise invisible
-//     and regenerates (invalidating every session/token issued against it)
-//     on every single restart. The "never log the resolved value" rule for
-//     secrets deliberately does not cover this : it is scoped to logged
-//     ERRORS, and this isn't one.
+// resolveGenValue resolves $GEN$ over pathList in three passes, each over the whole list so an earlier candidate
+// always wins :
+//  1. The first candidate whose file reads wins. A length mismatch is fatal : two keys share this $GEN$ file with
+//     different lengths.
+//  2. Otherwise, a value is generated and written at the first candidate whose parent directory exists. A write
+//     failure there is fatal, not skipped : the directory was created on purpose.
+//  3. No parent directory exists : an unpersisted value is generated for this run and logged, since it changes
+//     (invalidating every session) on each restart.
 func resolveGenValue(pathList string, n int) (string, error) {
 	paths := SplitPathList(pathList)
 	if len(paths) == 0 {
@@ -422,10 +368,7 @@ func resolveGenValue(pathList string, n int) (string, error) {
 	return generated, nil
 }
 
-// logEphemeralGenValue is resolveGenValue's pass 3 : deliberately printed at
-// Warn, in full, stark enough not to scroll past unnoticed — see
-// resolveGenValue's own doc comment for why this doesn't fall under ##
-// Error handling and secrets' never-log-the-value rule.
+// logEphemeralGenValue logs pass 3's value in full, at Warn. The never-log-a-secret rule covers errors, not this.
 func logEphemeralGenValue(pathList, generated string) {
 	l := slog.Default()
 	l.Warn("################################################################")
@@ -437,10 +380,7 @@ func logEphemeralGenValue(pathList, generated string) {
 	l.Warn("################################################################")
 }
 
-// SplitPathList splits a colon-separated search list the way
-// http.static.path/pg.query.wellknown_path/$FILE$'s own path portion all do
-// : trimmed, empty entries dropped, order preserved (first entry is always
-// tried/preferred first).
+// SplitPathList splits a colon-separated search list : trimmed, empty entries dropped, order kept.
 func SplitPathList(s string) []string {
 	var out []string
 	for _, p := range strings.Split(s, ":") {
@@ -465,8 +405,7 @@ func trimOneNewline(data []byte) string {
 	return s
 }
 
-// parseGenLength uses strconv.Atoi (full-string match), not fmt.Sscanf,
-// which silently accepts "16xyz" as 16 instead of rejecting the typo.
+// parseGenLength uses strconv.Atoi, which rejects "16xyz" where fmt.Sscanf would read 16.
 func parseGenLength(s string) (int, error) {
 	n, err := strconv.Atoi(s)
 	if err != nil || n <= 0 {
@@ -477,8 +416,6 @@ func parseGenLength(s string) (int, error) {
 
 // generateRandom returns n base32-alphabet random characters.
 func generateRandom(n int) (string, error) {
-	// base32 encodes 5 bits/char ; over-generate bytes, then truncate the
-	// encoded string to exactly n characters.
 	buf := make([]byte, (n*5+7)/8+1)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("generating random value: %w", err)
@@ -490,11 +427,7 @@ func generateRandom(n int) (string, error) {
 	return enc[:n], nil
 }
 
-// PostgresURI builds a pgx connection URI via net/url.URL (QueryEscape
-// mis-escapes userinfo) and net.JoinHostPort (IPv6 needs bracketing) — the
-// inverse of splitPgURI, used to derive pg.uri when only the granular
-// fields (pg.host/pg.port/pg.database/pg.user/pg.password) are set, so
-// cfg.Raw's "pg.uri" stays populated either way.
+// PostgresURI builds pg.uri from the granular pg.* fields, the inverse of splitPgURI.
 func PostgresURI(host string, port int, database, user, password string) string {
 	u := &url.URL{
 		Scheme: "postgres",
@@ -505,12 +438,8 @@ func PostgresURI(host string, port int, database, user, password string) string 
 	return u.String()
 }
 
-// splitPgURI extracts host/port/database/user/password from a
-// "postgres://..." connection string, for the
-// pg.uri -> pg.host/pg.port/pg.database/pg.user/pg.password derivation.
-// port defaults to DefaultPgPort when the URI names none, matching
-// pg.port's own default. user/password are "" when the URI carries no
-// userinfo at all, same as pg.user/pg.password's own unset default.
+// splitPgURI extracts the granular pg.* fields from a "postgres://..." URI. port defaults to DefaultPgPort ;
+// user/password are "" when the URI has no userinfo.
 func splitPgURI(uri string) (host string, port int, database, user, password string, err error) {
 	u, perr := url.Parse(uri)
 	if perr != nil {
@@ -533,8 +462,7 @@ func splitPgURI(uri string) (host string, port int, database, user, password str
 	return host, port, database, user, password, nil
 }
 
-// rejectArrays is ## No arrays' enforcement pass over the fully merged
-// tree ; a slice/array value is fatal, naming only the key.
+// rejectArrays fails on any array value in the merged tree, naming only the key.
 func rejectArrays(k *koanf.Koanf) error {
 	for key, v := range k.All() {
 		rv := reflect.ValueOf(v)
@@ -546,8 +474,7 @@ func rejectArrays(k *koanf.Koanf) error {
 	return nil
 }
 
-// assemble builds *Config from k ; every field's error is collected
-// (errors.Join), so a misconfigured deployment sees everything at once.
+// assemble builds *Config from k, collecting every field's error so a misconfigured deployment sees them all.
 func assemble(k *koanf.Koanf) (*Config, error) {
 	var errs []error
 	tracker := newKeyTracker()
@@ -555,18 +482,10 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 
 	cfg := &Config{}
 
-	// pg.uri/pg.user/pg.query.*/... — see config.go's Pg/PgQuery doc
-	// comments for the full shape ; pg.query.* is optional, never required.
 	cfg.Pg.URI = root.GetStringOrDefault("pg.uri", "")
 
-	// pg.uri, when set, takes precedence and
-	// populates Host/Port/Database/User/Password itself ; any of those set
-	// alongside it is a configuration error, not a silently-ignored or
-	// silently-overridden value. Otherwise, the granular fields are read
-	// and pg.uri is itself derived from them, so cfg.Raw (and hence
-	// reload.cmd's {pg.uri}/{pg.user}/... interpolation) always has every
-	// one of these six keys populated, regardless of which shape was
-	// actually configured.
+	// pg.uri, when set, populates the granular fields ; setting any of them alongside it is an error. Otherwise pg.uri
+	// is derived from them, so reload.cmd interpolation always has all six keys.
 	if cfg.Pg.URI != "" {
 		if root.Exists("pg.host") || root.Exists("pg.port") || root.Exists("pg.database") || root.Exists("pg.user") || root.Exists("pg.password") {
 			errs = append(errs, fmt.Errorf("config: pg.host/pg.port/pg.database/pg.user/pg.password: cannot be set alongside pg.uri"))
@@ -584,8 +503,6 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	} else {
 		cfg.Pg.Host = root.GetStringOrDefault("pg.host", DefaultPgHost)
 		cfg.Pg.Port = root.GetIntOrDefault("pg.port", DefaultPgPort)
-		// pg.database : not itemized in docs/content/configuration/index.md's
-		// Postgres connection table either.
 		cfg.Pg.Database = root.GetStringOrDefault("pg.database", "")
 		cfg.Pg.User = root.GetStringOrDefault("pg.user", "")
 		cfg.Pg.Password = root.GetStringOrDefault("pg.password", "")
@@ -597,17 +514,12 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Pg.Query.AnonymousRole = root.GetStringOrDefault("pg.query.anonymous_role", DefaultPgQueryAnonymousRole)
 
 	cfg.Pg.Query.MaxDepth = root.GetIntOrDefault("pg.query.max_depth", DefaultMaxDepth)
-	// well-known-queries.md ## Configuration : pg.query.wellknown_path,
-	// flattened (not nested) to match every other single-scalar key.
 	cfg.Pg.Query.WellKnownDirs = root.GetStringOrDefault("pg.query.wellknown_path", DefaultPgQueryWellKnownPath)
 
-	// dev : docs/content/configuration/index.md ## Development mode, default false,
-	// kept orthogonal from logging.level so error detail and log verbosity can
-	// be toggled independently.
+	// dev is independent of logging.level.
 	cfg.Dev = root.GetBoolOrDefault("dev", false)
 
-	// Each pg.query.allow_* defaults to Dev, same
-	// "true if dev enabled" rule as http.typescript.enable below.
+	// Each pg.query.allow_* defaults to Dev.
 	noticesDefault := "warning"
 	if cfg.Dev {
 		noticesDefault = "notice"
@@ -638,9 +550,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Route = readRoutes(root, "route")
 	cfg.Http.Templates.Path = root.GetStringOrDefault("http.templates.path", DefaultHttpTemplatesPath)
 
-	// http.typescript.enable defaults to Dev, same "true if dev enabled"
-	// rule — a computed
-	// default, not a plain constant, so it's read after cfg.Dev above.
+	// Read after cfg.Dev, its default.
 	cfg.Http.TypeScript.Enable = root.GetBoolOrDefault("http.typescript.enable", cfg.Dev)
 	cfg.TypeScript.Schemas = root.GetStringOrDefault("typescript.schemas", "")
 	cfg.TypeScript.Codec = root.GetStringOrDefault("typescript.codec", "")
@@ -663,8 +573,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.Csp.FormAction = root.GetStringOrDefault("http.csp.form_action", "")
 	cfg.Http.Csp.Policy = root.GetStringOrDefault("http.csp.policy", "")
 
-	// DefaultJwtSecret is itself "$FILE$..." ; resolveFileIndirection only
-	// walks keys present in the merged tree, so an absent jwt.secret needs its own resolve here.
+	// An absent jwt.secret's default is itself "$FILE$..." and resolveFileIndirection only sees present keys.
 	jwtSecret := root.GetStringOrDefault("jwt.secret", DefaultJwtSecret)
 	if strings.HasPrefix(jwtSecret, "$FILE$") {
 		resolved, ferr := resolveFileValue(jwtSecret)
@@ -682,9 +591,6 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Jwt.RenewAfter = root.GetFloat64OrDefault("jwt.renew_after", DefaultJwtRenewAfter)
 	cfg.Jwt.MaxSessionAge = root.GetIntOrDefault("jwt.max_session_age", DefaultJwtMaxSessionAge)
 
-	// openid.<name>.*/saml.* — see readOpenidProviders'
-	// own doc comment for why client_id/client_secret need the same manual
-	// $FILE$-resolve-of-an-absent-key treatment jwt.secret does above.
 	cfg.Http.Functions.SsoCallback = root.GetStringOrDefault("http.functions.sso_callback", "")
 	cfg.Openid = readOpenidProviders(root, &errs)
 	cfg.Saml.CertificatePath = root.GetStringOrDefault("saml.certificate_path", DefaultSamlCertificatePath)
@@ -712,17 +618,10 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Blacklist.Functions = readBlacklist(root, "blacklist.functions", def.Functions)
 	cfg.Blacklist.Relations = readBlacklist(root, "blacklist.relations", def.Relations)
 
-	// Run BEFORE the pg.*/cfg.Raw block below : that block k.Set()s pg.uri/
-	// pg.host/... back onto k unconditionally (even when the user never set
-	// them), which would otherwise show up here as "present but never read"
-	// false positives — every key actually read above is already recorded
-	// in tracker.found by now, so warnUnusedKeys only needs k's CURRENT
-	// state, not the synthetic one those Sets are about to produce.
+	// Before the k.Set block below, which writes pg.* keys the user may never have set.
 	warnUnusedKeys(k, tracker)
 
-	// Config.Raw's doc comment : reload.cmd's {name} interpolation needs
-	// pg.host/pg.port/pg.database/pg.uri/pg.user/pg.password kept in sync
-	// even when only defaulted/derived, not explicitly set by the user.
+	// reload.cmd interpolation needs these even when only defaulted or derived.
 	_ = k.Set("pg.uri", cfg.Pg.URI)
 	_ = k.Set("pg.host", cfg.Pg.Host)
 	_ = k.Set("pg.port", cfg.Pg.Port)
@@ -737,8 +636,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	return cfg, nil
 }
 
-// readStringMap reads path's immediate children as a flat map[string]string.
-// An absent/non-object path yields an empty map, not an error — optional.
+// readStringMap reads path's immediate children as a flat map ; an absent or non-object path yields an empty map.
 func readStringMap(root *ConfigReader, path string) map[string]string {
 	out := map[string]string{}
 	it, err := root.GetIterator(path)
@@ -753,11 +651,7 @@ func readStringMap(root *ConfigReader, path string) map[string]string {
 	return out
 }
 
-// readStaticAccess reads http.static.access.<name>.{prefix,function} —
-// named sub-keys, not an array (config can't hold arrays).
-// readRoutes reads route.<schema>.<function>.{path,method} —
-// two levels deep, since a
-// route is identified by TWO levels (schema, then function name), not one.
+// readRoutes reads route.<schema>.<function>.{path,method}.
 func readRoutes(root *ConfigReader, path string) map[string]map[string]RouteDecl {
 	out := map[string]map[string]RouteDecl{}
 	schemas, err := root.GetIterator(path)
@@ -798,20 +692,9 @@ func readRoutes(root *ConfigReader, path string) map[string]map[string]RouteDecl
 	return out
 }
 
-// readOpenidProviders reads openid.<name>.* — named sub-keys, same shape
-// readStaticAccess uses. client_id/client_secret's default is itself
-// "$FILE$..." with "<name>" substituted for this entry's own name (unlike
-// jwt.secret, a single fixed default) : resolveFileIndirection (loader.go's
-// own pass over the merged tree, run before assemble) only resolves a
-// $FILE$ value that's actually PRESENT in the tree, so an entry that
-// doesn't set client_id/client_secret explicitly needs that computed
-// default resolved here, by hand, same as jwt.secret's own absent-key case.
-// Deliberately plain GetString/GetBool/GetStrings, not the *OrDefault
-// variants readStaticAccess also avoids for its own two fields — help_test.go's
-// TestOptions_MatchAssembleKeys scans loader.go for every literal
-// Get\w+OrDefault("...") call and demands a matching config/help.go entry ;
-// "issuer"/"client_id"/... are per-name fields, not real top-level dotted
-// keys, so using *OrDefault here would produce bogus required Options rows.
+// readOpenidProviders reads openid.<name>.*. client_id/client_secret default to a "$FILE$..." path with <name>
+// substituted, resolved here since resolveFileIndirection only sees present keys. Plain GetX, not *OrDefault :
+// every *OrDefault key must have an Options row, and these are per-name fields.
 func readOpenidProviders(root *ConfigReader, errs *[]error) map[string]OpenidProvider {
 	out := map[string]OpenidProvider{}
 	it, err := root.GetIterator("openid")
@@ -843,13 +726,8 @@ func readOpenidProviders(root *ConfigReader, errs *[]error) map[string]OpenidPro
 	return out
 }
 
-// resolveOpenidSecretField reads openid.<name>.<field>, defaulting to
-// defaultPathTemplate with "<name>" substituted for name, resolving the
-// result through resolveFileValue when it's shaped like $FILE$ — whether
-// that's the substituted default or a value the deployment set explicitly
-// (resolveFileIndirection already resolved an explicitly-set value once,
-// so this is a no-op re-resolve for that case, not a second file read with
-// different semantics).
+// resolveOpenidSecretField reads openid.<name>.<field>, defaulting to defaultPathTemplate with <name> substituted,
+// and resolves it when shaped like $FILE$.
 func resolveOpenidSecretField(providerReader *ConfigReader, field, name, defaultPathTemplate string, errs *[]error) string {
 	def := strings.ReplaceAll(defaultPathTemplate, "<name>", name)
 	v := providerReader.GetStringOrDefault(field, def)
@@ -864,13 +742,8 @@ func resolveOpenidSecretField(providerReader *ConfigReader, field, name, default
 	return resolved
 }
 
-// readSamlProviders reads saml.<name>.* the same named-sub-key way
-// readOpenidProviders reads openid.<name>.* ; saml.certificate_path/
-// saml.private_key_path are NOT nested under here (they're the shared SP
-// identity across every entry, not per-name — see Saml's own doc comment),
-// so unlike openid's iterator this one skips them by simply never
-// descending into a key holding a scalar itself (GetIterator only
-// succeeds on an object).
+// readSamlProviders reads saml.<name>.* ; the shared saml.certificate_path/private_key_path are skipped, being
+// scalars.
 func readSamlProviders(root *ConfigReader) map[string]SamlProvider {
 	out := map[string]SamlProvider{}
 	it, err := root.GetIterator("saml")
@@ -905,8 +778,8 @@ func readSamlProviders(root *ConfigReader) map[string]SamlProvider {
 	return out
 }
 
-// readBlacklist reads blacklist.functions/relations.<schema>.<name> merged
-// on top of def — config only adds to the built-in defaults, never removes.
+// readBlacklist reads blacklist.functions/relations.<schema>.<name> on top of def ; config only adds to the
+// defaults.
 func readBlacklist(root *ConfigReader, path string, def map[string]map[string]string) map[string]map[string]string {
 	out := map[string]map[string]string{}
 	for schema, names := range def {

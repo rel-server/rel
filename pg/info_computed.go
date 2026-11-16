@@ -14,28 +14,12 @@
 
 package pg
 
-// FillComputedFields populates every Relation's ComputedFields — the
-// Postgres "functional column" convention (a function taking a table's own
-// row type as its argument, callable as `alias.func_name`/`func_name(alias)`
-// in ordinary SQL). Must run after Functions, Relations, and Types are all
-// resolved (a function's argument types and a relation's own composite Type
-// both have to be filled in already), and before anything reads
-// Relation.ComputedFields.
+// FillComputedFields populates every Relation's ComputedFields. Must run after Functions, Relations and Types
+// are resolved.
 //
-// A candidate function is registered on relation r when :
-//   - it's a plain function (IsPlainFunction — never an aggregate/window/
-//     procedure) ;
-//   - it lives in r's own schema ;
-//   - it's callable with exactly one argument (AcceptsArity(1) — every
-//     argument after the first has a default) ;
-//   - its first input argument's type is r's own composite row type.
-//
-// A candidate whose name collides with one of r's own physical columns is
-// never registered at all — the real column wins by construction. This is a
-// schema-authoring problem (two things in the same database legitimately
-// wanting the same name), not a per-query ambiguity for the resolver to
-// arbitrate — resolving it here means the query-time scope lookup never
-// even sees a conflict.
+// A function is registered on relation r when it is a plain function in r's schema, callable with one argument
+// (the others have defaults), whose first input argument is r's row type. One named like a column of r is
+// never registered : the column wins.
 func FillComputedFields(infos *DbInfos) {
 	for _, r := range infos.Relations {
 		r.ComputedFields = map[string]*Function{}

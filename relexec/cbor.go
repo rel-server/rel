@@ -9,11 +9,10 @@ import (
 	"github.com/rel-server/rel/query"
 )
 
-// CBOR responses : the same shapes as the JSON ones, with rows read from Postgres in
-// its binary format and turned into CBOR by a query.ResultEncoder, never through JSON. A resolvedItem whose enc is
-// non-nil is answered in CBOR.
+// CBOR responses : the same shapes as the JSON ones, rows read in binary format and turned into CBOR without JSON.
+// A resolvedItem whose enc is non-nil is answered in CBOR.
 
-// withBinaryResults prefixes args with the request for binary result columns, which pgx reads off the arguments.
+// withBinaryResults prefixes args with the request for binary result columns.
 func withBinaryResults(args []any) []any {
 	out := make([]any, 0, len(args)+1)
 	out = append(out, pgx.QueryResultFormats{pgx.BinaryFormatCode})

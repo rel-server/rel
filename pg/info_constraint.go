@@ -24,7 +24,6 @@ import (
 )
 
 // dbConstraint is introspection's raw row, before resolution into Constraint.
-// Transient — never stored, only threaded through FillConstraintInformations.
 type dbConstraint struct {
 	Name  string
 	Type  string // pg_constraint.contype : "p", "u", "f"
@@ -67,10 +66,8 @@ func (c ConstraintType) IsIncomingForeignKey() bool { return c == ConstraintType
 func (c ConstraintType) IsPrimaryKey() bool         { return c == ConstraintTypePrimaryKey }
 func (c ConstraintType) IsUnique() bool             { return c == ConstraintTypeUnique }
 
-// A resolved constraint : a PRIMARY KEY/UNIQUE, or one side of a foreign key.
-// For a foreign key, Target is the reciprocal Constraint living on the other
-// relation — either side reaches the other via .Target, and .Target.Relation
-// is always "the other relation", regardless of direction.
+// A resolved constraint : a PRIMARY KEY/UNIQUE, or one side of a foreign key, whose Target is then the
+// reciprocal Constraint on the other relation.
 type Constraint struct {
 	Relation *Relation
 	Name     string
@@ -91,8 +88,7 @@ func (c *Constraint) OtherRelation() *Relation {
 	return c.Target.Relation
 }
 
-// sortedColumnKey canonicalizes a column set into a map key : sorted, since
-// a lookup only ever needs set membership, never positional order.
+// sortedColumnKey canonicalizes a column set into a map key, sorted : lookups only need set membership.
 func sortedColumnKey(columns []string) string {
 	sorted := append([]string(nil), columns...)
 	sort.Strings(sorted)
@@ -124,15 +120,13 @@ func FillConstraintInformations(infos *DbInfos, conn *pgx.Conn) error {
 	}
 
 	for _, dbc := range raw {
-		// pg_constraint is unfiltered by role privilege, unlike GetRelation —
-		// skip an invisible relation, same pattern as info_index.go's case.
+		// pg_constraint is not filtered by role privilege : skip a relation the role cannot see.
 		relation := infos.GetRelation(dbc.RelId)
 		if relation == nil {
 			continue
 		}
 
-		// The FK's target side needs the same check, before any mutation,
-		// so a skip never leaves a half-built Constraint under byName.
+		// Check the target side too, before any mutation, so a skip never leaves a half-built Constraint.
 		var target *Relation
 		if dbc.Type == "f" {
 			target = infos.GetRelation(dbc.TargetRelId)
@@ -228,17 +222,13 @@ func (r *Relation) FindUniqueConstraint(columns []string) *Constraint {
 	return r.uniqueColumnGroups[sortedColumnKey(columns)]
 }
 
-// RelationshipsTo returns every foreign key relationship (either direction)
-// between r and other. A table can legitimately have more than one distinct
-// relationship to the same other table (e.g. orders.customer_id and
-// orders.billing_customer_id both -> customers) ; len() > 1 is not itself an
-// error; ResolveJoin disambiguates using the query's actual column pairing.
+// RelationshipsTo returns every foreign key relationship (either direction) between r and other. There can be
+// several (orders.customer_id and orders.billing_customer_id) ; ResolveJoin picks by column pairing.
 func (r *Relation) RelationshipsTo(other *Relation) []*Constraint {
 	return r.byOtherRelation[other.PgRelId]
 }
 
-// pairingMatches checks full ordered correspondence, not just that column
-// sets match — that would also accept an inverted pairing.
+// pairingMatches checks ordered correspondence, so an inverted pairing does not match.
 func pairingMatches(c *Constraint, on map[string]string) bool {
 	if c.Target == nil || len(c.Columns) != len(on) {
 		return false
@@ -262,25 +252,13 @@ func splitOn(on map[string]string) (local, parent []string) {
 	return local, parent
 }
 
-// ResolveJoin validates that `on` (local column -> parent column, as in a
-// query's `on` field) is backed by a real relationship between r (the relation
-// being described — the child) and parent (the enclosing relation), and
-// reports whether the embed is to-one.
+// ResolveJoin checks that `on` (local column -> parent column) is backed by a relationship between r (the
+// child) and parent, and reports whether the embed is to-one : whether r's `on` columns are unique on r.
 //
-// Cardinality is decided purely by whether r's own `on` columns are unique on
-// r (unique on the joined side -> object)
-// — independent of whether the relationship is foreign-key-backed, and
-// independent of which side satisfies the eligibility check below.
-//
-// Eligibility requires either a foreign key whose
-// exact column pairing matches `on`, or a unique constraint on r's columns or
-// on parent's columns — and, unconditionally, an index on r's own `on`
-// columns : the generated query always scans r filtered by them, once per
-// parent row, regardless of whether the embed turns out to be to-one or
-// to-many. This is a hard error, not a warning.
+// It needs a foreign key whose column pairing matches `on` or a unique constraint on either side's columns,
+// and always an index on r's `on` columns, since the query scans r by them once per parent row.
 func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constraint *Constraint, isToOne bool, err error) {
-	// the whole "Join eligibility" error family, not just the
-	// literal missing-index case — distinct from errcode.UnknownIdentifier.
+	// JoinMissingIndex covers every join eligibility error, not only the missing index.
 	oc := oops.With("relation", r.Identifier.String()).With("parent", parent.Identifier.String()).With("on", on).Code(errcode.JoinMissingIndex)
 
 	if len(on) == 0 {
@@ -298,8 +276,7 @@ func (r *Relation) ResolveJoin(parent *Relation, on map[string]string) (constrai
 	}
 
 	if constraint == nil {
-		// A same-column-set FK exists but its pairing didn't match `on` :
-		// near-certainly a swapped/typo'd `on`, not a second relationship.
+		// A foreign key on the same column sets with another pairing : most likely a swapped `on`.
 		for _, c := range r.RelationshipsTo(parent) {
 			if sortedColumnKey(columnNames(c.Columns)) == sortedColumnKey(localCols) &&
 				sortedColumnKey(columnNames(c.Target.Columns)) == sortedColumnKey(parentCols) {

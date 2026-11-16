@@ -1,6 +1,6 @@
 // `codec=cbor` : requests and responses are CBOR, which carries 8-byte integers (read as `number | bigint`) and bytes
-// natively. It needs `cbor-x` (bun add cbor-x). The date and time tags are filled in by the time chunk
-// (codecs/cbor-time-*.ts) through `defineCborTag`. docs/content/typescript/index.md ## Codecs.
+// natively. It needs `cbor-x` (bun add cbor-x). The date and time tags are filled in by the time chunk through
+// `defineCborTag`.
 import { Decoder, Encoder, addExtension } from "cbor-x"
 import { Querier } from "../querier"
 import { pgWireCasts } from "../pg_values"
@@ -74,10 +74,8 @@ function forServer(v: unknown): unknown {
 
 Querier.prototype.codec = {
   contentType: "application/cbor",
-  // Responses use structures too. cbor-x reads them fastest by compiling a reader per layout with `new Function`; where
-  // that is refused (a Content-Security-Policy without 'unsafe-eval') it notices at load, once, and reads them without
-  // compiling, still faster than maps. That one refusal is reported to the policy, though : import `cbor-x/index-no-eval`
-  // instead of `cbor-x` to avoid it. docs/content/typescript/index.md ### Structures.
+  // Responses use structures too. Under a Content-Security-Policy without 'unsafe-eval', cbor-x falls back once at
+  // load and that refusal is reported : import `cbor-x/index-no-eval` instead to avoid it.
   accept: "application/cbor; structures=1",
   binary: true,
   encode(value, opts) {

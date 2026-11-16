@@ -1,28 +1,14 @@
-// Package errcode is the shared `code` token space of error
-// responses : a leaf package (no dependencies within this
-// module) so both server and route — and pgerr, for its PG_* family — can
-// depend on it without risking an import cycle.
-//
-// Two of the three code families live
-// elsewhere : Postgres-raised RSxxx codes and the PG_* classification table
-// are pgerr's own concern (pgerr.Classify), since they're derived from a
-// *pgconn.PgError, not picked at a Go call site. Only the rel-internal,
-// SCREAMING_SNAKE_CASE family — attached via `oc.Code(errcode.XXX)` at the
-// point rel itself rejects a request — lives here.
+// Package errcode holds the `code` tokens of error responses that rel itself picks ; RSxxx and PG_* codes come
+// from pgerr. A leaf package, so any package can import it.
 package errcode
 
-// Code is a stable, machine-readable error identifier.
-// Always present on an error response, regardless of status ; there is no absent/unclassified case,
-// only the Internal/Unclassified fallbacks below.
+// Code is a stable, machine-readable error identifier, present on every error response.
 type Code string
 
-// Header is the response header every error response carries `Code` in,
-// regardless of body framing — docs/content/configuration/operations.md
-// ## Error responses.
+// Header is the response header every error response carries its Code in.
 const Header = "X-Rel-Errorcode"
 
-// Fallbacks for an error reaching a response with no more specific code
-// assigned — there is no unclassified/silent case.
+// Fallbacks for an error with no more specific code.
 const (
 	Internal     Code = "INTERNAL"     // 5xx, no more specific code applies
 	Unclassified Code = "UNCLASSIFIED" // 4xx, no more specific code applies
@@ -45,9 +31,7 @@ const (
 	NoRoleConfigured        Code = "NO_ROLE_CONFIGURED"
 )
 
-// AnonymousDisabledMessage is the message text at every one of this
-// code's call sites (server/rel.go, route/handler.go, static/static.go),
-// shared here so the three can't independently drift on it.
+// AnonymousDisabledMessage is the message every AnonymousDisabled error uses.
 const AnonymousDisabledMessage = "anonymous access is disabled"
 
 // Query compile errors.
@@ -72,21 +56,19 @@ const (
 	QueryComplexNotAllowedOnGet Code = "QUERY_COMPLEX_NOT_ALLOWED_ON_GET"
 )
 
-// rel() in templates — a
-// dedicated, read-only-only entrypoint, distinct from /rel's own errors.
+// rel() in templates, which is read-only.
 const (
 	RelFuncWriteNotAllowed Code = "REL_FUNC_WRITE_NOT_ALLOWED"
 )
 
-// Well-known query compile errors — raised once,
-// at load/reload time, never re-checked per request.
+// Well-known query compile errors, raised at load/reload time.
 const (
 	WellKnownDuplicateName Code = "WELL_KNOWN_DUPLICATE_NAME"
 	WellKnownUnusedParam   Code = "WELL_KNOWN_UNUSED_PARAM"
 	WellKnownUnknownParam  Code = "WELL_KNOWN_UNKNOWN_PARAM"
 )
 
-// Well-known query execution errors — raised per request, against a /wellknown invocation.
+// Well-known query execution errors, raised per request.
 const (
 	WellKnownUnknownQuery      Code = "WELL_KNOWN_UNKNOWN_QUERY"
 	WellKnownParamTypeMismatch Code = "WELL_KNOWN_PARAM_TYPE_MISMATCH"
@@ -108,9 +90,7 @@ const (
 	UploadWrongType Code = "UPLOAD_WRONG_TYPE"
 )
 
-// SSO — protocol-level failures Go itself detects,
-// distinct from the callback function's own RSxxx convention,
-// which never reaches this package.
+// SSO protocol failures rel detects ; the callback function's errors use RSxxx.
 const (
 	SsoNotReady            Code = "SSO_NOT_READY"             // 503 : discovery/IdP metadata hasn't resolved yet
 	SsoInternal            Code = "SSO_INTERNAL"              // 500 : rel's own logic failed (state/nonce generation, encoding)

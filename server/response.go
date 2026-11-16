@@ -1,6 +1,4 @@
-// Response framing : the manual "["/","/"]" streaming
-// (no json_agg, constant memory, first byte
-// before the query finishes), plus the error envelope.
+// The error envelope.
 package server
 
 import (
@@ -16,8 +14,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// errorResponse is the RelErrorResponse envelope.
-// Status is always "error" ; the numeric HTTP status is never repeated here.
+// errorResponse is the RelErrorResponse envelope ; Status is always "error".
 type errorResponse struct {
 	Error      string        `json:"error"`
 	Status     string        `json:"status"`
@@ -26,10 +23,8 @@ type errorResponse struct {
 	Stacktrace []string      `json:"stacktrace,omitempty"`
 }
 
-// writeError writes err as the RelErrorResponse envelope ;
-// only clean if nothing has been written to w yet, invalid JSON otherwise.
-// Takes ctx solely to log a server-side (5xx) failure in full, independently of what dev/tier let the
-// client itself see. An err that is not an *httperr.Error is a 500.
+// writeError writes err as the RelErrorResponse envelope ; only valid if nothing was written to w yet. ctx is for
+// logging a 5xx in full, whatever the client sees. An err that is not an *httperr.Error is a 500.
 func writeError(ctx context.Context, w http.ResponseWriter, err error, dev bool) {
 	e, ok := errors.AsType[*httperr.Error](err)
 	if !ok {
@@ -43,16 +38,14 @@ func writeError(ctx context.Context, w http.ResponseWriter, err error, dev bool)
 	case e.Detail != nil:
 		resp.Error, resp.PgError = e.JSONText(dev)
 	case e.Status >= 500:
-		// Safe-by-default, full detail only under dev : a wrapped chain
-		// can embed a file path or connection detail.
+		// Full detail only under dev : a wrapped chain can embed a file path or connection detail.
 		if dev {
 			resp.Error = err.Error()
 		} else {
 			resp.Error = "internal error"
 		}
 	default:
-		// A 4xx always gets the full message — client input, never
-		// server-internal state.
+		// A 4xx always gets the full message : it describes the request, not server internals.
 		resp.Error = err.Error()
 	}
 
@@ -68,8 +61,7 @@ func writeError(ctx context.Context, w http.ResponseWriter, err error, dev bool)
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// formatStackFrames renders oopsErr's frames as ## Stack traces'
-// RelErrorResponse.stacktrace : one "file:line function" string per frame.
+// formatStackFrames renders oopsErr's frames as one "file:line function" string each.
 func formatStackFrames(oopsErr oops.OopsError) []string {
 	frames := oopsErr.StackFrames()
 	if len(frames) == 0 {

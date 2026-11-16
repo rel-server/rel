@@ -1,6 +1,4 @@
-// Package jwt implements JWT claims/
-// sign/verify/renew mechanics : the half of the HTTP Lifecycle that needs
-// no database. The reqauth package puts it together with the role switch.
+// Package jwt mints, signs, verifies and renews sessions, with no database. reqauth adds the role switch.
 package jwt
 
 import (
@@ -17,15 +15,8 @@ import (
 //
 //	{ role: string, iat: number, exp: number, auth_time: number, ...free-form }
 //
-// Aliased directly to jwtlib.MapClaims (already map[string]any) rather than
-// a fixed struct : a developer-added claim needs to round-trip untouched
-// through Renew ("other claims carried over as-is") with no separate bag to
-// shuttle them through — the map IS the free-form storage. iat/exp/auth_time are stored as float64 Unix
-// seconds : jwtlib.MapClaims's own GetExpirationTime/GetIssuedAt only
-// accept float64 or json.Number for a numeric-date claim (see its source),
-// and encoding/json round-trips a Go float64 through JSON and back as
-// float64 again, so this is the one representation that survives both a
-// fresh in-memory Mint AND a Verify of an already-serialized token.
+// A map, so added claims survive Renew untouched. iat/exp/auth_time are float64 Unix seconds, the one form both a
+// fresh Mint and a parsed token share that jwtlib reads.
 type Claims = jwtlib.MapClaims
 
 const (
@@ -35,17 +26,14 @@ const (
 	claimAuthTime = "auth_time"
 )
 
-// Role reads the required "role" claim — empty string if absent (callers
-// verifying a token check this against "" to detect a missing role; a JWT without one is an error).
+// Role reads the required "role" claim ; "" if absent.
 func Role(c Claims) string {
 	s, _ := c[claimRole].(string)
 	return s
 }
 
-// IssuedAt/ExpiresAt/AuthTime read the three rel-computed timestamp claims.
-// A missing/malformed value reads as the zero time — callers that need to
-// distinguish "absent" from "zero" don't apply here, since Mint/Renew
-// always set all three.
+// IssuedAt/ExpiresAt/AuthTime read the three rel-computed timestamp claims ; a missing or malformed value reads
+// as the zero time.
 func IssuedAt(c Claims) time.Time  { return timeClaim(c, claimIat) }
 func ExpiresAt(c Claims) time.Time { return timeClaim(c, claimExp) }
 func AuthTime(c Claims) time.Time  { return timeClaim(c, claimAuthTime) }
@@ -58,15 +46,8 @@ func timeClaim(c Claims, key string) time.Time {
 	return time.Unix(int64(f), 0).UTC()
 }
 
-// Mint builds a fresh Claims map per Lifecycle step 1 : role and authTime
-// are the caller's to decide (a genuinely fresh login uses now ; Renew
-// passes the ORIGINAL auth_time through unchanged — see renew.go), iat is
-// always now, exp is iat+maxage. extra is copied in as additional free-form
-// claims (a login function's own custom claims) ; role/iat/exp/auth_time in
-// extra, if present, are overwritten by this function's own values, never
-// the other way around: the supplied values for the three rel-computed
-// timestamps are ignored, and role is this
-// function's own required parameter, not something extra should also carry.
+// Mint builds fresh Claims : iat is now, exp is iat+maxage ; authTime is now for a login, the original one on
+// Renew. extra adds free-form claims ; its role/iat/exp/auth_time are overwritten.
 func Mint(cfg config.Jwt, role string, authTime time.Time, maxage int, extra map[string]any) Claims {
 	now := time.Now().UTC()
 	c := Claims{}

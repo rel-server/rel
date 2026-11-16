@@ -1,16 +1,5 @@
-// Package writer provides a small text-building writer shared by rel's SQL
-// and TypeScript code generators. The goal is that the *shape* of generated
-// code — blocks, lists, indentation — is visible directly in the Go source
-// that builds it, rather than buried in ad hoc string concatenation.
-//
-// Writer itself (this file) is target-language-agnostic : Write/Indent/
-// Surround/Paren/List/SurroundList have no Postgres- or TypeScript-specific
-// knowledge. Target-specific concerns (identifier-quoting rules, reserved
-// keywords, bind-parameter syntax) live in their own files/types wrapping
-// *Writer — see pg.go's SQLWriter for the Postgres/SQL side. A future
-// TypeScript generator gets its own such wrapper rather than adding more
-// methods to *Writer directly, so neither target's rules leak into the
-// other's dependency graph.
+// Package writer builds generated code text with blocks, lists and indentation. Writer knows no target language ;
+// target-specific rules go in a wrapper type, like SQLWriter.
 package writer
 
 import (
@@ -30,10 +19,7 @@ func New() *Writer {
 	return &Writer{indentUnit: "  ", atLineStart: true}
 }
 
-// Write appends s to the buffer. Every newline in s is followed by the
-// current indentation on the next write, so indentation only has to be
-// gotten right once, here, rather than at every call site that happens to
-// emit a "\n".
+// Write appends s ; each line after a newline starts with the current indentation.
 func (w *Writer) Write(s string) *Writer {
 	if s == "" {
 		return w
@@ -71,10 +57,8 @@ func (w *Writer) Unindent() *Writer {
 	return w
 }
 
-// Indented brackets fn with Indent/Unindent. Since indentation only takes
-// effect after an actual "\n", it's harmless to wrap content that ends up
-// entirely on one line — indent and explode are independently controlled by
-// whether the strings passed to Write/Surround/List contain newlines.
+// Indented brackets fn with Indent/Unindent ; indentation only shows after a newline, so one-line content is
+// unaffected.
 func (w *Writer) Indented(fn func()) *Writer {
 	w.Indent()
 	fn()
@@ -94,10 +78,7 @@ func (w *Writer) Surround(start, end string, fn func()) *Writer {
 	return w
 }
 
-// Paren is Surround("(", ")", fn) — the convention every parenthesized
-// sub-expression should go through, rather than a bare Write("(") /
-// Write(")") pair : one call site can't forget its own matching close the
-// way two separate Write calls could drift apart under future edits.
+// Paren is Surround("(", ")", fn).
 func (w *Writer) Paren(fn func()) *Writer {
 	return w.Surround("(", ")", fn)
 }
@@ -105,8 +86,6 @@ func (w *Writer) Paren(fn func()) *Writer {
 // List writes items separated by sep, calling fn once per item.
 //
 //	writer.List(w, ", ", cols, func(c Column) { w.Write(c.Name) })
-//
-// A free function, not a method, because Go methods can't be generic.
 func List[T any](w *Writer, sep string, items []T, fn func(T)) *Writer {
 	for i, item := range items {
 		if i > 0 {
@@ -117,9 +96,7 @@ func List[T any](w *Writer, sep string, items []T, fn func(T)) *Writer {
 	return w
 }
 
-// ListSeq is List for an iter.Seq[T] instead of a slice — for sources that
-// aren't already materialized (a map iterated in a computed order, a
-// generator, anything where forcing a []T first would be wasted work).
+// ListSeq is List for an iter.Seq[T].
 func ListSeq[T any](w *Writer, sep string, items iter.Seq[T], fn func(T)) *Writer {
 	first := true
 	for item := range items {
@@ -132,10 +109,7 @@ func ListSeq[T any](w *Writer, sep string, items iter.Seq[T], fn func(T)) *Write
 	return w
 }
 
-// SeparatedBy is the escape hatch for sources that are neither a slice nor
-// an iter.Seq — fn must write exactly one item as a side effect and report
-// whether more items follow. Prefer List or ListSeq when they fit; this
-// exists for callback-driven iteration that doesn't.
+// SeparatedBy calls fn until it reports no more items ; fn writes exactly one item per call.
 func (w *Writer) SeparatedBy(sep string, fn func() (more bool)) *Writer {
 	for {
 		more := fn()
@@ -147,9 +121,8 @@ func (w *Writer) SeparatedBy(sep string, fn func() (more bool)) *Writer {
 	return w
 }
 
-// SurroundList is Surround wrapped around List with automatic indentation —
-// the common shape for argument/column lists, inline or exploded purely
-// based on whether start/sep/end contain "\n":
+// SurroundList is Surround around an indented List, inline or exploded depending on whether start/sep/end
+// contain "\n":
 //
 //	writer.SurroundList(w, "(", ", ", ")", cols, func(c Column) { w.Write(c.Name) })
 //	writer.SurroundList(w, "(\n", ",\n", "\n)", cols, func(c Column) { w.Write(c.Name) })

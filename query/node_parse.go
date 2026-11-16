@@ -12,12 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Pass 1, decode step : query.ts's JSON shape decoded into the raw* types
-// below, hand-written over sonic/ast (no struct-tag unmarshal), mirroring expression_parse.go's
-// style and reusing its unexported helpers directly (same package). Nothing
-// here touches pg or config : that's node_resolve.go's job. Expression-typed
-// fields ARE resolved to query.Expression at this stage (via parseNode),
-// since that's pure parsing, independent of DB/scope resolution.
+// Pass 1, decode step : query.ts's JSON shape decoded into the raw* types, without touching pg or config.
+// Expression-typed fields are already parsed here.
 package query
 
 import (
@@ -28,10 +24,7 @@ import (
 	"github.com/samber/oops"
 )
 
-// ParsedQuery is the decoded (not yet DB-resolved) form of query.ts's
-// top-level Query = WriteQuery | Relation | WellKnownQuery | Query[] union.
-// Exactly one field is set, distinguished structurally (no explicit tag
-// field exists in the JSON to dispatch on) :
+// ParsedQuery is a decoded, not yet resolved, top-level item. Exactly one field is set, chosen by shape :
 //   - a JSON array -> Sequence
 //   - an object with a "wellknown" key -> WellKnown
 //   - an object with a "query" key -> Write
@@ -43,20 +36,14 @@ type ParsedQuery struct {
 	Sequence  []ParsedQuery
 }
 
-// rawWriteQuery is query.ts's ComplexQuery ; exactly one of Query/WellKnown
-// is set. Data stays the decoded document, JSON or CBOR, walked later by the writing algorithm ; nil
-// means a read, distinguished from an
-// explicit "data": null by Data being a non-nil null Node.
+// rawWriteQuery is a ComplexQuery ; exactly one of Query/WellKnown is set. Data stays the decoded document, JSON
+// or CBOR ; nil means a read, while an explicit "data": null is a non-nil null Node.
 type rawWriteQuery struct {
 	Query     *rawRelation  // nil if WellKnown is set instead
 	WellKnown *rawWellKnown // nil if Query is set instead
 	Data      Node
 
-	// Returns/Count/Stats/QueryPlan/Sql/Rollback are ComplexQuery's own
-	// response-shaping flags, decoded off the same
-	// object as Query/WellKnown/Data. Returns is "" when absent (defaults
-	// to "results" downstream), never validated to a known value here — see
-	// ValidateReturns.
+	// The response flags. Returns is "" when absent (meaning "results") and is checked by ValidateReturns.
 	Returns   string
 	Count     bool
 	Stats     bool
@@ -68,9 +55,7 @@ type rawWriteQuery struct {
 // validReturnsValues is query.ts's ComplexQuery.returns union.
 var validReturnsValues = map[string]bool{"": true, "none": true, "results": true}
 
-// ValidateReturns rejects an unrecognized "returns" value — parseQueryNode
-// only decodes the raw string, since query.ts's returns union isn't
-// otherwise structurally distinguishable from a typo at decode time.
+// ValidateReturns rejects an unrecognized "returns" value.
 func (rq *rawWriteQuery) ValidateReturns() error {
 	if !validReturnsValues[rq.Returns] {
 		return oops.Code(errcode.QueryInvalidReturns).Errorf(`query: "returns" must be "none" or "results", got %q`, rq.Returns)
@@ -78,8 +63,7 @@ func (rq *rawWriteQuery) ValidateReturns() error {
 	return nil
 }
 
-// rawWellKnown is query.ts's WellKnownQuery, no "data" of its own — written
-// to only by wrapping it in WriteQuery.query, like a Relation.
+// rawWellKnown is a well-known query reference, with no "data" of its own : a write wraps it in a ComplexQuery.
 type rawWellKnown struct {
 	WellKnown string
 	Params    []byte
@@ -101,10 +85,7 @@ func ParseQueryNode(n Node) (ParsedQuery, error) {
 	return parseQueryNode(n)
 }
 
-// boolField decodes n's key as a boolean, present reporting whether the key
-// existed at all — the same "exists, then strictly typed" check every
-// ComplexQuery response-shaping flag needs (rawWriteQuery's
-// Count/Stats/QueryPlan/Sql/Rollback).
+// boolField decodes n's key as a strict boolean, present reporting whether the key exists.
 func boolField(n Node, key string) (val, present bool, err error) {
 	x, ok := n.ObjectGet(key)
 	if !ok {
@@ -205,8 +186,7 @@ func parseQueryNode(n Node) (ParsedQuery, error) {
 	}
 }
 
-// parseRawWellKnown decodes {wellknown, params?} off n (wk already
-// confirmed to exist) ; shared so both call sites can't drift on params.
+// parseRawWellKnown decodes {wellknown, params?} off n, wk being its existing "wellknown" value.
 func parseRawWellKnown(n Node, wk Node) (*rawWellKnown, error) {
 	name, err := wk.StrictString()
 	if err != nil {
@@ -223,8 +203,7 @@ func parseRawWellKnown(n Node, wk Node) (*rawWellKnown, error) {
 	return rawWK, nil
 }
 
-// rawRelation is query.ts's Relation, decoded but not yet resolved against
-// pg ; node_resolve.go turns this into a *QueryNode.
+// rawRelation is a decoded relation query, not yet resolved into a *QueryNode.
 type rawRelation struct {
 	// Exactly one of Relation/Function is non-empty (IsFunction says which) ;
 	// parseRawRelation rejects an empty string for whichever key was given.
@@ -464,8 +443,7 @@ func parseRawRelation(n Node) (*rawRelation, error) {
 	return raw, nil
 }
 
-// parseOrderByTerm disambiguates a bare Expression from an explicit
-// [direction, Expression] pair — only a known direction string counts as the tuple form.
+// parseOrderByTerm tells a bare Expression from a [direction, Expression] pair : only a known direction counts.
 func parseOrderByTerm(n Node) (OrderByTerm, error) {
 	if n.Kind() == KindArray {
 		if items, err := arrayItems(n); err == nil && items.len == 2 {

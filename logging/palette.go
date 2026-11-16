@@ -2,8 +2,7 @@ package logging
 
 // The pretty handler's colors, as codes of the fixed 256-color palette: unlike the 16 basic
 // colors, terminal themes don't remap them. Every code is readable on a black and on a white
-// background, and the ones that can share a line are far apart from each other ;
-// palette_test.go checks both.
+// background, and the ones that can share a line are far apart from each other.
 const (
 	colorPath      = 30  // teal
 	colorRole      = 169 // pink
@@ -16,8 +15,7 @@ const (
 	colorLevelInfo = 93  // violet
 	colorTargets   = 39  // azure
 
-	// write=true is yellow and write=false green, the same as a 4xx and a 2xx status : the
-	// meaning carries over, so these are deliberately not distinct palette entries.
+	// write=true/false reuse the 4xx/2xx colors : the meaning carries over.
 	colorWriteTrue  = colorStatus4xx
 	colorWriteFalse = colorStatus2xx
 	colorLevelDebug = colorOtherVerb
@@ -36,8 +34,7 @@ func verbColor(method string) int {
 	return colorOtherVerb
 }
 
-// statusColor is the color of an HTTP status code, and whether it is shown in bold : green for
-// 2xx, yellow for 4xx, red for 5xx, the last two bold. Other classes have no color (-1).
+// statusColor is the color of a status code (-1 for none) and whether it is bold.
 func statusColor(status int) (color int, bold bool) {
 	switch {
 	case status >= 200 && status < 300:

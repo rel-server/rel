@@ -25,9 +25,7 @@ type SqlIdentifier struct {
 	escapedName string
 }
 
-// EscapedString returns the full, escaped identifier ("schema"."name"). It is
-// cached because it will be used a lot — a pointer receiver is required for
-// that caching to actually stick between calls.
+// EscapedString returns the full, escaped identifier ("schema"."name"), cached.
 func (f *SqlIdentifier) EscapedString() string {
 	if f.escapedName != "" {
 		return f.escapedName
@@ -37,16 +35,12 @@ func (f *SqlIdentifier) EscapedString() string {
 	return f.escapedName
 }
 
-// EscapeIdentifierPart doubles embedded double-quotes and wraps name in
-// "..." — the one rule for escaping a single bare SQL identifier part,
-// shared by SqlIdentifier.EscapedString above and by dbauth.EscapeIdentifier
-// (a role name, or one half of a schema-qualified pair built up by hand).
+// EscapeIdentifierPart escapes a single SQL identifier part ; shared with dbauth.EscapeIdentifier.
 func EscapeIdentifierPart(name string) string {
 	return `"` + escapeQuotes(name) + `"`
 }
 
-// String returns the plain, unescaped "schema.name" form — used as a Go
-// map/comparison key, never interpolated directly into SQL.
+// String returns the unescaped "schema.name", for map keys ; never put it in SQL.
 func (f SqlIdentifier) String() string {
 	return f.Schema + "." + f.Name
 }

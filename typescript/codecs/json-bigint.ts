@@ -1,6 +1,6 @@
 // `codec=bigint` over JSON : an int8 keeps every digit, a safe integer is a number and a larger one a bigint, and a
 // bigint can be sent. It needs `lossless-json` (bun add lossless-json) : `JSON.parse` rounds a number to a double
-// before anything else sees it. docs/content/typescript/index.md ## Codecs.
+// before anything else sees it.
 import { isInteger, parse, stringify } from "lossless-json"
 import { Querier } from "../querier"
 

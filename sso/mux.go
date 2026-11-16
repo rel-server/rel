@@ -18,20 +18,14 @@ func resolveHost(perEntry, global string) string {
 	return global
 }
 
-// rootURLFor builds the fixed "https://<host>" root every OIDC redirect_uri
-// and SAML metadata/ACS URL is rooted at — always https, never configurable
-// (rel is assumed to sit behind a TLS-terminating reverse proxy ; native
-// TLS termination is a distinct, unbuilt feature).
+// rootURLFor builds the "https://<host>" root of OIDC redirect_uri and SAML URLs ; always https, since rel
+// sits behind a TLS-terminating proxy.
 func rootURLFor(host string) string {
 	return "https://" + host
 }
 
-// Mount registers every configured openid.<name>/saml.<name> endpoint onto
-// router — a no-op (nothing registered, no cert generated) when neither
-// section has any entry, so a deployment using neither pays no cost. Each
-// entry resolves its own root URL independently (resolveHost) ; an entry
-// with no effective host is skipped (logged), not a fatal error for the
-// others — see mountOidc/mountSaml.
+// Mount registers every configured openid.<name>/saml.<name> endpoint onto router ; with no entry, nothing is
+// registered and no certificate generated. An entry with no host is skipped and logged.
 func Mount(router chi.Router, db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry) {
 	if len(cfg.Openid) == 0 && len(cfg.Saml.Providers) == 0 {
 		return
@@ -85,10 +79,7 @@ func anyPerEntryHostConfigured(cfg *config.Config) bool {
 	return false
 }
 
-// samlHostnames collects every distinct effective host across configured
-// saml.<name> entries, for the generated certificate's DNSNames — purely
-// descriptive metadata on a self-signed cert, so a skipped/misconfigured
-// entry just contributes nothing rather than failing cert generation.
+// samlHostnames collects the distinct hosts of the saml.<name> entries, for the generated certificate's DNSNames.
 func samlHostnames(cfg *config.Config) []string {
 	seen := map[string]bool{}
 	var hosts []string
