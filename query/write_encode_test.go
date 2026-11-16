@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"strings"
 	"sync"
@@ -123,7 +124,18 @@ func encTestConn(t *testing.T, zone string) (*pgxpool.Conn, *encodeContext) {
 	if _, err := conn.Exec(context.Background(), `set time zone '`+zone+`'`); err != nil {
 		t.Fatalf("set time zone: %v", err)
 	}
-	loc, err := time.LoadLocation(zone)
+	// The zone comes from the container's own tz database : the host's may be a different release, whose history
+	// differs.
+	rc, err := testContainer.CopyFileFromContainer(context.Background(), "/usr/share/zoneinfo/"+zone)
+	if err != nil {
+		t.Fatalf("read %s from the container: %v", zone, err)
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("read %s from the container: %v", zone, err)
+	}
+	loc, err := time.LoadLocationFromTZData(zone, data)
 	if err != nil {
 		t.Fatalf("load %s: %v", zone, err)
 	}

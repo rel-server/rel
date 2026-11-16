@@ -15,6 +15,9 @@ var testCfg *config.Config
 // testDbURI is how tests reach the test container, to introspect it again after a change.
 var testDbURI string
 
+// testContainer is the running Postgres, for tests that read its files.
+var testContainer *postgres.PostgresContainer
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -28,6 +31,7 @@ func TestMain(m *testing.M) {
 	defer func() {
 		_ = container.Terminate(ctx)
 	}()
+	testContainer = container
 
 	uri, err := container.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
