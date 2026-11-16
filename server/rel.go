@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -22,6 +21,7 @@ import (
 	"github.com/rel-server/rel/relexec"
 	"github.com/rel-server/rel/reqauth"
 	"github.com/rel-server/rel/wellknown"
+	"github.com/samber/oops"
 )
 
 // NewRelHandler serves POST/GET /rel (GET only for a bare relation or well-known query). Each request acquires one
@@ -30,7 +30,7 @@ func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET, POST")
-			writeError(r.Context(), w, httperr.MethodNotAllowed(fmt.Errorf("/rel only accepts GET or POST")), cfg.Dev)
+			writeError(r.Context(), w, httperr.MethodNotAllowed(oops.Errorf("/rel only accepts GET or POST")), cfg.Dev)
 			return
 		}
 		handleRel(w, r, db, cfg, wkReg)
@@ -44,7 +44,7 @@ func relQueryBytes(r *http.Request) ([]byte, error) {
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading request body: %w", err)
+		return nil, oops.Wrapf(err, "reading request body")
 	}
 	return body, nil
 }
@@ -90,10 +90,10 @@ func decodeGETQuery(raw string) ([]byte, error) {
 func decodeWellKnownGET(m map[string]any) ([]byte, error) {
 	name, ok := m["wellknown"].(string)
 	if !ok {
-		return nil, fmt.Errorf(`"wellknown" must be a plain value, not nested`)
+		return nil, oops.Errorf(`"wellknown" must be a plain value, not nested`)
 	}
 	if _, hasData := m["data"]; hasData {
-		return nil, fmt.Errorf(`/rel GET is read-only ; well-known writes need POST`)
+		return nil, oops.Errorf(`/rel GET is read-only ; well-known writes need POST`)
 	}
 	out := map[string]any{"wellknown": name}
 	if p, ok := m["params"]; ok {
@@ -171,12 +171,12 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 	}
 
 	if r.Method == http.MethodGet && pq.Sequence != nil {
-		writeError(ctx, w, httperr.BadRequest(errcode.QueryMalformedJSON, fmt.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
+		writeError(ctx, w, httperr.BadRequest(errcode.QueryMalformedJSON, oops.Errorf("/rel GET decodes to a single relation or well-known query, not a sequence")), cfg.Dev)
 		return
 	}
 	// A ComplexQuery wrapper is never allowed on GET, with or without data.
 	if r.Method == http.MethodGet && pq.Write != nil {
-		writeError(ctx, w, httperr.BadRequest(errcode.QueryComplexNotAllowedOnGet, fmt.Errorf("/rel GET accepts only a bare relation or well-known query, not a ComplexQuery wrapper")), cfg.Dev)
+		writeError(ctx, w, httperr.BadRequest(errcode.QueryComplexNotAllowedOnGet, oops.Errorf("/rel GET accepts only a bare relation or well-known query, not a ComplexQuery wrapper")), cfg.Dev)
 		return
 	}
 
@@ -200,7 +200,7 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 
 	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		writeError(ctx, w, httperr.Server(errcode.DBUnavailable, fmt.Errorf("acquiring connection: %w", err)), cfg.Dev)
+		writeError(ctx, w, httperr.Server(errcode.DBUnavailable, oops.Wrapf(err, "acquiring connection")), cfg.Dev)
 		return
 	}
 	defer conn.Release()

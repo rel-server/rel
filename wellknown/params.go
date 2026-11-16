@@ -3,7 +3,6 @@ package wellknown
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/rel-server/rel/errcode"
@@ -51,15 +50,15 @@ func checkParamType(pgType string, raw json.RawMessage) error {
 	switch classifyPgType(pgType) {
 	case pgTypeNumeric:
 		if kind != jsonNumber {
-			return fmt.Errorf("expected a JSON number for postgres type %q, got %s", pgType, kind)
+			return oops.Errorf("expected a JSON number for postgres type %q, got %s", pgType, kind)
 		}
 	case pgTypeText:
 		if kind != jsonString {
-			return fmt.Errorf("expected a JSON string for postgres type %q, got %s", pgType, kind)
+			return oops.Errorf("expected a JSON string for postgres type %q, got %s", pgType, kind)
 		}
 	case pgTypeBoolean:
 		if kind != jsonBool {
-			return fmt.Errorf("expected a JSON boolean for postgres type %q, got %s", pgType, kind)
+			return oops.Errorf("expected a JSON boolean for postgres type %q, got %s", pgType, kind)
 		}
 	}
 	return nil

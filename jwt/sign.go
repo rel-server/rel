@@ -1,10 +1,10 @@
 package jwt
 
 import (
-	"fmt"
 	"time"
 
 	jwtlib "github.com/golang-jwt/jwt/v5"
+	"github.com/samber/oops"
 
 	"github.com/rel-server/rel/config"
 )
@@ -19,7 +19,7 @@ func signingMethod(algorithm string) (*jwtlib.SigningMethodHMAC, error) {
 	case "HS512":
 		return jwtlib.SigningMethodHS512, nil
 	default:
-		return nil, fmt.Errorf("jwt: unrecognized jwt.algorithm %q (want HS256/HS384/HS512)", algorithm)
+		return nil, oops.With("algorithm", algorithm).Errorf("jwt: unrecognized jwt.algorithm %q (want HS256/HS384/HS512)", algorithm)
 	}
 }
 
@@ -43,19 +43,19 @@ func Verify(cfg config.Jwt, token string) (Claims, error) {
 		return []byte(cfg.Secret), nil
 	}, jwtlib.WithValidMethods([]string{cfg.Algorithm}))
 	if err != nil {
-		return nil, fmt.Errorf("jwt: verify: %w", err)
+		return nil, oops.Wrapf(err, "jwt: verify")
 	}
 
 	authTime := AuthTime(claims)
 	if authTime.IsZero() {
-		return nil, fmt.Errorf("jwt: verify: missing auth_time claim")
+		return nil, oops.Errorf("jwt: verify: missing auth_time claim")
 	}
 	ceiling := authTime.Add(time.Duration(cfg.MaxSessionAge) * time.Second)
 	if time.Now().After(ceiling) {
-		return nil, fmt.Errorf("jwt: verify: session exceeds jwt.maxsessionage")
+		return nil, oops.Errorf("jwt: verify: session exceeds jwt.maxsessionage")
 	}
 	if Role(claims) == "" {
-		return nil, fmt.Errorf("jwt: verify: missing role claim")
+		return nil, oops.Errorf("jwt: verify: missing role claim")
 	}
 
 	return claims, nil

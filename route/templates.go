@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
+	"github.com/samber/oops"
 
 	jet "github.com/CloudyKit/jet/v6"
 
@@ -83,7 +84,7 @@ func (l *multiRootLoader) Exists(templatePath string) bool {
 func (l *multiRootLoader) Open(templatePath string) (io.ReadCloser, error) {
 	full, ok := l.resolve(templatePath)
 	if !ok {
-		return nil, fmt.Errorf("template not found: %s", templatePath)
+		return nil, oops.With("template", templatePath).Errorf("template not found: %s", templatePath)
 	}
 	return os.Open(full)
 }

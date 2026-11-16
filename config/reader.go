@@ -2,13 +2,13 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"iter"
 	"log/slog"
 	"strconv"
 	"strings"
 
 	koanf "github.com/knadh/koanf/v2"
+	"github.com/samber/oops"
 )
 
 // ConfigReader is the typed accessor over the merged koanf tree, scoped to path. Every reader derived from one root
@@ -79,7 +79,7 @@ func logErr(path string, err error) error {
 }
 
 func notFoundErr(path string) error {
-	return fmt.Errorf("config: %q: %w", path, errNotFound)
+	return oops.With("key", path).Wrapf(errNotFound, "config: %q", path)
 }
 
 // Exists reports whether path is present, distinguishing "absent" from "set to the default" for precedence between
@@ -100,7 +100,7 @@ func (r *ConfigReader) GetObject(path string) (*ConfigReader, error) {
 		return nil, notFoundErr(full)
 	}
 	if _, ok := v.(map[string]any); !ok {
-		return nil, logErr(full, fmt.Errorf("config: %q: not an object", full))
+		return nil, logErr(full, oops.With("key", full).Errorf("config: %q: not an object", full))
 	}
 	return newReader(r.k, full, r.errs, r.tracker), nil
 }
@@ -128,7 +128,7 @@ func (r *ConfigReader) GetIterator(path string) (iter.Seq2[string, *ConfigReader
 		return nil, notFoundErr(full)
 	}
 	if _, ok := v.(map[string]any); !ok {
-		return nil, logErr(full, fmt.Errorf("config: %q: not an object", full))
+		return nil, logErr(full, oops.With("key", full).Errorf("config: %q: not an object", full))
 	}
 	keys := r.k.MapKeys(full) // already alphabetically sorted
 	errs := r.errs
@@ -153,7 +153,7 @@ func (r *ConfigReader) GetString(path string) (string, error) {
 	}
 	s, ok := v.(string)
 	if !ok {
-		return "", logErr(full, fmt.Errorf("config: %q: not a string", full))
+		return "", logErr(full, oops.With("key", full).Errorf("config: %q: not a string", full))
 	}
 	return s, nil
 }
@@ -186,17 +186,17 @@ func (r *ConfigReader) GetInt(path string) (int, error) {
 		return int(n), nil
 	case float64:
 		if n != float64(int(n)) {
-			return 0, logErr(full, fmt.Errorf("config: %q: not an integer", full))
+			return 0, logErr(full, oops.With("key", full).Errorf("config: %q: not an integer", full))
 		}
 		return int(n), nil
 	case string:
 		i, err := strconv.Atoi(strings.TrimSpace(n))
 		if err != nil {
-			return 0, logErr(full, fmt.Errorf("config: %q: not a valid int", full))
+			return 0, logErr(full, oops.With("key", full).Errorf("config: %q: not a valid int", full))
 		}
 		return i, nil
 	default:
-		return 0, logErr(full, fmt.Errorf("config: %q: not an int", full))
+		return 0, logErr(full, oops.With("key", full).Errorf("config: %q: not an int", full))
 	}
 }
 
@@ -230,11 +230,11 @@ func (r *ConfigReader) GetFloat64(path string) (float64, error) {
 	case string:
 		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
 		if err != nil {
-			return 0, logErr(full, fmt.Errorf("config: %q: not a valid float", full))
+			return 0, logErr(full, oops.With("key", full).Errorf("config: %q: not a valid float", full))
 		}
 		return f, nil
 	default:
-		return 0, logErr(full, fmt.Errorf("config: %q: not a float", full))
+		return 0, logErr(full, oops.With("key", full).Errorf("config: %q: not a float", full))
 	}
 }
 
@@ -265,11 +265,11 @@ func (r *ConfigReader) GetBool(path string) (bool, error) {
 	case string:
 		parsed, err := strconv.ParseBool(strings.TrimSpace(b))
 		if err != nil {
-			return false, logErr(full, fmt.Errorf("config: %q: not a valid bool", full))
+			return false, logErr(full, oops.With("key", full).Errorf("config: %q: not a valid bool", full))
 		}
 		return parsed, nil
 	default:
-		return false, logErr(full, fmt.Errorf("config: %q: not a bool", full))
+		return false, logErr(full, oops.With("key", full).Errorf("config: %q: not a bool", full))
 	}
 }
 

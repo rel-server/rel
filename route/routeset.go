@@ -4,12 +4,12 @@ package route
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/samber/oops"
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/pg"
@@ -308,19 +308,19 @@ func applyAnonymousAuthorization(db *pg.DbInfos, cfg *config.Config, set *Regist
 		rows, err = db.Pool.Query(context.Background(), query, oids)
 	}
 	if err != nil {
-		return fmt.Errorf("route: querying anonymous/PUBLIC route authorization: %w", err)
+		return oops.Wrapf(err, "route: querying anonymous/PUBLIC route authorization")
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var oid int
 		var priv anonPublicPriv
 		if err := rows.Scan(&oid, &priv.anonOK, &priv.publicOK); err != nil {
-			return fmt.Errorf("route: scanning anonymous/PUBLIC route authorization: %w", err)
+			return oops.Wrapf(err, "route: scanning anonymous/PUBLIC route authorization")
 		}
 		privByOid[oid] = priv
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("route: reading anonymous/PUBLIC route authorization: %w", err)
+		return oops.Wrapf(err, "route: reading anonymous/PUBLIC route authorization")
 	}
 
 	applyPriv := func(entries []Route) {

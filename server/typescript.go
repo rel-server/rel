@@ -3,7 +3,6 @@ package server
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/rel-server/rel/config"
@@ -12,6 +11,7 @@ import (
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/tsgen"
 	"github.com/rel-server/rel/wellknown"
+	"github.com/samber/oops"
 )
 
 // NewTypeScriptHandler serves GET /rel/database.ts. It does not check http.typescript.enable : the caller only
@@ -20,7 +20,7 @@ func NewTypeScriptHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.R
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")
-			writeError(r.Context(), w, httperr.MethodNotAllowed(fmt.Errorf("/rel/database.ts only accepts GET")), cfg.Dev)
+			writeError(r.Context(), w, httperr.MethodNotAllowed(oops.Errorf("/rel/database.ts only accepts GET")), cfg.Dev)
 			return
 		}
 
@@ -43,7 +43,7 @@ func NewDatabaseJSONHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")
-			writeError(r.Context(), w, httperr.MethodNotAllowed(fmt.Errorf("/rel/database.json only accepts GET")), cfg.Dev)
+			writeError(r.Context(), w, httperr.MethodNotAllowed(oops.Errorf("/rel/database.json only accepts GET")), cfg.Dev)
 			return
 		}
 

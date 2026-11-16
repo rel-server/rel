@@ -78,7 +78,7 @@ func NewError(fault Fault, code errcode.Code, err error) *Error {
 
 // itemError wraps err as item i's, with the "item N: " prefix.
 func itemError(i int, fault Fault, code errcode.Code, err error) *Error {
-	return &Error{Item: i, Fault: fault, Code: code, Err: fmt.Errorf("item %d: %w", i, err)}
+	return &Error{Item: i, Fault: fault, Code: code, Err: oops.With("item", i).Wrapf(err, "item %d", i)}
 }
 
 // codeOrUnclassified is err's errcode, or errcode.Unclassified.
@@ -315,7 +315,7 @@ func (p *Prepared) Execute(ctx context.Context, conn *pgxpool.Conn, begin Begin,
 	}
 	if len(writeRoots) > 0 {
 		if err := query.PrepareWrite(ctx, loggingQuerier{inner: conn}, writeRoots...); err != nil {
-			return NewError(ServerFault, errcode.TransactionError, fmt.Errorf("preparing the write tables: %w", err))
+			return NewError(ServerFault, errcode.TransactionError, oops.Wrapf(err, "preparing the write tables"))
 		}
 	}
 
@@ -368,7 +368,7 @@ func (p *Prepared) Execute(ctx context.Context, conn *pgxpool.Conn, begin Begin,
 	// The single commit for the whole request. A body longer than the buffer is already on its way,
 	// so a failure here cuts it short ; a shorter one is still held and is replaced by the error.
 	if _, err := conn.Exec(ctx, "commit"); err != nil {
-		return NewError(ServerFault, errcode.TransactionError, fmt.Errorf("commit: %w", err))
+		return NewError(ServerFault, errcode.TransactionError, oops.Wrapf(err, "commit"))
 	}
 	if multi && p.format == query.FormatJSON {
 		if _, err := cw.Write([]byte("]")); err != nil {
@@ -403,7 +403,7 @@ func (p *Prepared) writePhase(ctx context.Context, conn *pgxpool.Conn) (*writeSt
 		spName := fmt.Sprintf("sp%d", i)
 		if item.rollback {
 			if _, err := conn.Exec(ctx, "savepoint "+spName); err != nil {
-				return nil, itemError(i, ServerFault, errcode.TransactionError, fmt.Errorf("savepoint: %w", err))
+				return nil, itemError(i, ServerFault, errcode.TransactionError, oops.Wrapf(err, "savepoint"))
 			}
 		}
 		opts := query.WriteOptions{
@@ -430,13 +430,13 @@ func (p *Prepared) writePhase(ctx context.Context, conn *pgxpool.Conn) (*writeSt
 			if item.returns != "none" && ws.buffered[i] == nil {
 				rows, err := bufferReadback(ctx, conn, item.root, ws.nodeIDs[i], item.paramValues, p.format)
 				if err != nil {
-					return nil, itemError(i, ServerFault, errcode.Internal, fmt.Errorf("buffering read-back before rollback: %w", err))
+					return nil, itemError(i, ServerFault, errcode.Internal, oops.Wrapf(err, "buffering read-back before rollback"))
 				}
 				ws.buffered[i] = rows
 			}
 			// Undoes only this item's effects.
 			if _, err := conn.Exec(ctx, "rollback to savepoint "+spName); err != nil {
-				return nil, itemError(i, ServerFault, errcode.TransactionError, fmt.Errorf("rollback to savepoint: %w", err))
+				return nil, itemError(i, ServerFault, errcode.TransactionError, oops.Wrapf(err, "rollback to savepoint"))
 			}
 		}
 	}
@@ -468,13 +468,13 @@ func (p *Prepared) readPhase(ctx context.Context, conn *pgxpool.Conn, ws *writeS
 				sw, cerr = query.CompileSelectFormat(item.root, p.format)
 			}
 			if cerr != nil {
-				return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, fmt.Errorf("compiling response: %w", cerr))
+				return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, oops.Wrapf(cerr, "compiling response"))
 			}
 			statements[i] = sw
 			// ResolveArgs, not Args() : a well-known item has named $param slots.
 			a, aerr := sw.ResolveArgs(item.paramValues)
 			if aerr != nil {
-				return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, fmt.Errorf("resolving params: %w", aerr))
+				return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, oops.Wrapf(aerr, "resolving params"))
 			}
 			args[i] = a
 		}
@@ -482,7 +482,7 @@ func (p *Prepared) readPhase(ctx context.Context, conn *pgxpool.Conn, ws *writeS
 		if item.count && p.policy.Count {
 			n, cerr := runCount(ctx, conn, item.root, item.paramValues)
 			if cerr != nil {
-				return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, fmt.Errorf("count: %w", cerr))
+				return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, oops.Wrapf(cerr, "count"))
 			}
 			envelopes[i].count = &n
 			envelopes[i].offset = item.root.Offset
@@ -515,7 +515,7 @@ func (p *Prepared) readPhase(ctx context.Context, conn *pgxpool.Conn, ws *writeS
 				if !skipReadback {
 					plan, perr := explainFormatJSON(ctx, conn, statements[i].String(), args[i])
 					if perr != nil {
-						return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, fmt.Errorf("explain: %w", perr))
+						return nil, nil, nil, itemError(i, ServerFault, errcode.Internal, oops.Wrapf(perr, "explain"))
 					}
 					envelopes[i].queryPlan = append(envelopes[i].queryPlan, query.PlanResult{Path: emptyPath, Select: plan})
 				}

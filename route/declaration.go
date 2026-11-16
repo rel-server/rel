@@ -3,11 +3,11 @@ package route
 // Route declarations, read from a COMMENT ON FUNCTION or the config route.<schema>.<function>.* namespace.
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/bytedance/sonic"
 	"github.com/huml-lang/go-huml"
+	"github.com/samber/oops"
 
 	"github.com/rel-server/rel/config"
 )
@@ -70,20 +70,20 @@ func isJSONObjectAfterColon(rest string) bool {
 func parseHumlDeclaration(trimmed string) (*Declaration, error) {
 	var doc map[string]any
 	if err := huml.Unmarshal([]byte(trimmed), &doc); err != nil {
-		return nil, fmt.Errorf("route: parsing HUML route declaration: %w", err)
+		return nil, oops.Wrapf(err, "route: parsing HUML route declaration")
 	}
 	routeVal, ok := doc["route"]
 	if !ok {
-		return nil, fmt.Errorf("route: HUML route declaration has no \"route\" key")
+		return nil, oops.Errorf("route: HUML route declaration has no \"route\" key")
 	}
 	// Re-encoded through JSON so both formats decode through the same json tags.
 	raw, err := sonic.Marshal(routeVal)
 	if err != nil {
-		return nil, fmt.Errorf("route: re-encoding HUML route declaration: %w", err)
+		return nil, oops.Wrapf(err, "route: re-encoding HUML route declaration")
 	}
 	var decl Declaration
 	if err := sonic.Unmarshal(raw, &decl); err != nil {
-		return nil, fmt.Errorf("route: decoding HUML route declaration: %w", err)
+		return nil, oops.Wrapf(err, "route: decoding HUML route declaration")
 	}
 	return &decl, nil
 }
@@ -94,7 +94,7 @@ func parseJSONDeclaration(rest string) (*Declaration, error) {
 	rest = strings.TrimSpace(rest)
 	var decl Declaration
 	if err := sonic.Unmarshal([]byte(rest), &decl); err != nil {
-		return nil, fmt.Errorf("route: decoding JSON route declaration: %w", err)
+		return nil, oops.Wrapf(err, "route: decoding JSON route declaration")
 	}
 	return &decl, nil
 }

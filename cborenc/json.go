@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/samber/oops"
 )
 
 // AppendJSON converts one JSON document to CBOR and appends it to dst, reading the document straight from
@@ -38,7 +40,7 @@ type jsonParser struct {
 }
 
 func (p *jsonParser) fail(format string, args ...any) error {
-	return fmt.Errorf("cborenc: invalid JSON at byte %d: %s", p.pos, fmt.Sprintf(format, args...))
+	return oops.Errorf("cborenc: invalid JSON at byte %d: %s", p.pos, fmt.Sprintf(format, args...))
 }
 
 func (p *jsonParser) skipSpace() {

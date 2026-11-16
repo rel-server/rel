@@ -2,7 +2,6 @@ package query
 
 import (
 	"bytes"
-	"fmt"
 	"regexp"
 
 	"github.com/samber/oops"
@@ -30,21 +29,21 @@ func parseNode(n Node) (Expression, error) {
 	case KindBool:
 		b, err := n.StrictBool()
 		if err != nil {
-			return nil, fmt.Errorf("query: invalid boolean expression: %w", err)
+			return nil, oops.Wrapf(err, "query: invalid boolean expression")
 		}
 		return BoolLiteral{Value: b}, nil
 
 	case KindNumber:
 		f, err := n.StrictFloat64()
 		if err != nil {
-			return nil, fmt.Errorf("query: invalid number expression: %w", err)
+			return nil, oops.Wrapf(err, "query: invalid number expression")
 		}
 		return NumberLiteral{Value: f}, nil
 
 	case KindString:
 		s, err := n.StrictString()
 		if err != nil {
-			return nil, fmt.Errorf("query: invalid string expression: %w", err)
+			return nil, oops.Wrapf(err, "query: invalid string expression")
 		}
 		return StringLiteral{Value: s}, nil
 
@@ -59,10 +58,10 @@ func parseNode(n Node) (Expression, error) {
 		return parseArrayExpression(n)
 
 	case KindInvalid:
-		return nil, fmt.Errorf("query: invalid expression JSON")
+		return nil, oops.Errorf("query: invalid expression JSON")
 
 	default:
-		return nil, fmt.Errorf("query: unexpected JSON value in expression position (type %d)", n.Kind())
+		return nil, oops.Errorf("query: unexpected JSON value in expression position (type %d)", n.Kind())
 	}
 }
 
@@ -113,15 +112,15 @@ var comparisonFoldOps = map[FoldedOperator]bool{
 func parseArrayExpression(n Node) (Expression, error) {
 	items, err := arrayItems(n)
 	if err != nil {
-		return nil, fmt.Errorf("query: invalid array expression: %w", err)
+		return nil, oops.Wrapf(err, "query: invalid array expression")
 	}
 	if items.len == 0 {
-		return nil, fmt.Errorf("query: empty array is not a valid expression")
+		return nil, oops.Errorf("query: empty array is not a valid expression")
 	}
 
 	tag, err := items.at(0).StrictString()
 	if err != nil {
-		return nil, fmt.Errorf("query: expression array must start with a string tag: %w", err)
+		return nil, oops.Wrapf(err, "query: expression array must start with a string tag")
 	}
 	// Word-form synonyms normalize to their canonical tag before anything downstream sees it.
 	if canonical, ok := OperatorWords[tag]; ok {
@@ -132,7 +131,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 	switch tag {
 	case "between", "not_between":
 		if rest.len != 3 {
-			return nil, fmt.Errorf("query: %q needs exactly 3 operands, got %d", tag, rest.len)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs exactly 3 operands, got %d", tag, rest.len)
 		}
 		minE, err := parseNode(rest.at(0))
 		if err != nil {
@@ -155,7 +154,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 
 	case "in", "not_in":
 		if rest.len < 1 {
-			return nil, fmt.Errorf("query: %q needs a subject", tag)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs a subject", tag)
 		}
 		subject, err := parseNode(rest.at(0))
 		if err != nil {
@@ -169,18 +168,18 @@ func parseArrayExpression(n Node) (Expression, error) {
 
 	case "any", "all":
 		if rest.len != 3 {
-			return nil, fmt.Errorf("query: %q needs exactly 3 operands, got %d", tag, rest.len)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs exactly 3 operands, got %d", tag, rest.len)
 		}
 		op, err := rest.at(0).StrictString()
 		if err != nil {
-			return nil, fmt.Errorf("query: %q operator must be a string: %w", tag, err)
+			return nil, oops.With("tag", tag).Wrapf(err, "query: %q operator must be a string", tag)
 		}
 		if canonical, ok := OperatorWords[op]; ok {
 			op = canonical
 		}
 		if _, isBinary := binaryOperators[op]; !isBinary {
 			if _, isFolded := foldedOperators[op]; !isFolded {
-				return nil, fmt.Errorf("query: %q operator %q is not a known operator", tag, op)
+				return nil, oops.With("tag", tag, "operator", op).Errorf("query: %q operator %q is not a known operator", tag, op)
 			}
 		}
 		subject, err := parseNode(rest.at(1))
@@ -195,7 +194,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 
 	case "concat_ws":
 		if rest.len < 1 {
-			return nil, fmt.Errorf("query: %q needs a separator", tag)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs a separator", tag)
 		}
 		sep, err := parseNode(rest.at(0))
 		if err != nil {
@@ -216,11 +215,11 @@ func parseArrayExpression(n Node) (Expression, error) {
 
 	case "format":
 		if rest.len < 1 {
-			return nil, fmt.Errorf("query: %q needs a format string", tag)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs a format string", tag)
 		}
 		format, err := rest.at(0).StrictString()
 		if err != nil {
-			return nil, fmt.Errorf("query: %q format must be a string: %w", tag, err)
+			return nil, oops.With("tag", tag).Wrapf(err, "query: %q format must be a string", tag)
 		}
 		args, err := parseExpressionList(rest.from(1))
 		if err != nil {
@@ -230,15 +229,15 @@ func parseArrayExpression(n Node) (Expression, error) {
 
 	case "agg", "aggregate":
 		if rest.len < 2 || rest.len > 3 {
-			return nil, fmt.Errorf("query: %q needs 2 or 3 operands, got %d", tag, rest.len)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs 2 or 3 operands, got %d", tag, rest.len)
 		}
 		ident, err := parseFunctionRef(rest.at(0))
 		if err != nil {
-			return nil, fmt.Errorf("query: %q identifier: %w", tag, err)
+			return nil, oops.With("tag", tag).Wrapf(err, "query: %q identifier", tag)
 		}
 		argItems, err := arrayItems(rest.at(1))
 		if err != nil {
-			return nil, fmt.Errorf("query: %q arguments must be an array: %w", tag, err)
+			return nil, oops.With("tag", tag).Wrapf(err, "query: %q arguments must be an array", tag)
 		}
 		args, err := parseExpressionList(argItems)
 		if err != nil {
@@ -247,18 +246,18 @@ func parseArrayExpression(n Node) (Expression, error) {
 		agg := &AggExpr{Identifier: ident, Arguments: args}
 		if rest.len == 3 {
 			if err := parseAggOptions(rest.at(2), agg); err != nil {
-				return nil, fmt.Errorf("query: %q options: %w", tag, err)
+				return nil, oops.With("tag", tag).Wrapf(err, "query: %q options", tag)
 			}
 		}
 		return agg, nil
 
 	case "call":
 		if rest.len < 1 {
-			return nil, fmt.Errorf("query: %q needs an identifier", tag)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs an identifier", tag)
 		}
 		ident, err := parseFunctionRef(rest.at(0))
 		if err != nil {
-			return nil, fmt.Errorf("query: %q identifier: %w", tag, err)
+			return nil, oops.With("tag", tag).Wrapf(err, "query: %q identifier", tag)
 		}
 		args, err := parseExpressionList(rest.from(1))
 		if err != nil {
@@ -270,7 +269,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 		// A "." hop name is always a bare name, never an Expression. Folds left-associatively, with Right always
 		// an *Identifier.
 		if rest.len < 1 {
-			return nil, fmt.Errorf("query: %q needs at least 1 operand, got %d", tag, rest.len)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs at least 1 operand, got %d", tag, rest.len)
 		}
 		// A bare string base is a name in the current scope, so [".", "a", "b"] is [".", [".", "a"], "b"]. Any
 		// other base is a sub-expression and needs at least one hop after it.
@@ -280,7 +279,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 			result = &Identifier{Name: name}
 		} else {
 			if rest.len < 2 {
-				return nil, fmt.Errorf("query: %q needs a hop name after a non-bare-name base", tag)
+				return nil, oops.With("tag", tag).Errorf("query: %q needs a hop name after a non-bare-name base", tag)
 			}
 			base, err := parseNode(rest.at(0))
 			if err != nil {
@@ -291,7 +290,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 		for i := hopsFrom; i < rest.len; i++ {
 			name, err := rest.at(i).StrictString()
 			if err != nil {
-				return nil, fmt.Errorf("query: %q hop name must be a bare string: %w", tag, err)
+				return nil, oops.With("tag", tag).Wrapf(err, "query: %q hop name must be a bare string", tag)
 			}
 			result = FoldedExpr{Op: FoldDot, Left: result, Right: &Identifier{Name: name}}
 		}
@@ -316,7 +315,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 
 	case "index":
 		if rest.len != 2 {
-			return nil, fmt.Errorf("query: %q needs exactly [array, index]", tag)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs exactly [array, index]", tag)
 		}
 		arr, err := parseNode(rest.at(0))
 		if err != nil {
@@ -330,7 +329,7 @@ func parseArrayExpression(n Node) (Expression, error) {
 
 	case "slice":
 		if rest.len != 3 {
-			return nil, fmt.Errorf("query: %q needs exactly [array, from, to]", tag)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs exactly [array, from, to]", tag)
 		}
 		arr, err := parseNode(rest.at(0))
 		if err != nil {
@@ -353,17 +352,17 @@ func parseArrayExpression(n Node) (Expression, error) {
 
 	case "$param":
 		if rest.len < 1 || rest.len > 2 {
-			return nil, fmt.Errorf("query: %q needs [name] or [name, cast]", tag)
+			return nil, oops.With("tag", tag).Errorf("query: %q needs [name] or [name, cast]", tag)
 		}
 		name, err := rest.at(0).StrictString()
 		if err != nil {
-			return nil, fmt.Errorf("query: %q name must be a string: %w", tag, err)
+			return nil, oops.With("tag", tag).Wrapf(err, "query: %q name must be a string", tag)
 		}
 		var cast string
 		if rest.len == 2 {
 			cast, err = rest.at(1).StrictString()
 			if err != nil {
-				return nil, fmt.Errorf("query: %q cast must be a string: %w", tag, err)
+				return nil, oops.With("tag", tag).Wrapf(err, "query: %q cast must be a string", tag)
 			}
 		}
 		return ParamExpr{Name: name, Cast: cast}, nil
@@ -397,13 +396,13 @@ func parseArrayExpression(n Node) (Expression, error) {
 		return foldExpression(op, operands)
 	}
 
-	return nil, fmt.Errorf("query: unrecognized expression tag %q (array length %d)", tag, items.len)
+	return nil, oops.With("tag", tag).Errorf("query: unrecognized expression tag %q (array length %d)", tag, items.len)
 }
 
 // foldExpression collapses an N-ary folded-operator array into nested binary FoldedExpr nodes.
 func foldExpression(op FoldedOperator, operands []Expression) (Expression, error) {
 	if len(operands) == 0 {
-		return nil, fmt.Errorf("query: folded operator %q needs at least one operand", op)
+		return nil, oops.With("operator", op).Errorf("query: folded operator %q needs at least one operand", op)
 	}
 	if len(operands) == 1 {
 		return operands[0], nil
@@ -432,11 +431,11 @@ func parseDefaultPosition(n Node) (Expression, error) {
 
 func parseCol(rest nodeList) (Expression, error) {
 	if rest.len < 1 || rest.len > 3 {
-		return nil, fmt.Errorf("query: %q needs [column, default_get?, default_set?]", "col")
+		return nil, oops.Errorf("query: %q needs [column, default_get?, default_set?]", "col")
 	}
 	column, err := rest.at(0).StrictString()
 	if err != nil {
-		return nil, fmt.Errorf("query: col column must be a string: %w", err)
+		return nil, oops.Wrapf(err, "query: col column must be a string")
 	}
 	var defaultGet, defaultSet Expression
 	if rest.len >= 2 {
@@ -456,11 +455,11 @@ func parseCol(rest nodeList) (Expression, error) {
 
 func parseGetOrSet(tag string, rest nodeList) (Expression, error) {
 	if rest.len < 1 || rest.len > 2 {
-		return nil, fmt.Errorf("query: %q needs [column, default_value?]", tag)
+		return nil, oops.With("tag", tag).Errorf("query: %q needs [column, default_value?]", tag)
 	}
 	column, err := rest.at(0).StrictString()
 	if err != nil {
-		return nil, fmt.Errorf("query: %q column must be a string: %w", tag, err)
+		return nil, oops.With("tag", tag).Wrapf(err, "query: %q column must be a string", tag)
 	}
 	var def Expression
 	if rest.len == 2 {
@@ -482,7 +481,7 @@ func parseExpressionList(items nodeList) ([]Expression, error) {
 	for i := 0; i < items.len; i++ {
 		expr, err := parseNode(items.at(i))
 		if err != nil {
-			return nil, fmt.Errorf("query: item %d: %w", i, err)
+			return nil, oops.With("index", i).Wrapf(err, "query: item %d", i)
 		}
 		out[i] = expr
 	}
@@ -492,13 +491,13 @@ func parseExpressionList(items nodeList) ([]Expression, error) {
 func parseStringListValue(n Node) ([]string, error) {
 	items, err := arrayItems(n)
 	if err != nil {
-		return nil, fmt.Errorf("query: expected a string array: %w", err)
+		return nil, oops.Wrapf(err, "query: expected a string array")
 	}
 	out := make([]string, items.len)
 	for i := range items.len {
 		s, err := items.at(i).StrictString()
 		if err != nil {
-			return nil, fmt.Errorf("query: expected a string array, item %d: %w", i, err)
+			return nil, oops.With("index", i).Wrapf(err, "query: expected a string array, item %d", i)
 		}
 		out[i] = s
 	}
@@ -510,13 +509,13 @@ func parseObjectFields(n Node) (map[string]Expression, error) {
 	err := n.ObjectEach(func(k string, v Node) error {
 		expr, err := parseNode(v)
 		if err != nil {
-			return fmt.Errorf("query: field %q: %w", k, err)
+			return oops.With("field", k).Wrapf(err, "query: field %q", k)
 		}
 		out[k] = expr
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("query: expected an object: %w", err)
+		return nil, oops.Wrapf(err, "query: expected an object")
 	}
 	return out, nil
 }
@@ -550,7 +549,7 @@ func parseStarTag(own bool, rest nodeList) (Expression, error) {
 				and[k] = v
 			}
 		default:
-			return nil, fmt.Errorf("query: %q's trailing arguments must each be an except array or an and object", tagName)
+			return nil, oops.With("tag", tagName).Errorf("query: %q's trailing arguments must each be an except array or an and object", tagName)
 		}
 	}
 	return StarExpr{Own: own, Except: except, And: and}, nil
@@ -562,30 +561,30 @@ func parseFunctionRef(n Node) (FunctionRef, error) {
 	case KindString:
 		name, err := n.StrictString()
 		if err != nil {
-			return FunctionRef{}, fmt.Errorf("must be a string or {schema, name} object: %w", err)
+			return FunctionRef{}, oops.Wrapf(err, "must be a string or {schema, name} object")
 		}
 		return FunctionRef{Name: name}, nil
 
 	case KindObject:
 		nameNode, ok := n.ObjectGet("name")
 		if !ok {
-			return FunctionRef{}, fmt.Errorf(`object form needs a "name"`)
+			return FunctionRef{}, oops.Errorf(`object form needs a "name"`)
 		}
 		name, err := nameNode.StrictString()
 		if err != nil {
-			return FunctionRef{}, fmt.Errorf(`"name" must be a string: %w`, err)
+			return FunctionRef{}, oops.Wrapf(err, `"name" must be a string`)
 		}
 		var schema string
 		if schemaNode, ok := n.ObjectGet("schema"); ok {
 			schema, err = schemaNode.StrictString()
 			if err != nil {
-				return FunctionRef{}, fmt.Errorf(`"schema" must be a string: %w`, err)
+				return FunctionRef{}, oops.Wrapf(err, `"schema" must be a string`)
 			}
 		}
 		return FunctionRef{Schema: schema, Name: name}, nil
 
 	default:
-		return FunctionRef{}, fmt.Errorf("must be a string or {schema, name} object, got type %d", n.Kind())
+		return FunctionRef{}, oops.Errorf("must be a string or {schema, name} object, got type %d", n.Kind())
 	}
 }
 
@@ -599,14 +598,14 @@ var (
 // gate, for literal kinds written straight into SQL text, not bound.
 func parseValidatedStringArgLiteral(tag string, rest nodeList, valid *regexp.Regexp, build func(string) Expression) (Expression, error) {
 	if rest.len != 1 {
-		return nil, fmt.Errorf("query: %q expects exactly one string argument, got %d", tag, rest.len)
+		return nil, oops.With("tag", tag).Errorf("query: %q expects exactly one string argument, got %d", tag, rest.len)
 	}
 	v, err := rest.at(0).StrictString()
 	if err != nil {
-		return nil, fmt.Errorf("query: %q expects a string argument: %w", tag, err)
+		return nil, oops.With("tag", tag).Wrapf(err, "query: %q expects a string argument", tag)
 	}
 	if !valid.MatchString(v) {
-		return nil, fmt.Errorf("query: %q: %q is not a valid %s literal", tag, v, tag)
+		return nil, oops.With("tag", tag).Errorf("query: %q: %q is not a valid %s literal", tag, v, tag)
 	}
 	return build(v), nil
 }
@@ -622,22 +621,22 @@ func parseAggOptions(n Node, agg *AggExpr) error {
 			}
 		case "distinct":
 			if agg.Distinct, err = v.StrictBool(); err != nil {
-				return fmt.Errorf(`"distinct" must be a boolean : %w`, err)
+				return oops.Wrapf(err, `"distinct" must be a boolean `)
 			}
 		case "order_by":
 			items, err := arrayItems(v)
 			if err != nil {
-				return fmt.Errorf(`"order_by" must be an array : %w`, err)
+				return oops.Wrapf(err, `"order_by" must be an array `)
 			}
 			for i := range items.len {
 				term, err := parseOrderByTerm(items.at(i))
 				if err != nil {
-					return fmt.Errorf(`"order_by" item %d : %w`, i, err)
+					return oops.With("index", i).Wrapf(err, `"order_by" item %d `, i)
 				}
 				agg.OrderBy = append(agg.OrderBy, term)
 			}
 		default:
-			return fmt.Errorf("unknown option %q (expected filter, distinct or order_by)", key)
+			return oops.With("option", key).Errorf("unknown option %q (expected filter, distinct or order_by)", key)
 		}
 		return nil
 	})

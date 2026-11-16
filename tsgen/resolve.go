@@ -1,7 +1,6 @@
 package tsgen
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/samber/oops"
@@ -63,7 +62,7 @@ func narrowSchemas(configured, override []string) ([]string, error) {
 	out := make([]string, 0, len(override))
 	for _, s := range override {
 		if !allowed[s] {
-			return nil, fmt.Errorf("schemas=%q is not in the configured typescript.schemas whitelist", s)
+			return nil, oops.With("schema", s).Errorf("schemas=%q is not in the configured typescript.schemas whitelist", s)
 		}
 		out = append(out, s)
 	}

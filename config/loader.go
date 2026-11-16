@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
-	"fmt"
 	"log/slog"
 	"maps"
 	"net"
@@ -23,6 +22,7 @@ import (
 	env "github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/providers/file"
 	koanf "github.com/knadh/koanf/v2"
+	"github.com/samber/oops"
 )
 
 // configFileNames are the file names tried at each discovery location.
@@ -48,7 +48,7 @@ func Load(args []string) (*Config, error) {
 		if err := k.Load(file.Provider(path), parser); err != nil {
 			// Not err.Error() : a parse error can echo part of a value.
 			slog.Default().Error("config: loading config file: parse error", "path", path)
-			return nil, fmt.Errorf("config: %s: parse error", path)
+			return nil, oops.With("path", path).Errorf("config: %s: parse error", path)
 		}
 	}
 
@@ -68,7 +68,7 @@ func Load(args []string) (*Config, error) {
 		},
 	}), nil); err != nil {
 		slog.Default().Error("config: loading environment variables", "error", err.Error())
-		return nil, fmt.Errorf("config: loading environment variables: %w", err)
+		return nil, oops.Wrapf(err, "config: loading environment variables")
 	}
 
 	flags, ferr := parseFlags(args)
@@ -79,7 +79,7 @@ func Load(args []string) (*Config, error) {
 	if len(flags) > 0 {
 		if err := k.Load(confmap.Provider(flags, "."), nil); err != nil {
 			slog.Default().Error("config: loading CLI flags", "error", err.Error())
-			return nil, fmt.Errorf("config: loading CLI flags: %w", err)
+			return nil, oops.Wrapf(err, "config: loading CLI flags")
 		}
 	}
 
@@ -98,13 +98,13 @@ func Load(args []string) (*Config, error) {
 func resolveConfigFilePath(args []string, envConfig string, roots []string) (string, error) {
 	if explicit := explicitConfigFlag(args); explicit != "" {
 		if _, err := os.Stat(explicit); err != nil {
-			return "", fmt.Errorf("config: --config %s: %w", explicit, err)
+			return "", oops.With("path", explicit).Wrapf(err, "config: --config %s", explicit)
 		}
 		return explicit, nil
 	}
 	if envConfig != "" {
 		if _, err := os.Stat(envConfig); err != nil {
-			return "", fmt.Errorf("config: REL_CONFIG=%s: %w", envConfig, err)
+			return "", oops.With("path", envConfig).Wrapf(err, "config: REL_CONFIG=%s", envConfig)
 		}
 		return envConfig, nil
 	}
@@ -122,7 +122,7 @@ func resolveConfigFilePath(args []string, envConfig string, roots []string) (str
 		case 1:
 			return found[0], nil
 		default:
-			return "", fmt.Errorf("config: ambiguous config files in %s: %s", root, strings.Join(found, ", "))
+			return "", oops.With("dir", root, "files", found).Errorf("config: ambiguous config files in %s: %s", root, strings.Join(found, ", "))
 		}
 	}
 	return "", nil
@@ -181,7 +181,7 @@ func loadInlineConfig(k *koanf.Koanf) error {
 		}
 		if name != "" {
 			a, b := min(name, v), max(name, v)
-			err := fmt.Errorf("config: both %s and %s are set, pick one", a, b)
+			err := oops.With("keys", []string{a, b}).Errorf("config: both %s and %s are set, pick one", a, b)
 			slog.Default().Error(err.Error())
 			return err
 		}
@@ -198,7 +198,7 @@ func loadInlineConfig(k *koanf.Koanf) error {
 	}
 	if err != nil {
 		slog.Default().Error("config: loading inline config: parse error", "var", name)
-		return fmt.Errorf("config: %s: parse error", name)
+		return oops.With("path", name).Errorf("config: %s: parse error", name)
 	}
 	return nil
 }
@@ -207,7 +207,7 @@ func loadInlineConfig(k *koanf.Koanf) error {
 func parserFor(path string) (koanf.Parser, error) {
 	p, ok := parserForExt(strings.ToLower(filepath.Ext(path)))
 	if !ok {
-		return nil, fmt.Errorf("config: %s: unrecognized extension (want .toml/.yaml/.yml/.huml)", path)
+		return nil, oops.With("path", path).Errorf("config: %s: unrecognized extension (want .toml/.yaml/.yml/.huml)", path)
 	}
 	return p, nil
 }
@@ -246,7 +246,7 @@ func parseFlags(args []string) (map[string]any, error) {
 			continue
 		}
 		if i+1 >= len(args) {
-			return nil, fmt.Errorf("config: flag --%s has no value", body)
+			return nil, oops.With("flag", body).Errorf("config: flag --%s has no value", body)
 		}
 		out[body] = args[i+1]
 		i++
@@ -264,10 +264,10 @@ func resolveFileIndirection(k *koanf.Koanf) error {
 		resolved, err := resolveFileValue(s)
 		if err != nil {
 			slog.Default().Error("config: resolving $FILE$ value", "path", key, "error", err.Error())
-			return fmt.Errorf("config: %s: %w", key, err)
+			return oops.With("key", key).Wrapf(err, "config: %s", key)
 		}
 		if err := k.Set(key, resolved); err != nil {
-			return fmt.Errorf("config: %s: setting resolved $FILE$ value: %w", key, err)
+			return oops.With("key", key).Wrapf(err, "config: %s: setting resolved $FILE$ value", key)
 		}
 	}
 	return nil
@@ -297,7 +297,7 @@ func resolveFileValue(raw string) (string, error) {
 	paths := SplitPathList(rest)
 	data, _, err := readFirstExisting(paths)
 	if err != nil {
-		return "", fmt.Errorf("reading %s: %w", rest, err)
+		return "", oops.With("path", rest).Wrapf(err, "reading %s", rest)
 	}
 	return trimOneNewline(data), nil
 }
@@ -327,7 +327,7 @@ func readFirstExisting(paths []string) (data []byte, path string, err error) {
 func resolveGenValue(pathList string, n int) (string, error) {
 	paths := SplitPathList(pathList)
 	if len(paths) == 0 {
-		return "", fmt.Errorf("$GEN$: no path given")
+		return "", oops.Errorf("$GEN$: no path given")
 	}
 
 	for _, p := range paths {
@@ -336,11 +336,11 @@ func resolveGenValue(pathList string, n int) (string, error) {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return "", fmt.Errorf("$GEN$: reading %s: %w", p, err)
+			return "", oops.With("path", p).Wrapf(err, "$GEN$: reading %s", p)
 		}
 		existing := trimOneNewline(data)
 		if len(existing) != n {
-			return "", fmt.Errorf("$GEN$: %s already holds a %d-character value, but this key requested %d", p, len(existing), n)
+			return "", oops.With("path", p).Errorf("$GEN$: %s already holds a %d-character value, but this key requested %d", p, len(existing), n)
 		}
 		return existing, nil
 	}
@@ -356,10 +356,10 @@ func resolveGenValue(pathList string, n int) (string, error) {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return "", fmt.Errorf("$GEN$: checking %s: %w", dir, err)
+			return "", oops.With("path", dir).Wrapf(err, "$GEN$: checking %s", dir)
 		}
 		if werr := os.WriteFile(p, []byte(generated), 0o600); werr != nil {
-			return "", fmt.Errorf("$GEN$: writing generated value to %s: %w", p, werr)
+			return "", oops.With("path", p).Wrapf(werr, "$GEN$: writing generated value to %s", p)
 		}
 		return generated, nil
 	}
@@ -409,7 +409,7 @@ func trimOneNewline(data []byte) string {
 func parseGenLength(s string) (int, error) {
 	n, err := strconv.Atoi(s)
 	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("$GEN$: invalid length %q", s)
+		return 0, oops.Errorf("$GEN$: invalid length %q", s)
 	}
 	return n, nil
 }
@@ -418,11 +418,11 @@ func parseGenLength(s string) (int, error) {
 func generateRandom(n int) (string, error) {
 	buf := make([]byte, (n*5+7)/8+1)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generating random value: %w", err)
+		return "", oops.Wrapf(err, "generating random value")
 	}
 	enc := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(buf)
 	if len(enc) < n {
-		return "", fmt.Errorf("generating random value: insufficient entropy")
+		return "", oops.Errorf("generating random value: insufficient entropy")
 	}
 	return enc[:n], nil
 }
@@ -443,14 +443,14 @@ func PostgresURI(host string, port int, database, user, password string) string 
 func splitPgURI(uri string) (host string, port int, database, user, password string, err error) {
 	u, perr := url.Parse(uri)
 	if perr != nil {
-		return "", 0, "", "", "", fmt.Errorf("parsing pg.uri: %w", perr)
+		return "", 0, "", "", "", oops.Wrapf(perr, "parsing pg.uri")
 	}
 	host = u.Hostname()
 	port = DefaultPgPort
 	if p := u.Port(); p != "" {
 		n, aerr := strconv.Atoi(p)
 		if aerr != nil {
-			return "", 0, "", "", "", fmt.Errorf("parsing pg.uri: invalid port %q", p)
+			return "", 0, "", "", "", oops.Errorf("parsing pg.uri: invalid port %q", p)
 		}
 		port = n
 	}
@@ -468,7 +468,7 @@ func rejectArrays(k *koanf.Koanf) error {
 		rv := reflect.ValueOf(v)
 		if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
 			slog.Default().Error("config: array value not allowed", "path", key)
-			return fmt.Errorf("config: %s: array values are not allowed", key)
+			return oops.With("key", key).Errorf("config: %s: array values are not allowed", key)
 		}
 	}
 	return nil
@@ -488,11 +488,11 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	// is derived from them, so reload.cmd interpolation always has all six keys.
 	if cfg.Pg.URI != "" {
 		if root.Exists("pg.host") || root.Exists("pg.port") || root.Exists("pg.database") || root.Exists("pg.user") || root.Exists("pg.password") {
-			errs = append(errs, fmt.Errorf("config: pg.host/pg.port/pg.database/pg.user/pg.password: cannot be set alongside pg.uri"))
+			errs = append(errs, oops.Errorf("config: pg.host/pg.port/pg.database/pg.user/pg.password: cannot be set alongside pg.uri"))
 		}
 		host, port, database, user, password, uerr := splitPgURI(cfg.Pg.URI)
 		if uerr != nil {
-			errs = append(errs, fmt.Errorf("config: pg.uri: %w", uerr))
+			errs = append(errs, oops.Wrapf(uerr, "config: pg.uri"))
 		} else {
 			cfg.Pg.Host = host
 			cfg.Pg.Port = port
@@ -578,7 +578,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	if strings.HasPrefix(jwtSecret, "$FILE$") {
 		resolved, ferr := resolveFileValue(jwtSecret)
 		if ferr != nil {
-			errs = append(errs, fmt.Errorf("config: jwt.secret: %w", ferr))
+			errs = append(errs, oops.Wrapf(ferr, "config: jwt.secret"))
 		} else {
 			jwtSecret = resolved
 		}
@@ -611,7 +611,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	switch cfg.Dmut.Mode {
 	case DmutModeDefault, DmutModeSimple, DmutModeFull:
 	default:
-		errs = append(errs, fmt.Errorf("config: dmut.mode: %q is not one of %q, %q, %q", cfg.Dmut.Mode, DmutModeDefault, DmutModeSimple, DmutModeFull))
+		errs = append(errs, oops.Errorf("config: dmut.mode: %q is not one of %q, %q, %q", cfg.Dmut.Mode, DmutModeDefault, DmutModeSimple, DmutModeFull))
 	}
 
 	def := DefaultBlacklist()
@@ -736,7 +736,7 @@ func resolveOpenidSecretField(providerReader *ConfigReader, field, name, default
 	}
 	resolved, ferr := resolveFileValue(v)
 	if ferr != nil {
-		*errs = append(*errs, fmt.Errorf("config: openid.%s.%s: %w", name, field, ferr))
+		*errs = append(*errs, oops.With("key", "openid."+name+"."+field).Wrapf(ferr, "config: openid.%s.%s", name, field))
 		return ""
 	}
 	return resolved

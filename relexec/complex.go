@@ -51,18 +51,18 @@ var emptyPath = []string{}
 func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, nodeID int, paramValues map[string]any, format query.OutputFormat) ([][]byte, error) {
 	sw, err := query.CompileSelectForDataNodeFormat(root, nodeID, format)
 	if err != nil {
-		return nil, fmt.Errorf("compiling read-back: %w", err)
+		return nil, oops.Wrapf(err, "compiling read-back")
 	}
 	args, err := sw.ResolveArgs(paramValues)
 	if err != nil {
-		return nil, fmt.Errorf("resolving read-back params: %w", err)
+		return nil, oops.Wrapf(err, "resolving read-back params")
 	}
 	if format == query.FormatCBOR {
 		args = withBinaryResults(args)
 	}
 	rows, err := conn.Query(ctx, sw.String(), args...)
 	if err != nil {
-		return nil, fmt.Errorf("running read-back: %w\nsql: %s", err, sw.String())
+		return nil, oops.Errorf("running read-back: %w\nsql: %s", err, sw.String())
 	}
 	defer rows.Close()
 	var out [][]byte
@@ -73,12 +73,12 @@ func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNo
 		}
 		var raw []byte
 		if err := rows.Scan(&raw); err != nil {
-			return nil, fmt.Errorf("scanning read-back row: %w", err)
+			return nil, oops.Wrapf(err, "scanning read-back row")
 		}
 		out = append(out, raw)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("running read-back: %w", err)
+		return nil, oops.Wrapf(err, "running read-back")
 	}
 	return out, nil
 }
@@ -87,15 +87,15 @@ func bufferReadback(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNo
 func runCount(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, paramValues map[string]any) (int, error) {
 	cw, err := query.CompileCount(root)
 	if err != nil {
-		return 0, fmt.Errorf("compiling count: %w", err)
+		return 0, oops.Wrapf(err, "compiling count")
 	}
 	args, err := cw.ResolveArgs(paramValues)
 	if err != nil {
-		return 0, fmt.Errorf("resolving count params: %w", err)
+		return 0, oops.Wrapf(err, "resolving count params")
 	}
 	var n int
 	if err := conn.QueryRow(ctx, cw.String(), args...).Scan(&n); err != nil {
-		return 0, fmt.Errorf("running count: %w\nsql: %s", err, cw.String())
+		return 0, oops.Errorf("running count: %w\nsql: %s", err, cw.String())
 	}
 	return n, nil
 }
@@ -104,17 +104,17 @@ func runCount(ctx context.Context, conn *pgxpool.Conn, root *query.QueryNode, pa
 func explainFormatJSON(ctx context.Context, conn *pgxpool.Conn, sql string, args []any) (json.RawMessage, error) {
 	rows, err := conn.Query(ctx, "explain (format json)\n"+sql, args...)
 	if err != nil {
-		return nil, fmt.Errorf("explain: %w", err)
+		return nil, oops.Wrapf(err, "explain")
 	}
 	defer rows.Close()
 	var raw []byte
 	if rows.Next() {
 		if err := rows.Scan(&raw); err != nil {
-			return nil, fmt.Errorf("explain: scanning plan: %w", err)
+			return nil, oops.Wrapf(err, "explain: scanning plan")
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("explain: %w", err)
+		return nil, oops.Wrapf(err, "explain")
 	}
 	return json.RawMessage(raw), nil
 }

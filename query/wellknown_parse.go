@@ -3,9 +3,8 @@
 package query
 
 import (
-	"fmt"
-
 	"github.com/bytedance/sonic/ast"
+	"github.com/samber/oops"
 )
 
 // RawWellKnownParam is one {type?, default?} declaration. HasDefault false means required ; a "default": null
@@ -30,21 +29,21 @@ type RawWellKnownDefinition struct {
 func ParseWellKnownFile(data []byte) ([]RawWellKnownDefinition, error) {
 	root, err := parseJSON(data)
 	if err != nil {
-		return nil, fmt.Errorf("wellknown: invalid JSON: %w", err)
+		return nil, oops.Wrapf(err, "wellknown: invalid JSON")
 	}
 	if root.TypeSafe() == ast.V_ARRAY {
 		items, err := root.ArrayUseNode()
 		if err != nil {
-			return nil, fmt.Errorf("wellknown: invalid array: %w", err)
+			return nil, oops.Wrapf(err, "wellknown: invalid array")
 		}
 		if len(items) == 0 {
-			return nil, fmt.Errorf("wellknown: empty WellKnownQuery[] array")
+			return nil, oops.Errorf("wellknown: empty WellKnownQuery[] array")
 		}
 		out := make([]RawWellKnownDefinition, len(items))
 		for i := range items {
 			def, err := parseWellKnownDefinition(&items[i])
 			if err != nil {
-				return nil, fmt.Errorf("wellknown: item %d: %w", i, err)
+				return nil, oops.With("index", i).Wrapf(err, "wellknown: item %d", i)
 			}
 			out[i] = def
 		}
@@ -60,45 +59,45 @@ func ParseWellKnownFile(data []byte) ([]RawWellKnownDefinition, error) {
 func parseWellKnownDefinition(n *ast.Node) (RawWellKnownDefinition, error) {
 	nameNode := n.Get("name")
 	if !nameNode.Exists() {
-		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: missing "name"`)
+		return RawWellKnownDefinition{}, oops.Errorf(`wellknown: missing "name"`)
 	}
 	name, err := nameNode.StrictString()
 	if err != nil {
-		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: "name" must be a string: %w`, err)
+		return RawWellKnownDefinition{}, oops.Wrapf(err, `wellknown: "name" must be a string`)
 	}
 
 	queryNode := n.Get("query")
 	if !queryNode.Exists() {
-		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: missing "query"`, name)
+		return RawWellKnownDefinition{}, oops.With("name", name).Errorf(`wellknown: %q: missing "query"`, name)
 	}
 	rel, err := parseRawRelation(sonicNode{queryNode})
 	if err != nil {
-		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: "query": %w`, name, err)
+		return RawWellKnownDefinition{}, oops.With("name", name).Wrapf(err, `wellknown: %q: "query"`, name)
 	}
 	queryRaw, err := queryNode.Raw()
 	if err != nil {
-		return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: "query": %w`, name, err)
+		return RawWellKnownDefinition{}, oops.With("name", name).Wrapf(err, `wellknown: %q: "query"`, name)
 	}
 
 	params := map[string]RawWellKnownParam{}
 	if p := n.Get("params"); p.Exists() && p.TypeSafe() != ast.V_NULL {
 		fields, err := p.MapUseNode()
 		if err != nil {
-			return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: "params": expected an object: %w`, name, err)
+			return RawWellKnownDefinition{}, oops.With("name", name).Wrapf(err, `wellknown: %q: "params": expected an object`, name)
 		}
 		for pname, pnode := range fields {
 			param := RawWellKnownParam{}
 			if t := pnode.Get("type"); t.Exists() {
 				s, err := t.StrictString()
 				if err != nil {
-					return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: param %q: "type" must be a string: %w`, name, pname, err)
+					return RawWellKnownDefinition{}, oops.With("name", name, "param", pname).Wrapf(err, `wellknown: %q: param %q: "type" must be a string`, name, pname)
 				}
 				param.Type = s
 			}
 			if d := pnode.Get("default"); d.Exists() {
 				raw, err := d.Raw()
 				if err != nil {
-					return RawWellKnownDefinition{}, fmt.Errorf(`wellknown: %q: param %q: "default": %w`, name, pname, err)
+					return RawWellKnownDefinition{}, oops.With("name", name, "param", pname).Wrapf(err, `wellknown: %q: param %q: "default"`, name, pname)
 				}
 				param.HasDefault = true
 				param.Default = []byte(raw)

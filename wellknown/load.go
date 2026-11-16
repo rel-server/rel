@@ -2,7 +2,6 @@ package wellknown
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -43,7 +42,7 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 	for _, dir := range dirs {
 		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return fmt.Errorf("walking %q: %w", path, err)
+				return oops.With("path", path).Wrapf(err, "walking %q", path)
 			}
 			if d.IsDir() || strings.HasPrefix(d.Name(), "_") {
 				return nil
@@ -56,7 +55,7 @@ func BuildRegistry(db *pg.DbInfos, cfg *config.Config) (*Registry, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("wellknown: %w", err)
+			return nil, oops.Wrapf(err, "wellknown")
 		}
 	}
 

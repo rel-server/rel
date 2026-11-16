@@ -19,6 +19,7 @@ import (
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/tsgen"
 	"github.com/rel-server/rel/wellknown"
+	"github.com/samber/oops"
 )
 
 func main() {
@@ -146,18 +147,18 @@ func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
 	primaryURI := cfg.Pg.URI
 
 	if err := pg.WaitReady(context.Background(), primaryURI, time.Duration(cfg.Pg.ConnectTimeout)*time.Second); err != nil {
-		return fmt.Errorf("connecting to postgres: %w", err)
+		return oops.Wrapf(err, "connecting to postgres")
 	}
 
 	db, err := pg.NewInfos(primaryURI)
 	if err != nil {
-		return fmt.Errorf("connecting to postgres: %w", err)
+		return oops.Wrapf(err, "connecting to postgres")
 	}
 	defer db.Pool.Close()
 
 	wkReg, err := wellknown.BuildRegistry(db, cfg)
 	if err != nil {
-		return fmt.Errorf("building well-known query registry: %w", err)
+		return oops.Wrapf(err, "building well-known query registry")
 	}
 
 	opts, err := tsgen.Resolve(cfg, tsgen.Overrides{Codec: codecOverride})

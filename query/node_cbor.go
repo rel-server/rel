@@ -97,7 +97,7 @@ func (d *cborDecoder) add(n cnode) int32 {
 // head reads an item's initial byte and its argument. indef is set for an indefinite length (ai 31).
 func (d *cborDecoder) head() (major, ai byte, val uint64, indef bool, err error) {
 	if d.remaining() < 1 {
-		return 0, 0, 0, false, fmt.Errorf("unexpected end of data")
+		return 0, 0, 0, false, oops.Errorf("unexpected end of data")
 	}
 	b := d.doc.data[d.pos]
 	d.pos++
@@ -108,7 +108,7 @@ func (d *cborDecoder) head() (major, ai byte, val uint64, indef bool, err error)
 	case ai == 24 || ai == 25 || ai == 26 || ai == 27:
 		size := 1 << (ai - 24)
 		if d.remaining() < size {
-			return 0, 0, 0, false, fmt.Errorf("unexpected end of data")
+			return 0, 0, 0, false, oops.Errorf("unexpected end of data")
 		}
 		raw := d.doc.data[d.pos : d.pos+size]
 		d.pos += size
@@ -126,7 +126,7 @@ func (d *cborDecoder) head() (major, ai byte, val uint64, indef bool, err error)
 	case ai == 31:
 		return major, ai, 0, true, nil
 	}
-	return 0, 0, 0, false, fmt.Errorf("reserved additional information %d", ai)
+	return 0, 0, 0, false, oops.Errorf("reserved additional information %d", ai)
 }
 
 // item reads one data item and returns its index in the arena.
@@ -138,7 +138,7 @@ func (d *cborDecoder) item(depth int) (int32, error) {
 	switch major {
 	case 0:
 		if indef {
-			return 0, fmt.Errorf("an integer cannot have an indefinite length")
+			return 0, oops.Errorf("an integer cannot have an indefinite length")
 		}
 		if val > math.MaxInt64 {
 			return d.add(cnode{item: itUint, extra: val}), nil
@@ -146,7 +146,7 @@ func (d *cborDecoder) item(depth int) (int32, error) {
 		return d.add(cnode{item: itInt, extra: val}), nil
 	case 1:
 		if indef {
-			return 0, fmt.Errorf("an integer cannot have an indefinite length")
+			return 0, oops.Errorf("an integer cannot have an indefinite length")
 		}
 		if val > math.MaxInt64 {
 			return d.add(cnode{item: itNegBig, extra: val}), nil
@@ -160,7 +160,7 @@ func (d *cborDecoder) item(depth int) (int32, error) {
 		return d.mapItem(val, indef, depth)
 	case 6:
 		if indef {
-			return 0, fmt.Errorf("a tag cannot have an indefinite length")
+			return 0, oops.Errorf("a tag cannot have an indefinite length")
 		}
 		return d.tagItem(val, depth)
 	}
@@ -170,7 +170,7 @@ func (d *cborDecoder) item(depth int) (int32, error) {
 func (d *cborDecoder) simpleItem(ai byte, val uint64, indef bool) (int32, error) {
 	switch {
 	case indef:
-		return 0, fmt.Errorf("unexpected break")
+		return 0, oops.Errorf("unexpected break")
 	case ai == 20:
 		return d.add(cnode{item: itFalse}), nil
 	case ai == 21:
@@ -184,7 +184,7 @@ func (d *cborDecoder) simpleItem(ai byte, val uint64, indef bool) (int32, error)
 	case ai == 27:
 		return d.add(cnode{item: itFloat, extra: val}), nil
 	}
-	return 0, fmt.Errorf("unsupported simple value %d", val)
+	return 0, oops.Errorf("unsupported simple value %d", val)
 }
 
 // float16ToFloat64 widens an IEEE 754 half precision float.
@@ -213,12 +213,12 @@ func (d *cborDecoder) stringItem(major byte, length uint64, indef bool) (int32, 
 	}
 	if !indef {
 		if length > uint64(d.remaining()) {
-			return 0, fmt.Errorf("a string of %d bytes runs past the end of the data", length)
+			return 0, oops.Errorf("a string of %d bytes runs past the end of the data", length)
 		}
 		off := d.pos
 		d.pos += int(length)
 		if kind == itText && !utf8.Valid(d.doc.data[off:d.pos]) {
-			return 0, fmt.Errorf("a text string that is not valid UTF-8")
+			return 0, oops.Errorf("a text string that is not valid UTF-8")
 		}
 		return d.add(cnode{item: kind, a: off, b: int(length)}), nil
 	}
@@ -226,7 +226,7 @@ func (d *cborDecoder) stringItem(major byte, length uint64, indef bool) (int32, 
 	var assembled []byte
 	for {
 		if d.remaining() < 1 {
-			return 0, fmt.Errorf("unexpected end of data in an indefinite-length string")
+			return 0, oops.Errorf("unexpected end of data in an indefinite-length string")
 		}
 		if d.doc.data[d.pos] == 0xff {
 			d.pos++
@@ -237,15 +237,15 @@ func (d *cborDecoder) stringItem(major byte, length uint64, indef bool) (int32, 
 			return 0, err
 		}
 		if m != major || ind {
-			return 0, fmt.Errorf("a chunk of an indefinite-length string that is not a definite-length string of the same type")
+			return 0, oops.Errorf("a chunk of an indefinite-length string that is not a definite-length string of the same type")
 		}
 		if n > uint64(d.remaining()) {
-			return 0, fmt.Errorf("a chunk of %d bytes runs past the end of the data", n)
+			return 0, oops.Errorf("a chunk of %d bytes runs past the end of the data", n)
 		}
 		chunk := d.doc.data[d.pos : d.pos+int(n)]
 		d.pos += int(n)
 		if kind == itText && !utf8.Valid(chunk) {
-			return 0, fmt.Errorf("a text chunk that is not valid UTF-8")
+			return 0, oops.Errorf("a text chunk that is not valid UTF-8")
 		}
 		assembled = append(assembled, chunk...)
 	}
@@ -256,20 +256,20 @@ func (d *cborDecoder) stringItem(major byte, length uint64, indef bool) (int32, 
 // countFits checks that a container header's count can be backed by the bytes left : every element takes at least one.
 func (d *cborDecoder) countFits(n uint64, perElement int) error {
 	if n > uint64(d.remaining())/uint64(perElement) {
-		return fmt.Errorf("a count of %d runs past the end of the data", n)
+		return oops.Errorf("a count of %d runs past the end of the data", n)
 	}
 	return nil
 }
 
 func (d *cborDecoder) arrayItem(n uint64, indef bool, depth int) (int32, error) {
 	if depth >= cborMaxDepth {
-		return 0, fmt.Errorf("nested more than %d levels", cborMaxDepth)
+		return 0, oops.Errorf("nested more than %d levels", cborMaxDepth)
 	}
 	if indef {
 		var elems []int32
 		for {
 			if d.remaining() < 1 {
-				return 0, fmt.Errorf("unexpected end of data in an indefinite-length array")
+				return 0, oops.Errorf("unexpected end of data in an indefinite-length array")
 			}
 			if d.doc.data[d.pos] == 0xff {
 				d.pos++
@@ -302,7 +302,7 @@ func (d *cborDecoder) arrayItem(n uint64, indef bool, depth int) (int32, error) 
 
 func (d *cborDecoder) mapItem(n uint64, indef bool, depth int) (int32, error) {
 	if depth >= cborMaxDepth {
-		return 0, fmt.Errorf("nested more than %d levels", cborMaxDepth)
+		return 0, oops.Errorf("nested more than %d levels", cborMaxDepth)
 	}
 	var kids []int32 // used for an indefinite map, whose size is not known up front
 	start := len(d.doc.kids)
@@ -316,7 +316,7 @@ func (d *cborDecoder) mapItem(n uint64, indef bool, depth int) (int32, error) {
 	for ; indef || count < int(n); count++ {
 		if indef {
 			if d.remaining() < 1 {
-				return 0, fmt.Errorf("unexpected end of data in an indefinite-length map")
+				return 0, oops.Errorf("unexpected end of data in an indefinite-length map")
 			}
 			if d.doc.data[d.pos] == 0xff {
 				d.pos++
@@ -328,7 +328,7 @@ func (d *cborDecoder) mapItem(n uint64, indef bool, depth int) (int32, error) {
 			return 0, err
 		}
 		if d.doc.nodes[k].item != itText {
-			return 0, fmt.Errorf("a map key that is not a text string")
+			return 0, oops.Errorf("a map key that is not a text string")
 		}
 		v, err := d.item(depth + 1)
 		if err != nil {
@@ -356,7 +356,7 @@ func (d *cborDecoder) checkDistinctKeys(start, pairs int) error {
 		for i := 1; i < pairs; i++ {
 			for j := 0; j < i; j++ {
 				if string(key(i)) == string(key(j)) {
-					return fmt.Errorf("duplicate map key %q", key(i))
+					return oops.Errorf("duplicate map key %q", key(i))
 				}
 			}
 		}
@@ -366,7 +366,7 @@ func (d *cborDecoder) checkDistinctKeys(start, pairs int) error {
 	for i := 0; i < pairs; i++ {
 		k := string(key(i))
 		if _, dup := seen[k]; dup {
-			return fmt.Errorf("duplicate map key %q", k)
+			return oops.Errorf("duplicate map key %q", k)
 		}
 		seen[k] = struct{}{}
 	}
@@ -376,7 +376,7 @@ func (d *cborDecoder) checkDistinctKeys(start, pairs int) error {
 // tagItem reads a tag and its content, and gives the pair the meaning this adapter knows for it.
 func (d *cborDecoder) tagItem(tag uint64, depth int) (int32, error) {
 	if depth >= cborMaxDepth {
-		return 0, fmt.Errorf("nested more than %d levels", cborMaxDepth)
+		return 0, oops.Errorf("nested more than %d levels", cborMaxDepth)
 	}
 	if tag == cborenc.TagStructureDef || (tag >= cborenc.StructureTagBase && tag < cborenc.StructureTagBase+cborenc.MaxStructures) {
 		return d.structureItem(tag, depth)
@@ -404,7 +404,7 @@ func (d *cborDecoder) tagItem(tag uint64, depth int) (int32, error) {
 		}
 		t, err := time.Parse(time.RFC3339Nano, string(content.textBytes()))
 		if err != nil {
-			return 0, fmt.Errorf("a tag 0 value that is not an RFC 3339 date and time: %w", err)
+			return 0, oops.Wrapf(err, "a tag 0 value that is not an RFC 3339 date and time")
 		}
 		return d.addInstant(t), nil
 	case 1:
@@ -413,11 +413,11 @@ func (d *cborDecoder) tagItem(tag uint64, depth int) (int32, error) {
 		case itInt:
 			t = time.Unix(int64(content.extra), 0)
 		case itUint:
-			return 0, fmt.Errorf("a tag 1 value out of range")
+			return 0, oops.Errorf("a tag 1 value out of range")
 		case itFloat:
 			f := math.Float64frombits(content.extra)
 			if math.IsNaN(f) || math.IsInf(f, 0) || math.Abs(f) > 9e18 { // beyond what a time.Time can hold
-				return 0, fmt.Errorf("a tag 1 value out of range")
+				return 0, oops.Errorf("a tag 1 value out of range")
 			}
 			sec := math.Floor(f)
 			t = time.Unix(int64(sec), int64(math.Round((f-sec)*1e9)))
@@ -457,11 +457,11 @@ func (d *cborDecoder) tagItem(tag uint64, depth int) (int32, error) {
 // its names are the text nodes of the definition, shared by every record that refers to it.
 func (d *cborDecoder) structureItem(tag uint64, depth int) (int32, error) {
 	bad := func(format string, args ...any) (int32, error) {
-		return 0, fmt.Errorf("tag %d: "+format, append([]any{tag}, args...)...)
+		return 0, oops.Errorf("tag %d: "+format, append([]any{tag}, args...)...)
 	}
 	// the tag and its array each count as a level, so the values sit two below the tag
 	if depth+1 >= cborMaxDepth {
-		return 0, fmt.Errorf("nested more than %d levels", cborMaxDepth)
+		return 0, oops.Errorf("nested more than %d levels", cborMaxDepth)
 	}
 	major, _, n, indef, err := d.head()
 	if err != nil {
@@ -526,7 +526,7 @@ func (d *cborDecoder) structureNames(tag uint64, depth int) ([]int32, error) {
 		return nil, err
 	}
 	if major != 4 || indef {
-		return nil, fmt.Errorf("tag %d: the names of a definition are a definite-length array", tag)
+		return nil, oops.Errorf("tag %d: the names of a definition are a definite-length array", tag)
 	}
 	if err := d.countFits(n, 1); err != nil {
 		return nil, err
@@ -538,7 +538,7 @@ func (d *cborDecoder) structureNames(tag uint64, depth int) ([]int32, error) {
 			return nil, err
 		}
 		if d.doc.nodes[k].item != itText {
-			return nil, fmt.Errorf("tag %d: a name that is not a text string", tag)
+			return nil, oops.Errorf("tag %d: a name that is not a text string", tag)
 		}
 		names[i] = k
 	}
@@ -547,7 +547,7 @@ func (d *cborDecoder) structureNames(tag uint64, depth int) ([]int32, error) {
 	for _, k := range names {
 		name := string(d.doc.nodes[k].textBytes())
 		if _, dup := seen[name]; dup {
-			return nil, fmt.Errorf("tag %d: duplicate name %q", tag, name)
+			return nil, oops.Errorf("tag %d: duplicate name %q", tag, name)
 		}
 		seen[name] = struct{}{}
 	}

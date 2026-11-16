@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/rel-server/rel/config"
+	"github.com/samber/oops"
 )
 
 // spKeyPair is the SAML SP identity : Key signs AuthnRequests, Certificate is published in the metadata.
@@ -36,7 +37,7 @@ func LoadOrGenerateSPKeyPair(certPathList, keyPathList string, hostnames []strin
 
 	kp, certPEM, keyPEM, err := generateSelfSignedKeyPair(hostnames)
 	if err != nil {
-		return nil, fmt.Errorf("sso: generating SAML SP certificate: %w", err)
+		return nil, oops.Wrapf(err, "sso: generating SAML SP certificate")
 	}
 
 	n := min(len(certCandidates), len(keyCandidates))
@@ -46,10 +47,10 @@ func LoadOrGenerateSPKeyPair(certPathList, keyPathList string, hostnames []strin
 			continue
 		}
 		if writeErr := os.WriteFile(certCandidates[i], certPEM, 0o600); writeErr != nil {
-			return nil, fmt.Errorf("sso: writing generated SAML SP certificate to %s: %w", certCandidates[i], writeErr)
+			return nil, oops.With("path", certCandidates[i]).Wrapf(writeErr, "sso: writing generated SAML SP certificate to %s", certCandidates[i])
 		}
 		if writeErr := os.WriteFile(keyCandidates[i], keyPEM, 0o600); writeErr != nil {
-			return nil, fmt.Errorf("sso: writing generated SAML SP key to %s: %w", keyCandidates[i], writeErr)
+			return nil, oops.With("path", keyCandidates[i]).Wrapf(writeErr, "sso: writing generated SAML SP key to %s", keyCandidates[i])
 		}
 		logWarnf(logger, "sso: generated a new SAML SP certificate at %s (key: %s) — hand its metadata (GET /auth/saml/{name}/metadata) to every configured IdP's administrator", certCandidates[i], keyCandidates[i])
 		return kp, nil
@@ -83,19 +84,19 @@ func tryLoadExistingKeyPair(certCandidates, keyCandidates []string) (*spKeyPair,
 func parseKeyPair(certPEM, keyPEM []byte) (*spKeyPair, error) {
 	certBlock, _ := pem.Decode(certPEM)
 	if certBlock == nil {
-		return nil, fmt.Errorf("sso: no PEM block found in certificate file")
+		return nil, oops.Errorf("sso: no PEM block found in certificate file")
 	}
 	cert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("sso: parsing certificate: %w", err)
+		return nil, oops.Wrapf(err, "sso: parsing certificate")
 	}
 	keyBlock, _ := pem.Decode(keyPEM)
 	if keyBlock == nil {
-		return nil, fmt.Errorf("sso: no PEM block found in key file")
+		return nil, oops.Errorf("sso: no PEM block found in key file")
 	}
 	key, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("sso: parsing private key: %w", err)
+		return nil, oops.Wrapf(err, "sso: parsing private key")
 	}
 	return &spKeyPair{Key: key, Certificate: cert}, nil
 }
@@ -121,11 +122,11 @@ func generateSelfSignedKeyPair(hostnames []string) (*spKeyPair, []byte, []byte, 
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating certificate: %w", err)
+		return nil, nil, nil, oops.Wrapf(err, "creating certificate")
 	}
 	cert, err := x509.ParseCertificate(derBytes)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("parsing generated certificate: %w", err)
+		return nil, nil, nil, oops.Wrapf(err, "parsing generated certificate")
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
