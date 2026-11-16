@@ -24,7 +24,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.0.73">
+      <meta name="generator" content="zensical-0.1.1">
     
     
       
@@ -35,7 +35,7 @@
       
         
       
-      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.ebb7f775.min.css">
       
         
           
@@ -3329,9 +3329,6 @@ lives elsewhere, set <code>baseUrl</code> (default <code>"/"</code>; a trailing 
 a joined alias that isn't declared, and it's a compile error, not a runtime surprise. The same
 goes for <code>relation()</code>/<code>func()</code>'s own first argument: <code>relation("hotel.bogus", ...)</code> is a compile
 error too, with your editor autocompleting the relation/function names your schema actually has.</p>
-<p>Hovering over <code>properties</code> (or any <code>.get()</code>/<code>.write()</code>/<code>call()</code> result) shows a plain, flattened
-object literal — <code>{ id: number; name: string; rooms: {...}[] }</code> — at every nesting level, not the
-chain of internal type names that computed it.</p>
 <p>A joined column's shortcut type-checks correctly even without a callback — write it as a plain
 object literal, with <code>shortcut</code> right on the join entry, and it's still checked against exactly
 the foreign keys reachable from the relation you're joining <em>from</em>, with autocomplete listing the
@@ -3456,8 +3453,7 @@ assignable to a draft, so a function that edits rows can take a draft and be han
 </span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="kd">const</span><span class="w"> </span><span class="nx">all</span><span class="o">:</span><span class="w"> </span><span class="kt">Property</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">properties</span><span class="p">.</span><span class="nx">get</span><span class="p">()</span>
 </span></code></pre></div>
 <p><code>$row</code> and <code>$draft</code> only exist for <code>typeof</code>: they are declared, never assigned, so reading
-<code>properties.$row</code> at runtime gives <code>undefined</code>. They are flattened the same way <code>.get()</code> and
-<code>.write()</code> are, so hovering <code>Property</code> shows the actual object shape.</p>
+<code>properties.$row</code> at runtime gives <code>undefined</code>.</p>
 <p>A row that sits in a join is reached by indexing the root's type with the join's name. A to-many
 join is an array, so index it with <code>[number]</code>; a to-one join that can be <code>null</code> needs <code>NonNullable</code>
 around the indexed type:</p>
@@ -3890,8 +3886,7 @@ list of tokens, in any order, in the <code>codec</code> GET parameter of <code>G
 </tbody>
 </table>
 <p><code>json,temporal,bigint</code> and <code>cbor,temporal</code> are valid; <code>json,cbor</code>, <code>date,temporal</code>, a token twice and an unknown token
-are a <code>400</code> (a bad <code>typescript.codec</code> stops <code>rel</code> at startup). The generated file's header says which options built it
-(<code>// Codec: cbor,temporal,bigint</code>), and it has no <code>import</code> except for the package the options need, at its top.</p>
+are a <code>400</code> (a bad <code>typescript.codec</code> stops <code>rel</code> at startup). The generated file has no <code>import</code> except for the package the options need, at its top.</p>
 <p>The types follow the options: <code>Int8</code>, <code>Timestamptz</code>, <code>Timestamp</code>, <code>PgDate</code> and <code>Bytea</code> are what the codec hands over, in reads and
 writes, and an id column over a <code>bigserial</code> follows. The file offers no supported way to change them from your own code: ask for another codec instead.</p>
 <p>What <code>cbor</code> gives a value (it keeps its column type instead of becoming a string):</p>
@@ -3990,12 +3985,6 @@ faster in <code>cbor-x</code>.</p>
   <code>jsonb</code> value used as a dictionary of ids, gain no bytes from them and take about 2.4 times as long to encode : turn it
   off for a query that sends mostly those. Everything else is written correctly either way.</li>
 </ul>
-<p>Sharing a prototype (<code>draft()</code> rows, or a class) does not speed up the encoding : <code>cbor-x</code> compares the keys of every
-object whatever its prototype, and an object with a prototype of its own takes a slower path through its extensions.</p>
-<p>The <code>cbor</code> code is about 100 lines: the tag entries, the encoder options, and a rewrite of what <code>cbor-x</code> writes differently
-from <code>JSON.stringify</code> (an <code>undefined</code> object member is dropped, and a whole number of 2^32 or more is sent as an integer,
-which an <code>int8</code> column needs). Decoding is not faster with <code>date</code> than with <code>temporal</code>: building the <code>Temporal</code> objects is a
-small part of the cost, <code>cbor-x</code> itself the rest.</p>
 <h2 id="databasejson">database.json<a class="headerlink" href="#databasejson" title="Permanent link">&para;</a></h2>
 <p><code>GET /rel/database.json</code> serves the same introspected schema as plain JSON instead of TypeScript
 types — for a non-TypeScript consumer, or for tooling built directly on the raw introspected
@@ -4113,10 +4102,10 @@ re-fetch step.</p>
       
         
         
-      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      <script src="../assets/javascripts/bundle.3cb411a8.min.js"></script>
       
     
   </body>

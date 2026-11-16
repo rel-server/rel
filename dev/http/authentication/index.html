@@ -24,7 +24,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.0.73">
+      <meta name="generator" content="zensical-0.1.1">
     
     
       
@@ -35,7 +35,7 @@
       
         
       
-      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.ebb7f775.min.css">
       
         
           
@@ -2368,6 +2368,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-requests-role" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The request's role
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2902,6 +2913,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-requests-role" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The request's role
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3113,9 +3135,7 @@ just two differently-named entries. Each one gets its own routes:</p>
 </ul>
 <p>Both protocols converge on the same callback function signature — one <code>payload</code> argument,
 returning a single <code>jsonb</code> value shaped like <a href="../requests-responses/#httpresponse"><code>HttpResponse</code></a>
-plus its own <code>content</code>/<code>template_data</code> keys (this one call site predates, and isn't a
-declared route itself, so it keeps its own single-envelope shape rather than the two-<code>OUT</code>-column
-one) — regardless of which protocol produced it:</p>
+plus its own <code>content</code>/<code>template_data</code> keys — regardless of which protocol produced it:</p>
 <div class="language-sql highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">sso_callback</span><span class="p">(</span><span class="n">payload</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="n">jsonb</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">language</span><span class="w"> </span><span class="n">plpgsql</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
@@ -3293,8 +3313,7 @@ in every endpoint, both calls of a <code>stream_upload</code> route included. Th
 <a href="../#middleware">middleware</a> accepts the request, so a request middleware rejects never receives one.</p>
 <p>For revocation before either of those would naturally expire it — a password change, a ban, an
 admin-triggered logout — declare a session-checking <a href="../#middleware">middleware</a> at
-whatever prefix needs it (<code>/</code> to cover everything, including <code>/rel</code>). Unlike the old
-<code>check_session</code> mechanism, middleware runs <em>after</em> the role switch, as the request's own
+whatever prefix needs it (<code>/</code> to cover everything, including <code>/rel</code>). The middleware runs <em>after</em> the role switch, as the request's own
 already-resolved role — and terminates with <code>{status: 401, jwt: null}</code> to reject and clear
 the session in one step, rather than merely raising:</p>
 <div class="language-sql highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">auth</span><span class="p">.</span><span class="n">check_session</span><span class="p">(</span><span class="n">req</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="n">jsonb</span><span class="p">)</span>
@@ -3335,20 +3354,28 @@ right alongside the role switch, so it's there for every route/middleware functi
 returning <code>null</code> on a connection where it was never set — worth keeping even though rel itself
 always sets it, since a direct <code>psql</code> session (superuser, migrations) never goes through this
 path at all.</p>
+<h3 id="the-requests-role">The request's role<a class="headerlink" href="#the-requests-role" title="Permanent link">&para;</a></h3>
+<p>rel does not store the role in a setting of its own: it switches to it with <code>SET LOCAL ROLE</code>, for every request, the anonymous role included. Inside a <code>SECURITY DEFINER</code> function, <code>current_user</code> is the function's owner, not the request's role. To read the role the request runs as from such a function, use <code>current_setting('role')</code>, which <code>SET ROLE</code> sets and which a <code>SECURITY DEFINER</code> function does not change.</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">create</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">audit</span><span class="p">.</span><span class="n">who</span><span class="p">()</span><span class="w"> </span><span class="k">returns</span><span class="w"> </span><span class="nb">text</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">language</span><span class="w"> </span><span class="k">sql</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="k">security</span><span class="w"> </span><span class="k">definer</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="k">as</span><span class="w"> </span><span class="err">$$</span><span class="w"> </span><span class="k">select</span><span class="w"> </span><span class="n">current_setting</span><span class="p">(</span><span class="s1">'role'</span><span class="p">)</span><span class="w"> </span><span class="err">$$</span><span class="p">;</span>
+</span></code></pre></div>
+<p>It returns the request's role (the anonymous role for an unauthenticated request), or <code>none</code> on a connection where no role was switched, such as a direct <code>psql</code> session. The claims are not a substitute: <code>rel.jwt.claims</code> is <code>null</code> for an anonymous request, so it carries no role then.</p>
 <h2 id="deployment-checklist">Deployment checklist<a class="headerlink" href="#deployment-checklist" title="Permanent link">&para;</a></h2>
 <p><code>SET ROLE</code> only succeeds when the connecting role is already a member of the role being
 switched to — grant it explicitly for every role any JWT in the deployment may carry,
 including the anonymous one:</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"~anonymous"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"editor"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"admin"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"~anonymous"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"editor"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="k">grant</span><span class="w"> </span><span class="ss">"admin"</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">rel_user</span><span class="p">;</span>
 </span></code></pre></div>
 <p>That grants <code>rel_user</code> (<code>pg.user</code> — see <a href="../../configuration/best-practices/#keep-pguser's-own-privileges-minimal">Best practices ## Keep pg.user's own privileges
 minimal</a>)
 <em>membership</em> — the ability to <code>SET ROLE</code> into <code>~anonymous</code> at all. A route function still
 needs its own <code>EXECUTE</code> grant, directly to <code>~anonymous</code> (or to a role it belongs to), before an
 anonymous request can reach it:</p>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">grant</span><span class="w"> </span><span class="k">execute</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">guest_login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="ss">"~anonymous"</span><span class="p">;</span>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">grant</span><span class="w"> </span><span class="k">execute</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">guest_login</span><span class="p">(</span><span class="n">jsonb</span><span class="p">)</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="ss">"~anonymous"</span><span class="p">;</span>
 </span></code></pre></div>
 <p>Skipping a grant on a <em>route</em> doesn't fail at startup : rel caches, once per discovered route
 at introspection/reload time, whether the anonymous role can actually reach it (see below), and
@@ -3581,10 +3608,10 @@ of keys not repeated here (<code>openid.&lt;name&gt;.client_id</code>/<code>clie
       
         
         
-      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      <script src="../../assets/javascripts/bundle.3cb411a8.min.js"></script>
       
     
   </body>
