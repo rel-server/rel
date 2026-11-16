@@ -70,12 +70,10 @@ func TestRequestMiddleware_ReusesInboundRequestID(t *testing.T) {
 	}
 }
 
-// TestFromContext_FallsBackToDefault : a context that never passed through
-// RequestMiddleware still gets a usable logger, not a nil one.
+// A context that never passed through RequestMiddleware gets slog's default logger.
 func TestFromContext_FallsBackToDefault(t *testing.T) {
-	logger := FromContext(t.Context())
-	if logger == nil {
-		t.Fatal("expected a non-nil fallback logger")
+	if FromContext(t.Context()) != slog.Default() {
+		t.Fatal("expected slog.Default() as the fallback logger")
 	}
 }
 

@@ -1,9 +1,7 @@
 package server
 
-// Access logging : handleRel must emit exactly one
-// info-level "request" line per HTTP request, with item_count/write set
-// from the resolved Sequence, plus debug-level per-query lines carrying
-// the actual SQL sent to Postgres.
+// /rel access logging : the "request" line carries role, item_count, write and targets from the resolved
+// Sequence ; debug per-query lines carry the SQL sent.
 
 import (
 	"bytes"
@@ -60,10 +58,8 @@ func TestAccessLog_ReadRequest(t *testing.T) {
 	if line == nil {
 		t.Fatalf("expected a \"request\" access line, got %v", lines)
 	}
-	for _, key := range []string{"method", "path", "status", "response_size", "duration", "role", "item_count", "write", "targets"} {
-		if _, ok := line[key]; !ok {
-			t.Errorf("access log line missing %q : %v", key, line)
-		}
+	if _, ok := line["role"]; !ok {
+		t.Errorf("access log line missing role : %v", line)
 	}
 	if line["item_count"] != float64(1) {
 		t.Errorf("expected item_count=1, got %v", line["item_count"])

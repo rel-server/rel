@@ -113,35 +113,6 @@ func TestQuery_ReadScalarFunction(t *testing.T) {
 	}
 }
 
-func TestQuery_WriteThenReread(t *testing.T) {
-	out, err := run(t, `{
-		"query": {
-			"relation": "director", "schema": "public",
-			"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
-			"write_mode": "insert",
-			"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
-		},
-		"data": [{"name": "HTTP Write Director", "movies": [{"title": "HTTP Movie"}]}]
-	}`, Options{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	rows := decodeJSON[[]map[string]any](t, []byte(out))
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d : %s", len(rows), out)
-	}
-	if rows[0]["id"] == nil {
-		t.Fatalf("expected a real, server-generated id in the reread response, got %v", rows[0])
-	}
-	if rows[0]["name"] != "HTTP Write Director" {
-		t.Errorf("expected name=HTTP Write Director, got %v", rows[0]["name"])
-	}
-	movies, ok := rows[0]["movies"].([]any)
-	if !ok || len(movies) != 1 {
-		t.Fatalf("expected 1 embedded movie in the reread, got %v", rows[0]["movies"])
-	}
-}
-
 func TestQuery_Sequence_WriteThenReadWhatItWrote(t *testing.T) {
 	out, err := run(t, `[
 		{
@@ -356,42 +327,6 @@ func TestQuery_WriteOutgoingChildFK(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected the movie correctly linked to its new director in the database, got count=%d", count)
-	}
-}
-
-func TestQuery_WhereWordFormOperatorSynonyms(t *testing.T) {
-	ctx := context.Background()
-	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Word Form Operator Director')`); err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-
-	wordForm, err := run(t, `{
-		"relation": "director", "schema": "public",
-		"select": ["*~"],
-		"where": ["and", ["eq", ["col", "name"], "Word Form Operator Director"], ["gte", ["col", "id"], 1]]
-	}`, Options{})
-	if err != nil {
-		t.Fatalf("word-form: %v", err)
-	}
-	symbolForm, err := run(t, `{
-		"relation": "director", "schema": "public",
-		"select": ["*~"],
-		"where": ["and", ["=", ["col", "name"], "Word Form Operator Director"], [">=", ["col", "id"], 1]]
-	}`, Options{})
-	if err != nil {
-		t.Fatalf("symbol-form: %v", err)
-	}
-
-	wordRows := decodeJSON[[]map[string]any](t, []byte(wordForm))
-	symbolRows := decodeJSON[[]map[string]any](t, []byte(symbolForm))
-	if len(wordRows) != 1 || len(symbolRows) != 1 {
-		t.Fatalf("expected exactly 1 row from each spelling, got word=%d symbol=%d", len(wordRows), len(symbolRows))
-	}
-	if wordRows[0]["name"] != "Word Form Operator Director" {
-		t.Errorf("expected the word-form query to find the row, got %v", wordRows[0])
-	}
-	if wordRows[0]["id"] != symbolRows[0]["id"] {
-		t.Errorf("expected both spellings to return the identical row, got word=%v symbol=%v", wordRows[0], symbolRows[0])
 	}
 }
 

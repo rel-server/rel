@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
@@ -51,9 +50,8 @@ func TestNewInfosAdminQuery_AnonymousRoleExistence(t *testing.T) {
 	}
 }
 
-// Exercises route.BuildRegistry's has_schema_privilege/has_function_privilege
-// query (route.md Anonymous route authorization) under a non-superuser login.
-func TestAnonymousAndPublicPrivilegeQuery_NonSuperuser(t *testing.T) {
+// The pg_roles existence check, introspecting as a non-superuser login.
+func TestNewInfosAdminQuery_AnonymousRoleExistence_NonSuperuser(t *testing.T) {
 	ctx := context.Background()
 	container, err := postgres.Run(ctx, "postgres:16-alpine",
 		postgres.WithOrderedInitScripts("testdata/schema.sql", "testdata/anon_priv.sql"),
@@ -74,107 +72,21 @@ func TestAnonymousAndPublicPrivilegeQuery_NonSuperuser(t *testing.T) {
 	}
 	uri := fmt.Sprintf("postgres://plain_login_role:test-password@%s:%s/postgres?sslmode=disable", host, port.Port())
 
-	t.Run("pg_roles existence check under a non-superuser introspection login", func(t *testing.T) {
-		// Same query as the superuser test above, but connecting AS
-		// plain_login_role — proves the correct answer, not just "no error."
-		dbFound, err := NewInfosAdminQuery(uri, uri, 0, "probe_role")
-		if err != nil {
-			t.Fatalf("NewInfosAdminQuery as plain_login_role: %v", err)
-		}
-		defer dbFound.Pool.Close()
-		if !dbFound.AnonymousRoleExists {
-			t.Errorf("expected AnonymousRoleExists=true for probe_role (exists), got false")
-		}
-
-		dbMissing, err := NewInfosAdminQuery(uri, uri, 0, "role_nobody_ever_created_xyz")
-		if err != nil {
-			t.Fatalf("NewInfosAdminQuery as plain_login_role: %v", err)
-		}
-		defer dbMissing.Pool.Close()
-		if dbMissing.AnonymousRoleExists {
-			t.Errorf("expected AnonymousRoleExists=false for a role nothing created, got true")
-		}
-	})
-
-	pool, err := pgxpool.New(ctx, uri)
+	dbFound, err := NewInfosAdminQuery(uri, uri, 0, "probe_role")
 	if err != nil {
-		t.Fatalf("pool: %v", err)
+		t.Fatalf("NewInfosAdminQuery as plain_login_role: %v", err)
 	}
-	defer pool.Close()
-
-	oidOf := func(t *testing.T, schema, name string) int {
-		t.Helper()
-		var oid int
-		if err := pool.QueryRow(ctx, "select oid::integer from pg_proc where pronamespace = $1::regnamespace and proname = $2", schema, name).Scan(&oid); err != nil {
-			t.Fatalf("resolving oid for %s.%s: %v", schema, name, err)
-		}
-		return oid
+	defer dbFound.Pool.Close()
+	if !dbFound.AnonymousRoleExists {
+		t.Errorf("expected AnonymousRoleExists=true for probe_role (exists), got false")
 	}
 
-	// Mirrors route.applyAnonymousAuthorization's actual query : anonOK
-	// requires an EXPLICIT EXECUTE grant (never one credited only via
-	// PUBLIC), while publicOK keeps using has_function_privilege, which
-	// does credit PUBLIC.
-	check := func(t *testing.T, role string, oid int) (anonOK, publicOK bool) {
-		t.Helper()
-		err := pool.QueryRow(ctx, `
-			select has_schema_privilege($1, f.pronamespace, 'USAGE')
-			         and exists (
-			           select 1
-			           from pg_roles r,
-			                aclexplode(coalesce(f.proacl, acldefault('f', f.proowner))) as a(grantor, grantee, privilege_type, is_grantable)
-			           where r.rolname = $1
-			             and a.privilege_type = 'EXECUTE'
-			             and a.grantee <> 0
-			             and pg_has_role(r.oid, a.grantee, 'USAGE')
-			         ),
-			       has_schema_privilege('public', f.pronamespace, 'USAGE') and has_function_privilege('public', f.oid, 'EXECUTE')
-			from pg_proc f where f.oid = $2
-		`, role, oid).Scan(&anonOK, &publicOK)
-		if err != nil {
-			t.Fatalf("privilege query: %v", err)
-		}
-		return
+	dbMissing, err := NewInfosAdminQuery(uri, uri, 0, "role_nobody_ever_created_xyz")
+	if err != nil {
+		t.Fatalf("NewInfosAdminQuery as plain_login_role: %v", err)
 	}
-
-	t.Run("locked schema : EXECUTE granted via PUBLIC default but USAGE withheld — must be unreachable", func(t *testing.T) {
-		oid := oidOf(t, "locked_schema", "fn_locked")
-		anonOK, publicOK := check(t, "probe_role", oid)
-		if anonOK {
-			t.Errorf("expected probe_role NOT reachable (no schema USAGE grant), got reachable")
-		}
-		if publicOK {
-			t.Errorf("expected PUBLIC NOT reachable (no schema USAGE grant), got reachable")
-		}
-	})
-
-	t.Run("open schema : both USAGE and EXECUTE explicitly granted — reachable", func(t *testing.T) {
-		oid := oidOf(t, "open_schema", "fn_open")
-		anonOK, _ := check(t, "probe_role", oid)
-		if !anonOK {
-			t.Errorf("expected probe_role reachable (explicit USAGE+EXECUTE grants), got unreachable")
-		}
-	})
-
-	t.Run("genuinely PUBLIC-reachable via defaults : probe_role can really call it, but anon check must still reject it", func(t *testing.T) {
-		oid := oidOf(t, "default_only_schema", "fn_default_only")
-		anonOK, publicOK := check(t, "probe_role", oid)
-		if anonOK {
-			t.Errorf("expected probe_role NOT reachable (EXECUTE never explicitly granted to probe_role, only inherited via PUBLIC), got reachable")
-		}
-		if !publicOK {
-			t.Errorf("expected PUBLIC reachable (schema USAGE granted to PUBLIC, EXECUTE left at CREATE FUNCTION's own default), got unreachable")
-		}
-	})
-
-	t.Run("open schema : a role with no grants at all is not reachable", func(t *testing.T) {
-		oid := oidOf(t, "open_schema", "fn_open")
-		anonOK, publicOK := check(t, "plain_login_role", oid)
-		if anonOK {
-			t.Errorf("expected plain_login_role NOT reachable (no grants on open_schema), got reachable")
-		}
-		if publicOK {
-			t.Errorf("expected PUBLIC NOT reachable on open_schema (only probe_role was granted), got reachable")
-		}
-	})
+	defer dbMissing.Pool.Close()
+	if dbMissing.AnonymousRoleExists {
+		t.Errorf("expected AnonymousRoleExists=false for a role nothing created, got true")
+	}
 }

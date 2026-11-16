@@ -21,6 +21,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
@@ -368,29 +369,20 @@ func TestIsIndexed_CoveringIndexIgnoresIncludeColumns(t *testing.T) {
 	}
 }
 
-func TestIsIndexed_ExcludesPartialIndex(t *testing.T) {
-	orders := relationByName(t, "orders")
-
-	if orders.IsIndexed([]string{"flag"}) {
-		t.Errorf("flag is only covered by a partial index (idx_partial_only) and must not count")
-	}
-}
-
-func TestIsIndexed_ExcludesExpressionIndex(t *testing.T) {
-	orders := relationByName(t, "orders")
-
-	if orders.IsIndexed([]string{"note"}) {
-		t.Errorf("note is only covered by an expression index (idx_expr_only) and must not count")
-	}
-}
-
-func TestIndexes_RawListExcludesPartialAndExpression(t *testing.T) {
+// Partial and expression indexes are dropped at introspection : they never make a column count as indexed.
+func TestIndexes_ExcludePartialAndExpression(t *testing.T) {
 	orders := relationByName(t, "orders")
 
 	for _, idx := range orders.Indexes {
 		if idx.Name == "idx_partial_only" || idx.Name == "idx_expr_only" {
 			t.Errorf("expected %s to be excluded from introspection entirely, but it's present in Indexes", idx.Name)
 		}
+	}
+	if orders.IsIndexed([]string{"flag"}) {
+		t.Errorf("flag is only covered by a partial index (idx_partial_only) and must not count")
+	}
+	if orders.IsIndexed([]string{"note"}) {
+		t.Errorf("note is only covered by an expression index (idx_expr_only) and must not count")
 	}
 }
 
@@ -498,10 +490,9 @@ func TestType_ArrayResolution(t *testing.T) {
 	}
 }
 
-// ---- regression : pg.pool_size (config.Pg.PoolSize) actually caps the
-// query pool, never the short-lived introspection connection -------------
+// ---- regression : pg.pool_size (config.Pg.PoolSize) caps the query pool ----
 
-func TestNewInfosAdminQuery_PoolSizeAppliesToQueryPoolOnly(t *testing.T) {
+func TestNewInfosAdminQuery_PoolSizeCapsQueryPool(t *testing.T) {
 	db, err := NewInfosAdminQuery(testDbURI, testDbURI, 3, "")
 	if err != nil {
 		t.Fatalf("NewInfosAdminQuery: %v", err)
@@ -520,8 +511,12 @@ func TestNewInfosAdminQuery_ZeroPoolSizeLeavesPgxDefault(t *testing.T) {
 	}
 	defer db.Pool.Close()
 
-	if got := db.Pool.Config().MaxConns; got <= 0 {
-		t.Errorf("expected pgx's own positive default MaxConns when poolSize=0, got %d", got)
+	def, err := pgxpool.ParseConfig(testDbURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := db.Pool.Config().MaxConns; got != def.MaxConns {
+		t.Errorf("expected pgx's own default MaxConns %d when poolSize=0, got %d", def.MaxConns, got)
 	}
 }
 

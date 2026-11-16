@@ -329,10 +329,10 @@ func readBackSQL(tt *tempTable, rel *pg.Relation) string {
 	return "select " + strings.Join(cols, ", ") + " from pg_temp." + quoteIdent(tt.general.name) + " where " + quoteIdent(tt.rowIDCol()) + " = $1"
 }
 
-// TestLoad_RowsMatchTheJSONPath loads whole rows of every kind of column and compares what is in
-// the table, read back like the write statements read it and assigned to enc_t's own columns,
-// with what jsonb_populate_record makes of the same JSON : the path that exists today.
-func TestLoad_RowsMatchTheJSONPath(t *testing.T) {
+// TestLoad_RowsMatchJsonbPopulateRecord loads whole rows of every kind of column, reads them back the way the
+// write statements do, and compares them with what jsonb_populate_record makes of the same JSON. The mask
+// must record exactly the columns each row supplies.
+func TestLoad_RowsMatchJsonbPopulateRecord(t *testing.T) {
 	ctx := context.Background()
 	conn := tempTestConn(t)
 	rel := encT(t)
@@ -385,8 +385,7 @@ func TestLoad_RowsMatchTheJSONPath(t *testing.T) {
 			if err := conn.QueryRow(ctx, `select to_jsonb(d)::text from enc_dest d`).Scan(&ours); err != nil {
 				t.Fatal(err)
 			}
-			// the oracle reads the same JSON through jsonb_populate_record, the way the current path does
-			if err := conn.QueryRow(ctx, `select to_jsonb(jsonb_populate_record(null::enc_t, $1::jsonb))::text`, strings.NewReplacer(`"\\x00ff"`, `"\\x00ff"`).Replace(src)).Scan(&oracle); err != nil {
+			if err := conn.QueryRow(ctx, `select to_jsonb(jsonb_populate_record(null::enc_t, $1::jsonb))::text`, src).Scan(&oracle); err != nil {
 				t.Fatalf("row %d: the oracle rejects it: %v", n, err)
 			}
 			var a, o map[string]any

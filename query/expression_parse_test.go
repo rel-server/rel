@@ -95,25 +95,12 @@ func TestParseExpression_UnaryVsFoldedMinusDisambiguation(t *testing.T) {
 	}
 }
 
+// A comparison chain is the "and" of each adjacent pair, middle operands shared.
 func TestParseExpression_ComparisonFold(t *testing.T) {
-	// ["<", 1, 2, 3, 4] -> ["and", ["<",1,2], ["and", ["<",2,3], ["<",3,4]]]
-	expr := mustParse(t, `["<", 1, 2, 3, 4]`)
-	outer, ok := expr.(FoldedExpr)
-	if !ok || outer.Op != FoldAnd {
-		t.Fatalf("expected outer FoldedExpr(and), got %#v", expr)
-	}
-	// "and" itself isn't a comparison op, so it left-folds too :
-	// (p1 and p2) and p3, not a flat and([p1,p2,p3]).
-	inner, ok := outer.Left.(FoldedExpr)
-	if !ok || inner.Op != FoldAnd {
-		t.Fatalf("expected left operand FoldedExpr(and), got %#v", outer.Left)
-	}
-	first, ok := inner.Left.(FoldedExpr)
-	if !ok || first.Op != FoldLt {
-		t.Fatalf("expected first comparison FoldedExpr(<), got %#v", inner.Left)
-	}
-	if l, ok := first.Left.(NumberLiteral); !ok || l.Value != 1 {
-		t.Errorf("expected first comparison left 1, got %#v", first.Left)
+	got := mustParse(t, `["<", 1, 2, 3, 4]`)
+	want := mustParse(t, `["and", ["<", 1, 2], ["<", 2, 3], ["<", 3, 4]]`)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %#v, got %#v", want, got)
 	}
 }
 

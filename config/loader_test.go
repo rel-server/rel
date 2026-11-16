@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -317,9 +319,6 @@ func TestLoad_DefaultsApplyWhenNothingSet(t *testing.T) {
 	if cfg.Http.Csp.ScriptSrc != "" || cfg.Http.Csp.Policy != "" {
 		t.Errorf("expected every other http.csp.* directive unset by default, got %+v", cfg.Http.Csp)
 	}
-	if cfg.Jwt.Secret != "fixed-test-secret" {
-		t.Errorf("expected the explicitly-set jwt.secret, got %q", cfg.Jwt.Secret)
-	}
 	if cfg.Jwt.CookieName != "accesstoken" || cfg.Jwt.Algorithm != "HS256" || cfg.Jwt.SameSite != "Lax" {
 		t.Errorf("expected default jwt cookie/algorithm/samesite, got %+v", cfg.Jwt)
 	}
@@ -436,9 +435,8 @@ middleware = true
 	}
 }
 
-// TestLoad_CspPolicyOverride confirms http.csp.policy loads as a plain raw
-// string, independent of the individual directive keys.
-func TestLoad_CspPolicyOverride(t *testing.T) {
+// TestLoad_CspPolicyLoadsRaw confirms http.csp.policy loads as one raw string.
+func TestLoad_CspPolicyLoadsRaw(t *testing.T) {
 	dir := t.TempDir()
 	p := writeFile(t, dir, "rel.toml", `
 [jwt]
@@ -790,29 +788,33 @@ func TestResolveFileValue_GenMultiPath_EphemeralWhenNoCandidateDirExists(t *test
 	}
 }
 
+// A missing candidate is skipped, then the first existing one wins over later ones.
 func TestResolveFileValue_DefaultMultiPath_FirstExistingWins(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "does-not-exist.txt")
 	present := writeFile(t, dir, "present.txt", "real value")
-	got, err := resolveFileValue("$FILE$" + missing + ":" + present + "$DEFAULT$fallback")
+	later := writeFile(t, dir, "later.txt", "later value")
+	got, err := resolveFileValue("$FILE$" + missing + ":" + present + ":" + later + "$DEFAULT$fallback")
 	if err != nil {
 		t.Fatalf("resolveFileValue: %v", err)
 	}
 	if got != "real value" {
-		t.Errorf("expected the second (existing) candidate's content, got %q", got)
+		t.Errorf("expected the first existing candidate's content, got %q", got)
 	}
 }
 
+// A missing candidate is skipped, then the first existing one wins over later ones.
 func TestResolveFileValue_PlainMultiPath_FirstExistingWins(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "does-not-exist.txt")
 	present := writeFile(t, dir, "present.txt", "real value")
-	got, err := resolveFileValue("$FILE$" + missing + ":" + present)
+	later := writeFile(t, dir, "later.txt", "later value")
+	got, err := resolveFileValue("$FILE$" + missing + ":" + present + ":" + later)
 	if err != nil {
 		t.Fatalf("resolveFileValue: %v", err)
 	}
 	if got != "real value" {
-		t.Errorf("expected the second (existing) candidate's content, got %q", got)
+		t.Errorf("expected the first existing candidate's content, got %q", got)
 	}
 }
 
@@ -1000,15 +1002,11 @@ func TestLoad_InlineConfig_PrecedenceAndFormats(t *testing.T) {
 		t.Fatalf("expected inline over file with file port kept, got %+v", cfg.Pg)
 	}
 
-	// Individual env vars and flags beat inline.
+	// Individual env vars beat inline.
 	t.Setenv("REL_PG__HOST", "env-host")
 	cfg, err = Load([]string{"--config=" + p})
 	if err != nil || cfg.Pg.Host != "env-host" {
 		t.Fatalf("expected env over inline, got %v, %+v", err, cfg.Pg)
-	}
-	cfg, err = Load([]string{"--pg.host=flag-host"})
-	if err != nil || cfg.Pg.Host != "flag-host" {
-		t.Fatalf("expected flag over env, got %v, %+v", err, cfg.Pg)
 	}
 
 	// YAML and HUML.
@@ -1046,13 +1044,16 @@ func TestLoad_InlineConfig_ParseErrorDoesNotEchoValue(t *testing.T) {
 
 func TestLoad_InlineConfig_VarsAreNotReportedAsUnusedKeys(t *testing.T) {
 	t.Chdir(t.TempDir())
-	t.Setenv("REL_CONFIG__TOML", "[pg]\nhost = \"h\"\n")
-	k := koanf.New(".")
-	if err := loadInlineConfig(k); err != nil {
-		t.Fatal(err)
+	t.Setenv("REL_CONFIG__TOML", "[pg]\nhost = \"h\"\n[jwt]\nsecret = \"fixed-test-secret\"\n")
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	if _, err := Load(nil); err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-	if k.Exists("config") {
-		t.Errorf("inline document must not leave a config.* key in the tree: %v", k.All())
+	if strings.Contains(buf.String(), "never read") {
+		t.Errorf("inline config variables reported as unused keys: %s", buf.String())
 	}
 }
 

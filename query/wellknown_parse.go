@@ -3,7 +3,6 @@
 package query
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/bytedance/sonic/ast"
@@ -29,9 +28,9 @@ type RawWellKnownDefinition struct {
 
 // ParseWellKnownFile decodes a well-known query file : one definition or an array of them.
 func ParseWellKnownFile(data []byte) ([]RawWellKnownDefinition, error) {
-	root, perr := ast.NewParser(string(bytes.TrimSpace(data))).Parse()
-	if perr != 0 {
-		return nil, fmt.Errorf("wellknown: invalid JSON: %w", perr)
+	root, err := parseJSON(data)
+	if err != nil {
+		return nil, fmt.Errorf("wellknown: invalid JSON: %w", err)
 	}
 	if root.TypeSafe() == ast.V_ARRAY {
 		items, err := root.ArrayUseNode()

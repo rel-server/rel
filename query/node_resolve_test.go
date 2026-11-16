@@ -349,7 +349,7 @@ func TestResolveQuery_JoinColumnsOrderIsDeterministic(t *testing.T) {
 
 // Two children under the same parent, and the alias each self-registers
 // under, must also come out in deterministic (sorted-by-alias) order.
-func TestResolveQuery_MultipleChildrenUnderOneParent(t *testing.T) {
+func TestResolveQuery_ChildrenSortedByAlias(t *testing.T) {
 	ctx := &ResolveContext{Db: testDb, Config: testCfg}
 	src := `{
 		"relation": "director",

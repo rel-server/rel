@@ -17,6 +17,7 @@ package pg
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strings"
@@ -91,10 +92,15 @@ func TestWaitReady_ZeroBudgetTriesOnce(t *testing.T) {
 }
 
 func TestWaitReady_BudgetExhaustedReturnsLastError(t *testing.T) {
+	calls := 0
 	err := waitReady(context.Background(), 50*time.Millisecond, time.Sleep,
-		func(context.Context) error { return &pgconn.PgError{Code: "57P03"} })
-	if err == nil {
-		t.Fatal("expected error")
+		func(context.Context) error {
+			calls++
+			return &pgconn.PgError{Code: "57P03", Message: fmt.Sprint(calls)}
+		})
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "57P03" || pgErr.Message != fmt.Sprint(calls) {
+		t.Fatalf("expected the last attempt's 57P03 (attempt %d), got %v", calls, err)
 	}
 }
 

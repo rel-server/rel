@@ -37,13 +37,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// TestBuildMux_NonceOnlyOnRouteAndAuth : docs/content/http/cors-csp.md ##
-// CSP ### Nonce — /rel never carries a 'nonce-' token (it can never render
-// HTML to authorize with one), while /route does (through
-// websec.NonceMiddleware, scoped via the chi.Group boot.BuildMux mounts it
-// in). Both still carry a Content-Security-Policy header either way — this
-// is about the nonce token specifically, not CSP's presence at all.
-func TestBuildMux_NonceOnlyOnRouteAndAuth(t *testing.T) {
+// /rel's CSP never carries a nonce, since it never renders HTML ; a declared route's does. Both carry a CSP.
+func TestBuildMux_NonceOnRouteNotRel(t *testing.T) {
 	ctx := context.Background()
 
 	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
@@ -229,11 +224,8 @@ func TestBuildMux_StaticMaskingAndRootFallback(t *testing.T) {
 	}
 }
 
-// TestBuildMux_ChiPrecedence_StaticSegmentBeatsParam proves that chi's own trie precedence (static
-// segment > named param) implements the "longest
-// anonymized path first" rule, for two routes that would otherwise collide
-// on a shared prefix.
-func TestBuildMux_ChiPrecedence_StaticSegmentBeatsParam(t *testing.T) {
+// Of two routes sharing a prefix, the one with a static segment wins over the one with a parameter there.
+func TestBuildMux_StaticSegmentRouteBeatsParamRoute(t *testing.T) {
 	ctx := context.Background()
 
 	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())

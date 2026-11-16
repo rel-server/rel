@@ -1,9 +1,6 @@
 package route
 
-// Tests for middleware, driven through testHandler
-// like e2e_test.go — proving the chain-execution logic in middleware.go
-// against real HTTP requests and real Postgres, not just the resolution
-// logic MiddlewareChain already covers in routeset_test.go.
+// Middleware chain execution, driven through testHandler against real Postgres.
 
 import (
 	"context"

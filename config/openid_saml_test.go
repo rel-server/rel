@@ -38,11 +38,12 @@ issuer = "https://issuer.example.com"
 	}
 }
 
-// TestLoad_OpenidClientCredentials_ExplicitOverridesFile proves an
-// explicitly configured client_id/client_secret wins over the $FILE$
-// default entirely — never even attempts to read the file.
+// TestLoad_OpenidClientCredentials_ExplicitOverridesFile proves an explicit client_id/client_secret wins over the
+// files the $FILE$ default would read.
 func TestLoad_OpenidClientCredentials_ExplicitOverridesFile(t *testing.T) {
 	t.Chdir(t.TempDir())
+	writeFile(t, ".", "openid-myprovider.id", "file-id")
+	writeFile(t, ".", "openid-myprovider.secret", "file-secret")
 	cfgPath := writeFile(t, t.TempDir(), "rel.toml", `
 [openid.myprovider]
 issuer = "https://issuer.example.com"
@@ -55,7 +56,7 @@ client_secret = "explicit-secret"
 	}
 	p := cfg.Openid["myprovider"]
 	if p.ClientID != "explicit-id" || p.ClientSecret != "explicit-secret" {
-		t.Errorf("got client_id=%q client_secret=%q, want the explicit values unresolved-through-$FILE$", p.ClientID, p.ClientSecret)
+		t.Errorf("got client_id=%q client_secret=%q, want the explicit values", p.ClientID, p.ClientSecret)
 	}
 }
 
@@ -190,11 +191,9 @@ idp_metadata_url = "https://idp.example.com/metadata"
 	}
 }
 
-// TestLoad_SamlProviders_PerEntryCertOverride covers saml.<name>.
-// certificate_path/private_key_path : an optional, per-entry override of
-// the shared saml.certificate_path/private_key_path, empty (inheriting the
-// shared pair) when unset.
-func TestLoad_SamlProviders_PerEntryCertOverride(t *testing.T) {
+// TestLoad_SamlProviders_PerEntryCertFieldsLoad : saml.<name>.certificate_path/private_key_path load per entry,
+// empty when unset. Which pair wins is sso's job.
+func TestLoad_SamlProviders_PerEntryCertFieldsLoad(t *testing.T) {
 	cfgPath := writeFile(t, t.TempDir(), "rel.toml", `
 [saml]
 certificate_path = "/shared/cert.pem"
@@ -250,11 +249,9 @@ sso_callback = "auth.sso_callback"
 	}
 }
 
-// TestLoad_PublicHost_GlobalDefaultAndPerEntryOverride covers
-// docs/content/http/authentication.md ## OpenID Connect and SAML :
-// http.public_host is a bare host with no default ; openid.<name>.public_host/saml.<name>.public_host
-// override it per entry when set.
-func TestLoad_PublicHost_GlobalDefaultAndPerEntryOverride(t *testing.T) {
+// TestLoad_PublicHost_GlobalAndPerEntryFieldsLoad : http.public_host has no default ; the per-entry public_host
+// loads, empty when unset. Which host wins is sso's job.
+func TestLoad_PublicHost_GlobalAndPerEntryFieldsLoad(t *testing.T) {
 	cfg, err := Load([]string{"--config=" + writeFile(t, t.TempDir(), "rel.toml", "")})
 	if err != nil {
 		t.Fatalf("Load: %v", err)

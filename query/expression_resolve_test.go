@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/rel-server/rel/pg"
@@ -49,14 +50,16 @@ func resolveQueryExpectError(t *testing.T, src string) error {
 }
 
 func TestResolveExpressions_BareColumn(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["col", "name"]}`)
-	col, ok := node.Where.(*ColExpr)
-	if !ok {
-		t.Fatalf("expected *ColExpr, got %#v", node.Where)
-	}
-	cp, ok := col.Resolved.(ColumnPath)
-	if !ok || len(cp.Path) != 1 || cp.Path[0].Name != "name" {
-		t.Fatalf("expected ColumnPath{name}, got %#v", col.Resolved)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "where": ["col", "name"], "select": {"x": ["col", "name"]}}`)
+	for pos, e := range map[string]Expression{"where": node.Where, "select": node.Select.(ObjectExpr).Fields["x"]} {
+		col, ok := e.(*ColExpr)
+		if !ok {
+			t.Fatalf("%s: expected *ColExpr, got %#v", pos, e)
+		}
+		cp, ok := col.Resolved.(ColumnPath)
+		if !ok || len(cp.Path) != 1 || cp.Path[0].Name != "name" {
+			t.Fatalf("%s: expected ColumnPath{name}, got %#v", pos, col.Resolved)
+		}
 	}
 }
 
@@ -91,58 +94,16 @@ func TestResolveExpressions_ChildAliasHop(t *testing.T) {
 	}
 }
 
-// [".", "movies", "title"] must resolve identically to the nested
-// [".", [".", "movies"], "title"] form above : a bare name in the leading
-// operand position is always a scope lookup, chaining is not limited to a
-// nested "." base — see expression_parse.go's own "." case doc comment.
-func TestResolveExpressions_ChildAliasHop_FlatChainForm(t *testing.T) {
-	node := mustResolveQuery(t, `{
-		"relation": "director",
-		"schema": "public",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}},
-		"where": [".", "movies", "title"]
-	}`)
-	folded := node.Where.(FoldedExpr)
-	id := folded.Right.(*Identifier)
-	cp, ok := id.Resolved.(ColumnPath)
-	if !ok || cp.Path[0].Name != "title" || cp.Node != node.IncomingNodes[0] {
-		t.Fatalf("expected hop into movies to land on movie.title, got %#v", id.Resolved)
-	}
-}
-
-// A chain can run three (or more) bare names deep, each hop landing off the
-// previous one's own resolved scope — [".", "movies", "title"] above is just
-// the two-hop case.
-func TestResolveExpressions_FlatChainForm_ThreeHopsDeep(t *testing.T) {
-	node := mustResolveQuery(t, `{
-		"relation": "venue",
-		"schema": "public",
-		"where": [".", "home", "city"]
-	}`)
-	// venue.home is a composite column (city/street) — reuse it as a stand-in
-	// third-level hop isn't available in the fixture schema, so this pins
-	// the two-hop flat form against the SAME column resolution
-	// TestResolveExpressions_CompositeChain already pins for the nested form
-	// : ["col", "home"] as an explicit base vs. a bare "home" as the leading
-	// chain operand must resolve to the identical ColumnPath.
-	folded, ok := node.Where.(FoldedExpr)
-	if !ok || folded.Op != FoldDot {
-		t.Fatalf("expected FoldedExpr(.), got %#v", node.Where)
-	}
-	id := folded.Right.(*Identifier)
-	cp, ok := id.Resolved.(ColumnPath)
-	if !ok || len(cp.Path) != 2 || cp.Path[0].Name != "home" || cp.Path[1].Name != "city" {
-		t.Fatalf("expected ColumnPath{home,city}, got %#v", id.Resolved)
-	}
-}
-
+// A bare leading name and an explicit ["col", ...] base land on the same composite sub-field.
 func TestResolveExpressions_CompositeChain(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "where": [".", ["col", "home"], "city"]}`)
-	folded := node.Where.(FoldedExpr)
-	id := folded.Right.(*Identifier)
-	cp, ok := id.Resolved.(ColumnPath)
-	if !ok || len(cp.Path) != 2 || cp.Path[0].Name != "home" || cp.Path[1].Name != "city" {
-		t.Fatalf("expected ColumnPath{home,city}, got %#v", id.Resolved)
+	for _, where := range []string{`[".", ["col", "home"], "city"]`, `[".", "home", "city"]`} {
+		node := mustResolveQuery(t, `{"relation": "venue", "schema": "public", "where": `+where+`}`)
+		folded := node.Where.(FoldedExpr)
+		id := folded.Right.(*Identifier)
+		cp, ok := id.Resolved.(ColumnPath)
+		if !ok || len(cp.Path) != 2 || cp.Path[0].Name != "home" || cp.Path[1].Name != "city" {
+			t.Fatalf("%s: expected ColumnPath{home,city}, got %#v", where, id.Resolved)
+		}
 	}
 }
 
@@ -216,7 +177,7 @@ func TestResolveExpressions_JsonArrowNotScopeResolved(t *testing.T) {
 	}
 }
 
-func TestResolveExpressions_CallAndAgg(t *testing.T) {
+func TestResolveExpressions_CallPicksOverloadByArity(t *testing.T) {
 	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"x": ["call", {"schema": "public", "name": "fn_overload"}, ["col", "id"]]}}`)
 	obj := node.Select.(ObjectExpr)
 	call, ok := obj.Fields["x"].(*CallExpr)
@@ -248,20 +209,7 @@ func TestResolveExpressions_AggRequiresAggregateKind(t *testing.T) {
 	}
 }
 
-func TestResolveExpressions_ColColumn(t *testing.T) {
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"x": ["col", "name"]}}`)
-	obj := node.Select.(ObjectExpr)
-	col, ok := obj.Fields["x"].(*ColExpr)
-	if !ok {
-		t.Fatalf("expected ColExpr, got %#v", obj.Fields["x"])
-	}
-	cp, ok := col.Resolved.(ColumnPath)
-	if !ok || cp.Path[0].Name != "name" {
-		t.Fatalf("expected ColExpr resolved to column name, got %#v", obj.Fields["x"])
-	}
-}
-
-func TestResolveExpressions_ColUnknownColumn(t *testing.T) {
+func TestResolveExpressions_SetUnknownColumn(t *testing.T) {
 	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "select": {"x": ["set", "no_such_column"]}}`)
 	if err == nil {
 		t.Fatalf("expected an unknown set column to be rejected")
@@ -484,8 +432,8 @@ func TestResolveExpressions_ArrayIndexThenDot(t *testing.T) {
 
 func TestResolveExpressions_IndexIntoNonArray_Error(t *testing.T) {
 	err := resolveQueryExpectError(t, `{"relation": "director", "schema": "public", "where": [".", ["index", ["col", "name"], 1], "x"]}`)
-	if err == nil {
-		t.Fatalf("expected indexing a non-array column to be rejected")
+	if err == nil || !strings.Contains(err.Error(), "cannot index a non-array value") {
+		t.Fatalf("expected indexing a non-array column to be rejected, got %v", err)
 	}
 }
 
@@ -854,9 +802,9 @@ func TestResolveExpressions_SliceSubExpressionsResolve(t *testing.T) {
 func TestResolveExpressions_RootFunctionArgumentBareIdentifier_Error(t *testing.T) {
 	// A root-level function call (no parent) has nothing to correlate a bare
 	// identifier against — only literals/params are legal there.
-	err := resolveQueryExpectError(t, `{"function": "fn_plain_add", "schema": "public", "arguments": [["col", "no_such_column"], 2]}`)
-	if err == nil {
-		t.Fatalf("expected a bare identifier in a root function call's arguments to be rejected (no parent scope)")
+	err := resolveQueryExpectError(t, `{"function": "fn_plain_add", "schema": "public", "arguments": [["col", "id"], 2]}`)
+	if err == nil || !strings.Contains(err.Error(), "no scope available") {
+		t.Fatalf("expected a bare identifier in a root function call's arguments to be rejected (no parent scope), got %v", err)
 	}
 }
 
@@ -948,12 +896,14 @@ func TestResolveExpressions_CorrelatedNamedFunctionArgumentUnresolvable_Error(t 
 func TestResolveExpressions_GetSetOnRelationlessFunctionNode_Error(t *testing.T) {
 	// fn_plain_add returns a scalar : Relation is nil, so "select" trying
 	// to get/set a column has nothing to resolve against — a clean error, not a panic.
-	err := resolveQueryExpectError(t, `{
-		"function": "fn_plain_add", "schema": "public", "arguments": [1, 2],
-		"select": {"x": ["get", "id"]}
-	}`)
-	if err == nil {
-		t.Fatalf("expected get/set on a relation-less function node to be rejected")
+	for _, tag := range []string{"get", "set"} {
+		err := resolveQueryExpectError(t, `{
+			"function": "fn_plain_add", "schema": "public", "arguments": [1, 2],
+			"select": {"x": ["`+tag+`", "id"]}
+		}`)
+		if err == nil {
+			t.Fatalf("expected %s on a relation-less function node to be rejected", tag)
+		}
 	}
 }
 

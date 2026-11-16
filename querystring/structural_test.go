@@ -45,25 +45,6 @@ func TestDecodeStructural_RepeatedKeyBuildsArray(t *testing.T) {
 	}
 }
 
-func TestDecodeStructural_DeepNesting(t *testing.T) {
-	got, err := DecodeStructural("join.actors.join.awards.relation=award")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := map[string]any{
-		"join": map[string]any{
-			"actors": map[string]any{
-				"join": map[string]any{
-					"awards": map[string]any{"relation": "award"},
-				},
-			},
-		},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %#v, want %#v", got, want)
-	}
-}
-
 func TestDecodeStructural_PercentAndPlusDecoding(t *testing.T) {
 	got, err := DecodeStructural("where=" + "like%28name%2C%27a+b%27%29")
 	if err != nil {

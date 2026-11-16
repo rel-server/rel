@@ -155,7 +155,8 @@ func TestRun_PgURIOnly_PopulatesUserPasswordForInterpolation(t *testing.T) {
 }
 
 func TestRun_UnresolvedPlaceholderWithNoDefaultAbortsBeforeRunning(t *testing.T) {
-	cfg := &config.Config{Reload: config.Reload{Cmd: `echo {nope.missing}`, Timeout: 5}}
+	marker := filepath.Join(t.TempDir(), "ran")
+	cfg := &config.Config{Reload: config.Reload{Cmd: "touch " + marker + " {nope.missing}", Timeout: 5}}
 	ran, err := Run(context.Background(), cfg, discardLogger())
 	if err == nil {
 		t.Fatalf("expected an error for an unresolved placeholder with no default")
@@ -163,15 +164,8 @@ func TestRun_UnresolvedPlaceholderWithNoDefaultAbortsBeforeRunning(t *testing.T)
 	if !ran {
 		t.Errorf("expected ran=true : reload.cmd was non-empty, so an attempt was made, even though it never actually exec'd")
 	}
-}
-
-func TestInterpolate_DefaultFallback(t *testing.T) {
-	got, err := interpolate("host={pg.host:localhost}", nil)
-	if err != nil {
-		t.Fatalf("interpolate: %v", err)
-	}
-	if got != "host=localhost" {
-		t.Errorf("expected the default value substituted, got %q", got)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Errorf("expected the command never to run, but %s exists (stat err %v)", marker, err)
 	}
 }
 
@@ -211,12 +205,17 @@ func TestInterpolate_ChainFallsThroughUnsetAndEmptyCandidates(t *testing.T) {
 }
 
 func TestInterpolate_ChainFallsBackToLiteral(t *testing.T) {
-	got, err := interpolate("{DMUT_USER_UNSET:pg.user_unset:fallback}", nil)
-	if err != nil {
-		t.Fatalf("interpolate: %v", err)
-	}
-	if got != "fallback" {
-		t.Errorf("expected the trailing literal, got %q", got)
+	for in, want := range map[string]string{
+		"host={pg.host:localhost}":                 "host=localhost",
+		"{DMUT_USER_UNSET:pg.user_unset:fallback}": "fallback",
+	} {
+		got, err := interpolate(in, nil)
+		if err != nil {
+			t.Fatalf("interpolate(%q): %v", in, err)
+		}
+		if got != want {
+			t.Errorf("interpolate(%q) = %q, want the trailing literal %q", in, got, want)
+		}
 	}
 }
 

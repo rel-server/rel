@@ -160,10 +160,8 @@ func TestOidc_LoginRedirectsAndSetsStateCookie(t *testing.T) {
 	}
 }
 
-// TestOidc_CallbackHappyPath drives the full exchange/verify/claims path
-// against the fake issuer, and asserts the configured callback function
-// (auth.sso_callback, sso_test.go's TestMain) actually mints a session for
-// the matching user row (testdata/schema.sql : alice@example.com -> app_user).
+// TestOidc_CallbackHappyPath drives the full exchange/verify/claims path against the fake issuer ; the configured
+// callback maps alice@example.com to app_user, so the session cookie carries that role.
 func TestOidc_CallbackHappyPath(t *testing.T) {
 	issuer := newFakeOidcIssuer(t)
 	issuer.tokenIDTokenExtra = map[string]any{"email": "alice@example.com"}
@@ -180,15 +178,7 @@ func TestOidc_CallbackHappyPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var cookie *http.Cookie
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == testCfg.Jwt.CookieName {
-			cookie = c
-		}
-	}
-	if cookie == nil {
-		t.Fatalf("expected the JWT cookie to be set on a successful login")
-	}
+	assertSessionRole(t, rec, "app_user")
 }
 
 // TestOidc_CallbackRejectsNonceMismatch proves the nonce (not just state)

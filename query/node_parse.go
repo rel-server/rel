@@ -17,9 +17,6 @@
 package query
 
 import (
-	"bytes"
-
-	"github.com/bytedance/sonic/ast"
 	"github.com/rel-server/rel/errcode"
 	"github.com/samber/oops"
 )
@@ -71,10 +68,9 @@ type rawWellKnown struct {
 
 // ParseQuery decodes one top-level query.ts Query value.
 func ParseQuery(data []byte) (ParsedQuery, error) {
-	trimmed := bytes.TrimSpace(data)
-	root, perr := ast.NewParser(string(trimmed)).Parse()
-	if perr != 0 {
-		return ParsedQuery{}, oops.Wrapf(perr, "query: invalid query JSON")
+	root, err := parseJSON(data)
+	if err != nil {
+		return ParsedQuery{}, oops.Wrapf(err, "query: invalid query JSON")
 	}
 	return parseQueryNode(sonicNode{&root})
 }

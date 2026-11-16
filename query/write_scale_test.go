@@ -39,15 +39,18 @@ func TestWriteScale_SameTableIncomingIsCorrect(t *testing.T) {
 	}`)
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
+	if _, err := conn.Exec(ctx, `truncate tree_t`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ExecuteWrite(ctx, conn, node, treeChildrenPayload(500, 3)); err != nil {
 		t.Fatal(err)
 	}
 	var wrong, kids int
 	if err := conn.QueryRow(ctx, `select count(*) filter (where substring(k.name from 'kid (\d+)-') is distinct from substring(p.name from 'root (\d+)')), count(*)
-		from tree_t k join tree_t p on p.id = k.parent_id where k.name like 'scale%' or k.name like 'kid %'`).Scan(&wrong, &kids); err != nil {
+		from tree_t k join tree_t p on p.id = k.parent_id`).Scan(&wrong, &kids); err != nil {
 		t.Fatal(err)
 	}
-	if kids < 1500 || wrong != 0 {
+	if kids != 1500 || wrong != 0 {
 		t.Errorf("%d children linked, %d to the wrong parent", kids, wrong)
 	}
 }

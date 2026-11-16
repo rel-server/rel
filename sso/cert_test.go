@@ -91,54 +91,8 @@ func TestLoadOrGenerateSPKeyPair_NoWritableDirectoryIsEphemeral(t *testing.T) {
 	}
 }
 
-// TestLoadOrGenerateSPKeyPair_BringYourOwnCertificate covers the
-// bring-your-own-certificate path : a keypair already present at the
-// configured location is used unchanged, never regenerated.
-func TestLoadOrGenerateSPKeyPair_BringYourOwnCertificate(t *testing.T) {
-	dir := t.TempDir()
-	certPath := filepath.Join(dir, "own-cert.pem")
-	keyPath := filepath.Join(dir, "own-cert.key")
-
-	// Seed the "bring your own" files by generating once into a
-	// different pair of paths, then copying them into place.
-	seedDir := t.TempDir()
-	seedCert := filepath.Join(seedDir, "cert.pem")
-	seedKey := filepath.Join(seedDir, "cert.key")
-	if _, err := LoadOrGenerateSPKeyPair(seedCert, seedKey, nil, nil); err != nil {
-		t.Fatalf("seeding: %v", err)
-	}
-	certBytes, err := os.ReadFile(seedCert)
-	if err != nil {
-		t.Fatalf("reading seeded cert: %v", err)
-	}
-	keyBytes, err := os.ReadFile(seedKey)
-	if err != nil {
-		t.Fatalf("reading seeded key: %v", err)
-	}
-	if err := os.WriteFile(certPath, certBytes, 0o600); err != nil {
-		t.Fatalf("writing bring-your-own cert: %v", err)
-	}
-	if err := os.WriteFile(keyPath, keyBytes, 0o600); err != nil {
-		t.Fatalf("writing bring-your-own key: %v", err)
-	}
-
-	buf := captureWarnLogs(t)
-	kp, err := LoadOrGenerateSPKeyPair(certPath, keyPath, nil, nil)
-	if err != nil {
-		t.Fatalf("LoadOrGenerateSPKeyPair: %v", err)
-	}
-	if buf.Len() != 0 {
-		t.Errorf("expected no WARN when a keypair is already present, got: %s", buf.String())
-	}
-	if kp.Certificate.SerialNumber.Cmp(kp.Certificate.SerialNumber) != 0 {
-		t.Fatalf("sanity check failed")
-	}
-}
-
-// TestLoadOrGenerateSPKeyPair_MultiPathSearchList_FirstExistingWins covers
-// the colon-separated candidate search list — the SECOND candidate holds
-// an existing keypair, so it must win over generating a fresh one at the
-// first (missing) candidate.
+// TestLoadOrGenerateSPKeyPair_MultiPathSearchList_FirstExistingWins : the first candidate is missing, the second
+// and third hold keypairs ; the second is loaded, nothing is generated.
 func TestLoadOrGenerateSPKeyPair_MultiPathSearchList_FirstExistingWins(t *testing.T) {
 	dir := t.TempDir()
 	secondCert := filepath.Join(dir, "second-cert.pem")
@@ -146,12 +100,17 @@ func TestLoadOrGenerateSPKeyPair_MultiPathSearchList_FirstExistingWins(t *testin
 	if _, err := LoadOrGenerateSPKeyPair(secondCert, secondKey, nil, nil); err != nil {
 		t.Fatalf("seeding second candidate: %v", err)
 	}
+	thirdCert := filepath.Join(dir, "third-cert.pem")
+	thirdKey := filepath.Join(dir, "third-cert.key")
+	if _, err := LoadOrGenerateSPKeyPair(thirdCert, thirdKey, nil, nil); err != nil {
+		t.Fatalf("seeding third candidate: %v", err)
+	}
 
 	firstCert := filepath.Join(t.TempDir(), "no-such-dir", "first-cert.pem")
 	firstKey := filepath.Join(t.TempDir(), "no-such-dir", "first-cert.key")
 
 	buf := captureWarnLogs(t)
-	kp, err := LoadOrGenerateSPKeyPair(firstCert+":"+secondCert, firstKey+":"+secondKey, nil, nil)
+	kp, err := LoadOrGenerateSPKeyPair(firstCert+":"+secondCert+":"+thirdCert, firstKey+":"+secondKey+":"+thirdKey, nil, nil)
 	if err != nil {
 		t.Fatalf("LoadOrGenerateSPKeyPair: %v", err)
 	}

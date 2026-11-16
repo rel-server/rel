@@ -84,32 +84,7 @@ func BenchmarkExecuteWrite_FlatInsert(b *testing.B) {
 	}
 }
 
-// ---- 2. One outgoing child : movie -> director (mirrors TestExecuteWrite_OutgoingChildFK) ----
-
-func BenchmarkExecuteWrite_OneOutgoingChild(b *testing.B) {
-	conn := acquireWriteConnB(b)
-	ctx := context.Background()
-	node := bMustResolveQuery(b, `{
-		"relation": "movie", "schema": "public",
-		"select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]},
-		"write_mode": "insert",
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}
-	}`)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		payload := fmt.Appendf(nil, `[{"title": "Bench Movie %d", "director": {"name": "Bench Director %d"}}]`, i, i)
-		truncateDataB(b, conn)
-		if i%50 == 49 {
-			analyzeB(b, conn)
-		}
-		if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
-			b.Fatalf("ExecuteWrite: %v", err)
-		}
-	}
-}
-
-// ---- 3. Deep outgoing chain : movie -> director -> studio (3 levels) ----
+// ---- 2. Deep outgoing chain : movie -> director -> studio (3 levels) ----
 // director.studio_id is a nullable FK added for this case.
 
 func BenchmarkExecuteWrite_DeepOutgoingChain(b *testing.B) {
@@ -139,7 +114,7 @@ func BenchmarkExecuteWrite_DeepOutgoingChain(b *testing.B) {
 	}
 }
 
-// ---- 4. Wide outgoing fan-out : order_t -> customer (x2, sibling FKs) ----
+// ---- 3. Wide outgoing fan-out : order_t -> customer (x2, sibling FKs) ----
 // customer_id and billing_customer_id are two distinct FKs to the same relation.
 
 func BenchmarkExecuteWrite_WideOutgoingFanout(b *testing.B) {
@@ -168,7 +143,7 @@ func BenchmarkExecuteWrite_WideOutgoingFanout(b *testing.B) {
 	}
 }
 
-// ---- 5. Batch size scaling : one outgoing child, N rows per payload ----
+// ---- 4. Batch size scaling : one outgoing child, N rows per payload ----
 // Each b.Run measures one ExecuteWrite call ; b.N is the repeat count, orthogonal to payload row count N.
 
 func BenchmarkExecuteWrite_BatchSize(b *testing.B) {
@@ -215,7 +190,7 @@ func buildBatchPayload(n, iter int) []byte {
 	return buf
 }
 
-// ---- 6. Mixed outgoing + incoming in the same payload ----
+// ---- 5. Mixed outgoing + incoming in the same payload ----
 // director (root) with an outgoing "studio" child and incoming "movies" at once.
 
 func BenchmarkExecuteWrite_MixedOutgoingIncoming(b *testing.B) {

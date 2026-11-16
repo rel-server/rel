@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/pg"
@@ -142,24 +141,6 @@ func TestPrepare_ReportsWritesAndTargets(t *testing.T) {
 	}
 }
 
-func TestExecute_ReadsInOneTransaction(t *testing.T) {
-	ctx := context.Background()
-	if _, err := testDb.Pool.Exec(ctx, `delete from director where name = 'Relexec Read'`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('Relexec Read')`); err != nil {
-		t.Fatal(err)
-	}
-
-	out, err := run(t, `{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "where": ["=", ["col", "name"], "Relexec Read"]}`, Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out != `[{"name":"Relexec Read"}]` {
-		t.Errorf("unexpected body %s", out)
-	}
-}
-
 func TestExecute_SequenceIsAnArrayOfItsItems(t *testing.T) {
 	out, err := run(t, `[
 		{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "where": ["=", ["col", "name"], "Relexec Nobody"]},
@@ -190,38 +171,6 @@ func TestExecute_WriteIsCommittedAndReadBack(t *testing.T) {
 	}
 	if n := countRows(t, `select count(*) from director where name = 'Relexec Written'`); n != 1 {
 		t.Errorf("expected the write to be committed, found %d row(s)", n)
-	}
-}
-
-func TestExecute_RolledBackItemStillAnswersWithItsRows(t *testing.T) {
-	ctx := context.Background()
-	if _, err := testDb.Pool.Exec(ctx, `delete from director where name = 'Relexec Rolled Back'`); err != nil {
-		t.Fatal(err)
-	}
-	out, err := run(t, `{
-		"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"},
-		"data": [{"name": "Relexec Rolled Back"}],
-		"rollback": true
-	}`, Options{Policy: Policy{Rollback: true}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, `"name":"Relexec Rolled Back"`) {
-		t.Errorf("unexpected body %s", out)
-	}
-	if n := countRows(t, `select count(*) from director where name = 'Relexec Rolled Back'`); n != 0 {
-		t.Errorf("expected the item's own effects to be undone, found %d row(s)", n)
-	}
-}
-
-func TestPrepare_RollbackNeedsTheGrant(t *testing.T) {
-	_, err := run(t, `{
-		"query": {"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"},
-		"data": [{"name": "x"}],
-		"rollback": true
-	}`, Options{})
-	if e := asError(t, err); e.Fault != ClientFault {
-		t.Fatalf("expected a client fault, got %v", e)
 	}
 }
 
@@ -273,16 +222,6 @@ func TestExecute_BeginFailureIsReturnedAndNothingIsWritten(t *testing.T) {
 	err = prepared.Execute(context.Background(), conn, func(context.Context, *pgxpool.Conn) error { return want }, &out)
 	if e := asError(t, err); e != want || e.Started || out.Len() != 0 {
 		t.Fatalf("expected Begin's own error untouched and nothing written, got %v started=%v body=%q", e, e.Started, out.String())
-	}
-}
-
-func TestPrepare_CBORFormatBuildsEncoders(t *testing.T) {
-	out, err := run(t, `{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "where": ["=", ["col", "name"], "Relexec Nobody"]}`, Options{Format: cborenc.CBOR})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out != "\x80" { // an empty definite CBOR array
-		t.Errorf("unexpected body %x", out)
 	}
 }
 

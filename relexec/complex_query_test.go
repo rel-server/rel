@@ -211,10 +211,8 @@ func TestComplexQuery_Stats_OnNestedWrite(t *testing.T) {
 	}
 }
 
-// TestComplexQuery_Write_ReturnsEmbeddedChild proves a write's read-back
-// result actually embeds a joined child relation, not just that the SQL
-// compiles (query.TestCompileSelectForDataNode_WithEmbeddedChild only
-// checks compilation) — end to end, through the response.
+// TestComplexQuery_Write_ReturnsEmbeddedChild proves a write's read-back result has the generated id and embeds
+// the joined child relation, end to end through the response.
 func TestComplexQuery_Write_ReturnsEmbeddedChild(t *testing.T) {
 	opts := Options{}
 	out, err := run(t, `{
@@ -235,6 +233,9 @@ func TestComplexQuery_Write_ReturnsEmbeddedChild(t *testing.T) {
 	rows := decodeJSON[[]map[string]any](t, []byte(out))
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 result row, got %d : %s", len(rows), out)
+	}
+	if rows[0]["id"] == nil {
+		t.Fatalf("expected the server-generated id in the result, got %#v", rows[0])
 	}
 	if rows[0]["name"] != "Returns Expand Director" {
 		t.Fatalf("expected the written director's own name in the result, got %#v", rows[0])

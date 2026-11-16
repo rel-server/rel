@@ -249,7 +249,8 @@ func TestWrite_NotAnObjectRow(t *testing.T) {
 	}
 }
 
-// TestWrite_CBORPayload writes from a CBOR document in every mode that reads a payload, through both paths.
+// TestWrite_CBORPayload writes from a CBOR document : an insert's rows through both paths, and an update's single
+// patch map.
 func TestWrite_CBORPayload(t *testing.T) {
 	ctx := context.Background()
 	at := cbor.Tag{Number: 1, Content: int64(1700000000)}

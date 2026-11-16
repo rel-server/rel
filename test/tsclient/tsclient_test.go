@@ -59,7 +59,7 @@ func TestTypeScriptClient(t *testing.T) {
 
 	cfg := config.Test()
 	cfg.Http.TypeScript.Enable = true
-	cfg.Http.TypeScript.Schemas = "hotel"
+	cfg.TypeScript.Schemas = "hotel"
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
 
 	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)

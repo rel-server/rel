@@ -62,16 +62,6 @@ func TestParseQuery_WellKnownRejectsInlineData(t *testing.T) {
 	}
 }
 
-func TestParseQuery_Sequence(t *testing.T) {
-	pq, err := ParseQuery([]byte(`[{"relation": "a"}, {"relation": "b"}]`))
-	if err != nil {
-		t.Fatalf("ParseQuery: %v", err)
-	}
-	if len(pq.Sequence) != 2 || pq.Sequence[0].Relation.Relation != "a" || pq.Sequence[1].Relation.Relation != "b" {
-		t.Fatalf("unexpected ParsedQuery: %#v", pq)
-	}
-}
-
 func TestParseRawRelation_Join(t *testing.T) {
 	pq, err := ParseQuery([]byte(`{
 		"relation": "movie",
@@ -333,5 +323,29 @@ func TestParseQuery_MixedSequence(t *testing.T) {
 	}
 	if pq.Sequence[0].Relation == nil || pq.Sequence[1].Write == nil || pq.Sequence[2].WellKnown == nil {
 		t.Fatalf("expected [Relation, Write, WellKnown], got %#v", pq.Sequence)
+	}
+	if pq.Sequence[0].Relation.Relation != "a" || pq.Sequence[1].Write.Query.Relation != "b" {
+		t.Fatalf("expected items in payload order, got %#v", pq.Sequence)
+	}
+}
+
+// The JSON readers must reject the whole document, not only the part they read.
+func TestParsers_RejectTrailingBytesAndUnreadMalformedValues(t *testing.T) {
+	parsers := map[string]func([]byte) error{
+		"query":      func(b []byte) error { _, err := ParseQuery(b); return err },
+		"expression": func(b []byte) error { _, err := ParseExpression(b); return err },
+		"wellknown":  func(b []byte) error { _, err := ParseWellKnownFile(b); return err },
+	}
+	docs := map[string]string{
+		"trailing bytes":          `{"relation": "movie"} garbage`,
+		"a second document":       `{"relation": "movie"} {}`,
+		"malformed unread member": `{"relation": "movie", "x": [1, 2}`,
+	}
+	for pname, parse := range parsers {
+		for dname, doc := range docs {
+			if err := parse([]byte(doc)); err == nil {
+				t.Errorf("%s accepted %s: %s", pname, dname, doc)
+			}
+		}
 	}
 }

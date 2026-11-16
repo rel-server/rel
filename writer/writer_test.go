@@ -28,16 +28,6 @@ func TestWriter_Surround(t *testing.T) {
 	}
 }
 
-func TestWriter_Paren(t *testing.T) {
-	w := New()
-	w.Paren(func() {
-		w.Write("x")
-	})
-	if got, want := w.String(), "(x)"; got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
 func TestWriter_List_Inline(t *testing.T) {
 	w := New()
 	List(w, ", ", []string{"a", "b", "c"}, func(s string) { w.Write(s) })

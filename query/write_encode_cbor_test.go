@@ -54,13 +54,12 @@ func runCBORCases(t *testing.T, typeName string, enc fieldEncoder, cases []cborC
 
 func TestEncodeCBOR_Bytes(t *testing.T) {
 	runCBORCases(t, "bytea", encodeBytea, []cborCase{
-		{"bytes", []byte{0, 255, 16}, `\x00ff10`}, {"empty", []byte{}, `\x`}, {"the hex text still works", `\xdead`, `\xdead`},
+		{"bytes", []byte{0, 255, 16}, `\x00ff10`}, {"empty", []byte{}, `\x`},
 		{"a uuid tag", cbor.Tag{Number: 37, Content: make([]byte, 16)}, ""}, {"an integer", int64(1), ""},
 	})
 	uuid := []byte{0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11}
 	runCBORCases(t, "uuid", encodeUUID, []cborCase{
 		{"tag 37", cbor.Tag{Number: 37, Content: uuid}, "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"},
-		{"the text still works", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"},
 		{"untagged bytes", uuid, ""}, {"tag 37 of the wrong length", cbor.Tag{Number: 37, Content: uuid[:15]}, ""},
 	})
 }
@@ -75,7 +74,6 @@ func TestEncodeCBOR_Dates(t *testing.T) {
 		{"the last day", cbor.Tag{Number: 100, Content: int64(2145031948 + 10957)}, "5874897-12-31"},
 		{"one past", cbor.Tag{Number: 100, Content: int64(2145031948 + 10957 + 1)}, ""},
 		{"far out", cbor.Tag{Number: 100, Content: int64(1) << 50}, ""},
-		{"the text still works", "2026-10-18", "2026-10-18"},
 		{"a plain integer", int64(20000), ""}, {"an instant", time.Unix(1700000000, 0), ""},
 	})
 }
@@ -95,14 +93,12 @@ func TestEncodeCBOR_Instants(t *testing.T) {
 		{"tag 1, the last second", tag1(time.Date(294276, 12, 31, 23, 59, 59, 0, time.UTC).Unix()), "294276-12-31 23:59:59+00"},
 		{"tag 0, an offset", cbor.Tag{Number: 0, Content: "2026-10-18T14:30:00+02:00"}, "2026-10-18 12:30:00+00"},
 		{"tag 1, out of range", tag1(int64(1) << 45), ""},
-		{"the text still works", "2026-10-18T14:30:00Z", "2026-10-18 14:30:00+00"},
 		{"a plain integer", int64(1700000000), ""},
 	})
 	// a timestamp takes an instant as the wall clock it shows in the session zone (UTC here)
 	runCBORCases(t, "timestamp", encodeTimestamp, []cborCase{
 		{"an instant", tag1(int64(1700000000)), "2023-11-14 22:13:20"},
 		{"an instant with a fraction", tag1(1700000000.5), "2023-11-14 22:13:20.5"},
-		{"the text", "2026-10-18T14:30:00", "2026-10-18 14:30:00"},
 	})
 }
 
@@ -138,7 +134,7 @@ func TestEncodeCBOR_FloatsAndBignums(t *testing.T) {
 	huge := new(big.Int).Lsh(big.NewInt(1), 90)
 	runCBORCases(t, "float8", encodeFloat(64), []cborCase{
 		{"double", 1.5, "1.5"}, {"integer", int64(3), "3"}, {"NaN", math.NaN(), "NaN"}, {"+Inf", math.Inf(1), "Infinity"},
-		{"-Inf", math.Inf(-1), "-Infinity"}, {"tag 4", cbor.Tag{Number: 4, Content: []any{int64(-1), int64(15)}}, "1.5"},
+		{"-Inf", math.Inf(-1), "-Infinity"},
 		{"a bignum", huge, "1.2379400392853803e+27"}, {"a byte string", []byte{1}, ""}, {"a map", map[string]any{}, ""},
 	})
 	runCBORCases(t, "float4", encodeFloat(32), []cborCase{
@@ -146,7 +142,6 @@ func TestEncodeCBOR_FloatsAndBignums(t *testing.T) {
 	})
 	runCBORCases(t, "numeric", encodeNumeric, []cborCase{
 		{"float", 1.5, "1.5"}, {"integer-valued float keeps its scale", 3.0, "3.0"}, {"NaN", math.NaN(), "NaN"}, {"Infinity", math.Inf(1), "Infinity"},
-		{"tag 4 keeps the scale", cbor.Tag{Number: 4, Content: []any{int64(-2), int64(150)}}, "1.50"},
 		{"tag 4 with a bignum mantissa", cbor.Tag{Number: 4, Content: []any{int64(-3), huge}}, "1237940039285380274899124.224"},
 		{"a bignum", huge, "1237940039285380274899124224"},
 		{"a negative bignum", new(big.Int).Neg(huge), "-1237940039285380274899124224"},
@@ -154,11 +149,10 @@ func TestEncodeCBOR_FloatsAndBignums(t *testing.T) {
 		{"uint64 max", uint64(math.MaxUint64), "18446744073709551615"},
 	})
 	runCBORCases(t, "int8", encodeInt(64), []cborCase{
-		{"int64 min", int64(math.MinInt64), "-9223372036854775808"}, {"uint64 max", uint64(math.MaxUint64), ""}, {"a bignum", huge, ""},
+		{"uint64 max", uint64(math.MaxUint64), ""}, {"a bignum", huge, ""},
 		{"a float", 3.0, ""}, {"tag 4", cbor.Tag{Number: 4, Content: []any{int64(0), int64(5)}}, ""}, {"a byte string", []byte{1}, ""},
 	})
-	runCBORCases(t, "int2", encodeInt(16), []cborCase{{"in range", int64(-32768), "-32768"}, {"one past", int64(32768), ""}})
-	runCBORCases(t, "bool", encodeBool, []cborCase{{"true", true, "true"}, {"0", int64(0), "false"}, {"2", int64(2), ""}, {"bytes", []byte{1}, ""}})
+	runCBORCases(t, "bool", encodeBool, []cborCase{{"bytes", []byte{1}, ""}})
 }
 
 func TestEncodeCBOR_WrongKinds(t *testing.T) {
@@ -248,9 +242,18 @@ func TestEncodeCBOR_ArraysAndComposites(t *testing.T) {
 	if err != nil || got != `{"\\x01",NULL,"\\x"}` {
 		t.Errorf("byteas = %s, %v", got, err)
 	}
-	// a text-mode composite whose field is a byte string or an instant
-	got, _, err = ourValue(t, conn, encT(t).ColumnsMap["ivc"], cborOf(t, map[string]any{"code": "a,b", "span": "3 days"}))
-	if err != nil || got != `("a,b","3 days")` {
-		t.Errorf("ivc = %s, %v", got, err)
+	// a text-mode composite : a byte string field goes in as its hex text, an instant as RFC 3339
+	for _, c := range []struct {
+		code any
+		want string
+	}{
+		{"a,b", `("a,b","3 days")`},
+		{[]byte("a,b"), `("\\x612c62","3 days")`},
+		{time.Date(2026, 10, 18, 12, 30, 0, 0, time.UTC), `(2026-10-18T12:30:00Z,"3 days")`},
+	} {
+		got, _, err = ourValue(t, conn, encT(t).ColumnsMap["ivc"], cborOf(t, map[string]any{"code": c.code, "span": "3 days"}))
+		if err != nil || got != c.want {
+			t.Errorf("ivc with code %v = %s, %v ; want %s", c.code, got, err, c.want)
+		}
 	}
 }

@@ -60,7 +60,7 @@ func TestColumn_DeclaredType_CompositeAttributes(t *testing.T) {
 }
 
 // Every introspected column, whatever its relation kind, has one.
-func TestColumn_DeclaredType_NeverEmptyOnTables(t *testing.T) {
+func TestColumn_DeclaredType_NeverEmpty(t *testing.T) {
 	for _, r := range testDb.Relations {
 		for _, c := range r.Columns {
 			if c.DeclaredType == "" {

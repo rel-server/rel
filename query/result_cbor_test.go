@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/rel-server/rel/cborenc"
-	"math"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rel-server/rel/cborenc"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -181,6 +181,16 @@ func decodeJSONNumbers(t *testing.T, raw []byte) any {
 // cborOfExpr evaluates a SQL expression and returns its CBOR through a ResultEncoder.
 func cborOfExpr(t *testing.T, conn *pgxpool.Conn, expr string) (Node, error) {
 	t.Helper()
+	out, err := cborBytesOfExpr(t, conn, expr)
+	if err != nil {
+		return nil, err
+	}
+	return NewCBORNode(out)
+}
+
+// cborBytesOfExpr is cborOfExpr's encoded bytes, for checks on the CBOR form itself.
+func cborBytesOfExpr(t *testing.T, conn *pgxpool.Conn, expr string) ([]byte, error) {
+	t.Helper()
 	rows, err := conn.Query(context.Background(), "select "+expr, pgx.QueryResultFormats{pgx.BinaryFormatCode})
 	if err != nil {
 		return nil, err
@@ -203,10 +213,7 @@ func cborOfExpr(t *testing.T, conn *pgxpool.Conn, expr string) (Node, error) {
 	if rows.Err() != nil {
 		return nil, rows.Err()
 	}
-	if err != nil {
-		return nil, err
-	}
-	return NewCBORNode(out)
+	return out, err
 }
 
 func jsonOfExpr(t *testing.T, conn *pgxpool.Conn, expr string) any {
@@ -288,8 +295,8 @@ func TestResultCBOR_Details(t *testing.T) {
 		}
 	}
 	// a float4 stays a single
-	if n, _ := cborOfExpr(t, conn, `0.1::float4`); n.Kind() != KindNumber {
-		t.Error("float4")
+	if b, err := cborBytesOfExpr(t, conn, `0.1::float4`); err != nil || len(b) != 5 || b[0] != 0xfa {
+		t.Errorf("float4 = % x (%v), want a CBOR single (0xfa)", b, err)
 	}
 	// anonymous record fields are named f1, f2
 	n, err = cborOfExpr(t, conn, `row(1, 'a'::text)`)
@@ -308,7 +315,12 @@ func TestResultCBOR_Details(t *testing.T) {
 	if _, ok := n.ObjectGet("f1"); !ok {
 		t.Error("a record out of a subquery has no f1")
 	}
-	// a timestamptz with a fraction is an integer when it has no fraction, a double of seconds otherwise
+	// a timestamptz is tag 1 over an integer when it has no fraction, over a double of seconds otherwise
+	for expr, head := range map[string]byte{`'2023-11-14 22:13:20+00'::timestamptz`: 0x1a, `'2023-11-14 22:13:20.5+00'::timestamptz`: 0xfb} {
+		if b, err := cborBytesOfExpr(t, conn, expr); err != nil || len(b) < 2 || b[0] != 0xc1 || b[1] != head {
+			t.Errorf("%s = % x (%v), want tag 1 then 0x%x", expr, b, err, head)
+		}
+	}
 	n, _ = cborOfExpr(t, conn, `'2023-11-14 22:13:20.5+00'::timestamptz`)
 	if got, _ := n.(*cnode).Instant(); got.Unix() != 1700000000 || got.Nanosecond() != 500_000_000 {
 		t.Errorf("instant = %v", got)
@@ -336,11 +348,12 @@ func TestResultCBOR_RefusesTruncatedValues(t *testing.T) {
 		if _, err := e.AppendValue(nil, oid, raw); err != nil {
 			t.Fatalf("%s: %v", expr, err)
 		}
-		for n := 0; n < len(raw); n++ { // every shorter prefix must be an error or a value, never a panic
-			_, _ = e.AppendValue(nil, oid, raw[:n])
+		for n := 0; n < len(raw); n++ {
+			if _, err := e.AppendValue(nil, oid, raw[:n]); err == nil {
+				t.Errorf("%s: a %d-byte prefix of %d was accepted", expr, n, len(raw))
+			}
 		}
 	}
-	_ = math.Pi
 }
 
 // cborResponseOf runs the CBOR form of a compiled query and returns its rows as the indefinite array a response
@@ -433,9 +446,9 @@ func TestResultCBOR_CompiledQueriesMatchJSON(t *testing.T) {
 		"to-many":       `{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}}}}`,
 		"to-many-empty": `{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "movies": [".", "movies"]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "where": ["=", ["col", "title"], "none"], "select": {"title": ["col", "title"]}}}}`,
 		"scalar":        `{"relation": "director", "schema": "public", "select": ["col", "name"], "where": ["=", ["col", "id"], %d]}`,
-		"none":          `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["=", ["col", "id"], -1]}`,
+		"none":          `{"relation": "director", "schema": "public", "select": ["*~"], "where": ["and", ["=", ["col", "id"], %d], ["=", ["col", "id"], -1]]}`,
 	} {
-		root := mustResolveQuery(t, strings.ReplaceAll(fmt.Sprintf(q, did), "%!d(MISSING)", ""))
+		root := mustResolveQuery(t, fmt.Sprintf(q, did))
 		want, got := jsonRowsOf(t, root), cborRowsOf(t, root)
 		if len(want) != len(got) {
 			t.Errorf("%s: %d rows in JSON, %d in CBOR", name, len(want), len(got))
@@ -517,7 +530,7 @@ func TestResultCBOR_StructuresMatchMaps(t *testing.T) {
 		"to-many": `{"relation": "director", "schema": "public", "select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]}, "where": ["=", ["col", "id"], %d], "join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": {"title": ["col", "title"]}}}}`,
 		"to-one":  `{"relation": "movie", "schema": "public", "select": {"title": ["col", "title"], "director": [".", "director"]}, "where": ["=", ["col", "director_id"], %d], "join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": {"name": ["col", "name"]}}}}`,
 		"scalar":  `{"relation": "movie", "schema": "public", "select": ["col", "title"], "where": ["=", ["col", "director_id"], %d]}`,
-		"none":    `{"relation": "movie", "schema": "public", "select": ["*~"], "where": ["=", ["col", "director_id"], -1]}`,
+		"none":    `{"relation": "movie", "schema": "public", "select": ["*~"], "where": ["and", ["=", ["col", "director_id"], %d], ["=", ["col", "id"], -1]]}`,
 	} {
 		root := mustResolveQuery(t, fmt.Sprintf(q, did))
 		maps := cborResponseOf(t, root, nil)

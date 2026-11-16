@@ -17,7 +17,7 @@ func TestClassify_NotAPgError(t *testing.T) {
 	}
 }
 
-func TestClassify_RSxxxTakesPrecedence(t *testing.T) {
+func TestClassify_RSxxxUsesRaisedStatusAndMessage(t *testing.T) {
 	pgErr := &pgconn.PgError{Code: "RS404", Message: "not found"}
 	wrapped := fmt.Errorf("item 0: %w", pgErr)
 
@@ -36,7 +36,7 @@ func TestClassify_RSxxxTakesPrecedence(t *testing.T) {
 	}
 }
 
-func TestClassify_ConstraintViolations(t *testing.T) {
+func TestClassify_KnownSqlstates(t *testing.T) {
 	tests := []struct {
 		sqlstate string
 		wantCode errcode.Code

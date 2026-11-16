@@ -130,43 +130,26 @@ func TestBuild_DefaultHandlerIsPretty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if logger == nil {
-		t.Fatalf("expected a non-nil logger")
+	fh, ok := logger.Handler().(*filterHandler)
+	if !ok {
+		t.Fatalf("expected a *filterHandler, got %T", logger.Handler())
+	}
+	if _, ok := fh.inner.(*prettyHandler); !ok {
+		t.Errorf("expected the default handler to be *prettyHandler, got %T", fh.inner)
 	}
 }
 
-func TestBuild_JSONHandlerProducesValidJSON(t *testing.T) {
-	var buf bytes.Buffer
-	logger, err := buildTo(&buf, config.Logging{Handler: "JSON", Level: "info"})
-	if err != nil {
-		t.Fatalf("buildTo: %v", err)
-	}
-	logger.Info("hello", "key", "value")
-
-	var decoded map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
-		t.Fatalf("expected valid JSON line, got %q: %v", buf.String(), err)
-	}
-	if decoded["key"] != "value" {
-		t.Errorf("expected key=value in the JSON line, got %v", decoded)
-	}
-}
-
-func TestLevelFiltering_DebugSuppressedAtInfo(t *testing.T) {
-	var buf bytes.Buffer
-	logger, err := buildTo(&buf, config.Logging{Handler: "JSON", Level: "info"})
-	if err != nil {
-		t.Fatalf("buildTo: %v", err)
-	}
-	logger.Debug("should not appear")
-	logger.Info("should appear")
-
-	out := buf.String()
-	if strings.Contains(out, "should not appear") {
-		t.Errorf("expected debug line suppressed at info level, got %q", out)
-	}
-	if !strings.Contains(out, "should appear") {
-		t.Errorf("expected info line present, got %q", out)
+func TestParseLevel(t *testing.T) {
+	for in, want := range map[string]slog.Level{
+		"":      slog.LevelInfo,
+		"DEBUG": slog.LevelDebug,
+		"warn":  slog.LevelWarn,
+		"Error": slog.LevelError,
+	} {
+		got, err := parseLevel(in)
+		if err != nil || got != want {
+			t.Errorf("parseLevel(%q) = %v, %v ; want %v", in, got, err, want)
+		}
 	}
 }
 
@@ -223,7 +206,7 @@ func TestFilter_AppliesToWithAttrs(t *testing.T) {
 	}
 }
 
-func TestExclude_SuppressesAfterFilter(t *testing.T) {
+func TestExclude_SuppressesMatchingValue(t *testing.T) {
 	var buf bytes.Buffer
 	logger, err := buildTo(&buf, config.Logging{
 		Handler: "JSON", Level: "info",

@@ -11,10 +11,6 @@ Querier.prototype.baseUrl = url
 const raw = (v: unknown): unknown => v
 
 describe("the json-bigint codec", () => {
-  test("sends no content type, the server answers JSON", () => {
-    expect(Querier.prototype.codec.contentType).toBeUndefined()
-  })
-
   test("an int8 beyond 2^53 keeps every digit, a smaller one stays a number", async () => {
     // 2^53 + 1, the first integer a double cannot hold : written as a string literal and cast on the server
     const [row] = await relation("hotel.properties", {

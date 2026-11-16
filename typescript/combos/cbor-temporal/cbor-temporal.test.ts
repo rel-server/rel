@@ -2,6 +2,7 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import {
   Querier,
+  RelRequestError,
   asPgDate,
   asTimestamp,
   asTimestamptz,
@@ -139,7 +140,8 @@ describe("the CBOR codec", () => {
     const error = await relation("hotel.nope" as never)
       .get()
       .catch((e: unknown) => e)
-    expect((error as { status: number }).status).toBe(400)
-    expect(typeof (error as { body: string }).body).toBe("string")
+    expect(error).toBeInstanceOf(RelRequestError)
+    expect((error as RelRequestError).status).toBe(400)
+    expect(JSON.parse((error as RelRequestError).body)).toHaveProperty("code")
   })
 })

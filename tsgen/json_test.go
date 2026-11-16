@@ -260,8 +260,8 @@ func TestGenerateDatabaseJSON_Functions(t *testing.T) {
 	if !ok || len(count) != 1 {
 		t.Fatalf("hotel.property_count missing")
 	}
-	if count[0].Volatility == "" {
-		t.Errorf("hotel.property_count should report a non-empty volatility")
+	if count[0].Volatility != "volatile" {
+		t.Errorf("hotel.property_count is declared without a volatility, so it is volatile ; got %q", count[0].Volatility)
 	}
 	if len(count[0].Args) != 0 {
 		t.Errorf("hotel.property_count takes no arguments ; got %#v", count[0].Args)

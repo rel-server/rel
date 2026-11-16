@@ -69,7 +69,12 @@ describe("the cbor-date codec", () => {
   describe("structures", () => {
     // what one request puts on the wire : its Accept header, its body, and the Content-Type of the answer
     async function wire<T>(fn: () => Promise<T>) {
-      const seen: { accept?: string; body?: Uint8Array; contentType?: string | null; answer?: Uint8Array } = {}
+      const seen: {
+        accept?: string
+        body?: Uint8Array
+        contentType?: string | null
+        answer?: Uint8Array
+      } = {}
       const real = globalThis.fetch
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         seen.accept = (init?.headers as Record<string, string> | undefined)?.Accept
@@ -87,7 +92,8 @@ describe("the cbor-date codec", () => {
     }
     // tag 0xdfff, which opens a structure's definition
     const hasDefinition = (b: Uint8Array | undefined) => {
-      for (let i = 0; b && i + 2 < b.length; i++) if (b[i] === 0xd9 && b[i + 1] === 0xdf && b[i + 2] === 0xff) return true
+      for (let i = 0; b && i + 2 < b.length; i++)
+        if (b[i] === 0xd9 && b[i + 1] === 0xdf && b[i + 2] === 0xff) return true
       return false
     }
 
@@ -129,7 +135,9 @@ describe("the cbor-date codec", () => {
     test("requests are structures by default, and sendStructures turns that off for one query", async () => {
       const q = samples
       const draft = (i: number) => q.draft({ label: `structures-w-${i}`, big: i as never } as never)
-      const on = await wire(() => q.write(Array.from({ length: 10 }, (_, i) => draft(i)) as never[]))
+      const on = await wire(() =>
+        q.write(Array.from({ length: 10 }, (_, i) => draft(i)) as never[]),
+      )
       expect(hasDefinition(on.body)).toBe(true)
 
       const off = await wire(async () => {
@@ -152,13 +160,19 @@ describe("the cbor-date codec", () => {
     })
 
     test("a jsonb value with keys of its own is written and read back", async () => {
-      const docs = Array.from({ length: 20 }, (_, i) => ({ ["k" + i]: i, same: "x", nested: { a: i } }))
+      const docs = Array.from({ length: 20 }, (_, i) => ({
+        ["k" + i]: i,
+        same: "x",
+        nested: { a: i },
+      }))
       const written = relation("hotel.codec_samples", { select: ["*~"] })
       for (const sendStructures of [true, false]) {
         written.sendStructures = sendStructures
         const label = `structures-jsonb-${sendStructures}`
         await written.write(
-          docs.map((meta, i) => written.draft({ label: `${label}-${i}`, meta } as never)) as never[],
+          docs.map((meta, i) =>
+            written.draft({ label: `${label}-${i}`, meta } as never),
+          ) as never[],
         )
         const read = await relation("hotel.codec_samples", {
           select: ["*~"],

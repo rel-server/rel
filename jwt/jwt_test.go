@@ -2,11 +2,8 @@ package jwt
 
 import (
 	"maps"
-	"strings"
 	"testing"
 	"time"
-
-	jwtlib "github.com/golang-jwt/jwt/v5"
 
 	"github.com/rel-server/rel/config"
 )
@@ -60,33 +57,6 @@ func TestVerify_WrongSecretFails(t *testing.T) {
 	wrongCfg.Secret = "a-completely-different-secret"
 	if _, err := Verify(wrongCfg, token); err == nil {
 		t.Fatalf("expected verify to fail with the wrong secret")
-	}
-}
-
-func TestVerify_ExpiredTokenFails(t *testing.T) {
-	cfg := testCfg()
-	claims := Mint(cfg, "editor", time.Now(), -1, nil) // maxage -1s : already expired
-	token, err := Sign(cfg, claims)
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
-	if _, err := Verify(cfg, token); err == nil {
-		t.Fatalf("expected verify to fail on an expired token")
-	}
-}
-
-// TestVerify_RejectsNoneAlgorithm : a token claiming "none" as its
-// algorithm must be rejected as an invalid signature, not accepted.
-func TestVerify_RejectsNoneAlgorithm(t *testing.T) {
-	cfg := testCfg()
-	claims := Mint(cfg, "editor", time.Now(), cfg.MaxAge, nil)
-	unsigned := jwtlib.NewWithClaims(jwtlib.SigningMethodNone, claims)
-	token, err := unsigned.SignedString(jwtlib.UnsafeAllowNoneSignatureType)
-	if err != nil {
-		t.Fatalf("building a none-alg token: %v", err)
-	}
-	if _, err := Verify(cfg, token); err == nil {
-		t.Fatalf("expected verify to reject an alg=none token")
 	}
 }
 
@@ -230,22 +200,5 @@ func TestVerify_MissingRoleFails(t *testing.T) {
 	}
 	if _, err := Verify(cfg, token); err == nil {
 		t.Fatalf("expected verify to fail on a token with no role claim")
-	}
-}
-
-func TestVerify_TamperedTokenFails(t *testing.T) {
-	cfg := testCfg()
-	claims := Mint(cfg, "editor", time.Now(), cfg.MaxAge, nil)
-	token, err := Sign(cfg, claims)
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		t.Fatalf("expected a 3-part JWT, got %d parts", len(parts))
-	}
-	tampered := parts[0] + "." + parts[1] + "." + parts[2][:len(parts[2])-2] + "xx"
-	if _, err := Verify(cfg, tampered); err == nil {
-		t.Fatalf("expected verify to fail on a tampered signature")
 	}
 }

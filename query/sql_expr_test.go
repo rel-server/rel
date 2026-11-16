@@ -10,15 +10,15 @@ import (
 func TestCompileSelect_ParamExprReservesNamedPlaceholder(t *testing.T) {
 	node := mustResolveQuery(t, `{
 		"relation": "director", "schema": "public", "select": ["*~"],
-		"where": ["=", ["col", "name"], ["$param", "director_name", "text"]]
+		"where": ["and", ["<>", ["col", "name"], "Nobody"], ["=", ["col", "name"], ["$param", "director_name", "text"]]]
 	}`)
 
 	w, err := CompileSelect(node)
 	if err != nil {
 		t.Fatalf("CompileSelect: %v", err)
 	}
-	if !strings.Contains(w.String(), "$1::text") {
-		t.Fatalf("expected a $1::text placeholder, got sql: %s", w.String())
+	if !strings.Contains(w.String(), "$2::text") {
+		t.Fatalf("expected the param after the literal's $1, as $2::text, got sql: %s", w.String())
 	}
 
 	names := w.ParamNames()
@@ -30,8 +30,8 @@ func TestCompileSelect_ParamExprReservesNamedPlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveArgs: %v", err)
 	}
-	if len(args) != 1 || args[0] != "Denis Villeneuve" {
-		t.Fatalf("expected resolved args == [Denis Villeneuve], got %#v", args)
+	if len(args) != 2 || args[0] != "Nobody" || args[1] != "Denis Villeneuve" {
+		t.Fatalf("expected resolved args == [Nobody, Denis Villeneuve], got %#v", args)
 	}
 }
 

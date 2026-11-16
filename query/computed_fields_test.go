@@ -17,6 +17,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -97,38 +98,6 @@ func TestCompileSelect_DotChainIntoChildComputedField(t *testing.T) {
 	}
 }
 
-// Same as TestCompileSelect_DotChainIntoChildComputedField above, but with
-// the flat [".", "director", "name"] chain form instead of nesting an inner
-// "." just to resolve "director" as a lookup — both must compile to the
-// same correlated scalar subquery and produce the identical result.
-func TestCompileSelect_DotChainIntoChildComputedField_FlatForm(t *testing.T) {
-	ctx := context.Background()
-	var directorID int
-	if err := testDb.Pool.QueryRow(ctx, `insert into director (name) values ('Flat Hop Target Director') returning id`).Scan(&directorID); err != nil {
-		t.Fatalf("insert director: %v", err)
-	}
-	var movieID int
-	if err := testDb.Pool.QueryRow(ctx, `insert into movie (director_id, title) values ($1, 'Flat Hop Target Movie') returning id`, directorID).Scan(&movieID); err != nil {
-		t.Fatalf("insert movie: %v", err)
-	}
-
-	node := mustResolveQuery(t, fmt.Sprintf(`{
-		"relation": "movie", "schema": "public",
-		"select": {"title": ["col", "title"], "director_display": [".", "director", "director_display_name"]},
-		"where": ["=", ["col", "id"], %d],
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}}}
-	}`, movieID))
-	sql, args := mustCompileSelect(t, node)
-	rows := runSelect(t, sql, args)
-
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
-	}
-	if rows[0]["director_display"] != "Flat Hop Target Director (director)" {
-		t.Errorf("expected director_display=%q, got %#v", "Flat Hop Target Director (director)", rows[0])
-	}
-}
-
 // own/full must never auto-include a computed field.
 func TestResolveQuery_FullNeverIncludesComputedField(t *testing.T) {
 	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*"]}`)
@@ -167,10 +136,10 @@ func TestResolveQuery_ComputedFieldVsJoinAliasIsAmbiguous(t *testing.T) {
 	// computed field to trigger the ambiguity.
 	err := resolveQueryExpectError(t, `{
 		"relation": "director", "schema": "public",
-		"select": {"x": ["col", "director_display_name"]},
+		"select": {"x": [".", "director_display_name"]},
 		"join": {"director_display_name": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}}}
 	}`)
-	if err == nil {
-		t.Fatalf("expected an ambiguous-identifier error when a join alias collides with a computed field name, got none")
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected an ambiguous-identifier error when a join alias collides with a computed field name, got %v", err)
 	}
 }

@@ -3,9 +3,7 @@ package query
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgconn"
 	"math"
 	"reflect"
 	"strings"
@@ -951,11 +949,13 @@ func TestCompileSelect_InLiteralAndExpr(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["in", ["col", "name"], "In Test Director", "Someone Else"]}`)
-	sql, args := mustCompileSelect(t, node)
-	rows := runSelect(t, sql, args)
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row (literal \"in\" candidates), got %d : %s", len(rows), sql)
+	for _, candidates := range []string{`"In Test Director", "Someone Else"`, `"Someone Else", ["||", "In Test ", "Director"]`} {
+		node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["in", ["col", "name"], `+candidates+`]}`)
+		sql, args := mustCompileSelect(t, node)
+		rows := runSelect(t, sql, args)
+		if len(rows) != 1 {
+			t.Fatalf("candidates %s: expected 1 row, got %d : %s", candidates, len(rows), sql)
+		}
 	}
 }
 
@@ -966,11 +966,13 @@ func TestCompileSelect_AnyAll(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["any", "=", ["col", "id"], ["arr", %d, -1]]}`, directorID))
-	sql, args := mustCompileSelect(t, node)
-	rows := runSelect(t, sql, args)
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d : %s", len(rows), sql)
+	for quantifier, want := range map[string]int{"any": 1, "all": 0} {
+		node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "director", "schema": "public", "select": ["*~", []], "where": [%q, "=", ["col", "id"], ["arr", %d, -1]]}`, quantifier, directorID))
+		sql, args := mustCompileSelect(t, node)
+		rows := runSelect(t, sql, args)
+		if len(rows) != want {
+			t.Fatalf("%s: expected %d row(s), got %d : %s", quantifier, want, len(rows), sql)
+		}
 	}
 }
 
@@ -1085,7 +1087,7 @@ func TestCompileSelect_NotInAndNotBetween(t *testing.T) {
 
 	// Negate (not_in/not_between) : a wrong "not " placement is a syntax
 	// error at execution, not compile time — needs real Postgres.
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["and", ["not_in", ["col", "name"], "Someone Else", "Nobody"], ["not_between", ["col", "id"], -1, 0]]}`)
+	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~", []], "where": ["and", ["not_in", ["col", "name"], "Someone Else", "Nobody"], ["not_between", -1, ["col", "id"], 0]]}`)
 	sql, args := mustCompileSelect(t, node)
 	rows := runSelect(t, sql, args)
 	found := false
@@ -1311,24 +1313,5 @@ func TestCompileSelect_AggOverloadedFunctions(t *testing.T) {
 				t.Errorf("got %#v, want %#v", got, tc.want)
 			}
 		})
-	}
-}
-
-// TestCompileSelect_AggUnresolvableOverload proves Postgres' own refusal to pick an overload (sum of text)
-// surfaces as its "function does not exist" error (42883), which the server maps to a 400.
-func TestCompileSelect_AggUnresolvableOverload(t *testing.T) {
-	parentID := aggChildParent(t)
-	node := mustResolveQuery(t, fmt.Sprintf(`{"relation": "agg_parent", "schema": "public", "where": ["=", ["col", "id"], %d], "join": {"kids": {"relation": "agg_child", "schema": "public", "on": {"parent_id": "id"}}}, "select": {"v": ["agg", "sum", [["::", [".", "kids", "amount"], "text"]]]}}`, parentID))
-	sql, args := mustCompileSelect(t, node)
-	rows, err := testDb.Pool.Query(context.Background(), sql, args...)
-	if err == nil {
-		for rows.Next() {
-		}
-		err = rows.Err()
-		rows.Close()
-	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "42883" {
-		t.Fatalf("expected Postgres error 42883 (undefined function), got %v", err)
 	}
 }

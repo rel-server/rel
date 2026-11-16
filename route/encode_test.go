@@ -166,12 +166,10 @@ func TestDecodeOutboundCookie_StringSetsValue(t *testing.T) {
 	}
 }
 
-func TestMediaTypeOf_StripsParams(t *testing.T) {
-	if got := mediaTypeOf("text/plain; charset=utf-8"); got != "text/plain" {
+// A Content-Type whose parameters do not parse still yields its media type.
+func TestMediaTypeOf_UnparseableParamsFallBack(t *testing.T) {
+	if got := mediaTypeOf("Text/Plain; =bad"); got != "text/plain" {
 		t.Errorf("expected text/plain, got %q", got)
-	}
-	if got := mediaTypeOf("application/json"); got != "application/json" {
-		t.Errorf("expected application/json, got %q", got)
 	}
 }
 

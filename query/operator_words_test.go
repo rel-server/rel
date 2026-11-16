@@ -28,8 +28,9 @@ func TestOperatorWordSynonym_ProducesIdenticalTreeToSymbolForm(t *testing.T) {
 	}{
 		{`["gte", "year", 1999]`, `[">=", "year", 1999]`},
 		{`["eq", "active", true]`, `["=", "active", true]`},
-		{`["is_null", "name"]`, `["is_null", "name"]`},
-		{`["not_in", "status", "open", "closed"]`, `["not_in", "status", "open", "closed"]`},
+		{`["ne", "status", "open"]`, `["<>", "status", "open"]`},
+		{`["concat", "first", "last"]`, `["||", "first", "last"]`},
+		{`["bnot", "flags"]`, `["~", "flags"]`},
 		{`["and", ["gte", "year", 1999], ["lt", "year", 2020]]`, `["and", [">=", "year", 1999], ["<", "year", 2020]]`},
 	}
 	for _, tc := range cases {

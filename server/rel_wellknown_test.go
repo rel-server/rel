@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/rel-server/rel/wellknown"
@@ -51,12 +52,6 @@ func getRelTo(t *testing.T, handler http.Handler, rawQuery string) *httptest.Res
 	return rec
 }
 
-// TestRelHandler_WellKnown_POST_Write : a well-known query wrapped in
-// WriteQuery.query, written to exactly like a Relation would be.
-// TestRelHandler_WellKnown_Sequence : a well-known read composed alongside
-// a plain Relation read, same Sequence, same transaction.
-// TestRelHandler_WellKnown_Sequence_Write : well-known-queries.md
-// ## Behaviour's node-ID-offset caveat — a well-known write sharing a Sequence/WriteState with a plain write.
 func TestRelHandler_WellKnown_GET_Read(t *testing.T) {
 	ctx := context.Background()
 	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('WellKnown GET Director')`); err != nil {
@@ -128,8 +123,7 @@ func TestDecodeGETQuery_WellKnownArrayParamValue(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a params object, got %#v", decoded["params"])
 	}
-	tags, ok := params["tags"].([]any)
-	if !ok || len(tags) != 3 {
+	if !reflect.DeepEqual(params["tags"], []any{1.0, 2.0, 3.0}) {
 		t.Fatalf("expected tags=[1,2,3], got %#v", params["tags"])
 	}
 }

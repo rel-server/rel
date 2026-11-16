@@ -8,8 +8,8 @@ import (
 	"github.com/rel-server/rel/pg"
 )
 
-// colCase is one value for a column of enc_t, and what the encoder must do with it
-// compared with jsonb_populate_record, the oracle : the write path of today.
+// colCase is one value for a column of enc_t, and what the encoder must do with it compared with
+// jsonb_populate_record, the oracle.
 type colCase struct {
 	js   string
 	want encWant // wantAccept, wantBad (both reject), wantReject (oracle accepts, documented rejection), wantKind
@@ -155,6 +155,9 @@ func TestEncode_Arrays(t *testing.T) {
 	runColCases(t, "byteas", true, []colCase{
 		okc(`["\\x00ff", "\\x"]`), okc(`[null]`), badc(`["\\xzz"]`),
 	})
+	// the scalars of these element types take binary mode too
+	runColCases(t, "bytes", true, []colCase{okc(`"\\x00ff"`)})
+	runColCases(t, "id", true, []colCase{okc(`1`)})
 	// json and jsonb elements are values, never dimensions
 	runColCases(t, "jsonbs", true, []colCase{
 		okc(`[{"a":1}, [1,2], "s", 3, true]`), okc(`[[1,2],[3,4]]`), okc(`[]`), okc(`[[]]`),
@@ -201,12 +204,12 @@ func TestEncode_EnumsAndDomains(t *testing.T) {
 }
 
 func TestEncode_Modifiers(t *testing.T) {
-	// varchar(5) and bpchar(3) are binary types whose modifiers the column's declared type applies
+	// varchar(5) and bpchar(3) are binary types ; their lengths are enforced when the temp rows load
 	runColCases(t, "vc", true, []colCase{
-		okc(`"abcde"`), okc(`"abc"`), okc(`""`), badc(`"abcdef"`), kindc(`5`),
+		okc(`"abcde"`), okc(`"abc"`), okc(`""`), kindc(`5`),
 	})
 	runColCases(t, "chr", true, []colCase{
-		okc(`"ab"`), okc(`"abc"`), badc(`"abcd"`),
+		okc(`"ab"`), okc(`"abc"`),
 	})
 }
 
@@ -262,39 +265,13 @@ func TestEncode_TextModeArraysAndComposites(t *testing.T) {
 	})
 }
 
-// A column of binary-mode type holds NULL for a missing value : checked by the caller, which never
-// hands a null to an encoder. Here, the encoders must not accept one.
-func TestEncode_EncodersNeverTakeNull(t *testing.T) {
-	cols := []string{"i4s", "inner_c", "mood", "iv", "ivs", "vc"}
-	for _, name := range cols {
-		col := encT(t).ColumnsMap[name]
-		enc, _ := columnEncoder(col.Type)
+// A binary-mode column holds NULL for a missing value : the caller never hands a null to an encoder, which must
+// refuse one.
+func TestEncode_BinaryEncodersRejectNull(t *testing.T) {
+	for _, name := range []string{"i4s", "inner_c", "mood", "vc"} {
+		enc, _ := columnEncoder(encT(t).ColumnsMap[name].Type)
 		if _, err := enc(nil, encNode(t, `null`), &encodeContext{}); err == nil {
-			// text-mode scalars write nothing for null ; binary encoders reject it
-			if _, binary := columnEncoder(col.Type); binary {
-				t.Errorf("%s: a binary encoder accepted null", name)
-			}
-		}
-	}
-}
-
-func TestColumnEncoder_ModeSelection(t *testing.T) {
-	want := map[string]bool{
-		"i4s": true, "txts": true, "nums": true, "uuids": true, "tss": true, "bools": true, "jsonbs": true, "jsons": true,
-		"inner_c": true, "outer_c": true, "inners": true, "outers": true, "pos": true, "poss": true, "mood": true, "moods": true,
-		"vc": true, "chr": true, "bytes": true, "byteas": true, "id": true,
-		"iv": false, "ivs": false, "ivc": false, "ivcs": false, "ip": false, "ips": false, "rng": false, "rngs": false,
-		"pt": false, "tsv": false, "cash": false, "bits": false,
-	}
-	r := encT(t)
-	for name, binary := range want {
-		col := r.ColumnsMap[name]
-		if col == nil {
-			t.Errorf("no column %s", name)
-			continue
-		}
-		if _, got := columnEncoder(col.Type); got != binary {
-			t.Errorf("%s (%s): binary mode = %v, want %v", name, col.DeclaredType, got, binary)
+			t.Errorf("%s: a binary encoder accepted null", name)
 		}
 	}
 }

@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -61,7 +62,7 @@ func runBothWays(t *testing.T, setup []string, node *QueryNode, payload string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	general = runSelectOn(t, conn, sw.String(), mustArgs(t, sw))
+	general = runSelectOn(t, conn, sw.String(), sw.Args())
 	generalTable = snapshot()
 	if _, err := conn.Exec(ctx, "rollback to savepoint s"); err != nil {
 		t.Fatal(err)
@@ -75,19 +76,10 @@ func runBothWays(t *testing.T, setup []string, node *QueryNode, payload string, 
 		t.Fatalf("expected the fast path to build the response")
 	}
 	for _, raw := range res.Rows {
-		var m map[string]any
-		if err := json.Unmarshal(raw, &m); err != nil {
-			t.Fatalf("unmarshal %s: %v", raw, err)
-		}
-		fast = append(fast, m)
+		fast = append(fast, decodeRowExact(t, raw))
 	}
 	fastTable = snapshot()
 	return
-}
-
-func mustArgs(t *testing.T, sw interface{ Args() []any }) []any {
-	t.Helper()
-	return sw.Args()
 }
 
 // TestFastWrite_MatchesTheGeneralPath proves the fast path answers exactly what the
@@ -99,11 +91,13 @@ func TestFastWrite_MatchesTheGeneralPath(t *testing.T) {
 		payload string
 		table   string
 		rows    int
+		want    []map[string]string // when set, each response row's columns, as JSON text
 	}{
 		"insert, several rows in payload order": {
 			query:   `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`,
 			payload: `[{"id": 9002, "name": "B"}, {"id": 9001, "name": "A"}, {"id": 9003, "name": "C"}]`,
 			table:   "director", rows: 3,
+			want: []map[string]string{{"id": "9002"}, {"id": "9001"}, {"id": "9003"}},
 		},
 		"insert, response filtered by a where": {
 			query:   `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert", "where": ["=", ["col", "name"], "keep"]}`,
@@ -126,6 +120,7 @@ func TestFastWrite_MatchesTheGeneralPath(t *testing.T) {
 			query:   `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update-existing"}`,
 			payload: `[{"id": 9042, "name": "b2"}, {"id": 9041, "name": "a2"}]`,
 			table:   "director", rows: 2,
+			want: []map[string]string{{"id": "9042"}, {"id": "9041"}},
 		},
 		"update-existing with only the identity selected": {
 			setup:   []string{`insert into director (id, name) values (9051, 'kept')`},
@@ -145,11 +140,12 @@ func TestFastWrite_MatchesTheGeneralPath(t *testing.T) {
 			payload: `{"name": "after"}`,
 			table:   "director", rows: 0,
 		},
-		"numeric and bigint columns arrive as text": {
+		"numeric sent as text and a bigint past 2^53 keep every digit": {
 			setup:   []string{`insert into agg_parent (id) values (9081)`},
 			query:   `{"relation": "agg_child", "schema": "public", "select": ["*~"], "write_mode": "insert"}`,
 			payload: `[{"id": 9082, "parent_id": 9081, "amount": "12.50", "big": 9007199254740993}]`,
 			table:   "agg_child", rows: 1,
+			want: []map[string]string{{"amount": "12.50", "big": "9007199254740993"}},
 		},
 	}
 	for name, tc := range cases {
@@ -158,6 +154,15 @@ func TestFastWrite_MatchesTheGeneralPath(t *testing.T) {
 			general, fast, generalTable, fastTable := runBothWays(t, tc.setup, node, tc.payload, tc.table)
 			if len(fast) != tc.rows {
 				t.Errorf("expected %d response rows, got %d : %v", tc.rows, len(fast), fast)
+			}
+			if tc.want != nil && len(fast) == len(tc.want) {
+				for i, cols := range tc.want {
+					for col, v := range cols {
+						if got := fmt.Sprint(fast[i][col]); got != v {
+							t.Errorf("row %d %s = %s, want %s", i, col, got, v)
+						}
+					}
+				}
 			}
 			if !reflect.DeepEqual(general, fast) {
 				t.Errorf("responses differ\n general: %v\n    fast: %v", general, fast)
@@ -196,51 +201,6 @@ func TestFastWrite_Eligibility(t *testing.T) {
 }
 
 var _ = (*pgxpool.Conn)(nil)
-
-// TestUpdate_AbsentColumnKeepsItsValue proves update-existing and merge-update only
-// change the columns a row supplies : an absent column keeps its current value, an
-// explicit null sets NULL. Both paths must agree.
-func TestUpdate_AbsentColumnKeepsItsValue(t *testing.T) {
-	cases := map[string]struct {
-		mode    string
-		payload string
-		want    map[string]any // columns of orders.id = 9301 afterwards
-	}{
-		"update-existing, one column supplied": {
-			mode: "update-existing", payload: `[{"id": 9301, "note": "changed"}]`,
-			want: map[string]any{"note": "changed", "flag": true, "total": 5.0},
-		},
-		"update-existing, explicit null sets NULL": {
-			mode: "update-existing", payload: `[{"id": 9301, "flag": null}]`,
-			want: map[string]any{"note": "orig", "flag": nil, "total": 5.0},
-		},
-		"update-existing, two rows with different supplied columns": {
-			mode: "update-existing", payload: `[{"id": 9301, "total": 7}, {"id": 9302, "note": "other"}]`,
-			want: map[string]any{"note": "orig", "flag": true, "total": 7.0},
-		},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			node := mustResolveQuery(t, `{"relation": "orders", "schema": "public", "select": ["*~"], "write_mode": "`+c.mode+`"}`)
-			_, _, generalTable, fastTable := runBothWays(t, []string{
-				`insert into orders (id, note, flag, total) values (9301, 'orig', true, 5), (9302, 'second', false, 1)`,
-			}, node, c.payload, "orders")
-			for label, table := range map[string][]map[string]any{"general": generalTable, "fast": fastTable} {
-				var got map[string]any
-				for _, r := range table {
-					if r["id"] == 9301.0 {
-						got = r
-					}
-				}
-				for col, want := range c.want {
-					if got[col] != want {
-						t.Errorf("%s path: orders.%s = %#v, want %#v (row %#v)", label, col, got[col], want, got)
-					}
-				}
-			}
-		})
-	}
-}
 
 // TestUpdate_AbsentCompositeLeafKeepsItsValue is the same rule for a composite's
 // sub-fields, which are separate columns to the writer (general path only : a

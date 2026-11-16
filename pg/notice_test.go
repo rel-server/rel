@@ -26,7 +26,7 @@ const raiseAll = `do $$ begin
   raise debug 'd-msg';
 end $$`
 
-func TestNoticeLevel_FiltersBySeverityOnBothPools(t *testing.T) {
+func TestNoticeLevel_FiltersBySeverity(t *testing.T) {
 	cases := []struct {
 		level string
 		want  []string

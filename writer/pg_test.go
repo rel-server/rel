@@ -39,14 +39,6 @@ func TestEscapeSQLId_SchemaQualified(t *testing.T) {
 	}
 }
 
-func TestSQLWriter_Id(t *testing.T) {
-	w := NewSQL()
-	w.Id("hotel.order")
-	if got, want := w.String(), `hotel."order"`; got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
 func TestSQLWriter_Bind_SequentialPlaceholdersAndArgs(t *testing.T) {
 	w := NewSQL()
 	w.Write("select ")

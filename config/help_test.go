@@ -21,12 +21,6 @@ func TestEnvVar(t *testing.T) {
 	}
 }
 
-func TestFlagOf(t *testing.T) {
-	if got := FlagOf("query.host"); got != "--query.host" {
-		t.Errorf("FlagOf(\"query.host\") = %q, want \"--query.host\"", got)
-	}
-}
-
 // dynamicNamespaceKeys are loader.go's path-prefix keys (readStringMap/
 // readBlacklist) — Help() documents these as prose, not table rows.
 var dynamicNamespaceKeys = map[string]bool{

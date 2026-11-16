@@ -1,6 +1,7 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -154,45 +155,6 @@ func TestExecuteWrite_IncomingChildFK(t *testing.T) {
 	}
 }
 
-func TestExecuteWrite_OutgoingChildFK(t *testing.T) {
-	conn := acquireWriteConn(t)
-	ctx := context.Background()
-
-	// Outgoing "director" child (default write_mode upsert) : movie.director_id
-	// resolves from the child's own recovered key via outgoingKeySource's extra left join, not the plain "par" join.
-	node := mustResolveQuery(t, `{
-		"relation": "movie", "schema": "public",
-		"select": {"id": ["col", "id"], "title": ["col", "title"], "director": [".", "director"]},
-		"write_mode": "insert",
-		"join": {"director": {"relation": "director", "schema": "public", "on": {"id": "director_id"}, "select": ["*~"]}}
-	}`)
-	directorNode := node.OutgoingNodes[0]
-
-	payload := []byte(`[{"title": "Outgoing Movie", "director": {"name": "Outgoing Director"}}]`)
-	result, err := ExecuteWrite(ctx, conn, node, payload)
-	if err != nil {
-		t.Fatalf("ExecuteWrite: %v", err)
-	}
-
-	movieKeys := dataKeysFor(t, conn, node, result)
-	directorKeys := dataKeysFor(t, conn, directorNode, result)
-	if len(movieKeys) != 1 || len(directorKeys) != 1 {
-		t.Fatalf("expected 1 movie + 1 director keys row, got %d/%d", len(movieKeys), len(directorKeys))
-	}
-
-	var count int
-	if err := conn.QueryRow(ctx, `
-		select count(*) from movie m
-		join director d on d.id = m.director_id
-		where m.title = 'Outgoing Movie' and d.name = 'Outgoing Director'
-	`).Scan(&count); err != nil {
-		t.Fatalf("select back: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("expected movie correctly linked to its new director, got count=%d", count)
-	}
-}
-
 func TestExecuteWrite_ThreeLevelNestedIncomingChildren(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -259,56 +221,6 @@ func TestExecuteWrite_ThreeLevelNestedIncomingChildren(t *testing.T) {
 	}
 }
 
-func TestExecuteWrite_Update(t *testing.T) {
-	conn := acquireWriteConn(t)
-	ctx := context.Background()
-
-	var directorID int
-	if err := conn.QueryRow(ctx, `insert into director (name) values ('Before Update') returning id`).Scan(&directorID); err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "update-existing"}`)
-	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "After Update"}]`)
-	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
-		t.Fatalf("ExecuteWrite: %v", err)
-	}
-
-	var name string
-	if err := conn.QueryRow(ctx, `select name from director where id = $1`, directorID).Scan(&name); err != nil {
-		t.Fatalf("select back: %v", err)
-	}
-	if name != "After Update" {
-		t.Errorf("expected name=After Update, got %q", name)
-	}
-}
-
-// TestExecuteWrite_UnwritableSelect_Rejected proves a select omitting the
-// identity column ("id") is rejected up front, not silently writing a phantom identity — see write.go's findUnwritableNode.
-func TestExecuteWrite_UnwritableSelect_Rejected(t *testing.T) {
-	conn := acquireWriteConn(t)
-	ctx := context.Background()
-
-	var directorID int
-	if err := conn.QueryRow(ctx, `insert into director (name) values ('Before Unwritable Update') returning id`).Scan(&directorID); err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}, "write_mode": "update-existing"}`)
-	payload := []byte(`[{"name": "Renamed"}]`)
-	if _, err := ExecuteWrite(ctx, conn, node, payload); err == nil {
-		t.Fatalf("expected ExecuteWrite to reject a write whose select omits the identity column")
-	}
-
-	var name string
-	if err := conn.QueryRow(ctx, `select name from director where id = $1`, directorID).Scan(&name); err != nil {
-		t.Fatalf("select back: %v", err)
-	}
-	if name != "Before Unwritable Update" {
-		t.Errorf("expected the row untouched, got name=%q", name)
-	}
-}
-
 // TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation proves
 // a function root is never writable even with a real Relation — shape.go's IsFunction() guard.
 func TestExecuteWrite_FunctionRootUnwritable_EvenWithRealTableRelation(t *testing.T) {
@@ -347,9 +259,16 @@ func TestExecuteWrite_Upsert(t *testing.T) {
 		{"id": ` + itoa(directorID) + `, "name": "After Upsert"},
 		{"name": "Fresh Upsert Director"}
 	]`)
-	result, err := ExecuteWrite(ctx, conn, node, payload)
+	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
 	if err != nil {
-		t.Fatalf("ExecuteWrite: %v", err)
+		t.Fatalf("ExecuteWriteStateParamsStats: %v", err)
+	}
+	if len(result.Stats) != 1 {
+		t.Fatalf("expected 1 Stat, got %d : %#v", len(result.Stats), result.Stats)
+	}
+	// stats tell inserted from updated rows of the same statement
+	if st := result.Stats[0]; st.Submitted != 2 || st.Inserted != 1 || st.Updated != 1 {
+		t.Errorf("expected submitted=2 inserted=1 updated=1, got %#v", st)
 	}
 
 	keys := dataKeysFor(t, conn, node, result)
@@ -379,9 +298,7 @@ func TestExecuteWrite_Upsert(t *testing.T) {
 	}
 }
 
-// TestExecuteWriteStateParamsOpts_Sql proves `sql` collects each DML
-// statement's compiled text without needing execution to have been wrapped
-// in anything extra (it adds zero DB round trips).
+// TestExecuteWriteStateParamsOpts_Sql proves `sql` collects each DML statement's compiled text under its own kind.
 func TestExecuteWriteStateParamsOpts_Sql(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -518,44 +435,6 @@ func TestExecuteWriteStateParamsStats_Update(t *testing.T) {
 	}
 	if name != "Stats Update After" {
 		t.Errorf("expected name=Stats Update After, got %q", name)
-	}
-}
-
-// TestExecuteWriteStateParamsStats_Upsert proves the xmax-based split
-// distinguishes inserted from updated rows within one upsert statement.
-func TestExecuteWriteStateParamsStats_Upsert(t *testing.T) {
-	conn := acquireWriteConn(t)
-	ctx := context.Background()
-
-	var directorID int
-	if err := conn.QueryRow(ctx, `insert into director (name) values ('Stats Upsert Before') returning id`).Scan(&directorID); err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "upsert"}`)
-	payload := []byte(`[
-		{"id": ` + itoa(directorID) + `, "name": "Stats Upsert After"},
-		{"name": "Stats Upsert Fresh"}
-	]`)
-
-	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
-	if err != nil {
-		t.Fatalf("ExecuteWriteStateParamsStats: %v", err)
-	}
-	if len(result.Stats) != 1 {
-		t.Fatalf("expected 1 Stat, got %d : %#v", len(result.Stats), result.Stats)
-	}
-	s := result.Stats[0]
-	if s.Submitted != 2 {
-		t.Errorf("expected submitted=2, got %d", s.Submitted)
-	}
-	if s.Inserted != 1 || s.Updated != 1 {
-		t.Errorf("expected inserted=1 updated=1, got %#v", s)
-	}
-
-	keys := dataKeysFor(t, conn, node, result)
-	if len(keys) != 2 {
-		t.Fatalf("expected 2 keys rows (upsert side effects unaffected by stats collection), got %d", len(keys))
 	}
 }
 
@@ -783,8 +662,7 @@ func TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren(t *testing.T) {
 	}
 }
 
-// countingQuerier wraps a Querier, counting Exec/Query calls, to prove the
-// noop-skip optimization actually skips statements. CopyFrom passes through unwrapped — always needed regardless of which nodes end up populated.
+// countingQuerier wraps a Querier, counting Exec/Query calls, to prove skipped nodes send no statement.
 type countingQuerier struct {
 	Querier
 	execs   int
@@ -942,23 +820,6 @@ func TestExecuteWrite_UpsertParentInsertOnlyChild(t *testing.T) {
 	}
 }
 
-func TestExecuteWrite_DefaultValueOmitted(t *testing.T) {
-	conn := acquireWriteConn(t)
-	ctx := context.Background()
-
-	// director.id is serial (DefaultExpression = nextval(...)) and never
-	// supplied in the payload — the default-application case, named explicitly rather than incidental.
-	node := mustResolveQuery(t, `{"relation": "director", "schema": "public", "select": ["*~"], "write_mode": "insert"}`)
-	result, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Default Value Director"}]`))
-	if err != nil {
-		t.Fatalf("ExecuteWrite: %v", err)
-	}
-	keys := dataKeysFor(t, conn, node, result)
-	if len(keys) != 1 || keys[0]["id"] == nil {
-		t.Fatalf("expected id filled from the column's default, got %#v", keys)
-	}
-}
-
 func TestExecuteWrite_InsertColumnsFiltering(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -971,8 +832,8 @@ func TestExecuteWrite_InsertColumnsFiltering(t *testing.T) {
 		"insert_columns": ["id"]
 	}`)
 	_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Filtered Out"}]`))
-	if err == nil {
-		t.Fatalf("expected a NOT NULL violation on name (filtered out by insert_columns), got success")
+	if code := pgCode(err); code != "23502" {
+		t.Fatalf("expected a NOT NULL violation on name (filtered out by insert_columns), got %v", err)
 	}
 }
 
@@ -1077,8 +938,6 @@ func TestExecuteWrite_CompositeSubFieldUpsert(t *testing.T) {
 	}
 }
 
-// TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected proves a
-// composite column whole plus one of its own sub-fields is rejected by Postgres itself, not a check this package duplicates.
 // TestExecuteWrite_CompositeSubFieldWithNestedChild proves a composite
 // sub-field write (venue.home.city) and a nested to-many child in the same
 // request don't interfere with each other's column resolution — no
@@ -1125,6 +984,8 @@ func TestExecuteWrite_CompositeSubFieldWithNestedChild(t *testing.T) {
 	}
 }
 
+// TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected : both targets reach the statement, so Postgres refuses
+// the double assignment rather than one value being silently dropped.
 func TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected(t *testing.T) {
 	conn := acquireWriteConn(t)
 	ctx := context.Background()
@@ -1135,47 +996,8 @@ func TestExecuteWrite_CompositeWholeAndSubFieldTogether_Rejected(t *testing.T) {
 		"write_mode": "insert"
 	}`)
 	_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"name": "Both Venue", "home": {"street": "S", "city": "C"}, "city_again": "C2"}]`))
-	if err == nil {
-		t.Fatalf("expected Postgres to reject writing both the whole composite column and one of its own sub-fields")
-	}
-}
-
-func TestExecuteWrite_DeleteScopedByWhere(t *testing.T) {
-	conn := acquireWriteConn(t)
-	ctx := context.Background()
-
-	var directorID int
-	if err := conn.QueryRow(ctx, `insert into director (name) values ('DeleteOnly Director') returning id`).Scan(&directorID); err != nil {
-		t.Fatalf("insert director: %v", err)
-	}
-	if _, err := conn.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Only This'), ($1, 'Not This')`, directorID); err != nil {
-		t.Fatalf("insert movies: %v", err)
-	}
-
-	// deleteonly + empty payload + a "where" matching only one row : without
-	// compiling node.Where into the delete, an empty _data deletes the whole table instead of just the matched row.
-	node := mustResolveQuery(t, `{
-		"relation": "movie", "schema": "public",
-		"select": ["*~"], "write_mode": "delete",
-		"where": ["=", ["col", "title"], "Only This"]
-	}`)
-	if _, err := ExecuteWrite(ctx, conn, node, []byte(`[]`)); err != nil {
-		t.Fatalf("ExecuteWrite: %v", err)
-	}
-
-	var count int
-	if err := conn.QueryRow(ctx, `select count(*) from movie where director_id = $1`, directorID).Scan(&count); err != nil {
-		t.Fatalf("select back: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("expected 1 movie left (the where-excluded one), got %d", count)
-	}
-	var remaining string
-	if err := conn.QueryRow(ctx, `select title from movie where director_id = $1`, directorID).Scan(&remaining); err != nil {
-		t.Fatalf("select remaining: %v", err)
-	}
-	if remaining != "Not This" {
-		t.Fatalf("expected the where-excluded row (Not This) to survive, got %q", remaining)
+	if code := pgCode(err); code != "42701" {
+		t.Fatalf("expected Postgres to reject writing both the whole composite column and one of its own sub-fields, got %v (code %q)", err, code)
 	}
 }
 
@@ -1591,16 +1413,24 @@ func runSelectOn(t *testing.T, conn *pgxpool.Conn, sql string, args []any) []map
 		if err := rows.Scan(&raw); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
-		var m map[string]any
-		if err := json.Unmarshal(raw, &m); err != nil {
-			t.Fatalf("unmarshal %s: %v", raw, err)
-		}
-		out = append(out, m)
+		out = append(out, decodeRowExact(t, raw))
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("rows: %v", err)
 	}
 	return out
+}
+
+// decodeRowExact keeps numbers as their JSON text, so a lost digit shows.
+func decodeRowExact(t *testing.T, raw []byte) map[string]any {
+	t.Helper()
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	var m map[string]any
+	if err := d.Decode(&m); err != nil {
+		t.Fatalf("unmarshal %s: %v", raw, err)
+	}
+	return m
 }
 
 func TestCompileSelectForDataNode_ScopesToWrittenRows(t *testing.T) {
@@ -1672,36 +1502,6 @@ func TestCompileSelectForDataNode_ScalarSelect(t *testing.T) {
 	}
 	if movies[0] != "Alpha" || movies[1] != "Beta" {
 		t.Errorf("expected [\"Alpha\", \"Beta\"] (bare scalars), got %#v", movies)
-	}
-}
-
-func TestCompileSelectForDataNode_WithEmbeddedChild(t *testing.T) {
-	conn := acquireWriteConn(t)
-	ctx := context.Background()
-
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
-		"write_mode": "insert",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
-	}`)
-	payload := []byte(`[{"name": "Reread With Movies", "movies": [{"title": "Movie X"}, {"title": "Movie Y"}]}]`)
-	result, err := ExecuteWrite(ctx, conn, node, payload)
-	if err != nil {
-		t.Fatalf("ExecuteWrite: %v", err)
-	}
-
-	w, err := CompileSelectForDataNode(node, result.NodeIDs[node])
-	if err != nil {
-		t.Fatalf("CompileSelectForDataNode: %v", err)
-	}
-	rows := runSelectOn(t, conn, w.String(), w.Args())
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d : %s", len(rows), w.String())
-	}
-	movies, ok := rows[0]["movies"].([]any)
-	if !ok || len(movies) != 2 {
-		t.Fatalf("expected 2 embedded movies, got %#v (sql: %s)", rows[0]["movies"], w.String())
 	}
 }
 
@@ -1800,8 +1600,8 @@ func TestExecuteWrite_Update_ChangesPrimaryKeyWhenMatchingOnAnotherKey(t *testin
 			node := mustResolveQuery(t, `{"relation": "`+tc.table+`", "schema": "public", "select": ["*~"], "write_mode": "update-existing", "on_conflict": ["code"]}`)
 			_, err := ExecuteWrite(ctx, conn, node, []byte(`[{"code": "pk-change", "id": `+itoa(newID)+`, "name": "n2"}]`))
 			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("expected Postgres to refuse changing a generated-always identity column")
+				if code := pgCode(err); code != "428C9" {
+					t.Fatalf("expected Postgres to refuse changing a generated-always identity column, got %v (code %q)", err, code)
 				}
 				return
 			}

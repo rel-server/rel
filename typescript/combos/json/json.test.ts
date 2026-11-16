@@ -20,13 +20,15 @@ const raw = (v: unknown): unknown => v
 const label = `json-${Math.random().toString(36).slice(2)}`
 
 describe("the json codec", () => {
-  test("a row of every codec-dependent type is written as text and read back as text", async () => {
+  test("a row of every codec-dependent type is written and read back as text, an int8 as a number", async () => {
     await samples.write([
       samples.draft({
         label,
         taken_tz: asTimestamptz("2026-10-18T14:30:00.123+02:00"),
         taken_at: asTimestamp("2026-10-18T14:30:00"),
         taken_on: asPgDate("2026-10-18"),
+        content: "\\xdeadbeef" as never,
+        big: 5_000_000_000 as never,
       }),
     ])
     const [read] = await relation("hotel.codec_samples", {
@@ -36,6 +38,8 @@ describe("the json codec", () => {
     expect(new Date(raw(read?.taken_tz) as string).toISOString()).toBe("2026-10-18T12:30:00.123Z")
     expect(raw(read?.taken_at)).toBe("2026-10-18T14:30:00")
     expect(raw(read?.taken_on)).toBe("2026-10-18")
+    expect(raw(read?.content)).toBe("\\xdeadbeef")
+    expect(raw(read?.big)).toBe(5_000_000_000)
   })
 
   test("a timestamptz string needs an offset", () => {

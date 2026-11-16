@@ -3,7 +3,9 @@ package query
 import (
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/bytedance/sonic/ast"
+	"github.com/samber/oops"
 )
 
 // NodeKind is the JSON/CBOR value category a Node holds.
@@ -89,6 +91,20 @@ const (
 
 // sonicNode adapts *ast.Node.
 type sonicNode struct{ n *ast.Node }
+
+// parseJSON parses one whole JSON document. sonic's parser is lazy : it ignores trailing bytes and malformed values
+// nobody reads, so the text is validated first.
+func parseJSON(data []byte) (ast.Node, error) {
+	s := string(data)
+	if !sonic.ValidString(s) {
+		return ast.Node{}, oops.Errorf("not valid JSON")
+	}
+	root, perr := ast.NewParser(s).Parse()
+	if perr != 0 {
+		return ast.Node{}, perr
+	}
+	return root, nil
+}
 
 func (s sonicNode) Kind() NodeKind {
 	switch s.n.TypeSafe() {

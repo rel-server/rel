@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/rel-server/rel/logging"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/rel-server/rel/logging"
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
@@ -79,14 +80,6 @@ func decodeJSON[T any](t *testing.T, data []byte) T {
 	return v
 }
 
-// docs/content/typescript/index.md ## Typed wire values : int8 and numeric arrive as bare JSON numbers, with
-// every digit Postgres has. Rounding to the nearest float64 (9007199254740992, a different value) happens in
-// a client's JSON.parse, which is why the client can be given a JSON implementation that keeps big numbers.
-// A WHERE clause filtering on an int8 column compares numerically.
-// TestRelHandler_ReadFailureAfterWriteRollsBackTheWrite : a read failing
-// mid-stream must roll back the whole transaction, write included.
-// TestRelHandler_WhereWordFormOperatorSynonyms_HTTP : a POST /rel body
-// using word-form operators ("gte" not ">=") must match the symbolic form.
 func TestRelHandler_ParseError(t *testing.T) {
 	rec := postRel(t, `{not valid json`)
 	if rec.Code != http.StatusBadRequest {
@@ -95,6 +88,9 @@ func TestRelHandler_ParseError(t *testing.T) {
 	resp := decodeJSON[map[string]any](t, rec.Body.Bytes())
 	if resp["status"] != "error" {
 		t.Errorf(`expected status="error", got %v`, resp["status"])
+	}
+	if got := errcode.Code(rec.Header().Get(errcode.Header)); got != errcode.QueryMalformedJSON {
+		t.Errorf("X-Rel-Errorcode = %q, want %s", got, errcode.QueryMalformedJSON)
 	}
 }
 
@@ -129,7 +125,6 @@ func TestRelHandler_WellKnown_UnregisteredName_WrappedWritePosition(t *testing.T
 	}
 }
 
-// insertDirectors adds one director per name and returns their ids.
 // TestRelHandler_UnknownRole_FailsCleanly proves a role the database doesn't know is a server
 // error that leaves the pooled connection usable (the batched begin + SET LOCAL ROLE is rolled back).
 func TestRelHandler_UnknownRole_FailsCleanly(t *testing.T) {

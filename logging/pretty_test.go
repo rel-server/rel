@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -58,13 +59,13 @@ func TestPretty_Colors(t *testing.T) {
 		reject []string
 	}{
 		{"GET 200", []any{"path", "/x", "method", "GET", "role", "r", "status", 200},
-			[]string{"\x1b[1m\x1b[38;5;104mGET\x1b[0m", "\x1b[38;5;30m/x\x1b[0m", "\x1b[38;5;169mr\x1b[0m", "\x1b[38;5;40m200\x1b[0m"}, []string{"\x1b[1m\x1b[38;5;40m"}},
+			[]string{ansiBold + fg(colorGET, "GET"), fg(colorPath, "/x"), fg(colorRole, "r"), fg(colorStatus2xx, "200")}, []string{ansiBold + fgOpen(colorStatus2xx)}},
 		{"POST 404", []any{"path", "/x", "method", "POST", "role", "r", "status", 404},
-			[]string{"\x1b[38;5;202mPOST", "\x1b[1m\x1b[38;5;100m404\x1b[0m"}, nil},
+			[]string{fgOpen(colorPOST) + "POST", ansiBold + fg(colorStatus4xx, "404")}, nil},
 		{"DELETE 503", []any{"path", "/x", "method", "DELETE", "role", "r", "status", 503},
-			[]string{"\x1b[38;5;243mDELETE", "\x1b[1m\x1b[38;5;124m503\x1b[0m"}, nil},
+			[]string{fgOpen(colorOtherVerb) + "DELETE", ansiBold + fg(colorStatus5xx, "503")}, nil},
 		{"302 uncolored", []any{"path", "/x", "method", "GET", "role", "r", "status", 302},
-			[]string{"\x1b[0m302\n"}, []string{"\x1b[38;5;40m302", "\x1b[38;5;100m302", "\x1b[38;5;124m302"}},
+			[]string{ansiReset + "302\n"}, []string{fgOpen(colorStatus2xx) + "302", fgOpen(colorStatus4xx) + "302", fgOpen(colorStatus5xx) + "302"}},
 	}
 	for _, c := range cases {
 		l, buf := prettyLogger(true)
@@ -181,9 +182,13 @@ func TestPretty_AccessLineLeadsWithTargetsAndWrite(t *testing.T) {
 	l.Info(accessLogMessage, "path", "/rel", "method", "POST", "write", true, "targets", []string{"a"})
 	l.Info(accessLogMessage, "path", "/rel", "method", "POST", "write", false, "targets", []string{"a"})
 	out := buf.String()
-	for _, w := range []string{"\x1b[38;5;39ma\x1b[0m", "\x1b[38;5;100mtrue\x1b[0m", "\x1b[38;5;40mfalse\x1b[0m"} {
+	for _, w := range []string{fg(colorTargets, "a"), fg(colorWriteTrue, "true"), fg(colorWriteFalse, "false")} {
 		if !strings.Contains(out, w) {
 			t.Errorf("missing %q in %q", w, out)
 		}
 	}
 }
+
+func fgOpen(color int) string { return "\x1b[38;5;" + strconv.Itoa(color) + "m" }
+
+func fg(color int, text string) string { return fgOpen(color) + text + ansiReset }

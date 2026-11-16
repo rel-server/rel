@@ -94,25 +94,7 @@ func TestMount_PerEntryHostOverride(t *testing.T) {
 		t.Fatalf("parsing Location: %v", err)
 	}
 	redirectURI := loc.Query().Get("redirect_uri")
-	if !strings.Contains(redirectURI, "override.example.com") {
-		t.Errorf("expected redirect_uri to use the per-entry override host, got %q", redirectURI)
-	}
-}
-
-func TestResolveHost(t *testing.T) {
-	if got := resolveHost("", "global.example.com"); got != "global.example.com" {
-		t.Errorf("empty per-entry should fall back to global, got %q", got)
-	}
-	if got := resolveHost("override.example.com", "global.example.com"); got != "override.example.com" {
-		t.Errorf("non-empty per-entry should win, got %q", got)
-	}
-	if got := resolveHost("", ""); got != "" {
-		t.Errorf("both empty should stay empty, got %q", got)
-	}
-}
-
-func TestRootURLFor(t *testing.T) {
-	if got := rootURLFor("app.example.com"); got != "https://app.example.com" {
-		t.Errorf("rootURLFor should always build https, got %q", got)
+	if !strings.HasPrefix(redirectURI, "https://override.example.com/") {
+		t.Errorf("expected an https redirect_uri on the per-entry override host, got %q", redirectURI)
 	}
 }

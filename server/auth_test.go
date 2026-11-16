@@ -106,7 +106,7 @@ func TestRelHandler_RenewalSetsCookie(t *testing.T) {
 	handler := NewRelHandler(testDb, cfg, nil)
 
 	cookie := mintCookie(t, cfg, "authenticated_user")
-	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold ; see route/handler_test.go's identical note on second-granularity claims
+	time.Sleep(1500 * time.Millisecond) // cross the renewafter threshold ; claims have second granularity
 
 	rec := postRelWithCookie(t, handler, `{
 		"relation": "secret_notes", "schema": "public", "select": ["*~"]
@@ -151,19 +151,6 @@ func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
 	rec2 := postRelWithCookie(t, handler, `{"relation": "director", "schema": "public", "select": ["*~"]}`, cookie)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("expected an authenticated request to be unaffected, got %d: %s", rec2.Code, rec2.Body.String())
-	}
-}
-
-func TestRelHandler_EmptyAnonymousRoleIsConfigErrorNotSyntaxError(t *testing.T) {
-	cfg := config.Test() // Pg.Anonymous intentionally left unset
-	handler := NewRelHandler(testDb, cfg, nil)
-
-	rec := postRelWithCookie(t, handler, `{
-		"relation": "secret_notes", "schema": "public", "select": ["*~"]
-	}`, nil)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -46,12 +46,11 @@ func TestNew_ColonSeparatedSearchList_ExistingOnly(t *testing.T) {
 	}
 }
 
-func TestServer_WriteDir_IsFirstListedDirectory(t *testing.T) {
-	dir1 := t.TempDir()
-	dir2 := t.TempDir()
-	srv := New(config.Http{Static: config.HttpStatic{Path: dir1 + ":" + dir2}})
-	if got := srv.WriteDir(); got != dir1 {
-		t.Errorf("expected WriteDir() = %q, got %q", dir1, got)
+// New returns nil when no directory exists ; WriteDir must still answer on it.
+func TestServer_WriteDir_NilServerIsEmpty(t *testing.T) {
+	var srv *Server
+	if got := srv.WriteDir(); got != "" {
+		t.Errorf(`expected "", got %q`, got)
 	}
 }
 

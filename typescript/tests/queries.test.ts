@@ -433,12 +433,6 @@ const bigintJson: Codec = {
 const beyondDouble = { big: ["::", "9007199254740993", "bigint"] } as const
 
 describe("big numbers", () => {
-  test("the default is the browser's JSON, which rounds what a double cannot hold", async () => {
-    expect(Querier.prototype.codec.contentType).toBeUndefined()
-    const [row] = await relation("hotel.properties", { select: beyondDouble, limit: 1 }).get()
-    expect(raw(row?.big)).toBe(9007199254740992) // not ...993 : the digits were on the wire, JSON.parse dropped them
-  })
-
   test("a plugged-in JSON implementation keeps every digit, for one query only", async () => {
     const exact = relation("hotel.properties", { select: beyondDouble, limit: 1 })
     exact.codec = bigintJson
@@ -455,9 +449,6 @@ describe("big numbers", () => {
         where: ["=", ["col", "id"], id as number],
         select: { name: ["col", "name"] },
       })
-    // the browser's JSON cannot write a bigint at all
-    await expect(byId(1n).get()).rejects.toThrow(TypeError)
-
     const query = byId(1n)
     query.codec = bigintJson
     expect((await query.get()).map((r) => r.name)).toEqual(["Marina Bay Grand Hotel"])

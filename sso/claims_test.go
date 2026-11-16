@@ -12,7 +12,6 @@ import (
 
 	"github.com/crewjam/saml"
 
-	"github.com/rel-server/rel/config"
 	jwtpkg "github.com/rel-server/rel/jwt"
 )
 
@@ -64,16 +63,6 @@ func TestExtractSamlClaims_NoSubjectNoNameID(t *testing.T) {
 	claims := extractSamlClaims(assertion)
 	if _, ok := claims["NameID"]; ok {
 		t.Errorf("expected no NameID key when Subject is nil, got %v", claims)
-	}
-}
-
-func TestResolveCallbackFunction_PerEntryWinsOverFallback(t *testing.T) {
-	cfg := &config.Config{Http: config.Http{Functions: config.HttpFunctions{SsoCallback: "auth.fallback"}}}
-	if got := resolveCallbackFunction("auth.specific", cfg); got != "auth.specific" {
-		t.Errorf("got %q, want auth.specific", got)
-	}
-	if got := resolveCallbackFunction("", cfg); got != "auth.fallback" {
-		t.Errorf("got %q, want auth.fallback (the fallback)", got)
 	}
 }
 

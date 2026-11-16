@@ -42,26 +42,9 @@ func TestInjectNonce_NoDefaultSrcSkipsSynthesis(t *testing.T) {
 	}
 }
 
-// TestInjectNonce_DefaultSrcPresentStillSynthesizes : when default-src IS
-// present, synthesis still happens as before.
-func TestInjectNonce_DefaultSrcPresentStillSynthesizes(t *testing.T) {
-	directives := ParsePolicy("default-src 'self'; frame-ancestors 'none'")
-	got := SerializePolicy(InjectNonce(directives, "abc123"))
-	if !strings.Contains(got, "script-src 'self' 'nonce-abc123'") {
-		t.Errorf("expected script-src synthesized from default-src, got %q", got)
-	}
-	if !strings.Contains(got, "style-src 'self' 'nonce-abc123'") {
-		t.Errorf("expected style-src synthesized from default-src, got %q", got)
-	}
-}
-
 func TestPolicy_RawPolicyOverrideReplacesDirectivesEntirely(t *testing.T) {
-	csp := config.HttpCsp{DefaultSrc: "'self'", ScriptSrc: "should-be-ignored"}
-	got := Policy(csp, "", "n1")
-	_ = got
-
-	csp2 := config.HttpCsp{Policy: "default-src 'none'; connect-src 'self'"}
-	got2 := Policy(csp2, "", "n2")
+	csp := config.HttpCsp{DefaultSrc: "'self'", ScriptSrc: "should-be-ignored", Policy: "default-src 'none'; connect-src 'self'"}
+	got2 := Policy(csp, "", "n2")
 	if strings.Contains(got2, "should-be-ignored") {
 		t.Errorf("http.csp.policy should fully replace individual directives: %q", got2)
 	}

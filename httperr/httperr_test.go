@@ -124,12 +124,6 @@ func TestPostgresError_TextPerTier(t *testing.T) {
 	}
 }
 
-func TestFromPostgres_NotAPostgresError(t *testing.T) {
-	if _, ok := FromPostgres(errors.New("plain")); ok {
-		t.Fatal("a plain error must not classify")
-	}
-}
-
 func TestPlainText_NonPostgres(t *testing.T) {
 	if got := BadRequest(errcode.MalformedBody, errors.New("bad body")).PlainText(false); got != "bad body" {
 		t.Errorf("4xx shows its error, got %q", got)

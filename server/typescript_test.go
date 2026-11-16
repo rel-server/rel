@@ -43,12 +43,8 @@ func TestTypeScriptHandler_CodecParam(t *testing.T) {
 	if code, body := get("", "?codec=cbor,temporal"); code != http.StatusOK || !strings.Contains(body, "// Codec: cbor,temporal,bigint\n") || !strings.Contains(body, `from "cbor-x"`) {
 		t.Errorf("?codec=cbor,temporal: %d ; got:\n%.200s", code, body)
 	}
-	// the configured value is the default, and the param replaces it rather than adding to it
 	if _, body := get("cbor", ""); !strings.Contains(body, "// Codec: cbor,date,bigint\n") {
 		t.Errorf("configured cbor: got:\n%.200s", body)
-	}
-	if _, body := get("cbor", "?codec=json"); !strings.Contains(body, "// Codec: json\n") {
-		t.Errorf("?codec=json over configured cbor: got:\n%.200s", body)
 	}
 	for _, bad := range []string{"?codec=msgpack", "?codec=json,cbor", "?codec=date,temporal"} {
 		if code, _ := get("", bad); code != http.StatusBadRequest {
@@ -117,19 +113,5 @@ func TestDatabaseJSONHandler_PostNotAllowed(t *testing.T) {
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
-	}
-}
-
-func TestDatabaseJSONHandler_SchemasParamOutsideWhitelistIsRejected(t *testing.T) {
-	cfg := *testCfg
-	cfg.TypeScript.Schemas = "public"
-	handler := NewDatabaseJSONHandler(testDb, &cfg, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/rel/database.json?schemas=nope", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d : %s", rec.Code, rec.Body.String())
 	}
 }

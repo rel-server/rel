@@ -11,29 +11,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-func TestTypescriptOutFlag(t *testing.T) {
-	cases := []struct {
-		args     []string
-		wantOk   bool
-		wantPath string
-	}{
-		{nil, false, ""},
-		{[]string{}, false, ""},
-		{[]string{"--other=x"}, false, ""},
-		{[]string{"--typescript-out=out.ts"}, true, "out.ts"},
-		{[]string{"--typescript-out", "out.ts"}, true, "out.ts"},
-		{[]string{"--typescript-out", "-"}, true, "-"},
-		{[]string{"--typescript-out"}, true, ""}, // trailing flag, no value
-		{[]string{"--other=x", "--typescript-out=/tmp/database.ts"}, true, "/tmp/database.ts"},
-	}
-	for _, c := range cases {
-		path, ok := typescriptOutFlag(c.args)
-		if ok != c.wantOk || path != c.wantPath {
-			t.Errorf("typescriptOutFlag(%v) = (%q, %v), want (%q, %v)", c.args, path, ok, c.wantPath, c.wantOk)
-		}
-	}
-}
-
 // TestRunTypeScriptExport is an end-to-end check that --typescript-out's
 // entire body works against a real database, without going anywhere near
 // reload.cmd, /route, well-known queries, or an HTTP listener.
@@ -80,9 +57,12 @@ func TestOneShotFlag(t *testing.T) {
 		value string
 		ok    bool
 	}{
+		{nil, "", false},
+		{[]string{"--other=x"}, "", false},
 		{[]string{"--typescript-codec=cbor,date"}, "cbor,date", true},
 		{[]string{"--pg.host", "x", "--typescript-codec", "temporal"}, "temporal", true},
-		{[]string{"--typescript-codec"}, "", true},
+		{[]string{"--typescript-codec", "-"}, "-", true},
+		{[]string{"--typescript-codec"}, "", true}, // trailing flag, no value
 		{[]string{"--typescript-out=-"}, "", false},
 	} {
 		value, ok := oneShotFlag(tc.args, "--typescript-codec")

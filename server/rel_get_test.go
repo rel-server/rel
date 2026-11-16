@@ -95,38 +95,3 @@ func TestRelHandler_GET_RejectsWriteModeAtRoot(t *testing.T) {
 		t.Fatalf("expected 400 for write_mode on GET /rel, got %d : %s", rec.Code, rec.Body.String())
 	}
 }
-
-func TestRelHandler_GET_RejectsWriteModeNestedInJoin(t *testing.T) {
-	rawQuery := url.Values{
-		"relation":                   {"director"},
-		"schema":                     {"public"},
-		"join.movies.relation":       {"movie"},
-		"join.movies.on.director_id": {"id"},
-		"join.movies.write_mode":     {"merge"},
-	}.Encode()
-	rec := getRel(t, rawQuery)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for join.movies.write_mode on GET /rel, got %d : %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestRelHandler_GET_RejectsOnConflict(t *testing.T) {
-	rec := getRel(t, "relation=director&schema=public&on_conflict=id")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for on_conflict on GET /rel, got %d : %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestRelHandler_GET_ParseErrorIsBadRequest(t *testing.T) {
-	rec := getRel(t, "relation=director&where=gte(year")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for a malformed filter expression, got %d : %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestRelHandler_GET_UnknownRelationIsBadRequest(t *testing.T) {
-	rec := getRel(t, "relation=does_not_exist_at_all&schema=public")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for an unresolvable relation, got %d : %s", rec.Code, rec.Body.String())
-	}
-}

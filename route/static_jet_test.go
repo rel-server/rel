@@ -192,7 +192,7 @@ func TestStaticJet_LeadingSlashIncludeReachesTemplatesPath(t *testing.T) {
 	}
 }
 
-func TestStaticJet_BareIncludeResolvesRelativeToStaticFile(t *testing.T) {
+func TestStaticJet_LoaderServesIncludesFromStaticDirs(t *testing.T) {
 	dir := t.TempDir()
 	writeStaticJetFile(t, dir, "sub/page.html.jet", `{{ include "sibling.jet" }}`)
 	writeStaticJetFile(t, dir, "sub/sibling.jet", "sibling in the same static directory")

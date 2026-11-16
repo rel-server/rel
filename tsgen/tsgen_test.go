@@ -483,11 +483,11 @@ func TestGenerateSchema_MaterializedView(t *testing.T) {
 	for _, want := range []string{
 		"entry_id: Id[\"hotel.ledger_entries.id\"] | null",
 		"ledger_id: Id[\"hotel.ledgers.id\"] | null",
-		// the domain is resolved (not the raw domain oid), nullable since a materialized view column has no NOT NULL
+		// the domain is resolved (not the raw domain oid) and its NOT NULL carries over, though the column has none
 		"slug: Type__Hotel__NonEmptyText",
 	} {
-		if !strings.Contains(block, want) {
-			t.Errorf("materialized view interface missing %q ; got:\n%s", want, block)
+		if !strings.Contains(block+"\n", "  "+want+"\n") {
+			t.Errorf("materialized view interface missing the line %q ; got:\n%s", want, block)
 		}
 	}
 }

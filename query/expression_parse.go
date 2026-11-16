@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/bytedance/sonic/ast"
+	"github.com/samber/oops"
 )
 
 // ParseExpression decodes one query.ts Expression from raw JSON, without any scope lookup. Empty input is
@@ -15,9 +15,9 @@ func ParseExpression(data []byte) (Expression, error) {
 	if len(trimmed) == 0 {
 		return NullLiteral{}, nil
 	}
-	root, perr := ast.NewParser(string(trimmed)).Parse()
-	if perr != 0 {
-		return nil, fmt.Errorf("query: invalid expression JSON: %w", perr)
+	root, err := parseJSON(trimmed)
+	if err != nil {
+		return nil, oops.Wrapf(err, "query: invalid expression JSON")
 	}
 	return parseNode(sonicNode{&root})
 }

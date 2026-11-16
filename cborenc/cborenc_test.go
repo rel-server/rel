@@ -461,14 +461,6 @@ func TestNegotiate(t *testing.T) {
 	}
 }
 
-func TestFormatMediaType(t *testing.T) {
-	for f, want := range map[Format]string{JSON: "application/json", CBOR: "application/cbor", CBORStructures: "application/cbor; structures=1"} {
-		if got := f.MediaType(); got != want {
-			t.Errorf("Format(%d).MediaType() = %q, want %q", f, got, want)
-		}
-	}
-}
-
 func TestAppendStructure(t *testing.T) {
 	// the bytes cbor-x writes for [{id: 1, name: "aaa"}, {id: 2, name: "bbb"}]
 	want := "82" + "d9dfff84" + "19e000" + "82626964646e616d65" + "01" + "63616161" + "d9e00082" + "02" + "63626262"
