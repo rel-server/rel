@@ -97,7 +97,7 @@ For `timestamp` and `timestamptz` strings:
 - A `timestamptz` without an offset is read in the connection's session time zone. If that zone is one rel cannot load, such a value is refused and an offset is needed.
 - A `timestamp` ignores an offset, as Postgres does.
 - `now`, `today`, `epoch`, time zone names inside the string, and `DateStyle` forms such as `10/11/2026` are refused.
-- rel places a `timestamptz` without an offset with its own time zone data, not the server's. If the two disagree about a clock change (a country changed its rules and one side is not updated), a time near that change can land an hour off. UTC sessions, and times that carry an offset, are not affected.
+- rel places a `timestamptz` without an offset, and reads the wall clock of an instant written to a `timestamp`, with its own time zone data, not the server's. If the two disagree (a country changed its rules and one side is not updated), the times they disagree on land an hour off : those near a clock change, or a whole period when a change adds or removes daylight saving time. UTC sessions, and times that carry an offset written to a `timestamptz`, are not affected. rel loads each zone once : restart it after updating its host's time zone data.
 
 Lengths, precision and domain constraints are checked by Postgres : a string too long for a `varchar(20)`, or a number that does not fit
 a `numeric(6,2)`, is an error, and a value that is merely more precise is rounded as it would be by an `insert`.
