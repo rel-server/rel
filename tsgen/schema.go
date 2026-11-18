@@ -427,7 +427,8 @@ func renderFunctionsByName(fns []*pg.Function, searchPath []string) string {
 }
 
 // renderComputedProperties lists each relation's computed fields and their return types, minus blacklisted
-// functions, for discovery only : a `["call", ...]` is typed through FunctionsByName/Functions.
+// functions, for discovery only : a `["call", ...]` is typed through FunctionsByName/Functions. Always emitted, even
+// empty : querier.ts references it unconditionally.
 func renderComputedProperties(relations []*pg.Relation, bl config.Blacklist, tc *typeCollector) string {
 	byRelation := map[*pg.Relation]map[string]string{}
 	for _, rel := range relations {
@@ -446,10 +447,6 @@ func renderComputedProperties(relations []*pg.Relation, bl config.Blacklist, tc 
 		}
 	}
 
-	if len(byRelation) == 0 {
-		return ""
-	}
-
 	var relOrder []*pg.Relation
 	for r := range byRelation {
 		relOrder = append(relOrder, r)
@@ -463,6 +460,9 @@ func renderComputedProperties(relations []*pg.Relation, bl config.Blacklist, tc 
 
 	var interfaces strings.Builder
 	var mapBody strings.Builder
+	if len(byRelation) == 0 {
+		mapBody.WriteString("// biome-ignore lint/suspicious/noEmptyInterface: always emitted, see this function's own doc comment\n")
+	}
 	mapBody.WriteString("export interface ComputedProperties {\n")
 	for _, r := range relOrder {
 		props := byRelation[r]

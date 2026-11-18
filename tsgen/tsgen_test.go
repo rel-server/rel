@@ -265,6 +265,18 @@ func TestGenerateDatabaseTS_TypeChecks_BareNameShadowing(t *testing.T) {
 	assertTypeChecks(t, out)
 }
 
+// TestGenerateDatabaseTS_TypeChecks_NoComputedFields : with hotel's only computed field blacklisted, querier.ts still
+// references ComputedProperties, so it must be emitted empty.
+func TestGenerateDatabaseTS_TypeChecks_NoComputedFields(t *testing.T) {
+	bl := config.DefaultBlacklist()
+	bl.Functions["hotel"] = map[string]string{"property_average_rating": "y"}
+	out := GenerateDatabaseTS(testDb, Options{Schemas: []string{"hotel"}, Blacklist: bl}, nil)
+	if !strings.Contains(out, "export interface ComputedProperties {\n}") {
+		t.Fatalf("expected an empty ComputedProperties interface ; got:\n%s", out)
+	}
+	assertTypeChecks(t, out)
+}
+
 // TestGenerateSchema_Wellknowns is the Wellknowns feature's own regression :
 // Wellknowns embeds a compiled well-known query's raw
 // "query" JSON verbatim as a `const ... as const` literal and infers its
