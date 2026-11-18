@@ -156,3 +156,16 @@ need to compare against another column. `any`/`all` take an operator, a subject,
 
 Plain JSON numbers lose precision past what a 64-bit float can represent exactly; wrap a
 literal that needs to survive round-trip intact in one of these instead.
+
+## Typed literals from CBOR
+
+In a request sent as `application/cbor`, a value that carries its type is a literal of that type anywhere an expression is accepted, read as a write's `data` reads it (see [Writing](writing.md#from-cbor)) :
+
+| CBOR value | Literal |
+|---|---|
+| tag 1 or tag 0 | a `timestamptz`. Compared with a `timestamp` column, Postgres reads the column in the session time zone. |
+| tag 100 | a `date` |
+| tag 37 | a `uuid` |
+| byte string | a `bytea` |
+
+A value out of the type's range is refused, as it is in a write.

@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -545,5 +546,54 @@ func TestE2E_AcceptCBOR_Routes(t *testing.T) {
 	}
 	if rec = getAccepting("/cbor/full", ""); rec.Code != 201 || rec.Header().Get("Content-Type") != "application/json" {
 		t.Errorf("full as JSON : %d %q %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+}
+
+func TestE2E_CBORBodyIsDecodedIntoReqBody(t *testing.T) {
+	// A value only CBOR carries reaches req.body as the text a JSON client would send for it.
+	em, err := cbor.EncOptions{Time: cbor.TimeUnixDynamic, TimeTag: cbor.EncTagRequired}.EncMode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := em.Marshal(map[string]any{
+		"n": 1.5, "s": "é", "list": []any{true, nil},
+		"at":    time.UnixMilli(1700000000500),
+		"day":   cbor.Tag{Number: 100, Content: 20744},
+		"tok":   cbor.Tag{Number: 37, Content: []byte{0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11}},
+		"bytes": []byte{0x00, 0xff},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/new/echo-body", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/cbor")
+	rec := httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("%v: %s", err, rec.Body.String())
+	}
+	want := map[string]any{
+		"n": 1.5, "s": "é", "list": []any{true, nil},
+		"at":    "2023-11-14 22:13:20.500000+00:00:00",
+		"day":   "2026-10-18",
+		"tok":   "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+		"bytes": `\x00ff`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("req.body = %#v", got)
+	}
+
+	// what JSON cannot hold is a 400
+	nan, _ := cbor.Marshal(map[string]any{"x": math.NaN()})
+	req = httptest.NewRequest(http.MethodPost, "/new/echo-body", bytes.NewReader(nan))
+	req.Header.Set("Content-Type", "application/cbor")
+	rec = httptest.NewRecorder()
+	testHandler.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Errorf("NaN : status %d: %s", rec.Code, rec.Body.String())
 	}
 }

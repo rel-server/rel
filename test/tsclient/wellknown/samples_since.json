@@ -1,0 +1,19 @@
+{
+  "name": "samples_since",
+  "params": {
+    "label": { "type": "text" },
+    "from": { "type": "timestamptz" },
+    "content": { "type": "bytea" }
+  },
+  "query": {
+    "relation": "codec_samples",
+    "schema": "hotel",
+    "select": { "id": ["col", "id"] },
+    "where": ["and",
+      ["=", ["col", "label"], ["$param", "label", "text"]],
+      [">=", ["col", "taken_tz"], ["$param", "from", "timestamptz"]],
+      ["=", ["col", "content"], ["$param", "content", "bytea"]]
+    ],
+    "order_by": [["col", "id"]]
+  }
+}

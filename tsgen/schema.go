@@ -143,7 +143,7 @@ func renderWellknowns(wkReg *wellknown.Registry) string {
 			if p.HasDefault {
 				opt = "?"
 			}
-			paramFields[i] = fmt.Sprintf("%s%s: %s", identifierField(name), opt, wellknown.TSTypeForParam(p.Type))
+			paramFields[i] = fmt.Sprintf("%s%s: %s", identifierField(name), opt, wellknown.TSWireTypeForParam(p.Type))
 		}
 		paramsType := "EmptyObject"
 		if len(paramFields) > 0 {

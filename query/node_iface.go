@@ -27,6 +27,9 @@ const (
 	KindUUID    // a UUID, tag 37
 )
 
+// String names the kind as an error message does : "string", "date and time"...
+func (k NodeKind) String() string { return kindName(k) }
+
 // bytesNode is implemented by the nodes of kind KindBytes and KindUUID.
 type bytesNode interface{ StrictBytes() ([]byte, error) }
 
@@ -104,6 +107,15 @@ func parseJSON(data []byte) (ast.Node, error) {
 		return ast.Node{}, perr
 	}
 	return root, nil
+}
+
+// NewJSONNode reads one whole JSON document.
+func NewJSONNode(data []byte) (Node, error) {
+	root, err := parseJSON(data)
+	if err != nil {
+		return nil, oops.Wrapf(err, "query: invalid JSON")
+	}
+	return sonicNode{&root}, nil
 }
 
 func (s sonicNode) Kind() NodeKind {

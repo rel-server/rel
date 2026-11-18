@@ -343,3 +343,8 @@ create function fn_cbor_full(out resp jsonb, out content fn_cbor_row[]) returns 
 $$;
 comment on function fn_cbor_full() is 'route:: path: "/cbor/full"';
 grant execute on function fn_cbor_int(), fn_cbor_null(), fn_cbor_row(), fn_cbor_interval(), fn_cbor_json(), fn_cbor_full() to "~anonymous";
+
+-- Echoes req.body : a CBOR body arrives decoded into it.
+create function fn_echo_body(req jsonb) returns jsonb language sql as $$ select req->'body'; $$;
+comment on function fn_echo_body(jsonb) is 'route:: path: "/new/echo-body", method: "POST"';
+grant execute on function fn_echo_body(jsonb) to "~anonymous";

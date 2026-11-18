@@ -12,9 +12,11 @@ build-rel:
     GOAMD64=v2 GOOS=linux CGO_ENABLED=0 go build -ldflags="-s -w" ./cmd/rel
 
 # Run the full test suite (testcontainers spins up its own throwaway Postgres
-# per package — docker must be running, but `just test-db-up` is not required)
+# per package — docker must be running, but `just test-db-up` is not required), then the request-level suites
+# again with every JSON request body sent as its CBOR transcoding
 test:
     go test ./...
+    REL_TEST_REQUEST=cbor go test ./query ./relexec ./server
 
 # typecheck and biome check
 check:

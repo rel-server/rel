@@ -63,7 +63,7 @@ func (rq *rawWriteQuery) ValidateReturns() error {
 // rawWellKnown is a well-known query reference, with no "data" of its own : a write wraps it in a ComplexQuery.
 type rawWellKnown struct {
 	WellKnown string
-	Params    []byte
+	Params    Node // nil when absent
 }
 
 // ParseQuery decodes one top-level query.ts Query value.
@@ -190,11 +190,7 @@ func parseRawWellKnown(n Node, wk Node) (*rawWellKnown, error) {
 	}
 	rawWK := &rawWellKnown{WellKnown: name}
 	if p, ok := n.ObjectGet("params"); ok {
-		raw, err := p.Raw()
-		if err != nil {
-			return nil, oops.With("field", "params").Wrapf(err, `query: "params"`)
-		}
-		rawWK.Params = []byte(raw)
+		rawWK.Params = p
 	}
 	return rawWK, nil
 }

@@ -1,6 +1,19 @@
 package wellknown
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/rel-server/rel/query"
+)
+
+func jsonNode(t *testing.T, js string) query.Node {
+	t.Helper()
+	n, err := query.NewJSONNode([]byte(js))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
 
 func TestResolveParams_RequiredMissing_Errors(t *testing.T) {
 	c := &Compiled{Params: map[string]ParamDef{
@@ -41,7 +54,7 @@ func TestResolveParams_SuppliedValueOverridesDefault(t *testing.T) {
 	c := &Compiled{Params: map[string]ParamDef{
 		"limit": {Type: "int", HasDefault: true, Default: []byte("10")},
 	}}
-	out, err := c.ResolveParams([]byte(`{"limit": 25}`))
+	out, err := c.ResolveParams(jsonNode(t, `{"limit": 25}`))
 	if err != nil {
 		t.Fatalf("ResolveParams: %v", err)
 	}
@@ -54,7 +67,7 @@ func TestResolveParams_TypeMismatch_Errors(t *testing.T) {
 	c := &Compiled{Params: map[string]ParamDef{
 		"limit": {Type: "int"},
 	}}
-	if _, err := c.ResolveParams([]byte(`{"limit": "not a number"}`)); err == nil {
+	if _, err := c.ResolveParams(jsonNode(t, `{"limit": "not a number"}`)); err == nil {
 		t.Fatalf("expected a type mismatch error for a string where int was declared")
 	}
 }
@@ -63,7 +76,7 @@ func TestResolveParams_NullValueBypassesTypeCheck(t *testing.T) {
 	c := &Compiled{Params: map[string]ParamDef{
 		"limit": {Type: "int"},
 	}}
-	out, err := c.ResolveParams([]byte(`{"limit": null}`))
+	out, err := c.ResolveParams(jsonNode(t, `{"limit": null}`))
 	if err != nil {
 		t.Fatalf("ResolveParams: %v", err)
 	}
@@ -76,7 +89,7 @@ func TestResolveParams_UnrecognizedExtraKeyIgnored(t *testing.T) {
 	c := &Compiled{Params: map[string]ParamDef{
 		"limit": {Type: "int", HasDefault: true, Default: []byte("10")},
 	}}
-	out, err := c.ResolveParams([]byte(`{"limit": 5, "extra": "ignored"}`))
+	out, err := c.ResolveParams(jsonNode(t, `{"limit": 5, "extra": "ignored"}`))
 	if err != nil {
 		t.Fatalf("ResolveParams: %v", err)
 	}
@@ -102,7 +115,7 @@ func TestCheckParamType_Buckets(t *testing.T) {
 		{"uuid", `"00000000-0000-0000-0000-000000000000"`, false},
 	}
 	for _, c := range cases {
-		err := checkParamType(c.pgType, []byte(c.json))
+		err := checkParamType(c.pgType, jsonKindOf([]byte(c.json)))
 		if (err != nil) != c.wantErr {
 			t.Errorf("checkParamType(%q, %s): got err=%v, wantErr=%v", c.pgType, c.json, err, c.wantErr)
 		}

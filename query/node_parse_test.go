@@ -27,7 +27,7 @@ func TestParseQuery_WellKnown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}
-	if pq.WellKnown == nil || pq.WellKnown.WellKnown != "my_query" || len(pq.WellKnown.Params) == 0 {
+	if pq.WellKnown == nil || pq.WellKnown.WellKnown != "my_query" || pq.WellKnown.Params == nil {
 		t.Fatalf("unexpected ParsedQuery: %#v", pq)
 	}
 }
@@ -45,7 +45,7 @@ func TestParseQuery_WellKnownWrite(t *testing.T) {
 	if pq.Write.Query != nil {
 		t.Fatalf("expected Write.Query to be nil for a well-known write, got %#v", pq.Write.Query)
 	}
-	if pq.Write.WellKnown == nil || pq.Write.WellKnown.WellKnown != "my_query" || len(pq.Write.WellKnown.Params) == 0 {
+	if pq.Write.WellKnown == nil || pq.Write.WellKnown.WellKnown != "my_query" || pq.Write.WellKnown.Params == nil {
 		t.Fatalf("expected Write.WellKnown to be populated, got %#v", pq.Write.WellKnown)
 	}
 	if pq.Write.Data == nil || pq.Write.Data.Kind() != KindObject {

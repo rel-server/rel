@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -157,7 +156,7 @@ func TestRelHandler_AnonymousRoleDoesNotExist_Is401(t *testing.T) {
 // postRelWithCookie is postRelTo plus an optional request cookie.
 func postRelWithCookie(t *testing.T, handler http.Handler, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/rel", bytes.NewBufferString(body))
+	req := newRelPost(body)
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}

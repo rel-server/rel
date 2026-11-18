@@ -130,7 +130,7 @@ func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled
 	params := make(map[string]ParamDef, len(def.Params))
 	for name, p := range def.Params {
 		if p.HasDefault {
-			if err := checkParamType(p.Type, p.Default); err != nil {
+			if err := checkParamType(p.Type, jsonKindOf(p.Default)); err != nil {
 				return nil, oops.With("param", name).Code(errcode.WellKnownParamTypeMismatch).Errorf("declared default: %w", err)
 			}
 		}

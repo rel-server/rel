@@ -61,12 +61,14 @@ its own declared parameters. Each entry in `params` can set:
   the caller doesn't supply it); `default: null` means optional, defaulting to SQL `NULL`;
   any other `default` value is used as-is when the caller omits the param.
 
+In a request sent as `application/cbor`, a param also takes the CBOR value of its type, passed on as the text a JSON caller would send : tag 1 or 0 for a `timestamptz` or `timestamp`, tag 100 for a `date`, tag 37 for a `uuid`, and a byte string (as `\x` and hex digits) for a type rel does not check, such as `bytea`. A date and time is written in the connection's time zone, so under a `timestamp` cast it is that zone's wall clock, as in a write's `data`. If rel cannot load that zone, a param declared `timestamp` is refused.
+
 `type` only gates what's accepted at the door — it doesn't automatically become the SQL cast.
 The third element of `["$param", name, cast]` sets that separately, and defaults to `::jsonb`
 when left off. Write it explicitly at each usage site to get the SQL type you actually want:
 `["$param", "min_rating", "integer"]` compiles to a `$1::integer` placeholder; a bare
 `["$param", "min_rating"]` would compile to `$1::jsonb` instead, even though `type: integer`
-was declared above.
+was declared above. Under a `json` or `jsonb` cast, the value is the JSON value itself : a string `"abc"` is the JSON string `"abc"`.
 
 ## Calling one over `POST /rel`
 

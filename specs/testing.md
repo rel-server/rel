@@ -46,6 +46,12 @@ generating hundreds of rows), but it's the only fixture that :
 - Testing something that only manifests at realistic depth/volume, or writing a
   read-path benchmark : `test/hotel` + `test/seed`.
 
+## Request formats
+
+The `relexec` and `server` suites send their JSON request bodies through one helper each (`parseBody`, `newRelPost`), and the `query` write tests their payloads through `jsonPayload`. With `REL_TEST_REQUEST=cbor` the helper sends the CBOR transcoding of the body instead (`cborenc.AppendJSON`), so every request-level test also checks the CBOR path ; `just test` runs both. A new request-level test goes through these helpers, and a test of a value only CBOR can carry (a tag, a byte string) builds its CBOR body itself.
+
+The TypeScript client has the same split. `typescript/trunk/` holds what the client does whatever the codec : `test/tsclient` copies it into every `typescript/combos/<codec>/trunk/` (ignored by git) and typechecks and runs it there against that codec's `database.ts`. It runs once per codec against one database, so it asserts on fixture rows and on rows it names uniquely, and compares a date and time through one form whatever the codec gives. A combo's own test file checks what that codec alone does (the JS type of each value), and `typescript/tests/` what only the default `json,temporal` file does.
+
 ## Open
 
 Whether this two-tier split should stay purely a convention (this document) or gain some

@@ -186,6 +186,7 @@ map's own rename too: `select: { display_name: ["col", "name"] }` still requires
 `wellknown()` builds a call to a registered [well-known query](../query-language/well-known-queries.md) instead
 of an ad hoc relation — same `Querier`, but its params and result shape come from the query's
 own registered definition rather than from what you pass to `relation()`.
+A param declared `int8`/`bigint`, `numeric`, `timestamptz`, `timestamp`, `date` or `bytea` takes the value a column of that type reads as with your [codec](#codecs) : a `Date` for a `timestamptz` with `cbor`, a `Uint8Array` for a `bytea`, text with `json`. Other declared types take a `number`, `string` or `boolean`.
 
 ### Naming a row's type
 

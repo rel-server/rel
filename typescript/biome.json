@@ -1,6 +1,6 @@
 {
   "files": {
-    "includes": ["**", "!**/node_modules", "!**/tests/generated", "!**/combos/*/database.ts"]
+    "includes": ["**", "!**/node_modules", "!**/tests/generated", "!**/combos/*/database.ts", "!**/combos/*/trunk"]
   },
   "assist": {
     "actions": {

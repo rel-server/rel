@@ -3,8 +3,10 @@ package query
 import (
 	"bytes"
 	"context"
+	"os"
 
 	"github.com/bytedance/sonic/ast"
+	"github.com/rel-server/rel/cborenc"
 	"github.com/samber/oops"
 )
 
@@ -59,11 +61,21 @@ func ExecuteWriteStateParamsOpts(ctx context.Context, conn Querier, root *QueryN
 	return ExecuteWriteNode(ctx, conn, root, node, state, paramValues, opts)
 }
 
-// jsonPayload decodes a JSON payload ; blank text is no payload, a nil Node.
+// requestCBOR replays every JSON payload of the write tests as the CBOR a client would send for it
+// (REL_TEST_REQUEST=cbor ; `just test` runs both). A payload that is not JSON stays JSON.
+var requestCBOR = os.Getenv("REL_TEST_REQUEST") == "cbor"
+
+// jsonPayload decodes a JSON payload, or under requestCBOR its CBOR transcoding ; blank text is no payload, a nil
+// Node.
 func jsonPayload(payload []byte) (Node, error) {
 	trimmed := bytes.TrimSpace(payload)
 	if len(trimmed) == 0 {
 		return nil, nil
+	}
+	if requestCBOR {
+		if b, err := cborenc.AppendJSON(nil, trimmed); err == nil {
+			return NewCBORNode(b)
+		}
 	}
 	parsed, perr := ast.NewParser(string(trimmed)).Parse()
 	if perr != 0 {

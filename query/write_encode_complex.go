@@ -228,6 +228,12 @@ func textModeEncoder(t *pg.Type) fieldEncoder {
 	return encodeScalarText
 }
 
+// uuidText is the hyphenated form of a UUID's 16 bytes.
+func uuidText(b []byte) string {
+	h := hex.EncodeToString(b)
+	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
+}
+
 // encodeScalarText writes a scalar's value in text form : a string as is, a number as its
 // digits, a boolean as true or false, an object or array as its JSON text.
 func encodeScalarText(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
@@ -264,8 +270,7 @@ func encodeScalarText(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 		if err != nil || len(b) != 16 {
 			return nil, oops.Wrapf(err, "write: reading uuid")
 		}
-		h := hex.EncodeToString(b)
-		return append(dst, h[:8]+"-"+h[8:12]+"-"+h[12:16]+"-"+h[16:20]+"-"+h[20:]...), nil
+		return append(dst, uuidText(b)...), nil
 	case KindInstant:
 		t, err := n.(instantNode).Instant()
 		if err != nil {

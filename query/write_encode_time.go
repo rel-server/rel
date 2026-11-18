@@ -1,6 +1,7 @@
 package query
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +42,41 @@ func daysFromCivil(y, m, d int64) int64 {
 	doy := (153*mp+2)/5 + d - 1
 	doe := yoe*365 + yoe/4 - yoe/100 + doy
 	return era*146097 + doe - 719468
+}
+
+// pgDateText is the text Postgres reads for days since 2000-01-01. Years before 1 are written "BC", which Postgres
+// reads and Go's formatting does not write.
+func pgDateText(days int64) string {
+	y, mo, d, era := pgCivil(days)
+	return fmt.Sprintf("%04d-%02d-%02d%s", y, mo, d, era)
+}
+
+// pgInstantText is the text Postgres reads for microseconds since 2000-01-01 UTC, written as the wall clock and
+// offset of loc (UTC when nil) : a timestamptz reads the same instant, a timestamp loc's wall clock.
+func pgInstantText(micros int64, loc *time.Location) string {
+	off := 0
+	if loc != nil {
+		_, off = time.Unix(floorDiv(micros, microsPerSecond)+pgEpochUnixDays*86400, 0).In(loc).Zone()
+	}
+	micros += int64(off) * microsPerSecond
+	days, rest := floorDiv(micros, microsPerDay), micros-floorDiv(micros, microsPerDay)*microsPerDay
+	y, mo, d, era := pgCivil(days)
+	s := rest / microsPerSecond
+	sign, a := '+', off
+	if off < 0 {
+		sign, a = '-', -off
+	}
+	return fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d.%06d%c%02d:%02d:%02d%s",
+		y, mo, d, s/3600, s/60%60, s%60, rest%microsPerSecond, sign, a/3600, a/60%60, a%60, era)
+}
+
+// pgCivil is the calendar date of days since 2000-01-01, its year as Postgres counts them, with era " BC" before 1.
+func pgCivil(days int64) (y int, mo time.Month, d int, era string) {
+	y, mo, d = time.Unix((days+pgEpochUnixDays)*86400, 0).UTC().Date()
+	if y <= 0 {
+		y, era = 1-y, " BC"
+	}
+	return y, mo, d, era
 }
 
 func isLeap(y int64) bool {

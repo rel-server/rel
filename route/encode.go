@@ -18,6 +18,7 @@ import (
 	"github.com/rel-server/rel/httperr"
 	jwtpkg "github.com/rel-server/rel/jwt"
 	"github.com/rel-server/rel/logging"
+	"github.com/rel-server/rel/query"
 	"github.com/rel-server/rel/querystring"
 	"github.com/rel-server/rel/static"
 	"github.com/rel-server/rel/websec"
@@ -91,6 +92,12 @@ func encodeBody(contentType string, body []byte, hasFiles bool) (json.RawMessage
 			return nil, &badBodyError{err: oops.With("content_type", contentType).Errorf("request body is not valid JSON")}
 		}
 		return json.RawMessage(body), nil
+	case mt == "application/cbor" || strings.HasSuffix(mt, "+cbor"):
+		j, err := query.CBORBodyJSON(body)
+		if err != nil {
+			return nil, &badBodyError{err: oops.With("content_type", contentType).Wrapf(err, "request body is not CBOR rel can read")}
+		}
+		return json.RawMessage(j), nil
 	case strings.HasPrefix(mt, "text/"):
 		return sonic.Marshal(string(body))
 	case mt == "application/x-www-form-urlencoded":

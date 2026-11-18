@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/rel-server/rel/errcode"
@@ -81,6 +82,50 @@ func TestWellKnown_POST_MissingRequiredParam(t *testing.T) {
 	})
 	_, err := runWith(t, testDb, reg, `{"wellknown": "needs_param"}`, Options{})
 	assertClientFault(t, err, errcode.Code("WELL_KNOWN_PARAM_REQUIRED"))
+}
+
+func TestWellKnown_POST_ParamAbsentFromParamsObject(t *testing.T) {
+	// a params object without a declared key : its default when it has one, refused when it has none
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into director (name) values ('WellKnown Default Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	reg := newRegistry(t, map[string]string{"q.json": `{
+		"name": "by_name_or_default",
+		"params": {"name": {"type": "text", "default": "WellKnown Default Director"}, "other": {"type": "text"}},
+		"query": {
+			"relation": "director", "schema": "public", "select": {"name": ["col", "name"]},
+			"where": ["and", ["=", ["col", "name"], ["$param", "name", "text"]], ["is_not_null", ["$param", "other", "text"]]]
+		}
+	}`})
+	out, err := runWith(t, testDb, reg, `{"wellknown": "by_name_or_default", "params": {"other": "x"}}`, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != `[{"name":"WellKnown Default Director"}]` {
+		t.Errorf("got %s", out)
+	}
+	_, err = runWith(t, testDb, reg, `{"wellknown": "by_name_or_default", "params": {"name": "x"}}`, Options{})
+	assertClientFault(t, err, errcode.Code("WELL_KNOWN_PARAM_REQUIRED"))
+}
+
+func TestWellKnown_POST_UntypedParamIsJSON(t *testing.T) {
+	// a $param with no cast is jsonb : each JSON value comes back as itself, a string included
+	if _, err := testDb.Pool.Exec(context.Background(), `insert into director (name) values ('WellKnown Untyped Director')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	reg := newRegistry(t, map[string]string{"u.json": `{
+		"name": "untyped", "params": {"x": {}},
+		"query": {"relation": "director", "schema": "public", "select": {"x": ["$param", "x"]}, "where": ["=", ["col", "name"], "WellKnown Untyped Director"]}
+	}`})
+	for _, v := range []string{`"abc"`, `{"a":1}`, `[1,"b"]`, `5`, `true`, `null`} {
+		out, err := runWith(t, testDb, reg, `{"wellknown": "untyped", "params": {"x": `+v+`}}`, Options{})
+		if err != nil {
+			t.Errorf("%s: %v", v, err)
+		} else if got, want := decodeJSON[[]map[string]any](t, []byte(out)), decodeJSON[any](t, []byte(v)); len(got) != 1 || !reflect.DeepEqual(got[0]["x"], want) {
+			t.Errorf("%s: got %s", v, out)
+		}
+	}
 }
 
 func TestWellKnown_POST_Write(t *testing.T) {

@@ -98,7 +98,9 @@ Limits and rules of the reader:
 
 At the HTTP boundary, `POST /rel` selects the adapter from the request's `Content-Type` header, media type parameters and case ignored : `application/cbor` → CBOR adapter, anything else (or absent) → sonic adapter. The server produces a `Node` and calls `query.ParseQueryNode`, which is what `ParseQuery` does after parsing its JSON ; the parsers are unaware of which wire format produced the node. A body that does not decode is refused with `QUERY_MALFORMED_CBOR` (`QUERY_MALFORMED_JSON` for JSON). `GET /rel` is always JSON.
 
-A write's `"data"` stays a `Node`, never JSON text : the write path encodes it into Postgres values directly (`specs/typed-write-loading.md ## Value source`). A well-known query's `"params"` are converted to JSON text by `Raw()`, so a param holding a byte string or a date and time is refused.
+A write's `"data"` stays a `Node`, never JSON text : the write path encodes it into Postgres values directly (`specs/typed-write-loading.md ## Value source`). A well-known query's `"params"` stay a `Node` too. `query.ParamValue` gives each param what `encoding/json` decodes from its JSON text, and for `KindInstant`, `KindDate`, `KindUUID` and `KindBytes` the text a JSON client would send, read through the same write encoders as the expression literals below ; `wellknown.checkParamType` lets each of these kinds stand for the string its declared type takes (the byte string for any type of no checked class). A date and time is written as the wall clock and offset of the session zone by `query.BindSessionParams` once `Execute` knows the connection : Postgres reads the text through the cast at the use site, whatever the declared type, and that one text is the same instant under `::timestamptz` and the zone's wall clock under `::timestamp`, which drops the offset. When rel cannot load the zone, a param declared `timestamp` is refused and any other gets UTC.
+
+In an expression, `KindInstant`, `KindDate`, `KindUUID` and `KindBytes` are literals of their type (`InstantLiteral`, `DateLiteral`, `UUIDLiteral`, `BytesLiteral`), read through the write encoder of that type so a filter accepts and refuses what a write does, and bound with a cast to `timestamptz`, `date`, `uuid` or `bytea`. The dates and times are bound as text, years BC included, since pgx's binary encoding of a `time.Time` overflows near the end of `timestamptz`'s range.
 
 ## 2. Query-engine response encoding
 
@@ -227,6 +229,8 @@ The body is converted as a whole, in memory, with `cborenc.AppendJSON` : one pas
 The conversion only runs when the effective `Content-Type` is `application/json`, so `text`, `bytea` and mimetype-domain returns are never touched, and a template's output stays what the template says. A body that cannot be converted is sent as JSON, with a warning in the log. `Vary: Accept` is set on every response whose media type depends on it.
 
 ### Functions returning any type
+
+A route's request body sent as `application/cbor` (or a `+cbor` suffix) is read by the CBOR adapter and handed to the function as JSON in `req.body` (`query.CBORBodyJSON`) : a date and time, date, UUID or byte string is the text a JSON client would send, the same `typedLiteralText` a well-known param gets, with dates and times in UTC since `req.body` has no cast to read a zone through ; anything else JSON cannot hold is a `400`. A route taking `bytea` still gets the raw bytes.
 
 A route function may return any type that has a value, not only `text`, `json`, `jsonb`, `bytea` and mimetype domains (`anyValueType` ; `void`, `record`, polymorphic and other pseudo-types remain unsupported, and `setof` returns do not apply). Such a value is sent as `application/json` or, when CBOR is accepted, `application/cbor` :
 

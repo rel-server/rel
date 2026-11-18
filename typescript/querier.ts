@@ -475,6 +475,15 @@ export interface EncodeOptions {
   structures?: boolean
 }
 
+// The query tree is plain objects and arrays ; any other object (a Date, a Uint8Array, a Temporal value) is a value
+// the codec writes, kept as it is.
+function isWalked(v: unknown): v is object {
+  if (v == null || typeof v !== "object") return false
+  if (Array.isArray(v)) return true
+  const proto = Object.getPrototypeOf(v)
+  return proto === Object.prototype || proto === null
+}
+
 /**
  A query, built by relation()/func()/wellknown() with its types filled in. For a hand-built Querier, WriteShape
  defaults to Shape and Q to `Query`.
@@ -524,7 +533,7 @@ export class Querier<
   // `shortcut` is client-side only. A join written as an object literal never went through join(), so its shortcut
   // is expanded here when `on` is absent.
   private static stripShortcut(obj: unknown): unknown {
-    if (obj == null || typeof obj !== "object") {
+    if (!isWalked(obj)) {
       return obj
     }
     if (Array.isArray(obj)) {
@@ -550,7 +559,7 @@ export class Querier<
 
   // Drops `proto` and reports whether any `$param` was found.
   private static normalizeForWire(obj: unknown): { value: unknown; hasParam: boolean } {
-    if (obj == null || typeof obj !== "object") {
+    if (!isWalked(obj)) {
       return { value: obj, hasParam: false }
     }
     if (Array.isArray(obj)) {
@@ -631,7 +640,7 @@ export class Querier<
       }
       return diff ? res : obj
     }
-    if (typeof obj === "object") {
+    if (isWalked(obj)) {
       let diff = false
       const res: { [name: string]: unknown } = {}
       const _obj = obj as { [name: string]: unknown }

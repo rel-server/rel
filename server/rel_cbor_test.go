@@ -117,8 +117,7 @@ func TestRelHandler_CBORRequestErrors(t *testing.T) {
 
 func postAccepting(t *testing.T, handler http.Handler, body, accept string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/rel", bytes.NewReader([]byte(body)))
-	req.Header.Set("Content-Type", "application/json")
+	req := newRelPost(body)
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}

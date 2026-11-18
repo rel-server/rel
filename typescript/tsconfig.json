@@ -21,6 +21,7 @@
     "types": []
   },
   "include": ["./**/*.ts"],
-  // tests/, combos/*, codecs/ and bench/ have their own tsconfig or need bun's types : they need bun's types, and tests/ the database.ts a running server generates
-  "exclude": ["node_modules", "tests", "combos", "codecs", "bench"]
+  // tests/, combos/*, codecs/ and bench/ have their own tsconfig or need bun's types : they need bun's types, and tests/ the database.ts a running server generates.
+  // trunk/ is typechecked as copied into each combo, against that combo's database.ts.
+  "exclude": ["node_modules", "tests", "combos", "codecs", "bench", "trunk"]
 }

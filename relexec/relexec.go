@@ -228,12 +228,12 @@ func prepareItem(rctx *query.ResolveContext, wk *wellknown.Registry, item query.
 }
 
 // resolveWellKnownItem resolves name via wk ; data non-nil means a write.
-func resolveWellKnownItem(wk *wellknown.Registry, name string, paramsRaw []byte, data query.Node) (resolvedItem, error) {
+func resolveWellKnownItem(wk *wellknown.Registry, name string, params query.Node, data query.Node) (resolvedItem, error) {
 	def, ok := wk.Lookup(name)
 	if !ok {
 		return resolvedItem{}, oops.Code(errcode.WellKnownUnknownQuery).Errorf("well-known query %q is not registered", name)
 	}
-	paramValues, err := def.ResolveParams(paramsRaw)
+	paramValues, err := def.ResolveParams(params)
 	if err != nil {
 		return resolvedItem{}, err
 	}
@@ -300,6 +300,12 @@ func (p *Prepared) Execute(ctx context.Context, conn *pgxpool.Conn, begin Begin,
 		}
 		if err := p.items[i].enc.BindSession(conn); err != nil {
 			return itemError(i, ServerFault, errcode.Internal, err)
+		}
+	}
+	// A date and time a well-known param binds for a timestamp is that zone's wall clock.
+	for i := range p.items {
+		if err := query.BindSessionParams(conn, p.items[i].paramValues); err != nil {
+			return itemError(i, ClientFault, codeOrUnclassified(err), err)
 		}
 	}
 

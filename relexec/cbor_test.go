@@ -3,14 +3,18 @@ package relexec
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
 
 	"github.com/rel-server/rel/cborenc"
+	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/query"
+	"github.com/rel-server/rel/wellknown"
 )
 
 func decodeCBOR[T any](t *testing.T, data []byte) T {
@@ -195,4 +199,146 @@ func TestCBOR_Structures(t *testing.T) {
 	if items, err := n.ArrayItems(); err != nil || len(items) != 2 {
 		t.Errorf("write read-back: %d rows, %v", len(items), err)
 	}
+}
+
+// runCBOR runs v, encoded as CBOR with its dates and times as tag 1, as the request body, in the session time zone
+// zone ("" : the server's), with the well-known queries of reg.
+func runCBOR(t *testing.T, reg *wellknown.Registry, zone string, v any) (string, error) {
+	t.Helper()
+	em, err := cbor.EncOptions{Time: cbor.TimeUnixDynamic, TimeTag: cbor.EncTagRequired}.EncMode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := em.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := query.NewCBORNode(b)
+	if err != nil {
+		t.Fatalf("NewCBORNode: %v", err)
+	}
+	pq, err := query.ParseQueryNode(n)
+	if err != nil {
+		return "", err
+	}
+	return runParsed(t, testDb, reg, pq, Options{}, zone)
+}
+
+func cborDate(days int64) cbor.Tag { return cbor.Tag{Number: 100, Content: days} }
+
+var (
+	testUUID      = []byte{0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11}
+	testUUIDText  = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+	testInstant   = time.UnixMilli(1700000000500) // 2023-11-14 22:13:20.5 UTC
+	testDayNumber = int64(20744)                  // 2026-10-18
+)
+
+func TestCBOR_TypedValuesInExpressions(t *testing.T) {
+	// A filter holding a CBOR date and time, date, UUID or byte string finds the row holding that value.
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into tz_t (id, at, plain, day) values
+		(9301, '2023-11-14 22:13:20.5+00', '2023-11-14 22:13:20.5', '2026-10-18'),
+		(9302, '294276-12-31 23:59:59+00', null, '0044-03-15 BC'),
+		(9303, null, '2023-11-14 23:13:20.5', null) on conflict do nothing`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into enc_t (id, bytes) values (9301, '\x00ff10') on conflict do nothing`); err != nil {
+		t.Fatal(err)
+	}
+	var lateSec, bcDays int64
+	if err := testDb.Pool.QueryRow(ctx, `select extract(epoch from at)::int8, (select day - '1970-01-01'::date from tz_t where id = 9302) from tz_t where id = 9302`).Scan(&lateSec, &bcDays); err != nil {
+		t.Fatal(err)
+	}
+	where := func(relation string, cond any) map[string]any {
+		return map[string]any{"relation": relation, "schema": "public", "select": map[string]any{"id": []any{"col", "id"}}, "where": []any{"and", []any{">=", []any{"col", "id"}, 9301}, cond}}
+	}
+	for _, c := range []struct {
+		name, zone string
+		q          map[string]any
+		want       string
+	}{
+		{"timestamptz", "", where("tz_t", []any{"=", []any{"col", "at"}, testInstant}), `[{"id":9301}]`},
+		{"timestamp, in a UTC session", "UTC", where("tz_t", []any{"=", []any{"col", "plain"}, testInstant}), `[{"id":9301}]`},
+		{"timestamp, in a Paris session", "Europe/Paris", where("tz_t", []any{"=", []any{"col", "plain"}, testInstant}), `[{"id":9303}]`},
+		{"timestamptz near the end of its range", "", where("tz_t", []any{"=", []any{"col", "at"}, time.Unix(lateSec, 0)}), `[{"id":9302}]`},
+		{"date", "", where("tz_t", []any{"=", []any{"col", "day"}, cborDate(testDayNumber)}), `[{"id":9301}]`},
+		{"date BC", "", where("tz_t", []any{"=", []any{"col", "day"}, cborDate(bcDays)}), `[{"id":9302}]`},
+		{"uuid", "", where("tz_t", []any{"and", []any{"=", []any{"col", "id"}, 9301}, []any{"=", []any{"::", cbor.Tag{Number: 37, Content: testUUID}, "text"}, testUUIDText}}), `[{"id":9301}]`},
+		{"bytea", "", where("enc_t", []any{"=", []any{"col", "bytes"}, []byte{0x00, 0xff, 0x10}}), `[{"id":9301}]`},
+	} {
+		out, err := runCBOR(t, nil, c.zone, c.q)
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+		} else if out != c.want {
+			t.Errorf("%s: got %s, want %s", c.name, out, c.want)
+		}
+	}
+
+	// a date out of date's range is refused, as it is in a write
+	if _, err := runCBOR(t, nil, "", where("tz_t", []any{"=", []any{"col", "day"}, cborDate(1 << 41)})); err == nil || !strings.Contains(err.Error(), "out of range") {
+		t.Errorf("an out of range date: err = %v", err)
+	}
+}
+
+func TestCBOR_WellKnownTypedParams(t *testing.T) {
+	// A well-known param takes the CBOR value of its declared type ; a date and time for a timestamp is read in
+	// the session zone, as a write's data is.
+	ctx := context.Background()
+	if _, err := testDb.Pool.Exec(ctx, `insert into tz_t (id, at, plain, day) values
+		(9401, '2023-11-14 22:13:20.5+00', '2023-11-14 22:13:20.5', '2026-10-18'),
+		(9402, '2023-11-14 22:13:20.5+00', '2023-11-14 23:13:20.5', '2026-10-18') on conflict do nothing`); err != nil {
+		t.Fatal(err)
+	}
+	reg := newRegistry(t, map[string]string{"typed.json": `{
+		"name": "typed_params",
+		"params": {"at": {"type": "timestamptz"}, "plain": {"type": "timestamp"}, "day": {"type": "date"}, "tok": {"type": "uuid"}, "bin": {"type": "bytea"}},
+		"query": {
+			"relation": "tz_t", "schema": "public",
+			"select": {"id": ["col", "id"], "tok": ["::", ["$param", "tok", "uuid"], "text"], "bin": ["::", ["$param", "bin", "bytea"], "text"]},
+			"where": ["and", [">=", ["col", "id"], 9401],
+				["=", ["col", "at"], ["$param", "at", "timestamptz"]],
+				["=", ["col", "plain"], ["$param", "plain", "timestamp"]],
+				["=", ["col", "day"], ["$param", "day", "date"]]]
+		}
+	}`})
+	params := map[string]any{"at": testInstant, "plain": testInstant, "day": cborDate(testDayNumber), "tok": cbor.Tag{Number: 37, Content: testUUID}, "bin": []byte{0x00, 0xff, 0x10}}
+	for zone, id := range map[string]int{"UTC": 9401, "Europe/Paris": 9402} {
+		out, err := runCBOR(t, reg, zone, map[string]any{"wellknown": "typed_params", "params": params})
+		if err != nil {
+			t.Errorf("%s: %v", zone, err)
+			continue
+		}
+		if want := fmt.Sprintf(`[{"bin":"\\x00ff10","id":%d,"tok":%q}]`, id, testUUIDText); out != want {
+			t.Errorf("%s: got %s, want %s", zone, out, want)
+		}
+	}
+
+	// Postgres reads the text through the cast at the use site, whatever the declared type : a date and time
+	// declared as a timestamptz, or not declared, is that zone's wall clock under a timestamp cast too
+	reg = newRegistry(t, map[string]string{"cast.json": `{
+		"name": "cast_only",
+		"params": {"declared": {"type": "timestamptz"}, "untyped": {}},
+		"query": {
+			"relation": "tz_t", "schema": "public", "select": {"id": ["col", "id"]},
+			"where": ["and", [">=", ["col", "id"], 9401],
+				["=", ["col", "plain"], ["$param", "declared", "timestamp"]],
+				["=", ["col", "plain"], ["$param", "untyped", "timestamp"]]]
+		}
+	}`})
+	for zone, id := range map[string]int{"UTC": 9401, "Europe/Paris": 9402} {
+		out, err := runCBOR(t, reg, zone, map[string]any{"wellknown": "cast_only", "params": map[string]any{"declared": testInstant, "untyped": testInstant}})
+		if err != nil {
+			t.Errorf("cast only, %s: %v", zone, err)
+		} else if want := fmt.Sprintf(`[{"id":%d}]`, id); out != want {
+			t.Errorf("cast only, %s: got %s, want %s", zone, out, want)
+		}
+	}
+
+	// a CBOR date and time for a numeric param is a type mismatch, as a JSON string is
+	reg = newRegistry(t, map[string]string{"n.json": `{
+		"name": "numeric_param", "params": {"n": {"type": "int"}},
+		"query": {"relation": "tz_t", "schema": "public", "select": {"id": ["col", "id"]}, "where": ["=", ["col", "id"], ["$param", "n", "int"]]}
+	}`})
+	_, err := runCBOR(t, reg, "", map[string]any{"wellknown": "numeric_param", "params": map[string]any{"n": testInstant}})
+	assertClientFault(t, err, errcode.WellKnownParamTypeMismatch)
 }

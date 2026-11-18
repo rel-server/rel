@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/writer"
@@ -64,6 +65,27 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 	case NumericLiteral:
 		c.w.Bind(v.Value)
 		c.w.Write("::numeric")
+		return nil
+
+	// The dates and times go as text : pgx's binary encoders overflow near the end of timestamptz's range.
+	case InstantLiteral:
+		c.w.Bind(pgInstantText(v.Micros, nil))
+		c.w.Write("::timestamptz")
+		return nil
+
+	case DateLiteral:
+		c.w.Bind(pgDateText(int64(v.Days)))
+		c.w.Write("::date")
+		return nil
+
+	case UUIDLiteral:
+		c.w.Bind(v.Value)
+		c.w.Write("::uuid")
+		return nil
+
+	case BytesLiteral:
+		c.w.Bind(v.Value)
+		c.w.Write("::bytea")
 		return nil
 
 	case DefaultKeyword:
@@ -181,11 +203,12 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 
 	case ParamExpr:
 		// A named placeholder resolved later ; cast defaults to jsonb, not text.
-		c.w.BindParam(v.Name)
 		cast := v.Cast
 		if cast == "" {
 			cast = "jsonb"
 		}
+		lc := strings.ToLower(strings.TrimSpace(cast))
+		c.w.BindParam(v.Name, lc == "json" || lc == "jsonb")
 		c.w.Write("::")
 		c.w.Write(cast)
 		return nil

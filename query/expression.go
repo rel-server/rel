@@ -77,6 +77,30 @@ type NumericLiteral struct {
 	Value string
 }
 
+// InstantLiteral is a CBOR date and time (tag 0 or 1) : microseconds since 2000-01-01 UTC, in timestamptz's range.
+type InstantLiteral struct {
+	notYetValidated
+	Micros int64
+}
+
+// DateLiteral is a CBOR date (tag 100) : days since 2000-01-01, in date's range.
+type DateLiteral struct {
+	notYetValidated
+	Days int32
+}
+
+// UUIDLiteral is a CBOR UUID (tag 37).
+type UUIDLiteral struct {
+	notYetValidated
+	Value [16]byte
+}
+
+// BytesLiteral is a CBOR byte string.
+type BytesLiteral struct {
+	notYetValidated
+	Value []byte
+}
+
 // DefaultKeyword is "default" in a col/get/set default-value position : the column's own DB default. Anywhere
 // else "default" is an ordinary value.
 //

@@ -2,6 +2,7 @@
 package writer
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -21,6 +22,7 @@ type SQLWriter struct {
 type sqlBindSlot struct {
 	name  string
 	value any
+	json  bool // a named param cast to json or jsonb : sent as JSON text
 }
 
 // NewSQL returns an SQLWriter for one SQL statement.
@@ -37,9 +39,10 @@ func (w *SQLWriter) Bind(value any) *SQLWriter {
 }
 
 // BindParam reserves the next $N placeholder for a well-known query's named parameter, whose value only exists per
-// request. Shares Bind's $N sequence ; get the args with ResolveArgs, not Args.
-func (w *SQLWriter) BindParam(name string) *SQLWriter {
-	w.slots = append(w.slots, sqlBindSlot{name: name})
+// request. Shares Bind's $N sequence ; get the args with ResolveArgs, not Args. asJSON marks a placeholder cast to
+// json or jsonb, whose value ResolveArgs writes as JSON text.
+func (w *SQLWriter) BindParam(name string, asJSON bool) *SQLWriter {
+	w.slots = append(w.slots, sqlBindSlot{name: name, json: asJSON})
 	w.Write(fmt.Sprintf("$%d", len(w.slots)))
 	return w
 }
@@ -82,6 +85,14 @@ func (w *SQLWriter) ResolveArgs(paramValues map[string]any) ([]any, error) {
 		v, ok := paramValues[s.name]
 		if !ok {
 			return nil, oops.With("param", s.name).Errorf("writer: no value supplied for $param %q", s.name)
+		}
+		if s.json && v != nil {
+			// pgx sends a string to json as the JSON text itself, so "abc" would not parse
+			b, err := json.Marshal(v)
+			if err != nil {
+				return nil, oops.With("param", s.name).Wrapf(err, "writer: $param %q as JSON", s.name)
+			}
+			v = b
 		}
 		out[i] = v
 	}

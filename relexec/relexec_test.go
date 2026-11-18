@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/pg"
@@ -68,10 +70,12 @@ func runOn(t *testing.T, db *pg.DbInfos, body string, opts Options) (string, err
 // runWith is runOn with a registry of well-known queries.
 func runWith(t *testing.T, db *pg.DbInfos, reg *wellknown.Registry, body string, opts Options) (string, error) {
 	t.Helper()
-	pq, err := query.ParseQuery([]byte(body))
-	if err != nil {
-		t.Fatalf("ParseQuery: %v", err)
-	}
+	return runParsed(t, db, reg, parseBody(t, body), opts, "")
+}
+
+// runParsed runs a request already parsed, in the session time zone zone ("" : the server's).
+func runParsed(t *testing.T, db *pg.DbInfos, reg *wellknown.Registry, pq query.ParsedQuery, opts Options, zone string) (string, error) {
+	t.Helper()
 	items := pq.Sequence
 	if items == nil {
 		items = []query.ParsedQuery{pq}
@@ -85,10 +89,45 @@ func runWith(t *testing.T, db *pg.DbInfos, reg *wellknown.Registry, body string,
 		t.Fatalf("Acquire: %v", err)
 	}
 	defer conn.Release()
+	if zone != "" {
+		if _, err := conn.Exec(context.Background(), "select set_config('TimeZone', $1, false)", zone); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _, _ = conn.Exec(context.Background(), "reset TimeZone") }()
+	}
 
 	var out bytes.Buffer
 	err = prepared.Execute(context.Background(), conn, plainBegin, &out)
 	return out.String(), err
+}
+
+// requestCBOR replays every JSON request body of the suite as the CBOR a client would send for it
+// (REL_TEST_REQUEST=cbor ; `just test` runs both).
+var requestCBOR = os.Getenv("REL_TEST_REQUEST") == "cbor"
+
+// parseBody parses body as JSON or, under requestCBOR, as its CBOR transcoding.
+func parseBody(t *testing.T, body string) query.ParsedQuery {
+	t.Helper()
+	if !requestCBOR {
+		pq, err := query.ParseQuery([]byte(body))
+		if err != nil {
+			t.Fatalf("ParseQuery: %v", err)
+		}
+		return pq
+	}
+	b, err := cborenc.AppendJSON(nil, []byte(body))
+	if err != nil {
+		t.Fatalf("transcoding the body to CBOR: %v", err)
+	}
+	n, err := query.NewCBORNode(b)
+	if err != nil {
+		t.Fatalf("NewCBORNode: %v", err)
+	}
+	pq, err := query.ParseQueryNode(n)
+	if err != nil {
+		t.Fatalf("ParseQueryNode: %v", err)
+	}
+	return pq
 }
 
 func countRows(t *testing.T, sql string, args ...any) int {
@@ -122,13 +161,10 @@ func TestPrepare_UnknownRelationIsAClientFaultOnItsItem(t *testing.T) {
 }
 
 func TestPrepare_ReportsWritesAndTargets(t *testing.T) {
-	pq, err := query.ParseQuery([]byte(`[
+	pq := parseBody(t, `[
 		{"relation": "director", "schema": "public", "select": ["*~"]},
 		{"query": {"relation": "movie", "schema": "public", "select": ["*~"], "write_mode": "insert"}, "data": [{"title": "x", "director_id": 1}]}
-	]`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	]`)
 	p, err := Prepare(&query.ResolveContext{Db: testDb, Config: testCfg}, nil, pq.Sequence, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +242,7 @@ func TestExecute_RefusedCommitWithoutABufferHasStarted(t *testing.T) {
 }
 
 func TestExecute_BeginFailureIsReturnedAndNothingIsWritten(t *testing.T) {
-	pq, _ := query.ParseQuery([]byte(`{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}}`))
+	pq := parseBody(t, `{"relation": "director", "schema": "public", "select": {"name": ["col", "name"]}}`)
 	prepared, err := Prepare(&query.ResolveContext{Db: testDb, Config: testCfg}, nil, []query.ParsedQuery{pq}, Options{})
 	if err != nil {
 		t.Fatal(err)

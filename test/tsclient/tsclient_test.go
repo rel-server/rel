@@ -61,6 +61,7 @@ func TestTypeScriptClient(t *testing.T) {
 	cfg.Http.TypeScript.Enable = true
 	cfg.TypeScript.Schemas = "hotel"
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
+	cfg.Pg.Query.WellKnownDirs = "wellknown" // typed params, whose JS type the codec decides
 
 	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
 	if err != nil {
@@ -107,9 +108,29 @@ func TestTypeScriptClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	trunk, err := filepath.Glob(filepath.Join(tsDir, "trunk", "*.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tsconfig := range combos {
 		dir := filepath.Dir(tsconfig)
 		fetch(strings.ReplaceAll(filepath.Base(dir), "-", ","), filepath.Join(dir, "database.ts"))
+		// The trunk runs in every combo, typechecked against that combo's database.ts (its `../database`).
+		if err := os.RemoveAll(filepath.Join(dir, "trunk")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "trunk"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, src := range trunk {
+			b, err := os.ReadFile(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "trunk", filepath.Base(src)), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 
 	run := func(name string, args ...string) {

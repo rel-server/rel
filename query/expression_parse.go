@@ -2,6 +2,7 @@ package query
 
 import (
 	"bytes"
+	"encoding/binary"
 	"regexp"
 
 	"github.com/samber/oops"
@@ -57,12 +58,41 @@ func parseNode(n Node) (Expression, error) {
 	case KindArray:
 		return parseArrayExpression(n)
 
+	case KindInstant, KindDate, KindUUID, KindBytes:
+		return parseTypedLiteral(n)
+
 	case KindInvalid:
 		return nil, oops.Errorf("query: invalid expression JSON")
 
 	default:
 		return nil, oops.Errorf("query: unexpected JSON value in expression position (type %d)", n.Kind())
 	}
+}
+
+// parseTypedLiteral reads a CBOR value that carries its type through the write encoder of that type, so a
+// filter accepts and refuses exactly what a write's data does.
+func parseTypedLiteral(n Node) (Expression, error) {
+	var b []byte
+	var err error
+	switch n.Kind() {
+	case KindInstant:
+		if b, err = encodeTimestamptz(nil, n, nil); err == nil {
+			return InstantLiteral{Micros: int64(binary.BigEndian.Uint64(b))}, nil
+		}
+	case KindDate:
+		if b, err = encodeDate(nil, n, nil); err == nil {
+			return DateLiteral{Days: int32(binary.BigEndian.Uint32(b))}, nil
+		}
+	case KindUUID:
+		if b, err = encodeUUID(nil, n, nil); err == nil {
+			return UUIDLiteral{Value: [16]byte(b)}, nil
+		}
+	case KindBytes:
+		if b, err = encodeBytea(nil, n, nil); err == nil {
+			return BytesLiteral{Value: b}, nil
+		}
+	}
+	return nil, oops.Wrapf(err, "query: invalid %s literal", kindName(n.Kind()))
 }
 
 var unaryOperators = map[string]UnaryOperator{

@@ -665,7 +665,8 @@ func (ctx *ResolveContext) selectShape(target *QueryNode, oc oops.OopsErrorBuild
 // would sort or deduplicate on a constant, silently doing nothing.
 func isLiteral(e Expression) bool {
 	switch e.(type) {
-	case NullLiteral, BoolLiteral, NumberLiteral, StringLiteral, BigIntLiteral, NumericLiteral:
+	case NullLiteral, BoolLiteral, NumberLiteral, StringLiteral, BigIntLiteral, NumericLiteral,
+		InstantLiteral, DateLiteral, UUIDLiteral, BytesLiteral:
 		return true
 	}
 	return false

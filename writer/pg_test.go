@@ -78,7 +78,7 @@ func TestSQLWriter_BindParam_SharesPositionalSequenceWithBind(t *testing.T) {
 	w.Write("select ")
 	w.Bind("literal")
 	w.Write(", ")
-	w.BindParam("name")
+	w.BindParam("name", false)
 	w.Write(", ")
 	w.Bind(7)
 
@@ -89,7 +89,7 @@ func TestSQLWriter_BindParam_SharesPositionalSequenceWithBind(t *testing.T) {
 
 func TestSQLWriter_Args_PanicsWithUnresolvedParam(t *testing.T) {
 	w := NewSQL()
-	w.BindParam("x")
+	w.BindParam("x", false)
 
 	defer func() {
 		if recover() == nil {
@@ -101,9 +101,9 @@ func TestSQLWriter_Args_PanicsWithUnresolvedParam(t *testing.T) {
 
 func TestSQLWriter_ParamNames_DistinctInFirstOccurrenceOrder(t *testing.T) {
 	w := NewSQL()
-	w.BindParam("b")
-	w.BindParam("a")
-	w.BindParam("b")
+	w.BindParam("b", false)
+	w.BindParam("a", false)
+	w.BindParam("b", false)
 
 	got := w.ParamNames()
 	want := []string{"b", "a"}
@@ -115,9 +115,9 @@ func TestSQLWriter_ParamNames_DistinctInFirstOccurrenceOrder(t *testing.T) {
 func TestSQLWriter_ResolveArgs_MixesLiteralsAndNamedParams(t *testing.T) {
 	w := NewSQL()
 	w.Bind("literal")
-	w.BindParam("name")
+	w.BindParam("name", false)
 	w.Bind(7)
-	w.BindParam("other")
+	w.BindParam("other", false)
 
 	args, err := w.ResolveArgs(map[string]any{"name": "Alice", "other": 42})
 	if err != nil {
@@ -136,7 +136,7 @@ func TestSQLWriter_ResolveArgs_MixesLiteralsAndNamedParams(t *testing.T) {
 
 func TestSQLWriter_ResolveArgs_MissingParamErrors(t *testing.T) {
 	w := NewSQL()
-	w.BindParam("required")
+	w.BindParam("required", false)
 
 	if _, err := w.ResolveArgs(map[string]any{}); err == nil {
 		t.Fatalf("expected an error for a missing param value")

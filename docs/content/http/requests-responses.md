@@ -151,6 +151,7 @@ interface Part {
 | `content_type` | `body` becomes |
 |---|---|
 | `application/json` (or any `+json` suffix) | the request's actual JSON value — object, array, or scalar |
+| `application/cbor` (or any `+cbor` suffix) | the same value as JSON. A date and time (tag 0 or 1) becomes Postgres-readable UTC text (`2023-11-14 22:13:20.500000+00:00:00`), a date (tag 100) `YYYY-MM-DD` text, a UUID (tag 37) hyphenated text, a byte string `\x` and hex digits. A value JSON cannot hold otherwise (`NaN`, an infinity, another tag, a non-text map key) is a `400` |
 | `text/*` | the plain string |
 | `application/x-www-form-urlencoded` | a JSON object, decoded the same structural way a `GET /rel` query string is — dotted keys nest the same way |
 | anything else | a base64-encoded string of the raw bytes — `decode(req.body, 'base64')::bytea` recovers them |

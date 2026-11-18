@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+
+	"github.com/rel-server/rel/cborenc"
 
 	"github.com/rel-server/rel/logging"
 
@@ -65,10 +68,28 @@ func postRel(t *testing.T, body string) *httptest.ResponseRecorder {
 
 func postRelTo(t *testing.T, handler http.Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/rel", bytes.NewBufferString(body))
+	req := newRelPost(body)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec
+}
+
+// requestCBOR replays every JSON request body of the suite as the CBOR a client would send for it
+// (REL_TEST_REQUEST=cbor ; `just test` runs both). A body that is not JSON is sent as is.
+var requestCBOR = os.Getenv("REL_TEST_REQUEST") == "cbor"
+
+// newRelPost is a POST /rel of body, as JSON or, under requestCBOR, as its CBOR transcoding.
+func newRelPost(body string) *http.Request {
+	if requestCBOR {
+		if b, err := cborenc.AppendJSON(nil, []byte(body)); err == nil {
+			req := httptest.NewRequest(http.MethodPost, "/rel", bytes.NewReader(b))
+			req.Header.Set("Content-Type", "application/cbor")
+			return req
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/rel", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	return req
 }
 
 func decodeJSON[T any](t *testing.T, data []byte) T {

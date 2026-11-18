@@ -77,7 +77,8 @@ func fastWriteEligible(root *QueryNode, opts WriteOptions) bool {
 // plain columns with operators.
 func plainRowExpr(e Expression, root *QueryNode) bool {
 	switch v := e.(type) {
-	case nil, NullLiteral, BoolLiteral, NumberLiteral, StringLiteral, BigIntLiteral, NumericLiteral, ParamExpr:
+	case nil, NullLiteral, BoolLiteral, NumberLiteral, StringLiteral, BigIntLiteral, NumericLiteral, ParamExpr,
+		InstantLiteral, DateLiteral, UUIDLiteral, BytesLiteral:
 		return true
 	case *Identifier:
 		cp, ok := v.Resolved.(ColumnPath)
