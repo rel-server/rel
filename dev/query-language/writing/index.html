@@ -24,7 +24,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.1.1">
+      <meta name="generator" content="zensical-0.1.2">
     
     
       
@@ -3163,7 +3163,7 @@ that does not read as the type).</p>
 <li>A <code>timestamptz</code> without an offset is read in the connection's session time zone. If that zone is one rel cannot load, such a value is refused and an offset is needed.</li>
 <li>A <code>timestamp</code> ignores an offset, as Postgres does.</li>
 <li><code>now</code>, <code>today</code>, <code>epoch</code>, time zone names inside the string, and <code>DateStyle</code> forms such as <code>10/11/2026</code> are refused.</li>
-<li>rel places a <code>timestamptz</code> without an offset with its own time zone data, not the server's. If the two disagree about a clock change (a country changed its rules and one side is not updated), a time near that change can land an hour off. UTC sessions, and times that carry an offset, are not affected.</li>
+<li>rel places a <code>timestamptz</code> without an offset, and reads the wall clock of an instant written to a <code>timestamp</code>, with its own time zone data, not the server's. If the two disagree (a country changed its rules and one side is not updated), the times they disagree on land an hour off : those near a clock change, or a whole period when a change adds or removes daylight saving time. UTC sessions, and times that carry an offset written to a <code>timestamptz</code>, are not affected. rel loads each zone once : restart it after updating its host's time zone data.</li>
 </ul>
 <p>Lengths, precision and domain constraints are checked by Postgres : a string too long for a <code>varchar(20)</code>, or a number that does not fit
 a <code>numeric(6,2)</code>, is an error, and a value that is merely more precise is rounded as it would be by an <code>insert</code>.</p>
