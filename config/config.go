@@ -137,8 +137,8 @@ type Http struct {
 	// CookiesMaxAge is http.cookies_max_age, default 86400 : max-age of a cookie set through the "cookies" field when
 	// it has none. Not the session cookie's.
 	CookiesMaxAge int
-	// MaxBodySize is http.max_body_size, default 10 MiB : cap on a /route request's whole body, multipart envelope
-	// included, enforced before buffering. Not applied to /rel.
+	// MaxBodySize is http.max_body_size, default 10 MiB : cap on a /rel POST body and on a /route request's whole
+	// body, multipart envelope included, enforced before buffering.
 	MaxBodySize int
 	// MaxPartCount is http.max_part_count, default 100 : max multipart parts per /route request, whatever their size.
 	MaxPartCount int

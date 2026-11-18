@@ -37,16 +37,32 @@ func NewRelHandler(db *pg.DbInfos, cfg *config.Config, wkReg *wellknown.Registry
 	})
 }
 
-// relQueryBytes returns the request's query : the POST body verbatim, or the GET query string decoded to JSON.
-func relQueryBytes(r *http.Request) ([]byte, error) {
+// relQueryBytes returns the request's query : the POST body verbatim, bounded by maxBodySize, or the GET query
+// string decoded to JSON.
+func relQueryBytes(w http.ResponseWriter, r *http.Request, maxBodySize int64) ([]byte, *httperr.Error) {
 	if r.Method == http.MethodGet {
-		return decodeGETQuery(r.URL.RawQuery)
+		b, err := decodeGETQuery(r.URL.RawQuery)
+		if err != nil {
+			return nil, httperr.BadRequest(errcode.MalformedBody, err)
+		}
+		return b, nil
 	}
-	body, err := io.ReadAll(r.Body)
+	// Content-Length is checked first so an announced oversize body is refused unread.
+	if r.ContentLength > maxBodySize {
+		return nil, bodyTooLarge()
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodySize))
 	if err != nil {
-		return nil, oops.Wrapf(err, "reading request body")
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			return nil, bodyTooLarge()
+		}
+		return nil, httperr.BadRequest(errcode.MalformedBody, oops.Wrapf(err, "reading request body"))
 	}
 	return body, nil
+}
+
+func bodyTooLarge() *httperr.Error {
+	return &httperr.Error{Status: http.StatusRequestEntityTooLarge, Code: errcode.BodyTooLarge, Err: oops.Errorf("request body exceeds http.max_body_size")}
 }
 
 // isCBORRequest reports whether a POST body is CBOR, by its Content-Type ; anything else is JSON. The response
@@ -154,9 +170,9 @@ func handleRel(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *conf
 		return
 	}
 
-	body, err := relQueryBytes(r)
-	if err != nil {
-		writeError(ctx, w, httperr.BadRequest(errcode.MalformedBody, err), cfg.Dev)
+	body, bodyErr := relQueryBytes(w, r, int64(cfg.Http.MaxBodySize))
+	if bodyErr != nil {
+		writeError(ctx, w, bodyErr, cfg.Dev)
 		return
 	}
 

@@ -115,7 +115,7 @@ reference](../query-language/operators.md).
 
 ## Size the resource limits to real traffic, not the defaults
 
-`http.max_body_size` (10 MiB) and `http.max_part_count` (100) bound a single declared-route request;
+`http.max_body_size` (10 MiB) and `http.max_part_count` (100) bound a single declared-route request (and `http.max_body_size` a `/rel` POST body too);
 `pg.query.max_depth` (6) bounds how deeply a query can nest joins; `pg.pool_size` (10) bounds
 how many connections actually serve requests concurrently. All four default to something
 reasonable for getting started, not to whatever your production traffic and payload sizes

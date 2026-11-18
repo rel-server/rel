@@ -64,7 +64,7 @@ HTTP-scoped subset, each row pointing at the page that explains the *behavior*, 
 | `http.host` / `http.port` | all interfaces / `8080` | Listen address. |
 | `http.public_host` | unset | This deployment's externally-reachable host (bare, no scheme) — required for OIDC/SAML redirect URLs. See [Authentication](authentication.md). |
 | `http.cookies_max_age` | `86400` (seconds) | Default max-age for a cookie set via the generic `cookies` field. Never applies to the JWT cookie. See [Requests and responses](requests-responses.md#httpresponse). |
-| `http.max_body_size` | 10 MiB | Hard cap on a declared route request's entire body. See [File uploads](uploads.md#receiving-raw-bytes). |
+| `http.max_body_size` | 10 MiB | Hard cap on a `/rel` POST body and on a declared route request's entire body, rejected with `413`. See [File uploads](uploads.md#receiving-raw-bytes). |
 | `http.max_part_count` | `100` | Max `multipart/form-data` parts per request. See [File uploads](uploads.md#receiving-raw-bytes). |
 | `http.response_buffer` | `65536` (bytes) | Bytes of a `/rel` response held back until its transaction has committed. See [Configuration reference](../configuration/reference.md). |
 | `http.static.path` | `/static` | Colon-separated filesystem directories served at the router root, as the fallback for any path no declared route claims. See [Static files](static-files.md). |
