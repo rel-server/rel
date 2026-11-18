@@ -62,7 +62,7 @@ independent of whatever a browser's own CSP violation report claims.
 Every error response, from `/rel` or `/route`, carries a `code`: a stable, safe-to-switch-on
 token, always present, never derived from user input. It arrives two ways at once — an
 `X-Rel-Errorcode` response header (works regardless of body framing, including `/route`'s
-plain-text error paths), and, for `/rel` specifically, a `code` field in the JSON body:
+plain-text error paths), and, for errors from `/rel`'s own handler, a `code` field in the JSON body. A request refused before it reaches that handler (a declared `Content-Encoding`, a route middleware's rejection) gets a plain-text body even on `/rel`; the header is there either way:
 
 ```json
 {
@@ -95,6 +95,8 @@ expect in the response:
 | `WRITE_FORBIDDEN` | 400 | the write touched a relation whose identity isn't writable, or violated a `write_mode` rule |
 | `QUERY_ROLLBACK_NOT_GRANTED` | 400 | `rollback: true` requested but `pg.query.allow_rollback` is off — see [Complex queries](../query-language/complex-query.md#availability) |
 | `QUERY_STATS_QUERY_PLAN_CONFLICT` | 400 | `stats` and `query_plan` both requested on the same write |
+| `BODY_TOO_LARGE` | 413 | a `/rel` POST body or a declared route's body is over `http.max_body_size` |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | the request declares a compressed body (any `Content-Encoding` but `identity`) : rel only accepts plain bodies, and says so with `Accept-Encoding: identity`. Also a route's body shape mismatch, see [File uploads](../http/uploads.md) |
 | `ANONYMOUS_DISABLED` | 401 | request has no credentials and no anonymous role is configured |
 | `NO_ROLE_CONFIGURED` | 500 | `pg.query.anonymous_role` is unset and the request is anonymous — a deployment misconfiguration, not an ordinary request failure |
 | `DB_UNAVAILABLE` | 500 | acquiring a Postgres connection failed |

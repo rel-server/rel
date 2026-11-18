@@ -125,6 +125,8 @@ actually need — revisit them once you know.
 
 rel sends every response uncompressed. Turn compression on in the reverse proxy in front of it, including for `application/json` and `application/cbor` — see [Docker deployment](../getting-started/docker-deployment.md#compression-belongs-to-the-proxy).
 
+Requests go the other way: rel refuses a compressed request body with a `415` (any `Content-Encoding` other than `identity`), and proxies don't decompress request bodies by default, so clients must send them plain.
+
 ## Keep `dev` off
 
 `dev` (default `false`) adds the real Postgres error text and a stack trace to an otherwise

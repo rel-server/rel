@@ -17,10 +17,13 @@ package boot
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/errcode"
+	"github.com/rel-server/rel/httperr"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 	"github.com/rel-server/rel/route"
@@ -31,8 +34,8 @@ import (
 	"github.com/rel-server/rel/wellknown"
 )
 
-// BuildMux assembles /rel, every declared route and a root-level static fallback, all behind the access log and
-// CORS/CSP. Declared routes and /auth also get a CSP nonce ; the static fallback only gets one on a jet render,
+// BuildMux assembles /rel, every declared route and a root-level static fallback, all behind the access log,
+// CORS/CSP and the refusal of compressed request bodies. Declared routes and /auth also get a CSP nonce ; the static fallback only gets one on a jet render,
 // injected by route.NewStaticHandler itself. Well-known queries go through /rel, not a route of their own.
 func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *wellknown.Registry, logger *slog.Logger) http.Handler {
 	staticSrv := static.New(cfg.Http)
@@ -68,5 +71,22 @@ func BuildMux(db *pg.DbInfos, cfg *config.Config, reg *route.Registry, wkReg *we
 		logger.Debug("boot: no http.static.path directory found, static fallback is not mounted")
 	}
 
-	return logging.RequestMiddleware(logging.AccessLog(websec.Middleware(cfg)(mux)))
+	return logging.RequestMiddleware(logging.AccessLog(websec.Middleware(cfg)(rejectEncodedBody(mux))))
+}
+
+// rejectEncodedBody answers 415 to any request whose Content-Encoding names something other than identity, body
+// or not : rel never decompresses, and an encoded body read as plain would fail as a misleading parse error.
+func rejectEncodedBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, line := range r.Header.Values("Content-Encoding") {
+			for coding := range strings.SplitSeq(line, ",") {
+				if c := strings.TrimSpace(coding); c != "" && !strings.EqualFold(c, "identity") {
+					w.Header().Set("Accept-Encoding", "identity")
+					httperr.WritePlain(w, http.StatusUnsupportedMediaType, errcode.UnsupportedMediaType, "request body must not be compressed : Content-Encoding "+c+" is not accepted")
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }

@@ -570,3 +570,102 @@ func TestBuildMux_MiddlewareGatesStaticFallback(t *testing.T) {
 		t.Errorf("expected the ungated file to serve normally, got %d: %q", openRec.Code, openRec.Body.String())
 	}
 }
+
+// Only a body declared plain gets past the router : any other Content-Encoding is a plain-text 415 naming the one
+// accepted coding, on /rel as on a declared route, even with no body, and still behind CORS/CSP.
+func TestBuildMux_EncodedRequestBodyRejected(t *testing.T) {
+	ctx := context.Background()
+
+	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
+	if err != nil {
+		t.Fatalf("starting postgres container: %v", err)
+	}
+	defer func() { _ = container.Terminate(ctx) }()
+
+	uri, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("connection string: %v", err)
+	}
+	setupPool, err := pg.NewInfos(uri)
+	if err != nil {
+		t.Fatalf("pg.NewInfos: %v", err)
+	}
+	if _, err := setupPool.Pool.Exec(ctx, `
+		create role "~anonymous";
+		create table encoding_test (id int);
+		grant select on encoding_test to "~anonymous";
+		create function fn_encoding_test() returns text language sql as $$ select 'ok'::text; $$;
+		comment on function fn_encoding_test() is 'route:: path: "/testroute"';
+		grant execute on function fn_encoding_test() to "~anonymous";
+	`); err != nil {
+		t.Fatalf("schema setup: %v", err)
+	}
+	setupPool.Pool.Close()
+
+	// Introspected after the schema exists, so the route is declared.
+	cfg := config.Test()
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
+	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("pg.NewInfosAdminQuery: %v", err)
+	}
+	reg, err := route.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("route.BuildRegistry: %v", err)
+	}
+	wkReg, err := wellknown.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("wellknown.BuildRegistry: %v", err)
+	}
+	mux := BuildMux(db, cfg, reg, wkReg, nil)
+
+	serve := func(method, path, body string, encodings ...string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		for _, e := range encodings {
+			req.Header.Add("Content-Encoding", e)
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rejected := map[string]*httptest.ResponseRecorder{
+		"/rel gzip":                   serve("POST", "/rel", `{"relation":"encoding_test"}`, "gzip"),
+		"/rel identity then gzip":     serve("POST", "/rel", `{"relation":"encoding_test"}`, "identity, gzip"),
+		"/rel gzip on a second line":  serve("POST", "/rel", `{"relation":"encoding_test"}`, "identity", "gzip"),
+		"declared route, no body, br": serve("GET", "/testroute", "", "br"),
+	}
+	for name, rec := range rejected {
+		t.Run(name, func(t *testing.T) {
+			if rec.Code != http.StatusUnsupportedMediaType {
+				t.Fatalf("expected 415, got %d : %s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Accept-Encoding"); got != "identity" {
+				t.Errorf("Accept-Encoding = %q, want identity", got)
+			}
+			if got := rec.Header().Get("X-Rel-Errorcode"); got != "UNSUPPORTED_MEDIA_TYPE" {
+				t.Errorf("X-Rel-Errorcode = %q, want UNSUPPORTED_MEDIA_TYPE", got)
+			}
+			if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
+				t.Errorf("Content-Type = %q, want text/plain", got)
+			}
+			if rec.Header().Get("Content-Security-Policy") == "" {
+				t.Errorf("expected the 415 to still carry a Content-Security-Policy header")
+			}
+		})
+	}
+
+	passed := map[string]*httptest.ResponseRecorder{
+		"/rel no Content-Encoding": serve("POST", "/rel", `{"relation":"encoding_test"}`),
+		"/rel IDENTITY, identity":  serve("POST", "/rel", `{"relation":"encoding_test"}`, "IDENTITY, identity"),
+		"declared route, identity": serve("GET", "/testroute", "", "identity"),
+	}
+	for name, rec := range passed {
+		t.Run(name, func(t *testing.T) {
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
