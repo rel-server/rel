@@ -2629,6 +2629,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#compress-at-the-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compress at the proxy
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#keep-dev-off" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2833,6 +2844,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Size the resource limits to real traffic, not the defaults
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compress-at-the-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compress at the proxy
       </span>
     </span>
   </a>
@@ -3055,6 +3077,8 @@ reference</a>.</p>
 how many connections actually serve requests concurrently. All four default to something
 reasonable for getting started, not to whatever your production traffic and payload sizes
 actually need — revisit them once you know.</p>
+<h2 id="compress-at-the-proxy">Compress at the proxy<a class="headerlink" href="#compress-at-the-proxy" title="Permanent link">&para;</a></h2>
+<p>rel sends every response uncompressed. Turn compression on in the reverse proxy in front of it, including for <code>application/json</code> and <code>application/cbor</code> — see <a href="../../getting-started/docker-deployment/#compression-belongs-to-the-proxy">Docker deployment</a>.</p>
 <h2 id="keep-dev-off">Keep <code>dev</code> off<a class="headerlink" href="#keep-dev-off" title="Permanent link">&para;</a></h2>
 <p><code>dev</code> (default <code>false</code>) adds the real Postgres error text and a stack trace to an otherwise
 generic error response — useful while building against your own schema, a information leak
