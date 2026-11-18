@@ -1,0 +1,3 @@
+# CBOR responses are built from Postgres' binary records, not by SQL
+
+JSON responses are built entirely in Postgres (`row_to_json`, `json_agg`) and streamed untouched. Postgres has no `row_to_cbor`, but its binary format for a record is self-describing (each field carries its type OID), and so is an array's per element. So for CBOR the same statement selects the record itself and `array_agg` instead of `json_agg`, runs with binary results, and Go writes the CBOR from those bytes (`query/result_cbor.go`) : no JSON intermediate. A type with no CBOR form of its own (ranges, `interval`, `inet`, `money`...) is selected as `to_jsonb` and converted, so it says in CBOR what it says in JSON.

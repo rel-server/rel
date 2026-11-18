@@ -10,8 +10,9 @@ that object — there's no separate "read" and "write" grammar; the same tree do
 
 `POST /rel` also takes the same object as CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)) when the
 request's `Content-Type` is `application/cbor`. The query is the same tree, with CBOR maps, arrays, text strings,
-numbers, booleans and null in the places JSON has them, and a write's `data` can also carry the types CBOR has
-and JSON lacks ([value forms](writing.md#from-cbor)). Map keys must be text strings and appear once. A body that is not
+numbers, booleans and null in the places JSON has them. The types CBOR has and JSON lacks (dates and times, dates,
+UUIDs, byte strings) can also appear in a write's `data` ([value forms](writing.md#from-cbor)), as literals in an
+expression ([typed literals](operators.md#typed-literals-from-cbor)), and as a [well-known query's params](well-known-queries.md#declaring-and-using-parameters). Map keys must be text strings and appear once. A body that is not
 valid CBOR is refused with `QUERY_MALFORMED_CBOR`. The format of the request does not decide the format of the response :
 see [CBOR responses](#cbor-responses). A body may also use [structures](#structures), which `cbor-x` writes by default.
 

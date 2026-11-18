@@ -1,6 +1,6 @@
 # Typed write loading
 
-A write request carries its rows as JSON or CBOR. Today `query/write_denormalize.go` flattens them into one shared `_data` temp table whose `data` and `keys` columns are `jsonb`, and `query/write_dml.go` pulls every value back out of the jsonb with `jsonb_populate_record` and `->>` casts. This document replaces `_data` with one typed temp table per destination table, loaded from binary Postgres values built directly from the request's `Node` tree (`specs/cbor.md ## Node interface`). No JSON text is produced for CBOR input, except for `json`/`jsonb` target columns and text-mode columns given a map or array (`## Column mode`).
+A write request carries its rows as JSON or CBOR. Today `query/write_denormalize.go` flattens them into one shared `_data` temp table whose `data` and `keys` columns are `jsonb`, and `query/write_dml.go` pulls every value back out of the jsonb with `jsonb_populate_record` and `->>` casts. This document replaces `_data` with one typed temp table per destination table, loaded from binary Postgres values built directly from the request's `Node` tree (`query/node_iface.go`). No JSON text is produced for CBOR input, except for `json`/`jsonb` target columns and text-mode columns given a map or array (`## Column mode`).
 
 The write semantics (`docs/content/query-language/writing.md`), the phase order, `stats`, `sql`, `query_plan` and the response shape are unchanged. Only how rows reach Postgres, and how generated keys flow between nodes, changes.
 
@@ -347,4 +347,4 @@ Every value-level test runs for each source (JSON, and CBOR once the CBOR adapte
 
 ## Docs
 
-`docs/content/query-language/writing.md` gets the accepted value forms per type, the datetime rules, and the text-mode behaviour, including how extension types such as PostGIS' are written. `specs/cbor.md ## Node interface`'s question about `Raw()` is answered by `## Value source`.
+`docs/content/query-language/writing.md` gets the accepted value forms per type, the datetime rules, and the text-mode behaviour, including how extension types such as PostGIS' are written.
