@@ -121,6 +121,10 @@ how many connections actually serve requests concurrently. All four default to s
 reasonable for getting started, not to whatever your production traffic and payload sizes
 actually need — revisit them once you know.
 
+## Compress at the proxy
+
+rel sends every response uncompressed. Turn compression on in the reverse proxy in front of it, including for `application/json` and `application/cbor` — see [Docker deployment](../getting-started/docker-deployment.md#compression-belongs-to-the-proxy).
+
 ## Keep `dev` off
 
 `dev` (default `false`) adds the real Postgres error text and a stack trace to an otherwise

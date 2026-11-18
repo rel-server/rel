@@ -98,6 +98,25 @@ A few things worth getting right:
   their `VIRTUAL_HOST`/`LETSENCRYPT_*` labels — that's what the `docker.sock` mount is for,
   not something rel itself needs or sees.
 
+## Compression belongs to the proxy
+
+rel never compresses a response; whatever sits in front of it should. `nginx-proxy` leaves gzip off, so turn it on for rel's host with a per-host file, which `nginx-proxy` includes in that host's `server` block:
+
+```nginx
+# vhost.d/api.example.com
+gzip on;
+gzip_types application/json application/cbor text/plain text/css application/javascript image/svg+xml;
+```
+
+and mount it on the `nginx-proxy` service, next to the `vhost` volume:
+
+```yaml
+    volumes:
+      - ./vhost.d/api.example.com:/etc/nginx/vhost.d/api.example.com:ro
+```
+
+`/rel` answers are worth it: JSON typically shrinks 3 to 4 times. CBOR with structures is already about half the size of the same JSON and still roughly halves again. `/rel/database.ts` is served as `text/plain`. Streamed `/rel` answers stay streamed: nginx compresses each chunk as it passes it on.
+
 ## `/wellknown`, `/static`, `/template`, and reload.cmd: build them into your own image
 
 Well-known query definitions, static assets, and Jet templates aren't runtime state — they're
