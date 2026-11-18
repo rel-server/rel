@@ -3413,7 +3413,8 @@ map's own rename too: <code>select: { display_name: ["col", "name"] }</code> sti
 <code>name</code> itself is required.</p>
 <p><code>wellknown()</code> builds a call to a registered <a href="../query-language/well-known-queries/">well-known query</a> instead
 of an ad hoc relation — same <code>Querier</code>, but its params and result shape come from the query's
-own registered definition rather than from what you pass to <code>relation()</code>.</p>
+own registered definition rather than from what you pass to <code>relation()</code>.
+A param declared <code>int8</code>/<code>bigint</code>, <code>numeric</code>, <code>timestamptz</code>, <code>timestamp</code>, <code>date</code> or <code>bytea</code> takes the value a column of that type reads as with your <a href="#codecs">codec</a> : a <code>Date</code> for a <code>timestamptz</code> with <code>cbor</code>, a <code>Uint8Array</code> for a <code>bytea</code>, text with <code>json</code>. Other declared types take a <code>number</code>, <code>string</code> or <code>boolean</code>.</p>
 <h3 id="naming-a-rows-type">Naming a row's type<a class="headerlink" href="#naming-a-rows-type" title="Permanent link">&para;</a></h3>
 <p>To name the type of a row — say, as a function parameter's type elsewhere in your code — every
 <code>Querier</code> carries two type-only properties, read with <code>typeof</code>:</p>

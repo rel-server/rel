@@ -3072,6 +3072,10 @@ prefers it (<code>Accept: application/cbor</code>; <code>*/*</code> and no heade
 <td>the request's actual JSON value — object, array, or scalar</td>
 </tr>
 <tr>
+<td><code>application/cbor</code> (or any <code>+cbor</code> suffix)</td>
+<td>the same value as JSON. A date and time (tag 0 or 1) becomes Postgres-readable UTC text (<code>2023-11-14 22:13:20.500000+00:00:00</code>), a date (tag 100) <code>YYYY-MM-DD</code> text, a UUID (tag 37) hyphenated text, a byte string <code>\x</code> and hex digits. A value JSON cannot hold otherwise (<code>NaN</code>, an infinity, another tag, a non-text map key) is a <code>400</code></td>
+</tr>
+<tr>
 <td><code>text/*</code></td>
 <td>the plain string</td>
 </tr>

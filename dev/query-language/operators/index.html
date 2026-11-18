@@ -1670,6 +1670,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#typed-literals-from-cbor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Typed literals from CBOR
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2839,6 +2850,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#typed-literals-from-cbor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Typed literals from CBOR
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3314,6 +3336,35 @@ need to compare against another column. <code>any</code>/<code>all</code> take a
 </span></code></pre></div>
 <p>Plain JSON numbers lose precision past what a 64-bit float can represent exactly; wrap a
 literal that needs to survive round-trip intact in one of these instead.</p>
+<h2 id="typed-literals-from-cbor">Typed literals from CBOR<a class="headerlink" href="#typed-literals-from-cbor" title="Permanent link">&para;</a></h2>
+<p>In a request sent as <code>application/cbor</code>, a value that carries its type is a literal of that type anywhere an expression is accepted, read as a write's <code>data</code> reads it (see <a href="../writing/#from-cbor">Writing</a>) :</p>
+<table>
+<thead>
+<tr>
+<th>CBOR value</th>
+<th>Literal</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>tag 1 or tag 0</td>
+<td>a <code>timestamptz</code>. Compared with a <code>timestamp</code> column, Postgres reads the column in the session time zone.</td>
+</tr>
+<tr>
+<td>tag 100</td>
+<td>a <code>date</code></td>
+</tr>
+<tr>
+<td>tag 37</td>
+<td>a <code>uuid</code></td>
+</tr>
+<tr>
+<td>byte string</td>
+<td>a <code>bytea</code></td>
+</tr>
+</tbody>
+</table>
+<p>A value out of the type's range is refused, as it is in a write.</p>
 
 
 

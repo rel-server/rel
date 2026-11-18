@@ -2960,12 +2960,13 @@ its own declared parameters. Each entry in <code>params</code> can set:</p>
   the caller doesn't supply it); <code>default: null</code> means optional, defaulting to SQL <code>NULL</code>;
   any other <code>default</code> value is used as-is when the caller omits the param.</li>
 </ul>
+<p>In a request sent as <code>application/cbor</code>, a param also takes the CBOR value of its type, passed on as the text a JSON caller would send : tag 1 or 0 for a <code>timestamptz</code> or <code>timestamp</code>, tag 100 for a <code>date</code>, tag 37 for a <code>uuid</code>, and a byte string (as <code>\x</code> and hex digits) for a type rel does not check, such as <code>bytea</code>. A date and time is written in the connection's time zone, so under a <code>timestamp</code> cast it is that zone's wall clock, as in a write's <code>data</code>. If rel cannot load that zone, a param declared <code>timestamp</code> is refused.</p>
 <p><code>type</code> only gates what's accepted at the door — it doesn't automatically become the SQL cast.
 The third element of <code>["$param", name, cast]</code> sets that separately, and defaults to <code>::jsonb</code>
 when left off. Write it explicitly at each usage site to get the SQL type you actually want:
 <code>["$param", "min_rating", "integer"]</code> compiles to a <code>$1::integer</code> placeholder; a bare
 <code>["$param", "min_rating"]</code> would compile to <code>$1::jsonb</code> instead, even though <code>type: integer</code>
-was declared above.</p>
+was declared above. Under a <code>json</code> or <code>jsonb</code> cast, the value is the JSON value itself : a string <code>"abc"</code> is the JSON string <code>"abc"</code>.</p>
 <h2 id="calling-one-over-post-rel">Calling one over <code>POST /rel</code><a class="headerlink" href="#calling-one-over-post-rel" title="Permanent link">&para;</a></h2>
 <p>A well-known query occupies exactly the slot a plain <code>Relation</code> would, in either position: bare
 for a read, wrapped in <code>ComplexQuery.query</code> for a write.</p>
