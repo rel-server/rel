@@ -2887,8 +2887,9 @@ that object — there's no separate "read" and "write" grammar; the same tree do
 <a href="writing/">Writing data back</a>).</p>
 <p><code>POST /rel</code> also takes the same object as CBOR (<a href="https://www.rfc-editor.org/rfc/rfc8949">RFC 8949</a>) when the
 request's <code>Content-Type</code> is <code>application/cbor</code>. The query is the same tree, with CBOR maps, arrays, text strings,
-numbers, booleans and null in the places JSON has them, and a write's <code>data</code> can also carry the types CBOR has
-and JSON lacks (<a href="writing/#from-cbor">value forms</a>). Map keys must be text strings and appear once. A body that is not
+numbers, booleans and null in the places JSON has them. The types CBOR has and JSON lacks (dates and times, dates,
+UUIDs, byte strings) can also appear in a write's <code>data</code> (<a href="writing/#from-cbor">value forms</a>), as literals in an
+expression (<a href="operators/#typed-literals-from-cbor">typed literals</a>), and as a <a href="well-known-queries/#declaring-and-using-parameters">well-known query's params</a>. Map keys must be text strings and appear once. A body that is not
 valid CBOR is refused with <code>QUERY_MALFORMED_CBOR</code>. The format of the request does not decide the format of the response :
 see <a href="#cbor-responses">CBOR responses</a>. A body may also use <a href="#structures">structures</a>, which <code>cbor-x</code> writes by default.</p>
 <p>Examples throughout use the hotel-booking schema from <a href="../getting-started/">Getting started</a>:
