@@ -3168,7 +3168,7 @@ HTTP-scoped subset, each row pointing at the page that explains the <em>behavior
 <tr>
 <td><code>http.max_body_size</code></td>
 <td>10 MiB</td>
-<td>Hard cap on a declared route request's entire body. See <a href="../uploads/#receiving-raw-bytes">File uploads</a>.</td>
+<td>Hard cap on a <code>/rel</code> POST body and on a declared route request's entire body, rejected with <code>413</code>. See <a href="../uploads/#receiving-raw-bytes">File uploads</a>.</td>
 </tr>
 <tr>
 <td><code>http.max_part_count</code></td>

@@ -3237,7 +3237,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <td><code>http.max_body_size</code></td>
 <td><code>REL_HTTP__MAX_BODY_SIZE</code></td>
 <td>10 MiB</td>
-<td>Hard cap on a declared route request's entire body (multipart envelope included). Rejected with <code>413</code> before any of it is buffered.</td>
+<td>Hard cap on a <code>/rel</code> POST body and on a declared route request's entire body (multipart envelope included). Rejected with <code>413</code> before any of it is buffered.</td>
 </tr>
 <tr>
 <td><code>http.max_part_count</code></td>

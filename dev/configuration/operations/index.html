@@ -2897,7 +2897,7 @@ independent of whatever a browser's own CSP violation report claims.</p>
 <p>Every error response, from <code>/rel</code> or <code>/route</code>, carries a <code>code</code>: a stable, safe-to-switch-on
 token, always present, never derived from user input. It arrives two ways at once — an
 <code>X-Rel-Errorcode</code> response header (works regardless of body framing, including <code>/route</code>'s
-plain-text error paths), and, for <code>/rel</code> specifically, a <code>code</code> field in the JSON body:</p>
+plain-text error paths), and, for errors from <code>/rel</code>'s own handler, a <code>code</code> field in the JSON body. A request refused before it reaches that handler (a declared <code>Content-Encoding</code>, a route middleware's rejection) gets a plain-text body even on <code>/rel</code>; the header is there either way:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"error"</span><span class="p">,</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"PG_UNIQUE_VIOLATION"</span><span class="p">,</span>
@@ -2953,6 +2953,16 @@ expect in the response:</p>
 <td><code>QUERY_STATS_QUERY_PLAN_CONFLICT</code></td>
 <td>400</td>
 <td><code>stats</code> and <code>query_plan</code> both requested on the same write</td>
+</tr>
+<tr>
+<td><code>BODY_TOO_LARGE</code></td>
+<td>413</td>
+<td>a <code>/rel</code> POST body or a declared route's body is over <code>http.max_body_size</code></td>
+</tr>
+<tr>
+<td><code>UNSUPPORTED_MEDIA_TYPE</code></td>
+<td>415</td>
+<td>the request declares a compressed body (any <code>Content-Encoding</code> but <code>identity</code>) : rel only accepts plain bodies, and says so with <code>Accept-Encoding: identity</code>. Also a route's body shape mismatch, see <a href="../../http/uploads/">File uploads</a></td>
 </tr>
 <tr>
 <td><code>ANONYMOUS_DISABLED</code></td>

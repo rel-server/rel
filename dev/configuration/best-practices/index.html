@@ -3072,13 +3072,14 @@ reference</a>.</p>
   <a href="../reference/#sessions-jwt">Configuration reference ## Sessions (JWT)</a>.</li>
 </ul>
 <h2 id="size-the-resource-limits-to-real-traffic-not-the-defaults">Size the resource limits to real traffic, not the defaults<a class="headerlink" href="#size-the-resource-limits-to-real-traffic-not-the-defaults" title="Permanent link">&para;</a></h2>
-<p><code>http.max_body_size</code> (10 MiB) and <code>http.max_part_count</code> (100) bound a single declared-route request;
+<p><code>http.max_body_size</code> (10 MiB) and <code>http.max_part_count</code> (100) bound a single declared-route request (and <code>http.max_body_size</code> a <code>/rel</code> POST body too);
 <code>pg.query.max_depth</code> (6) bounds how deeply a query can nest joins; <code>pg.pool_size</code> (10) bounds
 how many connections actually serve requests concurrently. All four default to something
 reasonable for getting started, not to whatever your production traffic and payload sizes
 actually need — revisit them once you know.</p>
 <h2 id="compress-at-the-proxy">Compress at the proxy<a class="headerlink" href="#compress-at-the-proxy" title="Permanent link">&para;</a></h2>
 <p>rel sends every response uncompressed. Turn compression on in the reverse proxy in front of it, including for <code>application/json</code> and <code>application/cbor</code> — see <a href="../../getting-started/docker-deployment/#compression-belongs-to-the-proxy">Docker deployment</a>.</p>
+<p>Requests go the other way: rel refuses a compressed request body with a <code>415</code> (any <code>Content-Encoding</code> other than <code>identity</code>), and proxies don't decompress request bodies by default, so clients must send them plain.</p>
 <h2 id="keep-dev-off">Keep <code>dev</code> off<a class="headerlink" href="#keep-dev-off" title="Permanent link">&para;</a></h2>
 <p><code>dev</code> (default <code>false</code>) adds the real Postgres error text and a stack trace to an otherwise
 generic error response — useful while building against your own schema, a information leak
