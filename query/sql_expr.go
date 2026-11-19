@@ -207,6 +207,12 @@ func (c *sqlCompiler) compileExpr(e Expression, n *QueryNode) error {
 		if cast == "" {
 			cast = "jsonb"
 		}
+		if isCBORTypeName(cast) { // the param's CBOR bytes, read by bytea's cast to postcbor's type
+			c.w.BindBytesParam(v.Name)
+			c.w.Write("::bytea::")
+			c.w.Write(cast)
+			return nil
+		}
 		lc := strings.ToLower(strings.TrimSpace(cast))
 		c.w.BindParam(v.Name, lc == "json" || lc == "jsonb")
 		c.w.Write("::")

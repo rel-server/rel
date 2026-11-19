@@ -163,7 +163,9 @@ func handleRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, cfg *co
 	}
 
 	var raw []byte
-	nativeCBOR := route.ContentNative && route.Template == "" && cborenc.Accepts(r.Header.Get("Accept")) && query.NativeCBORType(route.Function.ReturnType)
+	// a value holding a CBOR column type's has no JSON form : CBOR whatever the Accept
+	nativeCBOR := route.ContentNative && route.Template == "" && query.NativeCBORType(route.Function.ReturnType) &&
+		(cborenc.Accepts(r.Header.Get("Accept")) || query.ContainsCBOR(route.Function.ReturnType))
 	if nativeCBOR {
 		raw, err = invokeNativeCBORRoute(ctx, tx, db, route, reqJSON, resolved, pathArgValues)
 	} else {
@@ -198,6 +200,11 @@ func buildInvokeCall(route Route, reqJSON []byte, resolved resolvedRequestBody, 
 		args = append(args, resolved.SingleBytes)
 		pos++
 	}
+	if route.CBORArg != "" { // bytea's cast to postcbor's type reads the bytes as CBOR
+		placeholders = append(placeholders, fmt.Sprintf("$%d::bytea::%s", pos, route.CBORArg))
+		args = append(args, resolved.SingleBytes)
+		pos++
+	}
 	if route.AcceptsBytesArray {
 		placeholders = append(placeholders, fmt.Sprintf("$%d::bytea[]", pos))
 		args = append(args, resolved.Files)
@@ -220,8 +227,11 @@ func invokeSingleReturnRoute(ctx context.Context, tx *reqauth.Tx, route Route, r
 		"function", route.Function.Identifier.String(), "sql", "select "+call, "args", args)
 	var raw []byte
 	sql := "select " + call
-	if route.ContentNative { // a type with no text form of its own : its JSON, never SQL NULL
+	switch {
+	case route.ContentNative: // a type with no text form of its own : its JSON, never SQL NULL
 		sql = "select coalesce(to_jsonb(" + call + "), 'null'::jsonb)"
+	case route.ContentCBOR: // postcbor's text form is not its CBOR ; a NULL is CBOR's null
+		sql = "select coalesce((" + call + ")::bytea, '\\xf6')"
 	}
 	if err := tx.QueryRow(ctx, sql, args...).Scan(&raw); err != nil {
 		return nil, err
@@ -267,8 +277,11 @@ func invokeFullControlRoute(ctx context.Context, tx *reqauth.Tx, route Route, re
 	logging.FromContext(ctx).Debug("invoking route",
 		"function", route.Function.Identifier.String(), "sql", "select * from "+call, "args", args)
 	sql := "select * from " + call
-	if route.ContentNative { // the content column has a type with no text form of its own : its JSON
+	switch {
+	case route.ContentNative: // the content column has a type with no text form of its own : its JSON
 		sql = "select r.e, to_jsonb(r.c) from (select * from " + call + ") as r(e, c)"
+	case route.ContentCBOR:
+		sql = "select r.e, r.c::bytea from (select * from " + call + ") as r(e, c)"
 	}
 	if err := tx.QueryRow(ctx, sql, args...).Scan(&envelope, &content); err != nil {
 		return nil, nil, err

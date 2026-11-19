@@ -35,6 +35,14 @@ func (c *Compiled) ResolveParams(params query.Node) (map[string]any, error) {
 			out[name] = v
 			continue
 		}
+		if query.IsCBORTypeName(def.Type) {
+			v, err := query.CBORParamValue(supplied)
+			if err != nil {
+				return nil, oops.With("param", name).Code(errcode.WellKnownParamTypeMismatch).Errorf("wellknown: param %q: %w", name, err)
+			}
+			out[name] = v
+			continue
+		}
 		if err := checkParamType(def.Type, supplied.Kind()); err != nil {
 			return nil, oops.With("param", name).Code(errcode.WellKnownParamTypeMismatch).Errorf("wellknown: param %q: %w", name, err)
 		}

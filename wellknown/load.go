@@ -129,6 +129,9 @@ func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]
 func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled, error) {
 	params := make(map[string]ParamDef, len(def.Params))
 	for name, p := range def.Params {
+		if query.IsCBORTypeName(p.Type) && p.HasDefault && jsonKindOf(p.Default) != query.KindNull {
+			return nil, oops.With("param", name).Code(errcode.WellKnownParamTypeMismatch).Errorf("a cbor param's default can only be null : a declaration has no CBOR bytes")
+		}
 		if p.HasDefault {
 			if err := checkParamType(p.Type, jsonKindOf(p.Default)); err != nil {
 				return nil, oops.With("param", name).Code(errcode.WellKnownParamTypeMismatch).Errorf("declared default: %w", err)
@@ -155,7 +158,12 @@ func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled
 			return nil, oops.With("param", name).Code(errcode.WellKnownUnknownParam).Errorf("query references undeclared param %q", name)
 		}
 	}
-	for name := range params {
+	for name, p := range params {
+		// a cbor param is bound as bytes, which only a cbor cast reads, and only it is
+		bytes, other := sw.ParamUses(name)
+		if cbor := query.IsCBORTypeName(p.Type); (cbor && other > 0) || (!cbor && bytes > 0) {
+			return nil, oops.With("param", name).Code(errcode.WellKnownParamTypeMismatch).Errorf("param %q : a param declared cbor is used with a cbor cast, and only it", name)
+		}
 		if !used[name] {
 			return nil, oops.With("param", name).Code(errcode.WellKnownUnusedParam).Errorf("param %q is declared but never used", name)
 		}

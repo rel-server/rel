@@ -70,6 +70,8 @@ when left off. Write it explicitly at each usage site to get the SQL type you ac
 `["$param", "min_rating"]` would compile to `$1::jsonb` instead, even though `type: integer`
 was declared above. Under a `json` or `jsonb` cast, the value is the JSON value itself : a string `"abc"` is the JSON string `"abc"`.
 
+A param whose `type` is a [CBOR column type](index.md#cbor-columns) (`cbor`, or `schema.cbor` for a `bytea` domain) takes any CBOR item, from a CBOR request only : from JSON, a value other than `null` is `WELL_KNOWN_PARAM_TYPE_MISMATCH`. It binds the item's bytes, [structures](index.md#structures) rewritten as plain maps, so it is used with a cbor cast, `["$param", "doc", "cbor"]` (compiled as `$1::bytea::cbor`), and only with one : a `cbor` param under another cast, or a cbor cast on a param of another type, deactivates the query at load. Its `default` can only be `null`.
+
 ## Calling one over `POST /rel`
 
 A well-known query occupies exactly the slot a plain `Relation` would, in either position: bare

@@ -14,9 +14,9 @@ Decisions are in `docs/adr/0012` to `0014`. This is what to build.
 
 ## Routes and well-known params
 
-- `fn(req jsonb, body cbor)` : like `file bytea`, the whole body, `req.body` null. A JSON body is a 415. No `cbor[]`, no CBOR `stream_upload` (a part comes as `bytea[]` and is cast in the function).
-- A `cbor` return : sent as Postgres produced it, `application/cbor`, whatever the `Accept`.
-- A well-known param typed `cbor` : bound from its item's bytes (spliced when needed) ; from JSON, a 400. Declared with the existing well-known query syntax.
+- Done : `fn(req jsonb, body cbor)` (`Route.CBORArg`) : like `file bytea`, the whole body spliced (`query.SpliceCBOR`), bound as `$n::bytea::<type>` (postcbor's cast from `bytea` reads the bytes), `req.body` null, `POST` by default. Another media type, JSON included, is a 415 ; unreadable CBOR a 400 ; an empty body NULL. No `cbor[]` argument, no CBOR `stream_upload` (a part comes as `bytea[]` and is cast in the function).
+- Done : a CBOR column type return (`Route.ContentCBOR`), single or full-control content : selected `::bytea`, sent as `application/cbor` whatever the `Accept`. A NULL single return is `f6`, a NULL full-control content no body. A value holding one (a composite, an array) is answered in native CBOR whatever the `Accept`.
+- Done : a well-known param declared with a CBOR type name : bound from its item's bytes, spliced (`query.CBORParamValue`) ; from JSON, a 400 (`WELL_KNOWN_PARAM_TYPE_MISMATCH`). A cbor cast binds it as bytes (`$n::bytea::<cast>`) ; load refuses a cbor param under another cast, a cbor cast on another param, and a default other than null.
 
 ## Compressed requests (ADR 0014)
 

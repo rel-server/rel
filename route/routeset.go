@@ -37,12 +37,17 @@ type Route struct {
 	// exclusive.
 	AcceptsBytes      bool
 	AcceptsBytesArray bool
+	// CBORArg is the escaped type of a CBOR argument taking the whole body as one CBOR item ; "" when there is none.
+	// Exclusive with the two above.
+	CBORArg string
 
 	// ContentType is the default Content-Type, from the single return type or, when FullControl, the second OUT
 	// column (whose response "content_type" can still override it). ContentIsBinary flags a bytea-based return,
 	// which cannot be used with a template.
 	ContentType     string
 	ContentIsBinary bool
+	// ContentCBOR marks a CBOR column type's value : its bytes, sent as application/cbor whatever the Accept.
+	ContentCBOR bool
 
 	// ContentNative marks a value of a type with no mimetype of its own (an int, a timestamp, an array, a
 	// composite...) : it is sent as application/json through to_jsonb, or as CBOR in its own types when that is

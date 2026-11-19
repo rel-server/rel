@@ -46,6 +46,7 @@ never be declared there, from either source.
   `HttpRequest` object below. A route needing nothing from the request may omit it entirely.
 - The **second** argument may be `bytea` or `bytea[]`, enabling uploads directly in Postgres —
   see [File uploads](uploads.md) for the full mismatch/sizing rules.
+- The **second** argument may instead have a [CBOR column type](../query-language/index.md#cbor-columns) (`cbor`, or a `cbor` domain over `bytea`) : it receives the whole body as one CBOR item, [structures](../query-language/index.md#structures) rewritten as plain maps, and the route defaults to `POST`. The body must be `application/cbor` (or a `+cbor` suffix) : any other media type, JSON included, is a `415`, and CBOR rel cannot read a `400`. An empty body is `NULL`. An array of `cbor` is not accepted, and neither is a `cbor` argument on a `stream_upload` function (a part arrives as `bytea[]` and can be cast in the function).
 - Any other argument must be named and typed `text`; it receives whatever the
   correspondingly-named `{placeholder}` in the path matched.
 
@@ -57,7 +58,7 @@ comment on function hotel.room(jsonb, text) is 'route:: path: "/hotel/rooms/{id}
 ```
 
 Returning a single type replies `200` with a mimetype resolved structurally: `text` →
-`text/plain`, `json`/`jsonb` → `application/json`, `bytea` → `application/octet-stream`, and a
+`text/plain`, `json`/`jsonb` → `application/json`, `bytea` → `application/octet-stream`, a CBOR column type → `application/cbor` (the value's CBOR as Postgres produced it, whatever the `Accept` ; a `NULL` is CBOR's `null`, except as a full-control `content`, where it is no body), and a
 domain whose name contains `/` (over `bytea` or `text`) → that name as `Content-Type` — see
 [Static files ## Returning binary or text content
 directly](static-files.md#returning-binary-or-text-content-directly). Any other type that has a value
@@ -113,7 +114,8 @@ prefers it (`Accept: application/cbor`; `*/*` and no header stay JSON). The rout
   cheaper and richer than building a `jsonb` by hand.
 - A full-control function : `status`, headers and cookies are as usual and only the content is converted. Its content
   is converted from JSON even when it has a native type.
-- `text`, `bytea` and mimetype-domain returns, templates, `static_file` and errors are never converted.
+- A value holding a CBOR column type's (a composite with a `cbor` field, an array of `cbor`) has no JSON form : it is answered in CBOR whatever the `Accept`.
+- `text`, `bytea`, `cbor` and mimetype-domain returns, templates, `static_file` and errors are never converted.
 
 A JSON body that cannot be converted (a number with an exponent beyond 64 bits) is sent as JSON.
 
@@ -157,7 +159,7 @@ interface Part {
 | anything else | a base64-encoded string of the raw bytes — `decode(req.body, 'base64')::bytea` recovers them |
 | no body at all (a `GET`, most commonly) | JSON `null` |
 
-A route declaring a `bytea`/`bytea[]` second argument always gets `body: null` instead,
+A route declaring a `bytea`/`bytea[]`/`cbor` second argument always gets `body: null` instead,
 regardless of `content_type` — the payload arrives exclusively through the dedicated
 argument(s), never duplicated into `body` as well. `parts` is always filled in for a
 multipart request, regardless of whether the route even declares `bytea[]` — a route that

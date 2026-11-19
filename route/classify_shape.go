@@ -5,6 +5,7 @@ package route
 import (
 	"strings"
 
+	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/logging"
 	"github.com/rel-server/rel/pg"
 )
@@ -30,6 +31,11 @@ func isTextType(t *pg.Type) bool {
 // isBytesArrayType reports whether t is exactly bytea[], not a domain over it.
 func isBytesArrayType(t *pg.Type) bool {
 	return t != nil && t.IsArray() && t.ElementType != nil && t.ElementType.PgIdentifier.String() == "pg_catalog.bytea"
+}
+
+// isCBORArg reports a CBOR column type, or an array of one, as a route argument's type.
+func isCBORArg(t *pg.Type) bool {
+	return t != nil && (t.CBOR || (t.IsArray() && t.ElementType != nil && t.ElementType.CBOR))
 }
 
 // isMimeTypeUnderlying reports whether a mimetype domain's underlying type is allowed : bytea or text.
@@ -71,19 +77,28 @@ func classifyShape(rd resolvedDeclaration) (Route, bool) {
 	}
 
 	var acceptsBytes, acceptsBytesArray bool
+	var cborArg string
 	if !decl.StreamUpload && idx < len(inArgs) {
-		switch {
-		case isByteaType(inArgs[idx].Type):
+		switch t := inArgs[idx].Type; {
+		case isByteaType(t):
 			acceptsBytes = true
 			idx++
-		case isBytesArrayType(inArgs[idx].Type):
+		case isBytesArrayType(t):
 			acceptsBytesArray = true
+			idx++
+		case t != nil && t.CBOR:
+			cborArg = t.PgIdentifier.EscapedString()
 			idx++
 		}
 	}
-	if decl.StreamUpload && idx < len(inArgs) && (isByteaType(inArgs[idx].Type) || isBytesArrayType(inArgs[idx].Type)) {
-		log.Error("route: stream_upload function must not take a bytea/bytea[] argument, function disabled",
+	if decl.StreamUpload && idx < len(inArgs) && (isByteaType(inArgs[idx].Type) || isBytesArrayType(inArgs[idx].Type) || isCBORArg(inArgs[idx].Type)) {
+		log.Error("route: stream_upload function must not take a bytea/bytea[]/cbor argument, function disabled",
 			"schema", fn.Identifier.Schema, "function", fn.Identifier.Name)
+		return Route{}, false
+	}
+	if idx < len(inArgs) && isCBORArg(inArgs[idx].Type) {
+		log.Error("route: an array of cbor is not a route argument, a CBOR body is one item ; function disabled",
+			"schema", fn.Identifier.Schema, "function", fn.Identifier.Name, "argument", inArgs[idx].Name)
 		return Route{}, false
 	}
 
@@ -115,6 +130,7 @@ func classifyShape(rd resolvedDeclaration) (Route, bool) {
 		PathArgs:          pathArgs,
 		AcceptsBytes:      acceptsBytes,
 		AcceptsBytesArray: acceptsBytesArray,
+		CBORArg:           cborArg,
 		Template:          decl.Template,
 		StreamUpload:      decl.StreamUpload,
 		IsMiddleware:      decl.Middleware,
@@ -134,6 +150,7 @@ func classifyShape(rd resolvedDeclaration) (Route, bool) {
 		}
 		entry.ContentType = contentType
 		entry.ContentIsBinary = binary
+		entry.ContentCBOR = fn.ReturnType.CBOR
 	case 2:
 		if !(isJsonType(outArgs[0].Type) || isJsonbType(outArgs[0].Type)) {
 			log.Error("route: full-control return's first OUT column must be json/jsonb, function disabled",
@@ -152,6 +169,7 @@ func classifyShape(rd resolvedDeclaration) (Route, bool) {
 		entry.FullControl = true
 		entry.ContentType = contentType
 		entry.ContentIsBinary = binary
+		entry.ContentCBOR = outArgs[1].Type.CBOR
 	default:
 		log.Error("route: unsupported OUT-argument shape, function disabled",
 			"schema", fn.Identifier.Schema, "function", fn.Identifier.Name, "out_args", len(outArgs))
@@ -176,7 +194,7 @@ func classifyShape(rd resolvedDeclaration) (Route, bool) {
 		return Route{}, false
 	}
 
-	entry.Methods = resolveMethods(decl.Method, acceptsBytes, acceptsBytesArray, decl.StreamUpload)
+	entry.Methods = resolveMethods(decl.Method, acceptsBytes || cborArg != "", acceptsBytesArray, decl.StreamUpload)
 
 	return entry, true
 }
@@ -194,6 +212,9 @@ func classifySingleReturn(fn *pg.Function) (contentType string, isBinary bool, o
 func classifySingleReturnType(t *pg.Type) (contentType string, isBinary bool, ok bool) {
 	if t == nil {
 		return "", false, false
+	}
+	if t.CBOR { // before a bytea domain's mimetype rule
+		return cborenc.MediaType, true, true
 	}
 	switch t.PgIdentifier.String() {
 	case "pg_catalog.text":

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/rel-server/rel/pg"
+	"github.com/samber/oops"
 )
 
 // A JSON response only carries what JSON can say : a query whose output holds a CBOR column's value is refused
@@ -27,7 +28,7 @@ func (w *cborWalk) node(node *QueryNode) string {
 		w.seen = map[*QueryNode]bool{}
 	}
 	w.seen[node] = true
-	if node.IsFunction() && node.Relation == nil && containsCBOR(node.Function.ReturnType) {
+	if node.IsFunction() && node.Relation == nil && ContainsCBOR(node.Function.ReturnType) {
 		return "the result of " + node.Function.Identifier.String()
 	}
 	if !isShapeProducingSelect(node.Select) {
@@ -38,7 +39,7 @@ func (w *cborWalk) node(node *QueryNode) string {
 		var what string
 		switch child := embedChildOf(f); {
 		case f.column != nil:
-			if containsCBOR(f.column.Type) {
+			if ContainsCBOR(f.column.Type) {
 				what = columnName(node, f.column)
 			}
 		case child != nil:
@@ -62,7 +63,7 @@ func (w *cborWalk) expr(node *QueryNode, e Expression) string {
 	case *ColExpr:
 		return resolvedCBOR(v.Resolved)
 	case *GetExpr:
-		if v.ResolvedColumn != nil && containsCBOR(v.ResolvedColumn.Type) {
+		if v.ResolvedColumn != nil && ContainsCBOR(v.ResolvedColumn.Type) {
 			return columnName(node, v.ResolvedColumn)
 		}
 	case FoldedExpr:
@@ -111,7 +112,7 @@ func (w *cborWalk) expr(node *QueryNode, e Expression) string {
 		}
 		if node.Relation != nil {
 			for _, c := range node.Relation.Columns {
-				if !excluded[c.Name] && containsCBOR(c.Type) {
+				if !excluded[c.Name] && ContainsCBOR(c.Type) {
 					return columnName(node, c)
 				}
 			}
@@ -149,7 +150,7 @@ func (w *cborWalk) function(node *QueryNode, f *pg.Function, args []Expression) 
 	if isPolymorphic(f.ReturnType) {
 		return w.first(node, args...)
 	}
-	if containsCBOR(f.ReturnType) {
+	if ContainsCBOR(f.ReturnType) {
 		return "the result of " + f.Identifier.String()
 	}
 	return ""
@@ -159,19 +160,19 @@ func (w *cborWalk) function(node *QueryNode, f *pg.Function, args []Expression) 
 func resolvedCBOR(r ResolvedField) string {
 	switch v := r.(type) {
 	case ColumnPath:
-		if containsCBOR(v.CurrentType()) {
+		if ContainsCBOR(v.CurrentType()) {
 			return columnName(v.Node, v.Path[len(v.Path)-1])
 		}
 	case *QueryNode:
 		if v.Relation != nil {
 			for _, c := range v.Relation.Columns {
-				if containsCBOR(c.Type) {
+				if ContainsCBOR(c.Type) {
 					return columnName(v, c)
 				}
 			}
 		}
 	case ComputedFieldRef:
-		if containsCBOR(v.Function.ReturnType) {
+		if ContainsCBOR(v.Function.ReturnType) {
 			return "computed field " + v.Function.Identifier.Name
 		}
 	}
@@ -185,8 +186,9 @@ func columnName(node *QueryNode, col *pg.Column) string {
 	return "column " + col.Name
 }
 
-// containsCBOR reports whether a value of type t is, or holds in an array or composite, a CBOR column's value.
-func containsCBOR(t *pg.Type) bool { return containsCBORDepth(t, 0) }
+// ContainsCBOR reports whether a value of type t is, or holds in an array or composite, a CBOR column's value.
+func ContainsCBOR(t *pg.Type) bool { return containsCBORDepth(t, 0) }
+
 
 func containsCBORDepth(t *pg.Type, depth int) bool {
 	if t == nil || depth > 16 {
@@ -232,7 +234,7 @@ func isCBORTypeName(name string) bool {
 func CBORWritten(root *QueryNode) string {
 	if root.Shape != nil {
 		for _, x := range root.Shape.Extractors {
-			if containsCBOR(x.Path.CurrentType()) {
+			if ContainsCBOR(x.Path.CurrentType()) {
 				return columnName(x.Path.Node, x.Path.Path[len(x.Path.Path)-1])
 			}
 		}
@@ -249,6 +251,22 @@ func CBORWritten(root *QueryNode) string {
 func IsCBORNode(n Node) bool {
 	_, ok := n.(cborAppender)
 	return ok
+}
+
+// IsCBORTypeName is isCBORTypeName, for a well-known param's declared type.
+func IsCBORTypeName(name string) bool { return isCBORTypeName(name) }
+
+// CBORParamValue is the value a well-known param declared as cbor binds : its item's bytes without structures, nil
+// for a null. A value from JSON has no CBOR bytes and is refused.
+func CBORParamValue(n Node) ([]byte, error) {
+	if n.Kind() == KindNull {
+		return nil, nil
+	}
+	a, ok := n.(cborAppender)
+	if !ok {
+		return nil, oops.Errorf("a cbor param only takes a value from a CBOR request (Content-Type: application/cbor)")
+	}
+	return a.appendCBOR(nil), nil
 }
 
 // rootBytesAreCBOR reports whether the bytea values root's statement yields are a bytea-domain CBOR column's :

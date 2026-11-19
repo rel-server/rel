@@ -43,6 +43,20 @@ func NewCBORNode(data []byte) (Node, error) {
 	return &doc.nodes[idx], nil
 }
 
+// SpliceCBOR reads data as one CBOR item and returns it as a CBOR column receives it : data itself when it holds no
+// structure, a spliced copy otherwise. It fails on what NewCBORNode refuses.
+func SpliceCBOR(data []byte) ([]byte, error) {
+	n, err := NewCBORNode(data)
+	if err != nil {
+		return nil, err
+	}
+	c := n.(*cnode)
+	if len(c.doc.structures) == 0 {
+		return data, nil
+	}
+	return c.appendCBOR(nil), nil
+}
+
 type cborItem uint8
 
 const (

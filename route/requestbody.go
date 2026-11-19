@@ -12,8 +12,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rel-server/rel/cborenc"
 	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/httperr"
+	"github.com/rel-server/rel/query"
+	"github.com/samber/oops"
 )
 
 // requestPart describes one multipart part : parts[i] describes files[i].
@@ -139,6 +142,9 @@ func finishMultipartBody(route Route, files [][]byte, parts []requestPart) (reso
 // finishSingleBody decodes a non-multipart body into body, or into the bytea argument. A bytea[] route only takes
 // bytes through multipart.
 func finishSingleBody(route Route, contentTypeHeader string, body []byte) (resolvedRequestBody, error) {
+	if route.CBORArg != "" {
+		return finishCBORBody(contentTypeHeader, body)
+	}
 	if !route.AcceptsBytes && !route.AcceptsBytesArray {
 		bodyJSON, err := encodeBody(contentTypeHeader, body, false)
 		if err != nil {
@@ -173,6 +179,24 @@ func finishSingleBody(route Route, contentTypeHeader string, body []byte) (resol
 		Parts:              nil,
 		SniffedContentType: sniffedContentTypeOf(body),
 	}, nil
+}
+
+// finishCBORBody gives a CBOR argument the whole body, one CBOR item without structures. An empty body is NULL ; a
+// body of any other media type has no CBOR item to give, JSON included.
+func finishCBORBody(contentTypeHeader string, body []byte) (resolvedRequestBody, error) {
+	none := resolvedRequestBody{BodyJSON: json.RawMessage("null"), Files: [][]byte{}}
+	if len(body) == 0 {
+		return none, nil
+	}
+	if mt := mediaTypeOf(contentTypeHeader); mt != cborenc.MediaType && !strings.HasSuffix(mt, "+cbor") {
+		return resolvedRequestBody{}, unsupportedMediaType("route only accepts a CBOR body (application/cbor), not " + contentTypeHeader)
+	}
+	item, err := query.SpliceCBOR(body)
+	if err != nil {
+		return resolvedRequestBody{}, &badBodyError{err: oops.Wrapf(err, "request body is not CBOR rel can read")}
+	}
+	none.SingleBytes = item
+	return none, nil
 }
 
 // sniffedContentTypeOf is "" for an empty body.

@@ -23,6 +23,7 @@ type sqlBindSlot struct {
 	name  string
 	value any
 	json  bool // a named param cast to json or jsonb : sent as JSON text
+	bytes bool // a named param cast through bytea : its value is the bytes
 }
 
 // NewSQL returns an SQLWriter for one SQL statement.
@@ -45,6 +46,27 @@ func (w *SQLWriter) BindParam(name string, asJSON bool) *SQLWriter {
 	w.slots = append(w.slots, sqlBindSlot{name: name, json: asJSON})
 	w.Write(fmt.Sprintf("$%d", len(w.slots)))
 	return w
+}
+
+// BindBytesParam is BindParam for a param whose value is bytes, the SQL casting it from bytea.
+func (w *SQLWriter) BindBytesParam(name string) *SQLWriter {
+	w.slots = append(w.slots, sqlBindSlot{name: name, bytes: true})
+	w.Write(fmt.Sprintf("$%d", len(w.slots)))
+	return w
+}
+
+// ParamUses counts the placeholders of name bound by BindBytesParam (bytes) and by BindParam (other).
+func (w *SQLWriter) ParamUses(name string) (bytes, other int) {
+	for _, s := range w.slots {
+		switch {
+		case s.name != name:
+		case s.bytes:
+			bytes++
+		default:
+			other++
+		}
+	}
+	return bytes, other
 }
 
 // Args returns the bind values in $N order. Panics if the statement has a BindParam placeholder.
