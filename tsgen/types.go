@@ -118,6 +118,9 @@ func tsTypeExpr(t *pg.Type, tc *typeCollector) string {
 
 	if t.IsDomain() {
 		return namedTypeExpr(t, tc, func() string {
+			if t.CBOR && !t.BaseType.CBOR {
+				return "unknown" // a cbor domain over bytea holds a CBOR value, not bytes
+			}
 			return tsTypeExpr(t.BaseType, tc)
 		})
 	}

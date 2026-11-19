@@ -4,11 +4,12 @@ Decisions are in `docs/adr/0012` to `0014`. This is what to build.
 
 ## CBOR columns
 
-- Recognised by type name at introspection : a `cbor` domain over `bytea`, and postcbor's `cbor` type. Both use the same encoder ; postcbor's binary receive takes raw CBOR.
-- Write : the item's bytes, sliced from the body when no structure sits inside, spliced otherwise (ADR 0012). Never re-encoded from the node tree.
-- Reader (`query/node_cbor.go`), done : each node keeps its byte range, the document the offsets of its structures, `itBadTag` its content node ; a map with a non-text key (`itOpaqueMap`) and an unassigned simple value (`itSimple`) are read, of no Node kind, for a CBOR column only. `appendCBOR` writes an item spliced.
-- CBOR response : the stored bytes are copied as they are, structures or not. To check : whether a domain column comes with `bytea`'s OID in binary results ; if so the result encoder knows a CBOR column from the query, not the OID.
-- JSON request touching a CBOR column (read, write, default selection) : refused at compile time (ADR 0013).
+- Done : recognised by type name at introspection (`pg.Type.CBOR`) : a domain named `cbor` over `bytea`, postcbor's base type `cbor`, or a domain over either. Both use the same encoder ; postcbor's binary receive takes raw CBOR.
+- Done : write, the item's bytes, sliced from the body when no structure sits inside, spliced otherwise (ADR 0012). Never re-encoded from the node tree. A JSON value for a CBOR column is refused when encoded (`CBOR_COLUMN_NEEDS_CBOR`).
+- Done : reader (`query/node_cbor.go`) : each node keeps its byte range, the document the offsets of its structures, `itBadTag` its content node ; a map with a non-text key (`itOpaqueMap`) and an unassigned simple value (`itSimple`) are read, of no Node kind, for a CBOR column only. `appendCBOR` writes an item spliced.
+- Done : CBOR response, the stored bytes copied as they are, structures or not, once checked to be one well-formed item (`cborenc.WellFormed`). Inside records and arrays a domain keeps its own OID ; at the root of a statement Postgres sends a bytea domain as `bytea`, so the result encoder knows it from the query (`rootBytesAreCBOR`) : a scalar select of a column, call or computed field, or a scalar function.
+- Done : JSON response holding a CBOR column's value (default selection included) refused in `relexec.Prepare` (`query.CBORReached`, ADR 0013), only when the database has a CBOR type. Casts to a type named `cbor` count ; a domain under another name is only seen through a column.
+- Done : tsgen types a CBOR column `unknown`.
 - Filters on CBOR columns : later, once postcbor's operators exist.
 
 ## Routes and well-known params

@@ -86,6 +86,7 @@ A request sent as `application/cbor` takes every form above, a number being a CB
 | `timestamptz` | tag 1 (integer or float seconds since the epoch, rounded to the microsecond) or tag 0 (text with an offset). No session time zone is involved. |
 | `timestamp` | a text string, or tag 1 / tag 0, read as the wall clock it shows in the connection's session time zone (the reverse of how a response writes it). A wall clock skipped by a clock change does not come back unchanged : `02:30` on the night a zone springs forward is read as `03:30`. If the session zone is one rel cannot load, an instant is refused. |
 | `json`, `jsonb` | any CBOR value JSON can hold : maps with text keys, arrays, text, integers, finite floats, booleans, null, bignums, tag 4 decimals. A byte string, a date or time, another tag, `NaN` or an infinity is refused. |
+| [CBOR columns](index.md#cbor-columns) | any CBOR item, stored as written, structures rewritten as maps. Only from a CBOR request. |
 | any other type | as in the table above, a byte string reading as `\x` and hex digits, tag 37 as a hyphenated UUID, tag 1 as an ISO 8601 UTC time, tag 100 as a date, numbers as plain decimal digits. |
 
 Any other tag is refused, and a byte string for a column that does not take one.

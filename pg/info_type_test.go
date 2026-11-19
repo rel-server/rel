@@ -63,3 +63,30 @@ func TestType_CompositeRelation_NotComposite(t *testing.T) {
 		t.Errorf("expected a plain text column to have no composite relation")
 	}
 }
+
+func TestIsCBORType(t *testing.T) {
+	named := func(schema, name string) SqlIdentifier { return SqlIdentifier{Schema: schema, Name: name} }
+	bytea := &Type{PgIdentifier: named("pg_catalog", "bytea")}
+	text := &Type{PgIdentifier: named("pg_catalog", "text")}
+	postcbor := &Type{PgIdentifier: named("ext", "cbor"), PgOid: 16385}
+	byteaCBOR := &Type{PgIdentifier: named("blob", "cbor"), BaseType: bytea}
+	for _, c := range []struct {
+		name string
+		t    *Type
+		want bool
+	}{
+		{"postcbor's base type", postcbor, true},
+		{"a cbor domain over bytea", byteaCBOR, true},
+		{"a domain over a cbor domain", &Type{PgIdentifier: named("public", "doc_body"), BaseType: byteaCBOR}, true},
+		{"a cbor domain over postcbor's type", &Type{PgIdentifier: named("public", "cbor"), BaseType: postcbor}, true},
+		{"a cbor domain over text", &Type{PgIdentifier: named("public", "cbor"), BaseType: text}, false},
+		{"a bytea domain under another name", &Type{PgIdentifier: named("public", "blob"), BaseType: bytea}, false},
+		{"bytea", bytea, false},
+		{"an enum named cbor", &Type{PgIdentifier: named("public", "cbor"), EnumLabels: []string{"a"}}, false},
+		{"a composite named cbor", &Type{PgIdentifier: named("public", "cbor"), PgRelId: 1}, false},
+	} {
+		if got := isCBORType(c.t); got != c.want {
+			t.Errorf("%s : %v", c.name, got)
+		}
+	}
+}

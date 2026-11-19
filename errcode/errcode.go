@@ -43,6 +43,7 @@ const (
 	JoinMissingIndex           Code = "JOIN_MISSING_INDEX"
 	WriteForbidden             Code = "WRITE_FORBIDDEN"
 	WriteForbiddenFunctionRoot Code = "WRITE_FORBIDDEN_FUNCTION_ROOT"
+	CBORColumnNeedsCBOR        Code = "CBOR_COLUMN_NEEDS_CBOR" // a CBOR column read into a JSON response, or written from a JSON request
 )
 
 // ComplexQuery errors.

@@ -47,6 +47,7 @@ that values keep their column types instead of being squeezed into JSON's :
 | `boolean`, `text`, `varchar`, `char`, enums | boolean, text |
 | `json`, `jsonb` | the same value as CBOR (numbers as in `numeric`) |
 | arrays, composite types | arrays, maps |
+| [CBOR columns](#cbor-columns) | the stored CBOR item, as it is |
 | domains | their base type |
 | anything else (`interval`, `inet`, ranges, geometry...) | what the JSON response gives for it (a `tsrange` keeps its wall-clock text, and so does a time inside a `jsonb`) |
 
@@ -74,6 +75,16 @@ read (tag `0xdffe` and tag 105) are not read.
 
 A [well-known query](well-known-queries.md) and a [route](../http/requests-responses.md#response-format) are negotiated
 the same way.
+
+## CBOR columns
+
+A column whose type is a domain named `cbor` over `bytea` (in any schema), or the `cbor` type of the [postcbor](https://github.com/ceymard/postcbor) extension, or a domain over either, holds a CBOR value. Only a CBOR client reads or writes it : JSON cannot say everything CBOR can (byte strings, tags, non-text map keys), so rel does not translate.
+
+- **Writing** : from a request sent as `application/cbor`, the column receives the bytes of its value as the client wrote them, any CBOR item at all. [Structures](#structures) are the one change : a structure inside the value is rewritten as the plain map it stands for, since stored structures would only make sense in the request that defined them. A byte string is stored as a byte string, not taken for an encoded document. A `null` or `undefined` as the whole value is SQL `NULL`. A `bytea` domain keeps the bytes as they are ; postcbor reads and normalizes them its own way.
+- **Reading** : a CBOR response carries the stored item as it is, inside the rows like any other value. A stored value that is not exactly one well-formed CBOR item (a `bytea` domain written from SQL accepts any bytes) fails the response.
+- **From JSON** : a query whose JSON response would hold a CBOR column's value is refused before it runs, with `400` and the code `CBOR_COLUMN_NEEDS_CBOR`. This includes the default selection : `*` on a table with a CBOR column, from JSON, is refused, so select the other columns, or leave the CBOR ones out with an except-list (`["*~", ["payload"]]`). A cast is an explicit way out : `["::", [".", "payload"], "jsonb"]` reads a postcbor column as JSON, with what that cast loses. Writing a CBOR column from a JSON request is refused with the same code. A filter or a sort on a CBOR column is not output and is not refused, but comparing CBOR values is not designed yet.
+
+The TypeScript type of a CBOR column is `unknown`.
 
 ## In this section
 

@@ -50,6 +50,8 @@ type ResultEncoder struct {
 	plan    *recordPlan
 	ec      *encodeContext  // the session time zone a timestamp is read in ; nil until BindSession, which means UTC
 	structs *StructureTable // nil writes every record as a map
+	// bytesAreCBOR : the statement's scalar values are a bytea-domain CBOR column's, which Postgres sends as bytea
+	bytesAreCBOR bool
 }
 
 // BindSession tells the encoder which connection's rows it will read : a timestamp is answered as the instant its
@@ -106,7 +108,7 @@ func NewResultEncoder(db *pg.DbInfos, root *QueryNode, structures *StructureTabl
 	if err != nil {
 		return nil, err
 	}
-	return &ResultEncoder{db: db, plan: plan, structs: structures}, nil
+	return &ResultEncoder{db: db, plan: plan, structs: structures, bytesAreCBOR: rootBytesAreCBOR(root)}, nil
 }
 
 // NewValueEncoder is a ResultEncoder for lone values, as a function returns, rather than the rows of a query : a
@@ -145,6 +147,9 @@ func planFor(node *QueryNode, structures *StructureTable) (*recordPlan, error) {
 func (e *ResultEncoder) AppendValue(dst []byte, oid uint32, data []byte) ([]byte, error) {
 	if data == nil {
 		return cborenc.AppendNull(dst), nil
+	}
+	if oid == oidBytea && e.bytesAreCBOR {
+		return appendStoredCBOR(dst, data)
 	}
 	return e.appendValue(dst, oid, data, e.plan)
 }
@@ -262,6 +267,9 @@ func (e *ResultEncoder) appendValue(dst []byte, oid uint32, d []byte, plan *reco
 	if t == nil {
 		return dst, oops.With("oid", oid).Errorf("cbor result: a value of unknown type %d cannot be encoded", oid)
 	}
+	if t.CBOR {
+		return appendStoredCBOR(dst, d)
+	}
 	if u := t.Underlying(); u != t {
 		return e.appendValue(dst, uint32(u.PgOid), d, plan) // a domain is its base type
 	}
@@ -274,6 +282,15 @@ func (e *ResultEncoder) appendValue(dst []byte, oid uint32, d []byte, plan *reco
 		return e.appendRecord(dst, d, nil, t.Relation)
 	}
 	return dst, oops.With("type", t.PgIdentifier.String()).Errorf("cbor result: type %s has no CBOR form : cast it to text, or select it as a column so rel can convert it", t.PgIdentifier.String())
+}
+
+// appendStoredCBOR copies a CBOR column's value as it is stored. A bytea domain takes any bytes, so they are checked
+// to be one item : anything else would corrupt the response around it.
+func appendStoredCBOR(dst, d []byte) ([]byte, error) {
+	if !cborenc.WellFormed(d) {
+		return dst, oops.Errorf("cbor result: a stored value of a CBOR column is not one well-formed CBOR item")
+	}
+	return append(dst, d...), nil
 }
 
 func appendJSONCBOR(dst, text []byte) ([]byte, error) {
@@ -478,7 +495,7 @@ func floorDiv(a, b int64) int64 {
 }
 
 // nativeCBORType reports whether a value of type t has a CBOR form of its own : the scalar types appendValue maps,
-// enums, domains of those, and arrays and composites made only of them. A column of any other type is read
+// CBOR column types, enums, domains of those, and arrays and composites made only of them. A column of any other type is read
 // as its JSON form (to_jsonb) when the rows are produced in CBOR.
 func nativeCBORType(t *pg.Type) bool { return nativeCBORTypeDepth(t, 0) }
 
@@ -486,6 +503,9 @@ func nativeCBORTypeDepth(t *pg.Type, depth int) bool {
 	u := t.Underlying()
 	if u == nil || depth > 16 {
 		return false
+	}
+	if t.CBOR {
+		return true
 	}
 	switch u.PgOid {
 	case oidBool, oidBytea, oidChar, oidName, oidInt8, oidInt2, oidInt4, oidText, oidOid, oidJSON, oidFloat4, oidFloat8,

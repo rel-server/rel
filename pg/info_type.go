@@ -39,6 +39,10 @@ type Type struct {
 
 	// EnumLabels is an enum's labels in declaration order ; nil unless this type is an enum.
 	EnumLabels []string
+
+	// CBOR marks a CBOR column's type : a domain named cbor over bytea, postcbor's base type cbor, or a domain over
+	// either. Set at introspection.
+	CBOR bool `json:"-"`
 }
 
 // IsEnum reports whether t is a CREATE TYPE ... AS ENUM.
@@ -75,6 +79,23 @@ func (t *Type) CompositeRelation() *Relation {
 		return nil
 	}
 	return u.Relation
+}
+
+// isCBORType recognises a CBOR column's type by name, through any chain of domains : rel does not depend on postcbor
+// being installed, and a cbor domain over bytea stands in for it.
+func isCBORType(t *Type) bool {
+	for ; t != nil; t = t.BaseType {
+		if t.PgIdentifier.Name != "cbor" {
+			continue
+		}
+		if !t.IsDomain() {
+			return t.PgRelId == 0 && t.PgElemOid == 0 && !t.IsEnum()
+		}
+		if u := t.Underlying(); u != nil && u.PgIdentifier.String() == "pg_catalog.bytea" {
+			return true
+		}
+	}
+	return false
 }
 
 //----------------------------------------------------------------------------------
@@ -127,6 +148,9 @@ func FillTypeInformations(infos *DbInfos, conn *pgx.Conn) error {
 		t := &infos.Types[i]
 		if t.PgRelId > 0 {
 			t.Relation = infos.GetRelation(t.PgRelId)
+		}
+		if t.CBOR = isCBORType(t); t.CBOR {
+			infos.HasCBOR = true
 		}
 	}
 

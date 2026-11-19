@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rel-server/rel/errcode"
 	"github.com/rel-server/rel/pg"
 	"github.com/samber/oops"
 )
@@ -84,6 +85,9 @@ var scalarEncoders = map[int]fieldEncoder{
 // scalarEncoderFor returns the binary encoder of t, domains unwrapped, or nil
 // when t has none. Arrays and composites are not scalars : see binaryEncoderFor.
 func scalarEncoderFor(t *pg.Type) fieldEncoder {
+	if t.CBOR {
+		return encodeCBOR // before the domain unwraps to bytea
+	}
 	u := t.Underlying()
 	if u == nil {
 		return nil
@@ -477,6 +481,20 @@ func encodeUUID(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
 		hi = !hi
 	}
 	return append(dst, out[:]...), nil
+}
+
+// ---- CBOR columns -------------------------------------------------------------------
+
+// cborAppender is implemented by the nodes of a CBOR request : the item's bytes, without structures.
+type cborAppender interface{ appendCBOR(dst []byte) []byte }
+
+// encodeCBOR writes the item as the client wrote it, structures rewritten as maps ; a JSON value has no CBOR bytes to
+// give, so a CBOR column is only written from a CBOR request.
+func encodeCBOR(dst []byte, n Node, _ *encodeContext) ([]byte, error) {
+	if a, ok := n.(cborAppender); ok {
+		return a.appendCBOR(dst), nil
+	}
+	return nil, oops.Code(errcode.CBORColumnNeedsCBOR).Errorf("write: a CBOR column is only written from a CBOR request (Content-Type: application/cbor)")
 }
 
 // ---- bytea --------------------------------------------------------------------------

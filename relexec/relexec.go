@@ -157,6 +157,13 @@ func Prepare(rctx *query.ResolveContext, wk *wellknown.Registry, items []query.P
 		}
 		p.items = append(p.items, ri)
 	}
+	if p.format == query.FormatJSON && rctx.Db.HasCBOR {
+		for i := range p.items {
+			if err := checkJSONReach(&p.items[i]); err != nil {
+				return nil, itemError(i, ClientFault, errcode.CBORColumnNeedsCBOR, err)
+			}
+		}
+	}
 
 	if p.format == query.FormatCBOR {
 		// one table for the whole response : a structure id means one list of names in every item
@@ -225,6 +232,17 @@ func prepareItem(rctx *query.ResolveContext, wk *wellknown.Registry, item query.
 		return ri, err
 	}
 	return ri, checkRollbackGrant(&ri, policy)
+}
+
+// checkJSONReach refuses an item whose response would hold a CBOR column's value, which JSON cannot carry.
+func checkJSONReach(ri *resolvedItem) error {
+	if ri.root == nil || (ri.isWrite && (ri.returns == "none" || ri.root.WriteMode == query.DELETE)) {
+		return nil
+	}
+	if what := query.CBORReached(ri.root); what != "" {
+		return oops.Errorf("the response would hold %s, a CBOR value : ask for a CBOR response (Accept: application/cbor), or leave it out of the selection", what)
+	}
+	return nil
 }
 
 // resolveWellKnownItem resolves name via wk ; data non-nil means a write.

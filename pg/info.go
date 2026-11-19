@@ -39,6 +39,9 @@ type DbInfos struct {
 	// access : every anonymous request gets 401 before route lookup, body read or connection.
 	AnonymousRoleExists bool
 
+	// HasCBOR reports whether any type is a CBOR column's type (Type.CBOR).
+	HasCBOR bool
+
 	// SearchPath is the connecting role's resolved search path, in lookup order.
 	SearchPath []string
 

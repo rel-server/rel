@@ -93,6 +93,7 @@ expect in the response:
 | `UNKNOWN_IDENTIFIER` | 400 | a relation, column, function, or operator name didn't resolve |
 | `JOIN_MISSING_INDEX` | 400 | a join's own columns aren't indexed — rel refused to compile a query that would scan per parent row |
 | `WRITE_FORBIDDEN` | 400 | the write touched a relation whose identity isn't writable, or violated a `write_mode` rule |
+| `CBOR_COLUMN_NEEDS_CBOR` | 400 | a JSON response would hold a [CBOR column](../query-language/index.md#cbor-columns)'s value, or a JSON request writes one |
 | `QUERY_ROLLBACK_NOT_GRANTED` | 400 | `rollback: true` requested but `pg.query.allow_rollback` is off — see [Complex queries](../query-language/complex-query.md#availability) |
 | `QUERY_STATS_QUERY_PLAN_CONFLICT` | 400 | `stats` and `query_plan` both requested on the same write |
 | `MALFORMED_BODY` | 400 | a body that cannot be read : not JSON or CBOR where one is expected, or not valid for its `Content-Encoding` |
