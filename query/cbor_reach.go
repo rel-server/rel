@@ -189,7 +189,6 @@ func columnName(node *QueryNode, col *pg.Column) string {
 // ContainsCBOR reports whether a value of type t is, or holds in an array or composite, a CBOR column's value.
 func ContainsCBOR(t *pg.Type) bool { return containsCBORDepth(t, 0) }
 
-
 func containsCBORDepth(t *pg.Type, depth int) bool {
 	if t == nil || depth > 16 {
 		return false
