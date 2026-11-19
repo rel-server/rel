@@ -6,7 +6,7 @@ Decisions are in `docs/adr/0012` to `0014`. This is what to build.
 
 - Recognised by type name at introspection : a `cbor` domain over `bytea`, and postcbor's `cbor` type. Both use the same encoder ; postcbor's binary receive takes raw CBOR.
 - Write : the item's bytes, sliced from the body when no structure sits inside, spliced otherwise (ADR 0012). Never re-encoded from the node tree.
-- Reader changes (`query/node_cbor.go`) : each node keeps its byte range and a "structure inside" flag ; `itBadTag` keeps its content node.
+- Reader (`query/node_cbor.go`), done : each node keeps its byte range, the document the offsets of its structures, `itBadTag` its content node ; a map with a non-text key (`itOpaqueMap`) and an unassigned simple value (`itSimple`) are read, of no Node kind, for a CBOR column only. `appendCBOR` writes an item spliced.
 - CBOR response : the stored bytes are copied as they are, structures or not. To check : whether a domain column comes with `bytea`'s OID in binary results ; if so the result encoder knows a CBOR column from the query, not the OID.
 - JSON request touching a CBOR column (read, write, default selection) : refused at compile time (ADR 0013).
 - Filters on CBOR columns : later, once postcbor's operators exist.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,9 @@ const (
 // NewCBORNode reads one CBOR data item, which must be all of data. The node refers to data, which the
 // caller must not change while the node is in use.
 func NewCBORNode(data []byte) (Node, error) {
+	if len(data) > math.MaxUint32 {
+		return nil, oops.Errorf("query: invalid CBOR: a document of more than 4 GiB")
+	}
 	doc := &cborDoc{data: data, nodes: make([]cnode, 0, len(data)/8+8)}
 	d := cborDecoder{doc: doc}
 	idx, err := d.item(0)
@@ -57,16 +61,22 @@ const (
 	itInstant // extra holds an index in times (tags 0 and 1)
 	itDate    // extra holds the days since 1970-01-01 (tag 100)
 	itUUID    // like itBytes, 16 bytes (tag 37)
-	itBadTag  // a tag this adapter has no meaning for, or one with the wrong content : extra holds its number
+	itBadTag  // a tag this adapter has no meaning for, or one with the wrong content : extra holds its number, a its content node
+	// Only written to a CBOR column, as they are : no Node kind covers them.
+	itOpaqueMap // a map with a key that is not text : like itMap
+	itSimple    // a simple value with no meaning here : extra holds it
 )
 
-// cnode is one item of the document.
+// cnode is one item of the document. Its fields are ordered, and b is an int32, so that start and end fit in the
+// 40 bytes it took without them.
 type cnode struct {
-	doc     *cborDoc
-	item    cborItem
-	chunked bool // an indefinite-length string or byte string, assembled in blobs
-	a, b    int
-	extra   uint64
+	doc        *cborDoc
+	a          int
+	extra      uint64
+	start, end uint32 // the item's bytes in data, its head included
+	b          int32
+	item       cborItem
+	chunked    bool // an indefinite-length string or byte string, assembled in blobs
 }
 
 type cborDoc struct {
@@ -76,6 +86,8 @@ type cborDoc struct {
 	strs  []string
 	blobs [][]byte
 	times []time.Time
+	// the offset of each structure's tag, increasing : a document without any is written as it is
+	structures []uint32
 }
 
 // ---- reading ------------------------------------------------------------------------
@@ -131,6 +143,18 @@ func (d *cborDecoder) head() (major, ai byte, val uint64, indef bool, err error)
 
 // item reads one data item and returns its index in the arena.
 func (d *cborDecoder) item(depth int) (int32, error) {
+	start := d.pos
+	idx, err := d.itemAt(depth)
+	if err != nil {
+		return 0, err
+	}
+	n := &d.doc.nodes[idx]
+	n.start, n.end = uint32(start), uint32(d.pos)
+	return idx, nil
+}
+
+func (d *cborDecoder) itemAt(depth int) (int32, error) {
+	start := d.pos
 	major, ai, val, indef, err := d.head()
 	if err != nil {
 		return 0, err
@@ -162,6 +186,10 @@ func (d *cborDecoder) item(depth int) (int32, error) {
 		if indef {
 			return 0, oops.Errorf("a tag cannot have an indefinite length")
 		}
+		if isStructureTag(val) {
+			d.doc.structures = append(d.doc.structures, uint32(start))
+			return d.structureItem(val, depth)
+		}
 		return d.tagItem(val, depth)
 	}
 	return d.simpleItem(ai, val, indef)
@@ -183,8 +211,10 @@ func (d *cborDecoder) simpleItem(ai byte, val uint64, indef bool) (int32, error)
 		return d.add(cnode{item: itFloat, extra: math.Float64bits(float64(math.Float32frombits(uint32(val))))}), nil
 	case ai == 27:
 		return d.add(cnode{item: itFloat, extra: val}), nil
+	case ai == 24 && val < 32:
+		return 0, oops.Errorf("a two-byte simple value below 32")
 	}
-	return 0, oops.Errorf("unsupported simple value %d", val)
+	return d.add(cnode{item: itSimple, extra: val}), nil
 }
 
 // float16ToFloat64 widens an IEEE 754 half precision float.
@@ -220,7 +250,7 @@ func (d *cborDecoder) stringItem(major byte, length uint64, indef bool) (int32, 
 		if kind == itText && !utf8.Valid(d.doc.data[off:d.pos]) {
 			return 0, oops.Errorf("a text string that is not valid UTF-8")
 		}
-		return d.add(cnode{item: kind, a: off, b: int(length)}), nil
+		return d.add(cnode{item: kind, a: off, b: int32(length)}), nil
 	}
 	// chunks of the same major type, each a definite-length string, up to a break
 	var assembled []byte
@@ -250,7 +280,7 @@ func (d *cborDecoder) stringItem(major byte, length uint64, indef bool) (int32, 
 		assembled = append(assembled, chunk...)
 	}
 	d.doc.blobs = append(d.doc.blobs, assembled)
-	return d.add(cnode{item: kind, chunked: true, a: len(d.doc.blobs) - 1, b: len(assembled)}), nil
+	return d.add(cnode{item: kind, chunked: true, a: len(d.doc.blobs) - 1, b: int32(len(assembled))}), nil
 }
 
 // countFits checks that a container header's count can be backed by the bytes left : every element takes at least one.
@@ -283,7 +313,7 @@ func (d *cborDecoder) arrayItem(n uint64, indef bool, depth int) (int32, error) 
 		}
 		start := len(d.doc.kids)
 		d.doc.kids = append(d.doc.kids, elems...)
-		return d.add(cnode{item: itArray, a: start, b: len(elems)}), nil
+		return d.add(cnode{item: itArray, a: start, b: int32(len(elems))}), nil
 	}
 	if err := d.countFits(n, 1); err != nil {
 		return 0, err
@@ -297,7 +327,7 @@ func (d *cborDecoder) arrayItem(n uint64, indef bool, depth int) (int32, error) 
 		}
 		d.doc.kids[start+i] = e
 	}
-	return d.add(cnode{item: itArray, a: start, b: int(n)}), nil
+	return d.add(cnode{item: itArray, a: start, b: int32(n)}), nil
 }
 
 func (d *cborDecoder) mapItem(n uint64, indef bool, depth int) (int32, error) {
@@ -305,6 +335,7 @@ func (d *cborDecoder) mapItem(n uint64, indef bool, depth int) (int32, error) {
 		return 0, oops.Errorf("nested more than %d levels", cborMaxDepth)
 	}
 	var kids []int32 // used for an indefinite map, whose size is not known up front
+	kind := itMap
 	start := len(d.doc.kids)
 	if !indef {
 		if err := d.countFits(n, 2); err != nil {
@@ -328,7 +359,7 @@ func (d *cborDecoder) mapItem(n uint64, indef bool, depth int) (int32, error) {
 			return 0, err
 		}
 		if d.doc.nodes[k].item != itText {
-			return 0, oops.Errorf("a map key that is not a text string")
+			kind = itOpaqueMap
 		}
 		v, err := d.item(depth + 1)
 		if err != nil {
@@ -347,16 +378,18 @@ func (d *cborDecoder) mapItem(n uint64, indef bool, depth int) (int32, error) {
 	if err := d.checkDistinctKeys(start, count); err != nil {
 		return 0, err
 	}
-	return d.add(cnode{item: itMap, a: start, b: count}), nil
+	return d.add(cnode{item: kind, a: start, b: int32(count)}), nil
 }
 
+// checkDistinctKeys compares text keys by their text, and any other key by its bytes : the same integer written
+// in two lengths is not seen as a repeat.
 func (d *cborDecoder) checkDistinctKeys(start, pairs int) error {
-	key := func(i int) []byte { return d.doc.nodes[d.doc.kids[start+2*i]].textBytes() }
+	keyNode := func(i int) *cnode { return &d.doc.nodes[d.doc.kids[start+2*i]] }
 	if pairs <= 8 {
 		for i := 1; i < pairs; i++ {
 			for j := 0; j < i; j++ {
-				if string(key(i)) == string(key(j)) {
-					return oops.Errorf("duplicate map key %q", key(i))
+				if x, y := keyNode(i), keyNode(j); (x.item == itText) == (y.item == itText) && string(x.keyBytes()) == string(y.keyBytes()) {
+					return oops.Errorf("duplicate map key %q", x.keyBytes())
 				}
 			}
 		}
@@ -364,13 +397,29 @@ func (d *cborDecoder) checkDistinctKeys(start, pairs int) error {
 	}
 	seen := make(map[string]struct{}, pairs)
 	for i := 0; i < pairs; i++ {
-		k := string(key(i))
-		if _, dup := seen[k]; dup {
-			return oops.Errorf("duplicate map key %q", k)
+		k := keyNode(i)
+		key := string(k.keyBytes())
+		if k.item != itText {
+			key = "\xff" + key // never equal to a text key : valid UTF-8 has no 0xff byte
 		}
-		seen[k] = struct{}{}
+		if _, dup := seen[key]; dup {
+			return oops.Errorf("duplicate map key %q", k.keyBytes())
+		}
+		seen[key] = struct{}{}
 	}
 	return nil
+}
+
+// keyBytes is what tells a map key from another : the text of a text key, the bytes of any other.
+func (c *cnode) keyBytes() []byte {
+	if c.item == itText {
+		return c.textBytes()
+	}
+	return c.doc.data[c.start:c.end]
+}
+
+func isStructureTag(tag uint64) bool {
+	return tag == cborenc.TagStructureDef || (tag >= cborenc.StructureTagBase && tag < cborenc.StructureTagBase+cborenc.MaxStructures)
 }
 
 // tagItem reads a tag and its content, and gives the pair the meaning this adapter knows for it.
@@ -378,15 +427,12 @@ func (d *cborDecoder) tagItem(tag uint64, depth int) (int32, error) {
 	if depth >= cborMaxDepth {
 		return 0, oops.Errorf("nested more than %d levels", cborMaxDepth)
 	}
-	if tag == cborenc.TagStructureDef || (tag >= cborenc.StructureTagBase && tag < cborenc.StructureTagBase+cborenc.MaxStructures) {
-		return d.structureItem(tag, depth)
-	}
 	c, err := d.item(depth + 1)
 	if err != nil {
 		return 0, err
 	}
 	content := d.doc.nodes[c]
-	bad := func() (int32, error) { return d.add(cnode{item: itBadTag, extra: tag}), nil }
+	bad := func() (int32, error) { return d.add(cnode{item: itBadTag, a: int(c), extra: tag}), nil }
 
 	switch tag {
 	case 2, 3: // a bignum : the bytes of an unsigned integer, big endian
@@ -516,7 +562,7 @@ func (d *cborDecoder) structureItem(tag uint64, depth int) (int32, error) {
 		}
 		d.doc.kids[start+2*i], d.doc.kids[start+2*i+1] = k, v
 	}
-	return d.add(cnode{item: itMap, a: start, b: len(names)}), nil
+	return d.add(cnode{item: itMap, a: start, b: int32(len(names))}), nil
 }
 
 // structureNames reads the array of names of a definition : text strings, all different.
@@ -554,7 +600,7 @@ func (d *cborDecoder) structureNames(tag uint64, depth int) ([]int32, error) {
 	return names, nil
 }
 
-func (d *cborDecoder) addText(item cborItem, text string, b int, extra uint64) int32 {
+func (d *cborDecoder) addText(item cborItem, text string, b int32, extra uint64) int32 {
 	d.doc.strs = append(d.doc.strs, text)
 	return d.add(cnode{item: item, a: len(d.doc.strs) - 1, b: b, extra: extra})
 }
@@ -570,7 +616,7 @@ func (c *cnode) bytes() []byte {
 	if c.chunked {
 		return c.doc.blobs[c.a]
 	}
-	return c.doc.data[c.a : c.a+c.b]
+	return c.doc.data[c.a : c.a+int(c.b)]
 }
 
 func (c *cnode) textBytes() []byte { return c.bytes() }
@@ -603,7 +649,56 @@ func (c *cnode) Kind() NodeKind {
 
 // unsupported describes a value no Node kind covers, for an error message.
 func (c *cnode) unsupported() string {
+	switch c.item {
+	case itOpaqueMap:
+		return "a CBOR map with a key that is not text"
+	case itSimple:
+		return fmt.Sprintf("CBOR simple value %d", c.extra)
+	}
 	return fmt.Sprintf("CBOR tag %d with this content", c.extra)
+}
+
+// appendCBOR appends the item as the client wrote it, except that each structure in it is written as the map it
+// stands for, so that the bytes need no definition from elsewhere in the document.
+func (c *cnode) appendCBOR(dst []byte) []byte {
+	data := c.doc.data
+	if !c.doc.structureWithin(c.start, c.end) {
+		return append(dst, data[c.start:c.end]...)
+	}
+	switch c.item {
+	case itArray, itMap, itOpaqueMap:
+		n := int(c.b)
+		if c.item != itArray {
+			n *= 2
+		}
+		if data[c.start]>>5 == 6 { // a structure : a map of its names and values
+			dst = cborenc.AppendHead(dst, 5, uint64(c.b))
+			for i := range n {
+				dst = c.kid(c.a + i).appendCBOR(dst)
+			}
+			return dst
+		}
+		// a container holds an item, so it has a first one ; its head, definite or not, is the bytes before it
+		dst = append(dst, data[c.start:c.kid(c.a).start]...)
+		for i := range n {
+			dst = c.kid(c.a + i).appendCBOR(dst)
+		}
+		if data[c.start]&0x1f == 31 {
+			dst = append(dst, cborenc.Break)
+		}
+		return dst
+	case itBadTag:
+		content := &c.doc.nodes[c.a]
+		return content.appendCBOR(append(dst, data[c.start:content.start]...))
+	}
+	// no other item holds an item that can be a structure
+	return append(dst, data[c.start:c.end]...)
+}
+
+// structureWithin reports whether a structure's tag starts in data[start:end].
+func (doc *cborDoc) structureWithin(start, end uint32) bool {
+	i, _ := slices.BinarySearch(doc.structures, start)
+	return i < len(doc.structures) && doc.structures[i] < end
 }
 
 // integerText is the digits of an integer item.
@@ -747,7 +842,7 @@ func (c *cnode) ArrayItems() ([]Node, error) {
 	if c.item != itArray {
 		return nil, errNotArray
 	}
-	out := make([]Node, c.b)
+	out := make([]Node, int(c.b))
 	for i := range out {
 		out[i] = c.kid(c.a + i)
 	}
@@ -758,7 +853,7 @@ func (c *cnode) ObjectGet(key string) (Node, bool) {
 	if c.item != itMap {
 		return nil, false
 	}
-	for i := 0; i < c.b; i++ {
+	for i := 0; i < int(c.b); i++ {
 		if string(c.kid(c.a+2*i).bytes()) == key {
 			return c.kid(c.a + 2*i + 1), true
 		}
@@ -770,7 +865,7 @@ func (c *cnode) ObjectEach(fn func(string, Node) error) error {
 	if c.item != itMap {
 		return errNotObject
 	}
-	for i := 0; i < c.b; i++ {
+	for i := 0; i < int(c.b); i++ {
 		if err := fn(string(c.kid(c.a+2*i).bytes()), c.kid(c.a+2*i+1)); err != nil {
 			return err
 		}
@@ -850,7 +945,7 @@ func (c *cnode) writeJSON(b *strings.Builder) error {
 		b.WriteString(text)
 	case itArray:
 		b.WriteByte('[')
-		for i := 0; i < c.b; i++ {
+		for i := 0; i < int(c.b); i++ {
 			if i > 0 {
 				b.WriteByte(',')
 			}
@@ -860,7 +955,7 @@ func (c *cnode) writeJSON(b *strings.Builder) error {
 		}
 		b.WriteByte(']')
 	case itMap:
-		order := make([]int, c.b)
+		order := make([]int, int(c.b))
 		for i := range order {
 			order[i] = i
 		}
@@ -889,6 +984,10 @@ func (c *cnode) writeJSON(b *strings.Builder) error {
 		return errNoJSONForm("a date and time")
 	case itDate:
 		return errNoJSONForm("a date")
+	case itOpaqueMap:
+		return errNoJSONForm("a map with a key that is not text")
+	case itSimple:
+		return errNoJSONForm(fmt.Sprintf("simple value %d", c.extra))
 	default:
 		return errNoJSONForm(fmt.Sprintf("a value with CBOR tag %d", c.extra))
 	}

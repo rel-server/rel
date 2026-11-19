@@ -11,7 +11,7 @@ import (
 )
 
 // cbor-x is the writer of structures that rel's request reader exists for : its documents, read by cbor-x itself and
-// by NewCBORNode, must give the same value. Skipped when bun or the TypeScript dependencies are missing.
+// by NewCBORNode, must give the same value, and every item of them must splice to the same value with no structure. Skipped when bun or the TypeScript dependencies are missing.
 func TestCBORNode_ReadsWhatCborXWrites(t *testing.T) {
 	bun, err := exec.LookPath("bun")
 	if err != nil {
@@ -57,6 +57,7 @@ func TestCBORNode_ReadsWhatCborXWrites(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: rel reads %.200s, cbor-x reads %.200s", line.Name, text, line.JSON)
 		}
+		checkSplice(t, line.Name, raw)
 		count++
 	}
 	if count < 10 {

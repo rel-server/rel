@@ -180,6 +180,9 @@ func TestCBORNode_Kinds(t *testing.T) {
 		{"tag 100", cbor.Tag{Number: 100, Content: int64(20000)}, KindDate},
 		{"tag 100, not an integer", cbor.Tag{Number: 100, Content: "x"}, KindInvalid},
 		{"unknown tag", cbor.Tag{Number: 999, Content: "x"}, KindInvalid},
+		// read, but only a CBOR column takes them
+		{"a map key that is not text", map[int]string{1: "a"}, KindInvalid},
+		{"a simple value", cbor.SimpleValue(99), KindInvalid},
 	}
 	for _, c := range cases {
 		n := cborOf(t, c.v)
@@ -191,8 +194,9 @@ func TestCBORNode_Kinds(t *testing.T) {
 
 func TestCBORNode_RejectsWhatItMustNot(t *testing.T) {
 	cases := map[string][]byte{
-		"a map key that is not text": cborBytes(t, map[int]string{1: "a"}),
 		"a duplicate key":            {0xa2, 0x61, 'a', 0x01, 0x61, 'a', 0x02},
+		"a duplicate integer key":    {0xa2, 0x01, 0x01, 0x01, 0x02},
+		"a two-byte simple below 32": {0xf8, 0x10},
 		"trailing bytes":             {0x01, 0x02},
 		"truncated":                  {0x82, 0x01},
 		"empty":                      {},

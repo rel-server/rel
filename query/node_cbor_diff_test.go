@@ -16,6 +16,8 @@ import (
 // The production decoder (node_cbor.go) must read every document exactly as the reference does
 // (node_cbor_ref_test.go, which rides on a general-purpose CBOR library) : the same tree, or both refusals.
 
+type decimalTexter interface{ decimalText() (string, bool) }
+
 // compareNodes reports the first difference between two trees ("" when they are the same).
 func compareNodes(path string, got, want Node) string {
 	if got.Kind() != want.Kind() {
@@ -31,8 +33,8 @@ func compareNodes(path string, got, want Node) string {
 	case KindNumber:
 		g, _ := got.Raw()
 		w, _ := want.Raw()
-		gd, _ := got.(*cnode).decimalText()
-		wd, _ := want.(refCBORNode).decimalText()
+		gd, _ := got.(decimalTexter).decimalText()
+		wd, _ := want.(decimalTexter).decimalText()
 		if g != w || gd != wd {
 			return fmt.Sprintf("%s: number %q/%q, reference %q/%q", path, g, gd, w, wd)
 		}
@@ -48,21 +50,21 @@ func compareNodes(path string, got, want Node) string {
 			return fmt.Sprintf("%s: %q, reference %q", path, g, w)
 		}
 	case KindBytes, KindUUID:
-		g, _ := got.(*cnode).StrictBytes()
-		w, _ := want.(refCBORNode).StrictBytes()
+		g, _ := got.(bytesNode).StrictBytes()
+		w, _ := want.(bytesNode).StrictBytes()
 		if string(g) != string(w) {
 			return fmt.Sprintf("%s: bytes % x, reference % x", path, g, w)
 		}
 	case KindInstant:
-		g, _ := got.(*cnode).Instant()
-		w, _ := want.(refCBORNode).Instant()
+		g, _ := got.(instantNode).Instant()
+		w, _ := want.(instantNode).Instant()
 		micros := func(t time.Time) int64 { return t.Unix()*1_000_000 + int64((t.Nanosecond()+500)/1000) }
 		if micros(g) != micros(w) {
 			return fmt.Sprintf("%s: instant %v, reference %v", path, g, w)
 		}
 	case KindDate:
-		g, _ := got.(*cnode).Days()
-		w, _ := want.(refCBORNode).Days()
+		g, _ := got.(daysNode).Days()
+		w, _ := want.(daysNode).Days()
 		if g != w {
 			return fmt.Sprintf("%s: days %d, reference %d", path, g, w)
 		}
@@ -94,9 +96,9 @@ func compareNodes(path string, got, want Node) string {
 			}
 		}
 	}
-	if gj, ok := got.(*cnode); ok {
+	if gj, ok := got.(jsonTexter); ok {
 		g, gerr := gj.jsonText()
-		w, werr := want.(refCBORNode).jsonText()
+		w, werr := want.(jsonTexter).jsonText()
 		if g != w || (gerr == nil) != (werr == nil) {
 			return fmt.Sprintf("%s: json %q,%v, reference %q,%v", path, g, gerr, w, werr)
 		}
@@ -134,10 +136,9 @@ func agree(t *testing.T, name string, data []byte) (accepted bool) {
 	case gotErr != nil && wantErr != nil:
 		return false
 	case gotErr != nil:
-		if containsInvalid(want) || strings.Contains(gotErr.Error(), "a map key that is not a text string") ||
-			strings.Contains(gotErr.Error(), "a tag 0 value that is not an RFC 3339") {
-			// the library reads a byte string key as text, and a tag 0 over a string that is no date as that
-			// string ; the adapter refuses the first, and a tag 0 only means a date and time
+		if containsInvalid(want) || strings.Contains(gotErr.Error(), "a tag 0 value that is not an RFC 3339") {
+			// the library reads a tag 0 over a string that is no date as that string ; for the adapter a tag 0
+			// only means a date and time
 			return false
 		}
 		t.Errorf("%s % x: refused (%v), the reference reads it", name, data, gotErr)
@@ -149,6 +150,10 @@ func agree(t *testing.T, name string, data []byte) (accepted bool) {
 		t.Errorf("%s % x: read, the reference refuses it (%v)", name, data, wantErr)
 		return true
 	}
+	if hasOpaqueMap(got.(*cnode)) {
+		// the library reads a byte string key as text, where the adapter keeps such a map for a CBOR column only
+		return true
+	}
 	if usesStructureTags(data) && containsInvalid(want) && !containsInvalid(got) {
 		// the reference reads the tags of structures as unknown tags ; TestCBORNode_ReadsWhatCborXWrites is their oracle
 		return true
@@ -157,6 +162,27 @@ func agree(t *testing.T, name string, data []byte) (accepted bool) {
 		t.Errorf("%s % x: %s", name, data, d)
 	}
 	return true
+}
+
+// hasOpaqueMap reports whether a tree holds a map with a key that is not text.
+func hasOpaqueMap(c *cnode) bool {
+	switch c.item {
+	case itOpaqueMap:
+		return true
+	case itArray, itMap:
+		n := int(c.b)
+		if c.item == itMap {
+			n *= 2
+		}
+		for i := range n {
+			if hasOpaqueMap(c.kid(c.a + i)) {
+				return true
+			}
+		}
+	case itBadTag:
+		return hasOpaqueMap(&c.doc.nodes[c.a])
+	}
+	return false
 }
 
 // usesStructureTags reports whether data may hold a structure's tag : a two-byte tag

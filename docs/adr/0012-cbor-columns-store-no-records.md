@@ -6,6 +6,7 @@ An item that holds a structure is spliced : its bytes are copied, and only each 
 
 ## Consequences
 
-- Each node of the CBOR reader keeps its byte range and whether a structure sits inside it ; an unknown tag keeps its content node.
+- Each node of the CBOR reader keeps its byte range, and the document the offsets of its structures ; an unknown tag keeps its content node.
+- The reader accepts a map with a key that is not text and an unassigned simple value, which only a CBOR column takes.
 - A bytea-domain column stores what the client wrote, records aside. postcbor normalizes whatever it receives on its own.
 - A byte string sent to a CBOR column is a byte string value, never an already-encoded document ; tag 24 is stored as it is.
