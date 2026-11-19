@@ -48,16 +48,9 @@ func binaryEncoderFor(t *pg.Type) fieldEncoder {
 // arrayShape returns the sizes of the dimensions n holds, checking the nesting is
 // rectangular. A size of zero anywhere makes an empty array, which has no dimension at all.
 func arrayShape(n Node) (sizes []int, leaves []Node, err error) {
-	if n.Kind() != KindArray {
-		return nil, nil, errWrongKind("array", n)
-	}
-	items, err := n.ArrayItems()
-	if err != nil {
-		return nil, nil, oops.Wrapf(err, "write: reading array")
-	}
-	sizes = []int{len(items)}
-	if len(items) == 0 {
-		return nil, nil, nil
+	sizes, items, err := flatArrayShape(n)
+	if len(items) == 0 || err != nil {
+		return nil, nil, err
 	}
 	if items[0].Kind() != KindArray { // the first element decides whether there is another dimension
 		return sizes, items, nil
@@ -85,6 +78,20 @@ func arrayShape(n Node) (sizes []int, leaves []Node, err error) {
 	return append(sizes, inner...), leaves, nil
 }
 
+// flatArrayShape is arrayShape for elements that may be arrays themselves, as a CBOR column's values : one dimension.
+func flatArrayShape(n Node) (sizes []int, items []Node, err error) {
+	if n.Kind() != KindArray {
+		return nil, nil, errWrongKind("array", n)
+	}
+	if items, err = n.ArrayItems(); err != nil {
+		return nil, nil, oops.Wrapf(err, "write: reading array")
+	}
+	if len(items) == 0 {
+		return nil, nil, nil
+	}
+	return []int{len(items)}, items, nil
+}
+
 func sameInts(a, b []int) bool {
 	if len(a) != len(b) {
 		return false
@@ -99,8 +106,12 @@ func sameInts(a, b []int) bool {
 
 func arrayEncoder(elemType *pg.Type, elem fieldEncoder) fieldEncoder {
 	elemOID := uint32(elemType.PgOid)
+	shape := arrayShape
+	if elemType.CBOR {
+		shape = flatArrayShape
+	}
 	return func(dst []byte, n Node, ec *encodeContext) ([]byte, error) {
-		sizes, leaves, err := arrayShape(n)
+		sizes, leaves, err := shape(n)
 		if err != nil {
 			return nil, err
 		}

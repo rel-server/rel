@@ -108,7 +108,7 @@ func NewResultEncoder(db *pg.DbInfos, root *QueryNode, structures *StructureTabl
 	if err != nil {
 		return nil, err
 	}
-	return &ResultEncoder{db: db, plan: plan, structs: structures, bytesAreCBOR: rootBytesAreCBOR(root)}, nil
+	return &ResultEncoder{db: db, plan: plan, structs: structures, bytesAreCBOR: db.HasCBOR && rootBytesAreCBOR(root)}, nil
 }
 
 // NewValueEncoder is a ResultEncoder for lone values, as a function returns, rather than the rows of a query : a
@@ -268,6 +268,9 @@ func (e *ResultEncoder) appendValue(dst []byte, oid uint32, d []byte, plan *reco
 		return dst, oops.With("oid", oid).Errorf("cbor result: a value of unknown type %d cannot be encoded", oid)
 	}
 	if t.CBOR {
+		if t.Underlying().PgOid != oidBytea {
+			return append(dst, d...), nil // postcbor only stores what it has read
+		}
 		return appendStoredCBOR(dst, d)
 	}
 	if u := t.Underlying(); u != t {
@@ -284,8 +287,8 @@ func (e *ResultEncoder) appendValue(dst []byte, oid uint32, d []byte, plan *reco
 	return dst, oops.With("type", t.PgIdentifier.String()).Errorf("cbor result: type %s has no CBOR form : cast it to text, or select it as a column so rel can convert it", t.PgIdentifier.String())
 }
 
-// appendStoredCBOR copies a CBOR column's value as it is stored. A bytea domain takes any bytes, so they are checked
-// to be one item : anything else would corrupt the response around it.
+// appendStoredCBOR copies a bytea-domain CBOR column's value as it is stored. The domain takes any bytes, so they are
+// checked to be one item : anything else would corrupt the response around it.
 func appendStoredCBOR(dst, d []byte) ([]byte, error) {
 	if !cborenc.WellFormed(d) {
 		return dst, oops.Errorf("cbor result: a stored value of a CBOR column is not one well-formed CBOR item")

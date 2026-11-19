@@ -12,75 +12,67 @@ import (
 // CBORReached names the first CBOR value root's output holds ("column data of public.doc"), or "" when there is
 // none. It reads a resolved tree and does not modify it.
 func CBORReached(root *QueryNode) string {
-	return nodeCBOR(root, 0)
+	var w cborWalk
+	return w.node(root)
 }
 
-const cborReachMaxDepth = 64
+// cborWalk visits each node once : a query may name the same child under many keys.
+type cborWalk struct{ seen map[*QueryNode]bool }
 
-func nodeCBOR(node *QueryNode, depth int) string {
-	if depth > cborReachMaxDepth {
+func (w *cborWalk) node(node *QueryNode) string {
+	if w.seen[node] {
 		return ""
 	}
+	if w.seen == nil {
+		w.seen = map[*QueryNode]bool{}
+	}
+	w.seen[node] = true
 	if node.IsFunction() && node.Relation == nil && containsCBOR(node.Function.ReturnType) {
 		return "the result of " + node.Function.Identifier.String()
 	}
 	if !isShapeProducingSelect(node.Select) {
-		return exprCBOR(node.Select, depth)
+		return w.expr(node, node.Select)
 	}
 	fields, _ := selectFieldsFor(node)
 	for _, f := range fields {
-		switch {
+		var what string
+		switch child := embedChildOf(f); {
 		case f.column != nil:
 			if containsCBOR(f.column.Type) {
-				return columnName(node, f.column)
+				what = columnName(node, f.column)
 			}
-		case embedChildOf(f) != nil:
-			if what := nodeCBOR(embedChildOf(f), depth+1); what != "" {
-				return what
-			}
+		case child != nil:
+			what = w.node(child)
 		default:
-			if what := exprCBOR(f.expr, depth); what != "" {
-				return what
-			}
+			what = w.expr(node, f.expr)
+		}
+		if what != "" {
+			return what
 		}
 	}
 	return ""
 }
 
-func columnName(node *QueryNode, col *pg.Column) string {
-	if node != nil && node.Relation != nil {
-		return "column " + col.Name + " of " + node.Relation.Identifier.String()
-	}
-	return "column " + col.Name
-}
-
-// exprCBOR is nodeCBOR for one output expression : only the ways a value passes into the result are followed, not
+// expr is node for one output expression of node : only the ways a value passes into the result are followed, not
 // the operands of a comparison or of a function with a known return type.
-func exprCBOR(e Expression, depth int) string {
-	if depth > cborReachMaxDepth {
-		return ""
-	}
-	depth++
+func (w *cborWalk) expr(node *QueryNode, e Expression) string {
 	switch v := e.(type) {
 	case *Identifier:
-		return resolvedCBOR(v.Resolved, depth)
+		return resolvedCBOR(v.Resolved)
 	case *ColExpr:
-		return resolvedCBOR(v.Resolved, depth)
+		return resolvedCBOR(v.Resolved)
 	case *GetExpr:
 		if v.ResolvedColumn != nil && containsCBOR(v.ResolvedColumn.Type) {
-			return "column " + v.ResolvedColumn.Name
+			return columnName(node, v.ResolvedColumn)
 		}
 	case FoldedExpr:
 		switch v.Op {
 		case FoldDot:
-			return exprCBOR(v.Right, depth)
+			return w.expr(node, v.Right)
 		case FoldJsonGet, FoldJsonGetText, FoldJsonPathGet, FoldJsonPathGetText:
-			return exprCBOR(v.Left, depth)
+			return w.expr(node, v.Left)
 		}
-		if what := exprCBOR(v.Left, depth); what != "" {
-			return what
-		}
-		return exprCBOR(v.Right, depth)
+		return w.first(node, v.Left, v.Right)
 	case BinaryExpr:
 		if v.Op == BinaryCast {
 			if s, ok := v.Right.(StringLiteral); ok && isCBORTypeName(s.Value) {
@@ -92,22 +84,47 @@ func exprCBOR(e Expression, depth int) string {
 			return "parameter " + v.Name
 		}
 	case *CallExpr:
-		return functionCBOR(v.ResolvedFunction, v.Arguments, depth)
+		return w.function(node, v.ResolvedFunction, v.Arguments)
 	case *AggExpr:
-		return functionCBOR(v.ResolvedFunction, v.Arguments, depth)
+		return w.function(node, v.ResolvedFunction, v.Arguments)
 	case CoalesceExpr:
-		return firstCBOR(v.Args, depth)
+		return w.first(node, v.Args...)
 	case ArrExpr:
-		return firstCBOR(v.Items, depth)
+		return w.first(node, v.Items...)
 	case LstExpr:
-		return firstCBOR(v.Items, depth)
+		return w.first(node, v.Items...)
 	case IndexExpr:
-		return exprCBOR(v.Array, depth)
+		return w.expr(node, v.Array)
 	case SliceExpr:
-		return exprCBOR(v.Array, depth)
+		return w.expr(node, v.Array)
 	case ObjectExpr:
 		for _, f := range v.Fields {
-			if what := exprCBOR(f, depth); what != "" {
+			if what := w.expr(node, f); what != "" {
+				return what
+			}
+		}
+	case StarExpr:
+		// node's own columns, and for "*" its children, as the node's own select would hold them
+		excluded := map[string]bool{}
+		for _, name := range v.Except {
+			excluded[name] = true
+		}
+		if node.Relation != nil {
+			for _, c := range node.Relation.Columns {
+				if !excluded[c.Name] && containsCBOR(c.Type) {
+					return columnName(node, c)
+				}
+			}
+		}
+		if !v.Own {
+			for _, c := range append(append([]*QueryNode{}, node.OutgoingNodes...), node.IncomingNodes...) {
+				if what := w.node(c); what != "" {
+					return what
+				}
+			}
+		}
+		for _, f := range v.And {
+			if what := w.expr(node, f); what != "" {
 				return what
 			}
 		}
@@ -115,22 +132,22 @@ func exprCBOR(e Expression, depth int) string {
 	return ""
 }
 
-func firstCBOR(exprs []Expression, depth int) string {
+func (w *cborWalk) first(node *QueryNode, exprs ...Expression) string {
 	for _, a := range exprs {
-		if what := exprCBOR(a, depth); what != "" {
+		if what := w.expr(node, a); what != "" {
 			return what
 		}
 	}
 	return ""
 }
 
-// functionCBOR checks a function's return type ; a polymorphic one returns what its arguments are.
-func functionCBOR(f *pg.Function, args []Expression, depth int) string {
+// function checks a function's return type ; a polymorphic one returns what its arguments are.
+func (w *cborWalk) function(node *QueryNode, f *pg.Function, args []Expression) string {
 	if f == nil || f.ReturnType == nil {
 		return ""
 	}
 	if isPolymorphic(f.ReturnType) {
-		return firstCBOR(args, depth)
+		return w.first(node, args...)
 	}
 	if containsCBOR(f.ReturnType) {
 		return "the result of " + f.Identifier.String()
@@ -138,20 +155,34 @@ func functionCBOR(f *pg.Function, args []Expression, depth int) string {
 	return ""
 }
 
-func resolvedCBOR(r ResolvedField, depth int) string {
+// resolvedCBOR checks what a name resolved to. A node named as a value is its relation's whole row.
+func resolvedCBOR(r ResolvedField) string {
 	switch v := r.(type) {
 	case ColumnPath:
 		if containsCBOR(v.CurrentType()) {
 			return columnName(v.Node, v.Path[len(v.Path)-1])
 		}
 	case *QueryNode:
-		return nodeCBOR(v, depth)
+		if v.Relation != nil {
+			for _, c := range v.Relation.Columns {
+				if containsCBOR(c.Type) {
+					return columnName(v, c)
+				}
+			}
+		}
 	case ComputedFieldRef:
 		if containsCBOR(v.Function.ReturnType) {
 			return "computed field " + v.Function.Identifier.Name
 		}
 	}
 	return ""
+}
+
+func columnName(node *QueryNode, col *pg.Column) string {
+	if node != nil && node.Relation != nil {
+		return "column " + col.Name + " of " + node.Relation.Identifier.String()
+	}
+	return "column " + col.Name
 }
 
 // containsCBOR reports whether a value of type t is, or holds in an array or composite, a CBOR column's value.
@@ -196,29 +227,36 @@ func isCBORTypeName(name string) bool {
 	return strings.Trim(name, `"`) == "cbor"
 }
 
-// rootBytesAreCBOR reports whether the scalar values root's statement yields are a bytea-domain CBOR column's :
-// Postgres sends them with bytea's oid, a domain's own being kept only inside records and arrays.
-func rootBytesAreCBOR(root *QueryNode) bool {
-	if root.IsFunction() && root.Relation == nil {
-		return isCBOR(root.Function.ReturnType)
+// CBORWritten names the first CBOR column root's write shape holds, or "" : a JSON request has no CBOR bytes to
+// write into one, even when its rows leave the column out.
+func CBORWritten(root *QueryNode) string {
+	if root.Shape != nil {
+		for _, x := range root.Shape.Extractors {
+			if containsCBOR(x.Path.CurrentType()) {
+				return columnName(x.Path.Node, x.Path.Path[len(x.Path.Path)-1])
+			}
+		}
 	}
-	if isShapeProducingSelect(root.Select) {
-		return false
+	for _, c := range append(append([]*QueryNode{}, root.OutgoingNodes...), root.IncomingNodes...) {
+		if what := CBORWritten(c); what != "" {
+			return what
+		}
 	}
-	e := root.Select
-	if f, ok := e.(FoldedExpr); ok && f.Op == FoldDot {
-		e = f.Right
-	}
-	if c, ok := e.(*CallExpr); ok {
-		return c.ResolvedFunction != nil && isCBOR(c.ResolvedFunction.ReturnType)
-	}
-	switch r := bareResolvedField(e).(type) {
-	case ColumnPath:
-		return isCBOR(r.CurrentType())
-	case ComputedFieldRef:
-		return isCBOR(r.Function.ReturnType)
-	}
-	return false
+	return ""
 }
 
-func isCBOR(t *pg.Type) bool { return t != nil && t.CBOR }
+// IsCBORNode reports whether n was read from a CBOR request.
+func IsCBORNode(n Node) bool {
+	_, ok := n.(cborAppender)
+	return ok
+}
+
+// rootBytesAreCBOR reports whether the bytea values root's statement yields are a bytea-domain CBOR column's :
+// Postgres sends them with bytea's oid, a domain's own being kept only inside records and arrays. A bytea value
+// from an expression that holds a CBOR value can only be that value.
+func rootBytesAreCBOR(root *QueryNode) bool {
+	if root.IsFunction() && root.Relation == nil {
+		return root.Function.ReturnType != nil && root.Function.ReturnType.CBOR
+	}
+	return !isShapeProducingSelect(root.Select) && CBORReached(root) != ""
+}

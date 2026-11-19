@@ -157,9 +157,9 @@ func Prepare(rctx *query.ResolveContext, wk *wellknown.Registry, items []query.P
 		}
 		p.items = append(p.items, ri)
 	}
-	if p.format == query.FormatJSON && rctx.Db.HasCBOR {
+	if rctx.Db.HasCBOR {
 		for i := range p.items {
-			if err := checkJSONReach(&p.items[i]); err != nil {
+			if err := checkJSONReach(&p.items[i], p.format); err != nil {
 				return nil, itemError(i, ClientFault, errcode.CBORColumnNeedsCBOR, err)
 			}
 		}
@@ -234,9 +234,18 @@ func prepareItem(rctx *query.ResolveContext, wk *wellknown.Registry, item query.
 	return ri, checkRollbackGrant(&ri, policy)
 }
 
-// checkJSONReach refuses an item whose response would hold a CBOR column's value, which JSON cannot carry.
-func checkJSONReach(ri *resolvedItem) error {
-	if ri.root == nil || (ri.isWrite && (ri.returns == "none" || ri.root.WriteMode == query.DELETE)) {
+// checkJSONReach refuses a JSON write whose shape holds a CBOR column, and an item whose JSON response would hold a
+// CBOR column's value : JSON cannot carry one.
+func checkJSONReach(ri *resolvedItem, format query.OutputFormat) error {
+	if ri.root == nil {
+		return nil
+	}
+	if ri.data != nil && !query.IsCBORNode(ri.data) {
+		if what := query.CBORWritten(ri.root); what != "" {
+			return oops.Errorf("the write's selection holds %s, a CBOR column : send the request as CBOR (Content-Type: application/cbor), or leave it out of the selection", what)
+		}
+	}
+	if format != query.FormatJSON || (ri.isWrite && (ri.returns == "none" || ri.root.WriteMode == query.DELETE)) {
 		return nil
 	}
 	if what := query.CBORReached(ri.root); what != "" {

@@ -201,6 +201,7 @@ func TestRelHandler_CBORColumns(t *testing.T) {
 			{"an array of a bytea-domain one", `{"relation": "doc", "schema": "public", "select": ["*~", ["id", "tag", "body", "raw", "plain"]]}`, true},
 			{"a coalesce of one", `{"relation": "doc", "schema": "public", "select": {"r": ["coalesce", [".", "raw"], [".", "raw"]]}}`, true},
 			{"a scalar function", `{"function": "first_raw", "schema": "public"}`, true},
+			{"a star inside an object", `{"relation": "doc", "schema": "public", "select": {"all": ["*~", ["plain"]]}}`, true},
 			{"other columns", `{"relation": "doc", "schema": "public", "select": ["*~", ["body", "raw", "raws"]], "where": ["=", [".", "id"], 1]}`, false},
 			{"a cast to jsonb", `{"relation": "doc", "schema": "public", "select": {"b": ["::", [".", "body"], "jsonb"]}, "where": ["=", [".", "id"], 1]}`, false},
 			{"a filter on one", `{"relation": "doc", "schema": "public", "select": {"t": [".", "tag"]}, "where": ["is_not_null", [".", "raw"]]}`, false},
@@ -215,6 +216,22 @@ func TestRelHandler_CBORColumns(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("%s : status %d : %s", c.name, rec.Code, rec.Body.String())
 			}
+		}
+	})
+
+	t.Run("a JSON write whose selection holds no CBOR column goes through", func(t *testing.T) {
+		rec := sendRel(h, []byte(`{"query": {"relation": "doc", "schema": "public", "write_mode": "insert",
+			"select": ["*~", ["body", "raw", "raws"]]}, "data": [{"id": 4, "tag": "four"}]}`), "application/json", "")
+		if rec.Code != http.StatusOK {
+			t.Errorf("status %d : %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("a JSON write whose selection holds a CBOR column is refused, even when the rows leave it out", func(t *testing.T) {
+		rec := sendRel(h, []byte(`{"query": {"relation": "doc", "schema": "public", "write_mode": "insert", "select": ["*~"]},
+			"data": [{"id": 5, "tag": "five"}], "returns": "none", "stats": true}`), "application/json", "")
+		if rec.Code != http.StatusBadRequest || errcode.Code(rec.Header().Get(errcode.Header)) != errcode.CBORColumnNeedsCBOR {
+			t.Errorf("status %d, %s : %s", rec.Code, rec.Header().Get(errcode.Header), rec.Body.String())
 		}
 	})
 
@@ -238,6 +255,38 @@ func TestRelHandler_CBORColumns(t *testing.T) {
 			"where": []any{"=", []any{".", "id"}, 10}}), "application/cbor", "application/cbor")
 		if rec.Code != http.StatusInternalServerError {
 			t.Errorf("status %d : % x", rec.Code, rec.Body.Bytes())
+		}
+	})
+
+	t.Run("an array element that is an array is one CBOR item, not a dimension", func(t *testing.T) {
+		rec := write(map[string]any{"id": 20, "raws": []any{[]any{1, 2}, []any{3, 4}}}, map[string]any{"id": 21, "raws": []any{[]any{1}, []any{2, 3}}})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d : %s", rec.Code, rec.Body.String())
+		}
+		for id, want := range map[int][]string{20: {"820102", "820304"}, 21: {"8101", "820203"}} {
+			var elems [][]byte
+			if err := db.Pool.QueryRow(ctx, `select raws::bytea[] from doc where id = $1`, id).Scan(&elems); err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) != len(want) || hex.EncodeToString(elems[0]) != want[0] || hex.EncodeToString(elems[1]) != want[1] {
+				t.Errorf("row %d : raws is % x, want %v", id, elems, want)
+			}
+		}
+	})
+
+	t.Run("an expression of a bytea-domain value at the root is its CBOR too", func(t *testing.T) {
+		for name, c := range map[string]struct {
+			sel  any
+			want []byte
+		}{
+			"coalesce": {[]any{"coalesce", []any{".", "raw"}, []any{".", "raw"}}, spliced},
+			"index":    {[]any{"index", []any{".", "raws"}, 1}, intKeys},
+		} {
+			rec := sendRel(h, cborBody(t, map[string]any{"relation": "doc", "schema": "public", "select": c.sel,
+				"where": []any{"=", []any{".", "id"}, 1}}), "application/cbor", "application/cbor")
+			if want := append(append([]byte{0x9f}, c.want...), 0xff); rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), want) {
+				t.Errorf("%s : status %d, % x, want % x", name, rec.Code, rec.Body.Bytes(), want)
+			}
 		}
 	})
 }
