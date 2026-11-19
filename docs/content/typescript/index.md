@@ -53,6 +53,10 @@ other.baseUrl = "https://other.example.com" // just this one: two servers side b
 A browser calling a server on another origin needs that server to allow it
 ([CORS](../http/cors-csp.md)); requests are sent with `credentials: "include"`.
 
+### Compressed requests
+
+A request body longer than `compressAbove` (default 1024: bytes with `cbor`, characters with JSON) is gzipped with the runtime's `CompressionStream` and sent with `Content-Encoding: gzip`, which the server decodes. Like `baseUrl`, it is set on `Querier.prototype` or on one query; `Infinity` never compresses. A runtime without `CompressionStream` sends every body as it is. A proxy between the client and rel must pass `Content-Encoding` through, as proxies do by default.
+
 ## Building a query
 
 `database.ts` exports `relation()`, `func()`, and `wellknown()` — thin builders that return a

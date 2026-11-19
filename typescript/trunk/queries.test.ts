@@ -301,6 +301,49 @@ describe("draft() and write()", () => {
   })
 })
 
+describe("compressAbove", () => {
+  // the body fetch is given, and the headers it is sent with
+  const sentBodies = async (run: () => Promise<unknown>) => {
+    const sent: { encoding: string | null; size: number }[] = []
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body as string | Uint8Array
+      sent.push({ encoding: new Headers(init?.headers).get("Content-Encoding"), size: body.length })
+      return realFetch(input, init)
+    }) as typeof fetch
+    try {
+      await run()
+    } finally {
+      globalThis.fetch = realFetch
+    }
+    return sent
+  }
+
+  test("a body over the threshold is sent gzipped and the server reads it", async () => {
+    const name = uniqueName(`Gzipped ${"x".repeat(2000)}`)
+    let written: unknown[] = []
+    const sent = await sentBodies(async () => {
+      written = await writableProperties.write([writableProperties.draft({ name, star_rating: 3 })])
+    })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.encoding).toBe("gzip")
+    expect(sent[0]?.size).toBeLessThan(1024)
+    expect((written[0] as { name: string }).name).toBe(name)
+  })
+
+  test("a body under the threshold, or on a query set to Infinity, goes as it is", async () => {
+    const under = await sentBodies(() => relation("hotel.properties").get())
+    const never = relation("hotel.properties")
+    never.compressAbove = Number.POSITIVE_INFINITY
+    const big = await sentBodies(() =>
+      never.write([never.draft({ name: uniqueName(`Plain ${"x".repeat(2000)}`) })]),
+    )
+    expect(under[0]?.encoding).toBeNull()
+    expect(big[0]?.encoding).toBeNull()
+    expect(big[0]?.size).toBeGreaterThan(2000)
+  })
+})
+
 describe("baseUrl", () => {
   test("a query can point at another server without touching the others", async () => {
     const elsewhere = relation("hotel.properties")

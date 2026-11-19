@@ -571,9 +571,10 @@ func TestBuildMux_MiddlewareGatesStaticFallback(t *testing.T) {
 	}
 }
 
-// Only a body declared plain gets past the router : any other Content-Encoding is a plain-text 415 naming the one
-// accepted coding, on /rel as on a declared route, even with no body, and still behind CORS/CSP.
-func TestBuildMux_EncodedRequestBodyRejected(t *testing.T) {
+// Through the real router, a compressed body reaches /rel decoded and a refused coding is a plain-text 415 listing
+// the accepted ones, on /rel as on a declared route, even with no body, and still behind CORS/CSP.
+// http.max_body_size bounds the decoded bytes.
+func TestBuildMux_EncodedRequestBody(t *testing.T) {
 	ctx := context.Background()
 
 	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
@@ -597,6 +598,9 @@ func TestBuildMux_EncodedRequestBodyRejected(t *testing.T) {
 		create function fn_encoding_test() returns text language sql as $$ select 'ok'::text; $$;
 		comment on function fn_encoding_test() is 'route:: path: "/testroute"';
 		grant execute on function fn_encoding_test() to "~anonymous";
+		create function fn_encoding_post(req jsonb) returns text language sql as $$ select 'ok'::text; $$;
+		comment on function fn_encoding_post(jsonb) is 'route:: path: "/testpost", method: "POST"';
+		grant execute on function fn_encoding_post(jsonb) to "~anonymous";
 	`); err != nil {
 		t.Fatalf("schema setup: %v", err)
 	}
@@ -605,6 +609,7 @@ func TestBuildMux_EncodedRequestBodyRejected(t *testing.T) {
 	// Introspected after the schema exists, so the route is declared.
 	cfg := config.Test()
 	cfg.Pg.Query.AnonymousRole = "~anonymous"
+	cfg.Http.MaxBodySize = 4096
 	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
 	if err != nil {
 		t.Fatalf("pg.NewInfosAdminQuery: %v", err)
@@ -619,8 +624,8 @@ func TestBuildMux_EncodedRequestBodyRejected(t *testing.T) {
 	}
 	mux := BuildMux(db, cfg, reg, wkReg, nil)
 
-	serve := func(method, path, body string, encodings ...string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(method, path, strings.NewReader(body))
+	serve := func(method, path string, body []byte, encodings ...string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		for _, e := range encodings {
 			req.Header.Add("Content-Encoding", e)
@@ -629,20 +634,21 @@ func TestBuildMux_EncodedRequestBodyRejected(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 		return rec
 	}
+	query := []byte(`{"relation":"encoding_test"}`)
 
 	rejected := map[string]*httptest.ResponseRecorder{
-		"/rel gzip":                   serve("POST", "/rel", `{"relation":"encoding_test"}`, "gzip"),
-		"/rel identity then gzip":     serve("POST", "/rel", `{"relation":"encoding_test"}`, "identity, gzip"),
-		"/rel gzip on a second line":  serve("POST", "/rel", `{"relation":"encoding_test"}`, "identity", "gzip"),
-		"declared route, no body, br": serve("GET", "/testroute", "", "br"),
+		"/rel br":                     serve("POST", "/rel", query, "br"),
+		"/rel gzip then zstd":         serve("POST", "/rel", query, "gzip, zstd"),
+		"/rel gzip on a second line":  serve("POST", "/rel", query, "gzip", "gzip"),
+		"declared route, no body, br": serve("GET", "/testroute", nil, "br"),
 	}
 	for name, rec := range rejected {
 		t.Run(name, func(t *testing.T) {
 			if rec.Code != http.StatusUnsupportedMediaType {
 				t.Fatalf("expected 415, got %d : %s", rec.Code, rec.Body.String())
 			}
-			if got := rec.Header().Get("Accept-Encoding"); got != "identity" {
-				t.Errorf("Accept-Encoding = %q, want identity", got)
+			if got := rec.Header().Get("Accept-Encoding"); got != acceptedEncodings {
+				t.Errorf("Accept-Encoding = %q, want %q", got, acceptedEncodings)
 			}
 			if got := rec.Header().Get("X-Rel-Errorcode"); got != "UNSUPPORTED_MEDIA_TYPE" {
 				t.Errorf("X-Rel-Errorcode = %q, want UNSUPPORTED_MEDIA_TYPE", got)
@@ -657,14 +663,31 @@ func TestBuildMux_EncodedRequestBodyRejected(t *testing.T) {
 	}
 
 	passed := map[string]*httptest.ResponseRecorder{
-		"/rel no Content-Encoding": serve("POST", "/rel", `{"relation":"encoding_test"}`),
-		"/rel IDENTITY, identity":  serve("POST", "/rel", `{"relation":"encoding_test"}`, "IDENTITY, identity"),
-		"declared route, identity": serve("GET", "/testroute", "", "identity"),
+		"/rel no Content-Encoding": serve("POST", "/rel", query),
+		"/rel IDENTITY, identity":  serve("POST", "/rel", query, "IDENTITY, identity"),
+		"/rel gzip":                serve("POST", "/rel", gzipped(t, query), "gzip"),
+		"/rel deflate":             serve("POST", "/rel", zlibbed(t, query), "deflate"),
+		"/rel zstd":                serve("POST", "/rel", zstded(t, query), "zstd"),
+		"declared route, identity": serve("GET", "/testroute", nil, "identity"),
+		"declared route, gzip":     serve("POST", "/testpost", gzipped(t, query), "gzip"),
 	}
 	for name, rec := range passed {
 		t.Run(name, func(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("expected 200, got %d : %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// far under the limit compressed, over it decoded
+	padded := append([]byte(`{"relation":"encoding_test"`+strings.Repeat(" ", 8192)), '}')
+	for name, rec := range map[string]*httptest.ResponseRecorder{
+		"/rel":           serve("POST", "/rel", gzipped(t, padded), "gzip"),
+		"declared route": serve("POST", "/testpost", gzipped(t, padded), "gzip"),
+	} {
+		t.Run(name+" decoded over the limit", func(t *testing.T) {
+			if rec.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("expected 413, got %d : %s", rec.Code, rec.Body.String())
 			}
 		})
 	}

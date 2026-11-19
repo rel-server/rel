@@ -510,6 +510,10 @@ export class Querier<
   // rarely share keys (a `jsonb` dictionary). Responses are not affected.
   declare sendStructures: boolean
 
+  // A request body longer than this is sent gzipped : bytes for a binary codec, characters for a text one. Set on the
+  // prototype or on one query ; `Infinity` never compresses. Without `CompressionStream`, bodies go as they are.
+  declare compressAbove: number
+
   // Type-only, for `typeof q.$row` / `typeof q.$draft` ; `undefined` at runtime. `$row` is one row as get() returns
   // it, `$draft` one row as draft() returns it.
   declare readonly $row: Prettify<WriteRowOf<Shape>>
@@ -680,13 +684,21 @@ export class Querier<
 
   private async _send(query: unknown) {
     const { codec } = this
+    let body: string | Uint8Array = codec.encode(query, { structures: this.sendStructures })
+    const headers: Record<string, string> = {}
+    if (codec.contentType) {
+      headers["Content-Type"] = codec.contentType
+      headers.Accept = codec.accept ?? codec.contentType
+    }
+    if (body.length > this.compressAbove && typeof CompressionStream !== "undefined") {
+      body = await gzip(body)
+      headers["Content-Encoding"] = "gzip"
+    }
     const res = await fetch(`${this.baseUrl.replace(/\/+$/, "")}/rel`, {
       credentials: "include",
       method: "POST",
-      body: codec.encode(query, { structures: this.sendStructures }) as BodyInit,
-      headers: codec.contentType
-        ? { "Content-Type": codec.contentType, Accept: codec.accept ?? codec.contentType }
-        : undefined,
+      body: body as BodyInit,
+      headers,
     })
     if (res.status >= 400) {
       throw new RelRequestError(res.status, await res.text())
@@ -703,6 +715,14 @@ Querier.prototype.baseUrl = "/"
 
 // On unless changed : see the `sendStructures` declaration above.
 Querier.prototype.sendStructures = true
+
+// 1 KiB unless changed : see the `compressAbove` declaration above.
+Querier.prototype.compressAbove = 1024
+
+async function gzip(body: string | Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([body as BlobPart]).stream().pipeThrough(new CompressionStream("gzip"))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
 
 // The browser's JSON unless changed : see the `codec` declaration above.
 Querier.prototype.codec = {
