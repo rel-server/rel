@@ -28,6 +28,10 @@ _Avoid_: return query
 A request's items after resolving and compiling, before any database connection is taken.
 _Avoid_: compiled request
 
+**CBOR column**:
+A column whose type is a `cbor` domain over `bytea` or postcbor's `cbor` type ; only a CBOR client reads or writes it.
+_Avoid_: binary column, blob column
+
 ## Serving
 
 **Snapshot**:
