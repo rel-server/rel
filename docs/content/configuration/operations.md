@@ -98,7 +98,7 @@ expect in the response:
 | `QUERY_STATS_QUERY_PLAN_CONFLICT` | 400 | `stats` and `query_plan` both requested on the same write |
 | `MALFORMED_BODY` | 400 | a body that cannot be read : not JSON or CBOR where one is expected, or not valid for its `Content-Encoding` |
 | `BODY_TOO_LARGE` | 413 | a `/rel` POST body or a declared route's body is over `http.max_body_size`, counted once decoded when compressed |
-| `UNSUPPORTED_MEDIA_TYPE` | 415 | the request declares a `Content-Encoding` other than `gzip`, `deflate`, `zstd` or `identity`, or more than one : the answer lists the accepted ones in `Accept-Encoding`. Also a route's body shape mismatch, see [File uploads](../http/uploads.md) |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | the request declares a `Content-Encoding` other than `gzip`, `deflate`, `zstd` or `identity`, or more than one : the answer lists the accepted ones in `Accept-Encoding`. Also a route's body shape mismatch, see [File uploads](../http/uploads.md), a non-CBOR body to a route taking a `cbor` argument included |
 | `ANONYMOUS_DISABLED` | 401 | request has no credentials and no anonymous role is configured |
 | `NO_ROLE_CONFIGURED` | 500 | `pg.query.anonymous_role` is unset and the request is anonymous — a deployment misconfiguration, not an ordinary request failure |
 | `DB_UNAVAILABLE` | 500 | acquiring a Postgres connection failed |

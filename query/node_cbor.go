@@ -43,9 +43,15 @@ func NewCBORNode(data []byte) (Node, error) {
 	return &doc.nodes[idx], nil
 }
 
-// SpliceCBOR reads data as one CBOR item and returns it as a CBOR column receives it : data itself when it holds no
-// structure, a spliced copy otherwise. It fails on what NewCBORNode refuses.
+// SpliceCBOR returns data, one CBOR item, as a CBOR column receives it : data itself when it is well-formed and holds
+// no structure, a spliced copy otherwise. Only an item with structures is read, and checked, as a request is.
 func SpliceCBOR(data []byte) ([]byte, error) {
+	switch ok, structures := cborenc.Scan(data); {
+	case !ok:
+		return nil, oops.Errorf("query: invalid CBOR: not one well-formed item")
+	case !structures:
+		return data, nil
+	}
 	n, err := NewCBORNode(data)
 	if err != nil {
 		return nil, err

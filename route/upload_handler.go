@@ -160,7 +160,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 
 	ident := route.Function.Identifier.EscapedString()
 	var firstEnvelope, firstContent []byte
-	frow := tx1.QueryRow(ctx, "select * from "+ident+"($1::jsonb)", reqJSON1)
+	frow := tx1.QueryRow(ctx, fullControlSQL(route, ident+"($1::jsonb)"), reqJSON1)
 	if err := frow.Scan(&firstEnvelope, &firstContent); err != nil {
 		_ = tx1.Rollback(ctx)
 		tx1.Release()
@@ -317,7 +317,7 @@ func handleUploadRoute(w http.ResponseWriter, r *http.Request, db *pg.DbInfos, c
 	defer tx2.Release()
 
 	var secondEnvelope, secondContent []byte
-	mrow := tx2.QueryRow(ctx, "select * from "+ident+"($1::jsonb)", reqJSON2)
+	mrow := tx2.QueryRow(ctx, fullControlSQL(route, ident+"($1::jsonb)"), reqJSON2)
 	if err := mrow.Scan(&secondEnvelope, &secondContent); err != nil {
 		_ = tx2.Rollback(ctx)
 		// No commit : the temp file is deleted by the deferred cleanup above.

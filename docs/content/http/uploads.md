@@ -26,6 +26,7 @@ comment on function hotel.upload_property_photo(jsonb, bytea[]) is 'route:: path
 - **`bytea`** (singular) only ever receives bytes via a raw, non-multipart body — the whole
   request body becomes the single value. A `multipart/form-data` body sent to such a route is
   also a `415`, since there'd be nowhere to route the individual parts.
+- **`cbor`** (a [CBOR column type](../query-language/index.md#cbor-columns)) is like `bytea`, for an `application/cbor` body only : any other media type is a `415`, and the body is one CBOR item, [structures](../query-language/index.md#structures) rewritten as plain maps. An empty body is `NULL`.
 - A route declaring neither still receives `parts` in the request for a multipart body, even
   though it can't retrieve their bytes.
 
@@ -81,7 +82,7 @@ comment on function hotel.upload_lease_pdf(jsonb) is 'route:: path: "/hotel/leas
 ```
 
 A `stream_upload` function must use the full-control (two-`OUT`-column) shape — it's the only
-way to return the `upload` key on the first call — and must **not** declare a `bytea`/`bytea[]`
+way to return the `upload` key on the first call — and must **not** declare a `bytea`/`bytea[]`/`cbor`
 argument at all; the whole point is that the file's bytes never enter Postgres.
 
 - **First call**, before any bytes are received: `req.upload` is `{part}` — the upload's

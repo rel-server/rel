@@ -6,6 +6,12 @@ import "encoding/binary"
 // no trailing bytes, no reserved additional information, no misplaced break. Text strings are not checked for UTF-8
 // and tags not for their content's type. Nesting depth is unbounded and costs no recursion.
 func WellFormed(b []byte) bool {
+	ok, _ := Scan(b)
+	return ok
+}
+
+// Scan is WellFormed, also reporting whether a cbor-x structure tag (a definition or a reference) appears.
+func Scan(b []byte) (wellFormed, structures bool) {
 	type frame struct {
 		left  uint64 // items still to come in a definite container (a map counts keys and values)
 		seen  uint64 // items read so far in an indefinite one
@@ -18,18 +24,18 @@ func WellFormed(b []byte) bool {
 	tagged := false // a tag was read and its content not yet
 	for {
 		if pos >= len(b) {
-			return false
+			return false, false
 		}
 		ib := b[pos]
 		pos++
 		major, ai := ib>>5, ib&0x1f
 		if ib == Break {
 			if len(stack) == 0 || tagged {
-				return false
+				return false, false
 			}
 			top := stack[len(stack)-1]
 			if !top.indef || (top.isMap && top.seen%2 != 0) {
-				return false
+				return false, false
 			}
 			stack = stack[:len(stack)-1]
 		} else {
@@ -38,7 +44,7 @@ func WellFormed(b []byte) bool {
 			if !indef {
 				v, hl, ok := headArg(b[pos-1:])
 				if !ok {
-					return false
+					return false, false
 				}
 				val, pos = v, pos-1+hl
 			}
@@ -47,12 +53,12 @@ func WellFormed(b []byte) bool {
 			switch major {
 			case 0, 1:
 				if indef {
-					return false
+					return false, false
 				}
 			case 2, 3:
 				if !indef {
 					if val > rest {
-						return false
+						return false, false
 					}
 					pos += int(val)
 					break
@@ -60,19 +66,19 @@ func WellFormed(b []byte) bool {
 				// chunks of the same major type, each of definite length, then a break
 				for {
 					if pos >= len(b) {
-						return false
+						return false, false
 					}
 					if b[pos] == Break {
 						pos++
 						break
 					}
 					if b[pos]>>5 != major || b[pos]&0x1f == 31 {
-						return false
+						return false, false
 					}
 					chunk := b[pos:]
 					n, hl, ok := headArg(chunk)
 					if !ok || n > uint64(len(chunk)-hl) {
-						return false
+						return false, false
 					}
 					pos += hl + int(n)
 				}
@@ -83,11 +89,11 @@ func WellFormed(b []byte) bool {
 				}
 				if major == 5 {
 					if val > rest/2 {
-						return false
+						return false, false
 					}
 					val *= 2
 				} else if val > rest {
-					return false
+					return false, false
 				}
 				if val > 0 {
 					stack = append(stack, frame{left: val})
@@ -95,20 +101,23 @@ func WellFormed(b []byte) bool {
 				}
 			case 6:
 				if indef {
-					return false
+					return false, false
+				}
+				if val == TagStructureDef || (val >= StructureTagBase && val < StructureTagBase+MaxStructures) {
+					structures = true
 				}
 				tagged = true
 				continue // the content that follows is the item
 			case 7:
 				if indef || (ai == 24 && val < 32) {
-					return false
+					return false, false
 				}
 			}
 		}
 		// an item is complete : count it in the containers it closes
 		for {
 			if len(stack) == 0 {
-				return pos == len(b)
+				return pos == len(b), structures
 			}
 			top := &stack[len(stack)-1]
 			if top.indef {

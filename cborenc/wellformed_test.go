@@ -125,3 +125,31 @@ func shortHex(s string) string {
 	}
 	return s
 }
+
+func TestScan_ReportsStructures(t *testing.T) {
+	for _, c := range []struct {
+		hex        string
+		structures bool
+	}{
+		{"8301a1020304", false},
+		{"81d9dfff8319e00081616101", true}, // a definition, nested
+		{"9fd9e0008102ff", true},           // a reference
+		{"d9fffe8100", true},               // the last id
+		{"d9dffe8100", false},              // tag 0xdffe, another cbor-x record form, is not one
+		{"d9ffff8100", false},              // past the ids
+	} {
+		ok, got := Scan(mustDecodeHex(t, c.hex))
+		if !ok || got != c.structures {
+			t.Errorf("%s : well-formed %v, structures %v", c.hex, ok, got)
+		}
+	}
+}
+
+func mustDecodeHex(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}

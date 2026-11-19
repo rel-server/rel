@@ -271,19 +271,23 @@ func invokeNativeCBORRoute(ctx context.Context, tx *reqauth.Tx, db *pg.DbInfos, 
 	return enc.AppendValue(nil, oid, raw)
 }
 
+// fullControlSQL selects a full-control call's envelope and content, the content as the bytes it is sent as.
+func fullControlSQL(route Route, call string) string {
+	switch {
+	case route.ContentNative: // the content column has a type with no text form of its own : its JSON
+		return "select r.e, to_jsonb(r.c) from (select * from " + call + ") as r(e, c)"
+	case route.ContentCBOR: // postcbor's text form is not its CBOR
+		return "select r.e, r.c::bytea from (select * from " + call + ") as r(e, c)"
+	}
+	return "select * from " + call
+}
+
 // invokeFullControlRoute calls a two-OUT-column route with "select * from", to get the columns separately.
 func invokeFullControlRoute(ctx context.Context, tx *reqauth.Tx, route Route, reqJSON []byte, resolved resolvedRequestBody, pathArgValues []string) (envelope, content []byte, err error) {
 	call, args := buildInvokeCall(route, reqJSON, resolved, pathArgValues)
 	logging.FromContext(ctx).Debug("invoking route",
 		"function", route.Function.Identifier.String(), "sql", "select * from "+call, "args", args)
-	sql := "select * from " + call
-	switch {
-	case route.ContentNative: // the content column has a type with no text form of its own : its JSON
-		sql = "select r.e, to_jsonb(r.c) from (select * from " + call + ") as r(e, c)"
-	case route.ContentCBOR:
-		sql = "select r.e, r.c::bytea from (select * from " + call + ") as r(e, c)"
-	}
-	if err := tx.QueryRow(ctx, sql, args...).Scan(&envelope, &content); err != nil {
+	if err := tx.QueryRow(ctx, fullControlSQL(route, call), args...).Scan(&envelope, &content); err != nil {
 		return nil, nil, err
 	}
 	return envelope, content, nil

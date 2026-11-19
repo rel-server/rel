@@ -44,6 +44,8 @@ create function r_full(req jsonb, out e jsonb, out c cbor) language sql as $$ se
 comment on function r_full(jsonb) is 'route:: path: "/full"';
 create function r_array(req jsonb, body cbor[]) returns text language sql as $$ select 'no' $$;
 comment on function r_array(jsonb, cbor[]) is 'route:: path: "/array", method: "POST"';
+create function r_stream(req jsonb, body cbor, out e jsonb, out c jsonb) language sql as $$ select null::jsonb, null::jsonb $$;
+comment on function r_stream(jsonb, cbor) is 'route:: path: "/stream", method: "POST", stream_upload: true';
 create role "~anonymous";
 grant usage on schema blob to "~anonymous";
 grant all on doc to "~anonymous";
@@ -76,6 +78,10 @@ func TestBuildMux_CBORRoutesAndParams(t *testing.T) {
 			"query": {"relation": "doc", "schema": "public", "select": {"id": [".", "id"]}, "where": ["=", [".", "raw"], ["$param", "b", "blob.cbor"]]}}`,
 		"misdeclared.json": `{"name": "doc_misdeclared", "params": {"b": {"type": "cbor"}},
 			"query": {"relation": "doc", "schema": "public", "select": {"id": [".", "id"]}, "where": ["=", [".", "raw"], ["$param", "b", "bytea"]]}}`,
+		"miscast.json": `{"name": "doc_miscast", "params": {"b": {"type": "bytea"}},
+			"query": {"relation": "doc", "schema": "public", "select": {"id": [".", "id"]}, "where": ["=", [".", "raw"], ["$param", "b", "blob.cbor"]]}}`,
+		"default.json": `{"name": "doc_default", "params": {"b": {"type": "blob.cbor", "default": {"a": 1}}},
+			"query": {"relation": "doc", "schema": "public", "select": {"id": [".", "id"]}, "where": ["=", [".", "raw"], ["$param", "b", "blob.cbor"]]}}`,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
@@ -176,9 +182,11 @@ func TestBuildMux_CBORRoutesAndParams(t *testing.T) {
 		}
 	})
 
-	t.Run("a cbor[] argument disables the route", func(t *testing.T) {
-		if rec := send("POST", "/array", "application/cbor", "", spliced); rec.Code == http.StatusOK {
-			t.Errorf("status %d : %s", rec.Code, rec.Body.String())
+	t.Run("a cbor[] argument, or a cbor one on a stream_upload, disables the route", func(t *testing.T) {
+		for _, path := range []string{"/array", "/stream"} {
+			if rec := send("POST", path, "application/cbor", "", spliced); rec.Code != http.StatusNotFound {
+				t.Errorf("%s : status %d : %s", path, rec.Code, rec.Body.String())
+			}
 		}
 	})
 
@@ -200,10 +208,12 @@ func TestBuildMux_CBORRoutesAndParams(t *testing.T) {
 		}
 	})
 
-	t.Run("a cbor param used without a cbor cast deactivates its query", func(t *testing.T) {
-		rec := send("POST", "/rel", "application/json", "", []byte(`{"wellknown": "doc_misdeclared", "params": {"b": null}}`))
-		if errcode.Code(rec.Header().Get(errcode.Header)) != errcode.WellKnownUnknownQuery {
-			t.Errorf("status %d, %s : %s", rec.Code, rec.Header().Get(errcode.Header), rec.Body.String())
+	t.Run("a cbor param without a cbor cast, a cbor cast on another param, and a cbor default deactivate the query", func(t *testing.T) {
+		for _, name := range []string{"doc_misdeclared", "doc_miscast", "doc_default"} {
+			rec := send("POST", "/rel", "application/json", "", []byte(`{"wellknown": "`+name+`", "params": {"b": null}}`))
+			if errcode.Code(rec.Header().Get(errcode.Header)) != errcode.WellKnownUnknownQuery {
+				t.Errorf("%s : status %d, %s : %s", name, rec.Code, rec.Header().Get(errcode.Header), rec.Body.String())
+			}
 		}
 	})
 }

@@ -26,8 +26,9 @@ entry — never by scanning the schema automatically.
 | `fn(req jsonb)` | a plain type | The common case — read `req.body`/`req.query`/`req.jwt`/etc., return a value directly. See [Requests and responses](requests-responses.md). |
 | `fn(req jsonb, files bytea[])` | a plain type | Receive one or more multipart parts' raw bytes. See [File uploads ## Receiving raw bytes](uploads.md#receiving-raw-bytes). |
 | `fn(req jsonb, file bytea)` | a plain type | Receive a single raw (non-multipart) request body's bytes. See [File uploads ## Receiving raw bytes](uploads.md#receiving-raw-bytes). |
+| `fn(req jsonb, body cbor)` | a plain type | Receive the request body as one CBOR item (`application/cbor` only), for a [CBOR column type](../query-language/index.md#cbor-columns) : postcbor's `cbor` or a `cbor` domain over `bytea`. See [Requests and responses ## Function prototype](requests-responses.md#function-prototype). |
 | `fn(req jsonb, ..., out resp jsonb, out content <type>) returns record` | `resp`'s own fields, `content` per the mimetype table | Full control over the response — status, cookies, `jwt`, `template`, `static_file`. Mandatory for `middleware`/`stream_upload`. See [Requests and responses](requests-responses.md). |
-| `fn(req jsonb, out resp jsonb, out content jsonb) returns record`, declared `stream_upload: true` | as above | Streams a single upload straight to disk, called twice. Must not take a `bytea`/`bytea[]` argument. See [File uploads ## Choosing a destination without routing bytes through Postgres](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
+| `fn(req jsonb, out resp jsonb, out content jsonb) returns record`, declared `stream_upload: true` | as above | Streams a single upload straight to disk, called twice. Must not take a `bytea`/`bytea[]`/`cbor` argument. See [File uploads ## Choosing a destination without routing bytes through Postgres](uploads.md#choosing-a-destination-without-routing-bytes-through-postgres). |
 | Any of the above, declared `middleware: true` | full-control shape only | Runs ahead of every route/`/rel`/static file under its own path prefix. See [HTTP routes ## Middleware](index.md#middleware). |
 
 A function may also declare extra `text`-typed arguments, named after `{placeholder}`
@@ -42,6 +43,7 @@ function's second `OUT` column when its own response doesn't override `content_t
 | `text` | `text/plain` |
 | `json`/`jsonb` | `application/json` |
 | `bytea` | `application/octet-stream` |
+| a CBOR column type (`cbor`, a `cbor` domain over `bytea`) | `application/cbor`, whatever the `Accept` |
 | a domain whose name contains `/` (over `bytea` or `text`) | the domain's own name, e.g. `"image/png"` |
 
 ### Invoked directly by rel, never discovered as routes

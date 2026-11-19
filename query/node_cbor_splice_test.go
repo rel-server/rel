@@ -131,3 +131,20 @@ func TestCBORSplice_ReferenceToADefinitionOutside(t *testing.T) {
 		t.Errorf("spliced to %s, want a1616102", got)
 	}
 }
+
+func TestSpliceCBOR_ParsesOnlyWithStructures(t *testing.T) {
+	plain := []byte{0x82, 0x01, 0x02}
+	if got, err := SpliceCBOR(plain); err != nil || &got[0] != &plain[0] {
+		t.Errorf("an item without structures is not returned as is : % x, %v", got, err)
+	}
+	withStructures := []byte{0x82, 0xd9, 0xdf, 0xff, 0x83, 0x19, 0xe0, 0x00, 0x81, 0x61, 0x61, 0x01, 0xd9, 0xe0, 0x00, 0x81, 0x02}
+	want := []byte{0x82, 0xa1, 0x61, 0x61, 0x01, 0xa1, 0x61, 0x61, 0x02}
+	if got, err := SpliceCBOR(withStructures); err != nil || !bytes.Equal(got, want) {
+		t.Errorf("spliced to % x (%v), want % x", got, err, want)
+	}
+	for _, bad := range [][]byte{{0x82, 0x01}, {0x82, 0xd9, 0xe0, 0x05, 0x81, 0x01, 0x01}} { // truncated ; an undefined reference
+		if _, err := SpliceCBOR(bad); err == nil {
+			t.Errorf("% x is accepted", bad)
+		}
+	}
+}
