@@ -1,4 +1,6 @@
 
+
+
 <!doctype html>
 <html lang="en" class="no-js">
   <head>
@@ -14,6 +16,7 @@
       
       
       
+      
         <link rel="prev" href="../example-database/tables/rate_plans/">
       
       
@@ -24,7 +27,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.1.2">
+      <meta name="generator" content="zensical-0.1.3">
     
     
       
@@ -35,12 +38,13 @@
       
         
       
-      <link rel="stylesheet" href="../assets/stylesheets/modern/main.ebb7f775.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.e2cf241e.min.css">
       
         
           
         
         <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
       
       
 
@@ -1568,6 +1572,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cbor-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CBOR columns
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#in-this-section" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2753,6 +2768,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cbor-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CBOR columns
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#in-this-section" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2962,6 +2988,10 @@ that values keep their column types instead of being squeezed into JSON's :</p>
 <td>arrays, maps</td>
 </tr>
 <tr>
+<td><a href="#cbor-columns">CBOR columns</a></td>
+<td>the stored CBOR item, as it is</td>
+</tr>
+<tr>
 <td>domains</td>
 <td>their base type</td>
 </tr>
@@ -2990,6 +3020,14 @@ reference whose number of values differs from its definition's are refused. The 
 read (tag <code>0xdffe</code> and tag 105) are not read.</p>
 <p>A <a href="well-known-queries/">well-known query</a> and a <a href="../http/requests-responses/#response-format">route</a> are negotiated
 the same way.</p>
+<h2 id="cbor-columns">CBOR columns<a class="headerlink" href="#cbor-columns" title="Permanent link">&para;</a></h2>
+<p>A column whose type is a domain named <code>cbor</code> over <code>bytea</code> (in any schema), or the <code>cbor</code> type of the <a href="https://github.com/ceymard/postcbor">postcbor</a> extension, or a domain over either, holds a CBOR value. Only a CBOR client reads or writes it : JSON cannot say everything CBOR can (byte strings, tags, non-text map keys), so rel does not translate.</p>
+<ul>
+<li><strong>Writing</strong> : from a request sent as <code>application/cbor</code>, the column receives the bytes of its value as the client wrote them, any CBOR item at all. <a href="#structures">Structures</a> are the one change : a structure inside the value is rewritten as the plain map it stands for, since stored structures would only make sense in the request that defined them. A byte string is stored as a byte string, not taken for an encoded document. A <code>null</code> or <code>undefined</code> as the whole value is SQL <code>NULL</code>. In an array of a CBOR type (<code>cbor[]</code>), each element is one CBOR item : an element that is itself an array is stored as that array, not taken for another dimension. A <code>bytea</code> domain keeps the bytes as they are ; postcbor reads and normalizes them its own way.</li>
+<li><strong>Reading</strong> : a CBOR response carries the stored item as it is, inside the rows like any other value. A stored value that is not exactly one well-formed CBOR item (a <code>bytea</code> domain written from SQL accepts any bytes) fails the response.</li>
+<li><strong>From JSON</strong> : a query whose JSON response would hold a CBOR column's value is refused before it runs, with <code>400</code> and the code <code>CBOR_COLUMN_NEEDS_CBOR</code>. This includes the default selection : <code>*</code> on a table with a CBOR column, from JSON, is refused, so select the other columns, or leave the CBOR ones out with an except-list (<code>["*~", ["payload"]]</code>). A cast is an explicit way out : <code>["::", [".", "payload"], "jsonb"]</code> reads a postcbor column as JSON, with what that cast loses. A JSON write whose selection holds a CBOR column is refused with the same code, even when its rows leave the column out : leave it out of the selection too. A filter or a sort on a CBOR column is not output and is not refused, but comparing CBOR values is not designed yet.</li>
+</ul>
+<p>The TypeScript type of a CBOR column is <code>unknown</code> unless it <a href="../typescript/#declared-types">declares one</a>, and <code>never</code> in a client generated with the <code>json</code> codec.</p>
 <h2 id="in-this-section">In this section<a class="headerlink" href="#in-this-section" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><a href="reference/">Query shape reference</a></strong> — every field and every <code>Expression</code> form, in one
@@ -3121,7 +3159,8 @@ the same way.</p>
       <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.3cb411a8.min.js"></script>
+      <script src="../assets/javascripts/bundle.9e76c64c.min.js"></script>
+      
       
     
   </body>

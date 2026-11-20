@@ -1,4 +1,6 @@
 
+
+
 <!doctype html>
 <html lang="en" class="no-js">
   <head>
@@ -14,6 +16,7 @@
       
       
       
+      
         <link rel="prev" href="../operators/">
       
       
@@ -24,7 +27,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.1.2">
+      <meta name="generator" content="zensical-0.1.3">
     
     
       
@@ -35,12 +38,13 @@
       
         
       
-      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.ebb7f775.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.e2cf241e.min.css">
       
         
           
         
         <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
       
       
 
@@ -2959,6 +2963,10 @@ its own declared parameters. Each entry in <code>params</code> can set:</p>
 <li><strong><code>default</code></strong> — omitted entirely means the param is required (<code>WELL_KNOWN_PARAM_REQUIRED</code> if
   the caller doesn't supply it); <code>default: null</code> means optional, defaulting to SQL <code>NULL</code>;
   any other <code>default</code> value is used as-is when the caller omits the param.</li>
+<li><strong><code>ts</code></strong> — the param's <a href="../../typescript/#declared-types">declared TypeScript type</a>, for the generated
+  client only : <code>ts: {type: "Settings", from: "./settings", comment: "..."}</code>. It applies to a <code>json</code>, <code>jsonb</code> or
+  <code>cbor</code> param, or one of a type rel does not know (a domain, say), the ones the client would type <code>unknown</code>. On
+  another param, or with an unknown field, it is logged and left out ; the query still loads.</li>
 </ul>
 <p>In a request sent as <code>application/cbor</code>, a param also takes the CBOR value of its type, passed on as the text a JSON caller would send : tag 1 or 0 for a <code>timestamptz</code> or <code>timestamp</code>, tag 100 for a <code>date</code>, tag 37 for a <code>uuid</code>, and a byte string (as <code>\x</code> and hex digits) for a type rel does not check, such as <code>bytea</code>. A date and time is written in the connection's time zone, so under a <code>timestamp</code> cast it is that zone's wall clock, as in a write's <code>data</code>. If rel cannot load that zone, a param declared <code>timestamp</code> is refused.</p>
 <p><code>type</code> only gates what's accepted at the door — it doesn't automatically become the SQL cast.
@@ -2967,6 +2975,7 @@ when left off. Write it explicitly at each usage site to get the SQL type you ac
 <code>["$param", "min_rating", "integer"]</code> compiles to a <code>$1::integer</code> placeholder; a bare
 <code>["$param", "min_rating"]</code> would compile to <code>$1::jsonb</code> instead, even though <code>type: integer</code>
 was declared above. Under a <code>json</code> or <code>jsonb</code> cast, the value is the JSON value itself : a string <code>"abc"</code> is the JSON string <code>"abc"</code>.</p>
+<p>A param whose <code>type</code> is a <a href="../#cbor-columns">CBOR column type</a> (<code>cbor</code>, or <code>schema.cbor</code> for a <code>bytea</code> domain) takes any CBOR item, from a CBOR request only : from JSON, a value other than <code>null</code> is <code>WELL_KNOWN_PARAM_TYPE_MISMATCH</code>. It binds the item's bytes, <a href="../#structures">structures</a> rewritten as plain maps, so it is used with a cbor cast, <code>["$param", "doc", "cbor"]</code> (compiled as <code>$1::bytea::cbor</code>), and only with one : a <code>cbor</code> param under another cast, or a cbor cast on a param of another type, deactivates the query at load. Its <code>default</code> can only be <code>null</code>.</p>
 <h2 id="calling-one-over-post-rel">Calling one over <code>POST /rel</code><a class="headerlink" href="#calling-one-over-post-rel" title="Permanent link">&para;</a></h2>
 <p>A well-known query occupies exactly the slot a plain <code>Relation</code> would, in either position: bare
 for a read, wrapped in <code>ComplexQuery.query</code> for a write.</p>
@@ -3112,7 +3121,8 @@ request</a> — both share the same transaction as anything else in the batch:</
       <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.3cb411a8.min.js"></script>
+      <script src="../../assets/javascripts/bundle.9e76c64c.min.js"></script>
+      
       
     
   </body>

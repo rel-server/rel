@@ -1,4 +1,6 @@
 
+
+
 <!doctype html>
 <html lang="en" class="no-js">
   <head>
@@ -14,6 +16,7 @@
       
       
       
+      
         <link rel="prev" href="../reference/">
       
       
@@ -24,7 +27,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.1.2">
+      <meta name="generator" content="zensical-0.1.3">
     
     
       
@@ -35,12 +38,13 @@
       
         
       
-      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.ebb7f775.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.e2cf241e.min.css">
       
         
           
         
         <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
       
       
 
@@ -2970,6 +2974,7 @@ never be declared there, from either source.</p>
   <code>HttpRequest</code> object below. A route needing nothing from the request may omit it entirely.</li>
 <li>The <strong>second</strong> argument may be <code>bytea</code> or <code>bytea[]</code>, enabling uploads directly in Postgres —
   see <a href="../uploads/">File uploads</a> for the full mismatch/sizing rules.</li>
+<li>The <strong>second</strong> argument may instead have a <a href="../../query-language/#cbor-columns">CBOR column type</a> (<code>cbor</code>, or a <code>cbor</code> domain over <code>bytea</code>) : it receives the whole body as one CBOR item, <a href="../../query-language/#structures">structures</a> rewritten as plain maps, and the route defaults to <code>POST</code>. The body must be <code>application/cbor</code> (or a <code>+cbor</code> suffix) : any other media type, JSON included, is a <code>415</code>, and CBOR rel cannot read a <code>400</code>. An empty body is <code>NULL</code>. An array of <code>cbor</code> is not accepted, and neither is a <code>cbor</code> argument on a <code>stream_upload</code> function (a part arrives as <code>bytea[]</code> and can be cast in the function).</li>
 <li>Any other argument must be named and typed <code>text</code>; it receives whatever the
   correspondingly-named <code>{placeholder}</code> in the path matched.</li>
 </ul>
@@ -2979,7 +2984,7 @@ never be declared there, from either source.</p>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">function</span><span class="w"> </span><span class="n">hotel</span><span class="p">.</span><span class="n">room</span><span class="p">(</span><span class="n">jsonb</span><span class="p">,</span><span class="w"> </span><span class="nb">text</span><span class="p">)</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'route:: path: "/hotel/rooms/{id}"'</span><span class="p">;</span>
 </span></code></pre></div>
 <p>Returning a single type replies <code>200</code> with a mimetype resolved structurally: <code>text</code> →
-<code>text/plain</code>, <code>json</code>/<code>jsonb</code> → <code>application/json</code>, <code>bytea</code> → <code>application/octet-stream</code>, and a
+<code>text/plain</code>, <code>json</code>/<code>jsonb</code> → <code>application/json</code>, <code>bytea</code> → <code>application/octet-stream</code>, a CBOR column type → <code>application/cbor</code> (the value's CBOR as Postgres produced it, whatever the <code>Accept</code> ; a <code>NULL</code> is CBOR's <code>null</code>, except as a full-control <code>content</code>, where it is no body), and a
 domain whose name contains <code>/</code> (over <code>bytea</code> or <code>text</code>) → that name as <code>Content-Type</code> — see
 <a href="../static-files/#returning-binary-or-text-content-directly">Static files ## Returning binary or text content
 directly</a>. Any other type that has a value
@@ -3029,7 +3034,8 @@ prefers it (<code>Accept: application/cbor</code>; <code>*/*</code> and no heade
   cheaper and richer than building a <code>jsonb</code> by hand.</li>
 <li>A full-control function : <code>status</code>, headers and cookies are as usual and only the content is converted. Its content
   is converted from JSON even when it has a native type.</li>
-<li><code>text</code>, <code>bytea</code> and mimetype-domain returns, templates, <code>static_file</code> and errors are never converted.</li>
+<li>A value holding a CBOR column type's (a composite with a <code>cbor</code> field, an array of <code>cbor</code>) has no JSON form : it is answered in CBOR whatever the <code>Accept</code>.</li>
+<li><code>text</code>, <code>bytea</code>, <code>cbor</code> and mimetype-domain returns, templates, <code>static_file</code> and errors are never converted.</li>
 </ul>
 <p>A JSON body that cannot be converted (a number with an exponent beyond 64 bits) is sent as JSON.</p>
 <h2 id="httprequest"><code>HttpRequest</code><a class="headerlink" href="#httprequest" title="Permanent link">&para;</a></h2>
@@ -3093,7 +3099,7 @@ prefers it (<code>Accept: application/cbor</code>; <code>*/*</code> and no heade
 </tr>
 </tbody>
 </table>
-<p>A route declaring a <code>bytea</code>/<code>bytea[]</code> second argument always gets <code>body: null</code> instead,
+<p>A route declaring a <code>bytea</code>/<code>bytea[]</code>/<code>cbor</code> second argument always gets <code>body: null</code> instead,
 regardless of <code>content_type</code> — the payload arrives exclusively through the dedicated
 argument(s), never duplicated into <code>body</code> as well. <code>parts</code> is always filled in for a
 multipart request, regardless of whether the route even declares <code>bytea[]</code> — a route that
@@ -3277,7 +3283,8 @@ templates</a> for the full mechanism.</p>
       <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.3cb411a8.min.js"></script>
+      <script src="../../assets/javascripts/bundle.9e76c64c.min.js"></script>
+      
       
     
   </body>

@@ -1,4 +1,6 @@
 
+
+
 <!doctype html>
 <html lang="en" class="no-js">
   <head>
@@ -14,6 +16,7 @@
       
       
       
+      
         <link rel="prev" href="../">
       
       
@@ -24,7 +27,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.1.2">
+      <meta name="generator" content="zensical-0.1.3">
     
     
       
@@ -35,12 +38,13 @@
       
         
       
-      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.ebb7f775.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.e2cf241e.min.css">
       
         
           
         
         <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
       
       
 
@@ -3237,7 +3241,7 @@ the binary itself, if you want it without leaving a terminal.</p>
 <td><code>http.max_body_size</code></td>
 <td><code>REL_HTTP__MAX_BODY_SIZE</code></td>
 <td>10 MiB</td>
-<td>Hard cap on a <code>/rel</code> POST body and on a declared route request's entire body (multipart envelope included). Rejected with <code>413</code> before any of it is buffered.</td>
+<td>Hard cap on a <code>/rel</code> POST body and on a declared route request's entire body (multipart envelope included), counted once decoded when the body is compressed. Rejected with <code>413</code> before any of it is buffered.</td>
 </tr>
 <tr>
 <td><code>http.max_part_count</code></td>
@@ -3737,6 +3741,12 @@ contract, worked examples); this is the exhaustive key list.</p>
 <td>every schema but <code>pg_catalog</code></td>
 <td>Comma-separated whitelist of schemas <code>GET /rel/database.ts</code> may export; intersected with that request's own <code>?schemas=</code> param.</td>
 </tr>
+<tr>
+<td><code>typescript.types.&lt;schema&gt;.&lt;table&gt;.&lt;column&gt;</code></td>
+<td><code>REL_TYPESCRIPT__TYPES__&lt;SCHEMA&gt;__&lt;TABLE&gt;__&lt;COLUMN&gt;</code></td>
+<td>none</td>
+<td>A column's <a href="../../typescript/#declared-types">declared TypeScript type</a> : a string (the type), or an object of <code>type</code>, <code>from</code> and <code>comment</code>. The key can also be one quoted <code>"schema.table.column"</code>. Wins over the column's <code>column::</code> comment, with a warning.</td>
+</tr>
 </tbody>
 </table>
 
@@ -3846,7 +3856,8 @@ contract, worked examples); this is the exhaustive key list.</p>
       <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.3cb411a8.min.js"></script>
+      <script src="../../assets/javascripts/bundle.9e76c64c.min.js"></script>
+      
       
     
   </body>

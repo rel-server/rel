@@ -1,4 +1,6 @@
 
+
+
 <!doctype html>
 <html lang="en" class="no-js">
   <head>
@@ -14,6 +16,7 @@
       
       
       
+      
         <link rel="prev" href="../http/authentication/">
       
       
@@ -24,7 +27,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="zensical-0.1.2">
+      <meta name="generator" content="zensical-0.1.3">
     
     
       
@@ -35,12 +38,13 @@
       
         
       
-      <link rel="stylesheet" href="../assets/stylesheets/modern/main.ebb7f775.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.e2cf241e.min.css">
       
         
           
         
         <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
       
       
 
@@ -2397,6 +2401,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#compressed-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compressed requests
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2541,6 +2556,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Table-local id types
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declared-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Declared types
       </span>
     </span>
   </a>
@@ -2958,6 +2984,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#compressed-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compressed requests
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3102,6 +3139,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Table-local id types
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declared-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Declared types
       </span>
     </span>
   </a>
@@ -3309,6 +3357,8 @@ lives elsewhere, set <code>baseUrl</code> (default <code>"/"</code>; a trailing 
 </span></code></pre></div>
 <p>A browser calling a server on another origin needs that server to allow it
 (<a href="../http/cors-csp/">CORS</a>); requests are sent with <code>credentials: "include"</code>.</p>
+<h3 id="compressed-requests">Compressed requests<a class="headerlink" href="#compressed-requests" title="Permanent link">&para;</a></h3>
+<p>A request body longer than <code>compressAbove</code> (default 1024: bytes with <code>cbor</code>, characters with JSON) is gzipped with the runtime's <code>CompressionStream</code> and sent with <code>Content-Encoding: gzip</code>, which the server decodes. Like <code>baseUrl</code>, it is set on <code>Querier.prototype</code> or on one query; <code>Infinity</code> never compresses. A runtime without <code>CompressionStream</code> sends every body as it is. A proxy between the client and rel must pass <code>Content-Encoding</code> through, as proxies do by default.</p>
 <h2 id="building-a-query">Building a query<a class="headerlink" href="#building-a-query" title="Permanent link">&para;</a></h2>
 <p><code>database.ts</code> exports <code>relation()</code>, <code>func()</code>, and <code>wellknown()</code> — thin builders that return a
 <code>Querier</code>, typed against your actual schema:</p>
@@ -3414,7 +3464,7 @@ map's own rename too: <code>select: { display_name: ["col", "name"] }</code> sti
 <p><code>wellknown()</code> builds a call to a registered <a href="../query-language/well-known-queries/">well-known query</a> instead
 of an ad hoc relation — same <code>Querier</code>, but its params and result shape come from the query's
 own registered definition rather than from what you pass to <code>relation()</code>.
-A param declared <code>int8</code>/<code>bigint</code>, <code>numeric</code>, <code>timestamptz</code>, <code>timestamp</code>, <code>date</code> or <code>bytea</code> takes the value a column of that type reads as with your <a href="#codecs">codec</a> : a <code>Date</code> for a <code>timestamptz</code> with <code>cbor</code>, a <code>Uint8Array</code> for a <code>bytea</code>, text with <code>json</code>. Other declared types take a <code>number</code>, <code>string</code> or <code>boolean</code>.</p>
+A param declared <code>int8</code>/<code>bigint</code>, <code>numeric</code>, <code>timestamptz</code>, <code>timestamp</code>, <code>date</code> or <code>bytea</code> takes the value a column of that type reads as with your <a href="#codecs">codec</a> : a <code>Date</code> for a <code>timestamptz</code> with <code>cbor</code>, a <code>Uint8Array</code> for a <code>bytea</code>, text with <code>json</code>. Other declared types take a <code>number</code>, <code>string</code> or <code>boolean</code>. A <code>json</code>, <code>jsonb</code> or <code>cbor</code> param takes <code>unknown</code>, or its <a href="#declared-types">declared type</a>; with the <code>json</code> codec a <code>cbor</code> param is <code>never</code>, since only a CBOR request can carry its value.</p>
 <h3 id="naming-a-rows-type">Naming a row's type<a class="headerlink" href="#naming-a-rows-type" title="Permanent link">&para;</a></h3>
 <p>To name the type of a row — say, as a function parameter's type elsewhere in your code — every
 <code>Querier</code> carries two type-only properties, read with <code>typeof</code>:</p>
@@ -3818,12 +3868,64 @@ matched column by column, and a chain of foreign keys is followed to its end.</p
 <li>Function arguments and function results keep the plain <code>number</code>/<code>Int8</code>: they accept an id but don't produce one.</li>
 <li>Nothing changes at runtime. The id type only exists in the type checker, so <code>1 as PropertyId</code> is free.</li>
 </ul>
+<h3 id="declared-types">Declared types<a class="headerlink" href="#declared-types" title="Permanent link">&para;</a></h3>
+<p>A <code>json</code>, <code>jsonb</code> or <a href="../query-language/#cbor-columns">CBOR</a> column is typed <code>unknown</code>: Postgres doesn't know what it holds. You can tell the client in the column's comment:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">column</span><span class="w"> </span><span class="n">app</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">prefs</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'column:: type: "{ theme: string; compact: boolean }", comment: "display preferences"'</span><span class="p">;</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">column</span><span class="w"> </span><span class="n">app</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">settings</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'column:: type: "Settings", from: "./settings"'</span><span class="p">;</span>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="k">comment</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="k">column</span><span class="w"> </span><span class="n">app</span><span class="p">.</span><span class="n">users</span><span class="p">.</span><span class="n">tags</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="s1">'column: {"type": "string[]"}'</span><span class="p">;</span>
+</span></code></pre></div>
+<p>The comment is HUML after <code>column::</code>, or a JSON object after <code>column:</code>, as in a <a href="../http/reference/">route declaration</a>. Its fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code></td>
+<td>A TypeScript type, written into <code>database.ts</code> as is. It is the whole column's type, so a <code>jsonb[]</code> column is declared <code>Foo[]</code>. rel adds <code>\| null</code> to a nullable column.</td>
+</tr>
+<tr>
+<td><code>from</code></td>
+<td>A module <code>type</code> is imported from: <code>type</code> must then be a single name that module exports (<code>import type { Settings } from "./settings"</code>). The path is written as is, so a relative one is relative to where <code>database.ts</code> lands (<code>typescript.helper_path</code>, <code>--typescript-out</code>, or wherever you save the endpoint's output).</td>
+</tr>
+<tr>
+<td><code>comment</code></td>
+<td>The <code>/** */</code> text the column gets in place of its comment.</td>
+</tr>
+</tbody>
+</table>
+<p>The same goes for:</p>
+<ul>
+<li>a domain over <code>json</code>, <code>jsonb</code> or CBOR, with <code>type::</code> : <code>comment on domain app.settings is 'type:: type: "Settings", from: "./settings"'</code>. Every column, function argument and result of that domain gets the type, and a column's own declaration wins over its domain's. An enum or composite type takes a <code>type::</code> comment with only <code>comment</code>.</li>
+<li>a table or view, with <code>table::</code>, which only takes <code>comment</code>.</li>
+<li>a well-known query's param, with a <code>ts</code> object next to its <code>type</code>: see <a href="../query-language/well-known-queries/">Well-known queries</a>. A selected column keeps its declared type in a well-known query's rows, as in any other query.</li>
+<li>the <code>typescript.types</code> configuration, keyed by <code>schema.table.column</code> (a table or a composite type): a string is the type, an object takes <code>type</code>, <code>from</code> and <code>comment</code>. It wins over the column's comment, field by field, with a warning in the log.</li>
+</ul>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">[typescript.types]</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="s2">"app.users.prefs"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"{ theme: string }"</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="k">[typescript.types.app.users.settings]</span>
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Settings"</span>
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="n">from</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"./settings"</span>
+</span></code></pre></div>
+<ul>
+<li>A comment without the prefix stays plain doc text. A prefixed comment that does not parse, has an unknown field, a line break in <code>type</code> or <code>from</code>, or a <code>from</code> whose <code>type</code> is not a single name, is left out entirely and logged, at startup and on every reload (and by <code>--typescript-out</code>). So is a <code>type</code> on a column, domain or param that isn't <code>json</code>, <code>jsonb</code> or CBOR, and a <code>typescript.types</code> key that names no column; their <code>comment</code> still applies.</li>
+<li>rel never checks a value against its declared type, neither reading nor writing. To have Postgres enforce one, add a <code>CHECK</code> constraint, for instance with <a href="https://github.com/supabase/pg_jsonschema"><code>pg_jsonschema</code></a>'s <code>jsonb_matches_schema</code>.</li>
+<li>rel doesn't check the TypeScript either: a broken <code>type</code> breaks the compilation of <code>database.ts</code>, not rel.</li>
+<li>Two imported names that are the same, or the same as a name <code>database.ts</code> already uses, are aliased: the second <code>Settings</code> is imported <code>as Settings__2</code>.</li>
+<li>A configured key can't name a table or column that holds a dot.</li>
+<li>A view column that passes a column through unchanged (the same columns <a href="#table-local-id-types">table-local ids</a> follow, through a view over a view too) takes that column's declared type and comment, each one it doesn't declare itself: Postgres doesn't copy comments to a view. An expression (<code>meta || '{}'</code>) takes nothing.</li>
+<li>With the <code>json</code> <a href="#codecs">codec</a>, a CBOR column is <code>never</code>, whatever it declares, nullable or not: the server refuses to send or receive its value in JSON. Writing a value into it fails to compile. Selecting it doesn't: the column is missing from the row type of a <code>select</code> that names it, and <code>never</code> in the default selection's; the server answers either query with <code>CBOR_COLUMN_NEEDS_CBOR</code>. A function argument, result or composite field of a CBOR type is <code>never</code> too.</li>
+</ul>
 <h2 id="calling-a-function-directly">Calling a function directly<a class="headerlink" href="#calling-a-function-directly" title="Permanent link">&para;</a></h2>
 <p><code>func()</code> builds a <code>Querier</code> you can still shape with <code>select</code>/<code>join</code>/<code>where</code>, the same as <code>relation()</code>. When you
 just want to call a function and get its result back — no select, no join — use <code>call()</code> instead:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">call</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
-</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">call</span><span class="p">(</span><span class="s2">"hotel.rooms_available"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">property_id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="w"> </span><span class="p">})</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">call</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">call</span><span class="p">(</span><span class="s2">"hotel.rooms_available"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">property_id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="w"> </span><span class="p">})</span>
 </span></code></pre></div>
 <p><code>call()</code> takes the function's arguments — either the named object shown above or the equivalent positional
 tuple (<code>call("hotel.rooms_available", [1])</code>) — checked against exactly what the function declares, and resolves
@@ -3941,19 +4043,19 @@ changing the type of every <code>int4</code> and <code>float8</code> too. When a
 <h3 id="changing-how-a-value-is-read-or-written">Changing how a value is read or written<a class="headerlink" href="#changing-how-a-value-is-read-or-written" title="Permanent link">&para;</a></h3>
 <p>Every query writes its request and reads its response through <code>Querier.prototype.codec</code>; assign it once, or per query like
 <code>baseUrl</code> (a per-query codec must yield the same kinds of value the generated types say):</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span>
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>
-</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ledger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.ledgers"</span><span class="p">)</span>
-</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="nx">ledger</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span><span class="w">   </span><span class="c1">// only this query</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ledger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.ledgers"</span><span class="p">)</span>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="nx">ledger</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span><span class="w">   </span><span class="c1">// only this query</span>
 </span></code></pre></div>
 <p>A codec is an object of this shape:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Codec</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">  </span><span class="nx">contentType?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                              </span><span class="c1">// sent as Content-Type and Accept ; left out, neither is sent</span>
-</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">  </span><span class="nx">accept?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                                   </span><span class="c1">// sent as Accept instead of contentType</span>
-</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">  </span><span class="nx">binary?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">                                  </span><span class="c1">// decode() takes the response bytes, not its text</span>
-</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">  </span><span class="nx">encode</span><span class="p">(</span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">,</span><span class="w"> </span><span class="nx">options</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">structures?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span>
-</span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="w">  </span><span class="nx">decode</span><span class="p">(</span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span>
-</span><span id="__span-25-7"><a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="p">}</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Codec</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="w">  </span><span class="nx">contentType?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                              </span><span class="c1">// sent as Content-Type and Accept ; left out, neither is sent</span>
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="w">  </span><span class="nx">accept?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                                   </span><span class="c1">// sent as Accept instead of contentType</span>
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="w">  </span><span class="nx">binary?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">                                  </span><span class="c1">// decode() takes the response bytes, not its text</span>
+</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="w">  </span><span class="nx">encode</span><span class="p">(</span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">,</span><span class="w"> </span><span class="nx">options</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">structures?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span>
+</span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="w">  </span><span class="nx">decode</span><span class="p">(</span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span>
+</span><span id="__span-27-7"><a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>A failed request (status 400 or more) is always JSON text, whatever was asked, and never reaches <code>decode</code>: it becomes a
 <code>RelRequestError</code> whose <code>body</code> is that text.</p>
@@ -4106,7 +4208,8 @@ re-fetch step.</p>
       <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.action.edit","content.code.annotate","content.code.copy","content.code.select","navigation.footer","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.path","navigation.sections","navigation.tabs","navigation.top","navigation.tracking","search.highlight"],"redirect":null,"search":"../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.3cb411a8.min.js"></script>
+      <script src="../assets/javascripts/bundle.9e76c64c.min.js"></script>
+      
       
     
   </body>
