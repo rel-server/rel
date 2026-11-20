@@ -3001,7 +3001,7 @@ that values keep their column types instead of being squeezed into JSON's :</p>
 </tr>
 </tbody>
 </table>
-<p>rel converts such a value when it knows its type before running the query : a column, a column of a to-one join reached through <code>.</code>, a composite sub-field, an <code>index</code> or <code>slice</code> of one of these, a <code>coalesce</code> of them, or the call of a function or computed field returning one value of a declared type. Any other expression producing one (an operator, a cast, a function returning <code>anyelement</code>) fails the request with a <code>500</code> : cast it to <code>text</code>.</p>
+<p>rel converts such a value when it knows its type before running the query : a column, a column of a to-one join reached through <code>.</code>, a composite sub-field, an <code>index</code> or <code>slice</code> of one of these, a <code>coalesce</code> of them, or the call of a function or computed field returning one value of a declared type. Any other expression producing one (an operator, a cast, a function returning <code>anyelement</code>) fails the request with a <code>500</code> : cast it to <code>text</code>. The conversion happens after <code>distinct</code>, so <code>distinct</code> and <code>order_by</code> see the column's own values, as in JSON : two citext values differing only by case are one row.</p>
 <p>Rows stream as they are read, like the JSON ones. If the query fails before the first row the answer is a JSON error ;
 after it, the body just stops.</p>
 <h3 id="structures">Structures<a class="headerlink" href="#structures" title="Permanent link">&para;</a></h3>
