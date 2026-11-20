@@ -205,3 +205,9 @@ comment on column decl.doc.configured is 'column:: type: "number"';
 comment on column decl.doc.n is 'column:: type: "string", comment: "a count"';
 comment on column decl.doc.broken is 'column:: type: "X", tipe: "Y"';
 comment on column decl.doc.plain is 'ends */ early';
+
+-- A view's pass-through columns take the declarations of what they pass through, a view over it too ; its own win.
+create view decl.doc_view as select id, meta, body, n, plain, meta || '{}' as meta_expr from decl.doc;
+comment on column decl.doc_view.meta is 'own doc';
+create view decl.doc_view2 as select meta, body from decl.doc_view;
+comment on column decl.doc_view2.body is 'column:: type: "string"';

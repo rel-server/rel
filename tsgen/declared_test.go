@@ -75,6 +75,8 @@ func TestGenerateSchema_DeclaredTypes(t *testing.T) {
 		"  broken: unknown | null\n",
 		"  /** ends *\\/ early */\n  plain: unknown | null\n",
 		"params: { /** the settings */ s: Settings__2 }",
+		"interface View__Decl__DocView {\n  id: number | null\n  /** own doc */\n  meta: ({ a: number }) | null\n  body: Body | null\n  /** a count */\n  n: number | null\n  /** ends *\\/ early */\n  plain: unknown | null\n  meta_expr: unknown | null\n}",
+		"interface View__Decl__DocView2 {\n  /** own doc */\n  meta: ({ a: number }) | null\n  body: string | null\n}",
 		"params: { /** the id */ id: number; m: unknown }",
 	} {
 		if !strings.Contains(out, want) {

@@ -18,8 +18,26 @@ import (
 // declSource resolves declarations against the configured typescript.types.
 type declSource struct{ config map[string]config.TypeDecl }
 
-// column is c's declaration, and the warnings it raises ; r is the relation or composite type c belongs to.
+// column is c's declaration, and the warnings it raises ; r is the relation or composite type c belongs to. A view
+// column passing another column through takes from it, field by field, what it does not declare itself : Postgres
+// does not copy comments to a view. Only c's own warnings are returned, its source's are its source's.
 func (s declSource) column(r *pg.Relation, c *pg.Column) (declcomment.TypeDecl, []string) {
+	d, warnings := s.own(r, c)
+	for depth := 0; c.Source != nil && c.SourceRelation != nil && (d.Type == "" || d.Comment == "") && depth < 16; depth++ {
+		r, c = c.SourceRelation, c.Source
+		src, _ := s.own(r, c)
+		if d.Type == "" {
+			d.Type, d.From = src.Type, src.From
+		}
+		if d.Comment == "" {
+			d.Comment = src.Comment
+		}
+	}
+	return d, warnings
+}
+
+// own is c's own declaration : its comment and its typescript.types entry.
+func (s declSource) own(r *pg.Relation, c *pg.Column) (declcomment.TypeDecl, []string) {
 	where := "column " + relationKey(r.Identifier.Schema, r.Identifier.Name) + "." + c.Name
 	d, warnings := parseDecl(c.Comment, "column", where)
 	if entry, ok := s.config[relationKey(r.Identifier.Schema, r.Identifier.Name)+"."+c.Name]; ok {

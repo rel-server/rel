@@ -29,7 +29,7 @@ Decisions are in `docs/adr/0012` to `0014`. This is what to build.
 
 - Done : a comment prefixed by its object kind is HUML (or JSON after `:` and `{`), as `route::` is (`declcomment.Extract`, shared with routes) : `column::`, `table::`, `type::`. Without a prefix, a comment stays plain doc text.
 - Done : fields `comment` (the `/** */` text), `type` (any TS type expression, emitted as written, the whole column's type), `from` (optional : `type` is then a name imported from that module, aliased `Name__2` when it collides with another import or any name the file uses). `table::` has only `comment` ; `type::` takes a type on a domain only.
-- Done : applies to `json`, `jsonb` and `cbor` columns and domains over them ; undeclared stays as today (`unknown` for `cbor`). A column's declaration wins over its domain's.
+- Done : applies to `json`, `jsonb` and `cbor` columns and domains over them ; undeclared stays as today (`unknown` for `cbor`). A column's declaration wins over its domain's. A view's pass-through column (`Column.Source`) takes, field by field, what it does not declare from its source.
 - Done : config `typescript.types.<schema>.<table>.<column>` (nested, or one quoted dotted key) wins over a comment, field by field, with a warning. A key naming no column is a warning.
 - Done : a well-known param's `ts` object, on a json, jsonb or cbor param or one of a type rel does not know. Result fields need nothing : a selected column keeps its declared type through `shapes.ts`.
 - Done : `database.json` carries `ts_type`, `ts_from` and the parsed `comment`.

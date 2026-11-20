@@ -23,6 +23,8 @@ type Column struct {
 	// Source is the column a view column is a plain pass-through of, one hop (a view over a view points at the
 	// inner view's column). nil for a table column or an expression. Filled by FillViewProvenance.
 	Source *Column `json:"-"`
+	// SourceRelation is the relation Source belongs to.
+	SourceRelation *Relation `json:"-"`
 
 	PgTypeOid int
 

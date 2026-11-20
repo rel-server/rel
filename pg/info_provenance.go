@@ -49,6 +49,7 @@ func FillViewProvenance(db *DbInfos, conn *pgx.Conn) {
 			for _, c := range src.Columns {
 				if c.Index == int(f.TableAttributeNumber) {
 					view.Columns[i].Source = c
+					view.Columns[i].SourceRelation = src
 					break
 				}
 			}
