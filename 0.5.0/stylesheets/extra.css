@@ -1,0 +1,21 @@
+/*
+  The ToC ("On this page") is nested into the primary nav sidebar by
+  overrides/main.html instead of getting its own secondary column; this is
+  the separator between the page-nav list and the ToC list underneath it.
+*/
+.md-nav__toc-separator {
+  margin: 0.8rem 0.6rem;
+  border: none;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/*
+  Theme default is word-break: break-word on inline text elements, which
+  breaks words mid-character rather than only at existing hyphens/spaces.
+*/
+.md-typeset a,
+.md-typeset code,
+.md-typeset kbd,
+.md-typeset mark {
+  word-break: keep-all;
+}
