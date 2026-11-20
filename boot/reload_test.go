@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -54,51 +55,7 @@ func TestReloader_Reload_EndToEnd_Dmut(t *testing.T) {
 // that creates fn_created_by_migration, then reloads and checks the route.
 func reloadEndToEnd(t *testing.T, configure func(cfg *config.Config, uri string)) {
 	ctx := context.Background()
-
-	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
-	if err != nil {
-		t.Fatalf("starting postgres container: %v", err)
-	}
-	defer func() { _ = container.Terminate(ctx) }()
-
-	uri, err := container.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
-
-	// Base schema set up directly, outside reload.cmd : a fixed precondition,
-	// not part of what this test is migrating.
-	setupPool, err := pg.NewInfos(uri)
-	if err != nil {
-		t.Fatalf("pg.NewInfos: %v", err)
-	}
-	if _, err := setupPool.Pool.Exec(ctx, `create role "~anonymous";`); err != nil {
-		t.Fatalf("base schema setup: %v", err)
-	}
-	setupPool.Pool.Close()
-
-	cfg := config.Test()
-	cfg.Pg.Query.AnonymousRole = "~anonymous"
-	cfg.Pg.URI, cfg.Pg.User, cfg.Pg.Password = uri, "postgres", "postgres"
-	configure(cfg, uri)
-	cfg.Reload.Timeout = 30
-	cfg.Reload.DrainTimeout = 5
-
-	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
-	if err != nil {
-		t.Fatalf("pg.NewInfosAdminQuery: %v", err)
-	}
-
-	reg, err := route.BuildRegistry(db, cfg)
-	if err != nil {
-		t.Fatalf("route.BuildRegistry: %v", err)
-	}
-
-	mux := chi.NewRouter()
-	mux.Handle("/rel", server.NewRelHandler(db, cfg, nil))
-	route.RegisterRoutes(mux, db, cfg, reg, nil, nil)
-
-	wrapper := NewReloadableHandler(mux)
+	wrapper, reloader, db := startReloadable(t, "", configure)
 
 	// Before the reload : the migration's route function doesn't exist yet.
 	reqBefore := httptest.NewRequest("GET", "/created", nil)
@@ -108,8 +65,6 @@ func reloadEndToEnd(t *testing.T, configure func(cfg *config.Config, uri string)
 		t.Fatalf("expected 404 before the reload, got %d (body %q)", recBefore.Code, recBefore.Body.String())
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	reloader := NewReloader(wrapper, db, uri, cfg, logger)
 	reloader.Reload(ctx)
 
 	// Registry rebuild picked up the migration's new function.
@@ -126,4 +81,92 @@ func reloadEndToEnd(t *testing.T, configure func(cfg *config.Config, uri string)
 	if reloader.CurrentDbInfos().Pool != db.Pool {
 		t.Errorf("expected the reloaded DbInfos to reuse the exact same pool")
 	}
+}
+
+// A write leaves a temp table typed like its relation on the pooled connection. A reload closes the pooled
+// connections before reload.cmd runs, so dropping the column's type does not fail on it, and a write afterwards
+// gets a temp table of the new type.
+func TestReloader_Reload_DropsTypeATempTableUses(t *testing.T) {
+	ctx := context.Background()
+	wrapper, reloader, _ := startReloadable(t, `
+		create type mood as enum ('calm', 'glad');
+		create table mood_t (id int primary key, m mood not null);
+		grant all on mood_t to "~anonymous";`,
+		func(cfg *config.Config, uri string) {
+			cfg.Reload.Cmd = fmt.Sprintf("psql %q -v ON_ERROR_STOP=1 -f testdata/reload_type_fixture.sql", uri)
+		})
+
+	write := func(id int, mood string) *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{"query": {"relation": "mood_t", "schema": "public", "write_mode": "insert", "select": ["*~"]}, "data": [{"id": %d, "m": %q}]}`, id, mood)
+		req := httptest.NewRequest(http.MethodPost, "/rel", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		wrapper.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := write(1, "calm"); rec.Code != http.StatusOK {
+		t.Fatalf("write before the reload : %d %s", rec.Code, rec.Body.String())
+	}
+
+	reloader.Reload(ctx)
+
+	// "tense" only exists in the type reload.cmd created : the write proves reload.cmd ran and the schema was reread.
+	if rec := write(2, "tense"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"tense"`) {
+		t.Fatalf("write after the reload : %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// startReloadable starts Postgres with the "~anonymous" role and setupSQL, lets configure set up the reload step,
+// and returns the served handler, its Reloader and the DbInfos it starts with.
+func startReloadable(t *testing.T, setupSQL string, configure func(cfg *config.Config, uri string)) (*ReloadableHandler, *Reloader, *pg.DbInfos) {
+	t.Helper()
+	ctx := context.Background()
+
+	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.BasicWaitStrategies())
+	if err != nil {
+		t.Fatalf("starting postgres container: %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	uri, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("connection string: %v", err)
+	}
+
+	// Base schema set up directly, outside reload.cmd : a fixed precondition,
+	// not part of what this test is migrating.
+	setupPool, err := pg.NewInfos(uri)
+	if err != nil {
+		t.Fatalf("pg.NewInfos: %v", err)
+	}
+	if _, err := setupPool.Pool.Exec(ctx, `create role "~anonymous";`+setupSQL); err != nil {
+		t.Fatalf("base schema setup: %v", err)
+	}
+	setupPool.Pool.Close()
+
+	cfg := config.Test()
+	cfg.Pg.Query.AnonymousRole = "~anonymous"
+	cfg.Pg.URI, cfg.Pg.User, cfg.Pg.Password = uri, "postgres", "postgres"
+	configure(cfg, uri)
+	cfg.Reload.Timeout = 30
+	cfg.Reload.DrainTimeout = 5
+
+	db, err := pg.NewInfosAdminQuery(uri, uri, 0, cfg.Pg.Query.AnonymousRole)
+	if err != nil {
+		t.Fatalf("pg.NewInfosAdminQuery: %v", err)
+	}
+	t.Cleanup(db.Pool.Close)
+
+	reg, err := route.BuildRegistry(db, cfg)
+	if err != nil {
+		t.Fatalf("route.BuildRegistry: %v", err)
+	}
+
+	mux := chi.NewRouter()
+	mux.Handle("/rel", server.NewRelHandler(db, cfg, nil))
+	route.RegisterRoutes(mux, db, cfg, reg, nil, nil)
+
+	wrapper := NewReloadableHandler(mux)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return wrapper, NewReloader(wrapper, db, uri, cfg, logger), db
 }

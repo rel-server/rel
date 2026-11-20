@@ -22,6 +22,8 @@ New requests get `503` for as long as a `SIGUSR1` reload is in flight; in-flight
 to `reload.drain_timeout` (default 30s) to finish before rel cancels their context outright, so
 a straggler can't hold a Postgres lock indefinitely against `reload.cmd`'s own DDL.
 
+Once requests are drained, rel closes every connection of its pool before the dmut step and `reload.cmd` run (a request still running past the drain timeout has its connection closed when it ends). A write leaves temporary tables typed like the tables it writes on its connection : closing them lets the migration drop or change a type, or an extension, those tables used, and the next write builds its temporary tables from the new schema. The first requests after a reload open new connections.
+
 `reload.cmd` empty (the default) skips this step entirely — rel still reintrospects and rebuilds
 its registries, it just runs nothing beforehand.
 

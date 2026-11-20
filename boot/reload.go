@@ -55,7 +55,7 @@ func (rl *Reloader) CurrentDbInfos() *pg.DbInfos {
 	return rl.db
 }
 
-// Reload enters maintenance, drains in-flight requests, runs reload.cmd, reintrospects, builds a new snapshot and
+// Reload enters maintenance, drains in-flight requests, closes the pooled connections, runs reload.cmd, reintrospects, builds a new snapshot and
 // swaps it in. A reload.cmd failure only skips reintrospection : the snapshot is still rebuilt against the old
 // schema. Any other failure logs and keeps serving the old snapshot. Maintenance always ends.
 func (rl *Reloader) Reload(ctx context.Context) {
@@ -70,6 +70,11 @@ func (rl *Reloader) Reload(ctx context.Context) {
 	rl.mu.Unlock()
 
 	db := oldDb
+
+	// A pooled connection keeps the temp tables writes create, typed like their relations : they would block reload.cmd
+	// from dropping a type they use, and keep an old layout afterwards. A connection still checked out past the drain is
+	// closed when released.
+	oldDb.Pool.Reset()
 
 	if _, err := reloadcmd.Run(ctx, rl.Cfg, slog.Default()); err != nil {
 		rl.Logger.Error("reload: reload.cmd or dmut failed, skipping schema reintrospection", reloadcmd.ErrorAttrs(err)...)
