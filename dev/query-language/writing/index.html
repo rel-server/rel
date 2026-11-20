@@ -3221,11 +3221,14 @@ that does not read as the type).</p>
 <td><a href="../#cbor-columns">CBOR columns</a></td>
 <td>any CBOR item, stored as written, structures rewritten as maps. Only from a CBOR request.</td>
 </tr>
+<tr>
+<td>any other type</td>
+<td>as in the table above, a byte string reading as <code>\x</code> and hex digits, tag 37 as a hyphenated UUID, tag 1 as an ISO 8601 UTC time, tag 100 as a date, numbers as plain decimal digits.</td>
+</tr>
 </tbody>
 </table>
-<p>A map member whose value is <code>undefined</code> is absent, as JSON drops such a member : a row's column or <a href="#joins-a-row-leaves-out">join key</a>, a composite field, a member of a <code>json</code> value. Anywhere else <code>undefined</code> is <code>null</code>. A CBOR column stores it as written.
-| any other type | as in the table above, a byte string reading as <code>\x</code> and hex digits, tag 37 as a hyphenated UUID, tag 1 as an ISO 8601 UTC time, tag 100 as a date, numbers as plain decimal digits. |</p>
 <p>Any other tag is refused, and a byte string for a column that does not take one.</p>
+<p>A map member whose value is <code>undefined</code> is absent, as JSON drops such a member : a row's column or <a href="#joins-a-row-leaves-out">join key</a>, a composite field, a member of a <code>json</code> value. Anywhere else <code>undefined</code> is <code>null</code>. A CBOR column stores it as written.</p>
 <p>For <code>timestamp</code> and <code>timestamptz</code> strings:</p>
 <ul>
 <li>At most 6 fractional digits, and <code>24:00:00</code> is the start of the next day.</li>

@@ -2996,11 +2996,12 @@ that values keep their column types instead of being squeezed into JSON's :</p>
 <td>their base type</td>
 </tr>
 <tr>
-<td>anything else (<code>interval</code>, <code>inet</code>, ranges, geometry...)</td>
-<td>what the JSON response gives for it (a <code>tsrange</code> keeps its wall-clock text, and so does a time inside a <code>jsonb</code>)</td>
+<td>anything else (<code>interval</code>, <code>inet</code>, ranges, geometry, extension types such as <code>ltree</code> or <code>citext</code>...)</td>
+<td>what the JSON response gives for it : the text Postgres writes for the type, or the value of its JSON cast when it has one (<code>hstore</code> is a map). An array of such a type is an array of those values, <code>{}</code> an empty array. A composite holding such a field is answered whole as its JSON form, its other fields included. A <code>tsrange</code> keeps its wall-clock text, and so does a time inside a <code>jsonb</code></td>
 </tr>
 </tbody>
 </table>
+<p>rel converts such a value when it knows its type before running the query : a column, a column of a to-one join reached through <code>.</code>, a composite sub-field, an <code>index</code> or <code>slice</code> of one of these, a <code>coalesce</code> of them, or the call of a function or computed field returning one value of a declared type. Any other expression producing one (an operator, a cast, a function returning <code>anyelement</code>) fails the request with a <code>500</code> : cast it to <code>text</code>.</p>
 <p>Rows stream as they are read, like the JSON ones. If the query fails before the first row the answer is a JSON error ;
 after it, the body just stops.</p>
 <h3 id="structures">Structures<a class="headerlink" href="#structures" title="Permanent link">&para;</a></h3>

@@ -2886,6 +2886,7 @@ command : see <a href="../dmut/">Migrations (dmut)</a>. It runs first, then <cod
 <p>New requests get <code>503</code> for as long as a <code>SIGUSR1</code> reload is in flight; in-flight requests get up
 to <code>reload.drain_timeout</code> (default 30s) to finish before rel cancels their context outright, so
 a straggler can't hold a Postgres lock indefinitely against <code>reload.cmd</code>'s own DDL.</p>
+<p>Once requests are drained, rel closes every connection of its pool before the dmut step and <code>reload.cmd</code> run (a request still running past the drain timeout has its connection closed when it ends). A write leaves temporary tables typed like the tables it writes on its connection : closing them lets the migration drop or change a type, or an extension, those tables used, and the next write builds its temporary tables from the new schema. The first requests after a reload open new connections.</p>
 <p><code>reload.cmd</code> empty (the default) skips this step entirely — rel still reintrospects and rebuilds
 its registries, it just runs nothing beforehand.</p>
 <p>A reload that fails to build its new routes and queries leaves rel serving what it served before, and resumes normal service. <code>typescript.helper_path</code> is rewritten only once the new routes and queries are the ones being served, so a failed reload leaves that file as it was.</p>
