@@ -49,7 +49,9 @@ that values keep their column types instead of being squeezed into JSON's :
 | arrays, composite types | arrays, maps |
 | [CBOR columns](#cbor-columns) | the stored CBOR item, as it is |
 | domains | their base type |
-| anything else (`interval`, `inet`, ranges, geometry...) | what the JSON response gives for it (a `tsrange` keeps its wall-clock text, and so does a time inside a `jsonb`) |
+| anything else (`interval`, `inet`, ranges, geometry, extension types such as `ltree` or `citext`...) | what the JSON response gives for it : the text Postgres writes for the type, or the value of its JSON cast when it has one (`hstore` is a map). An array of such a type is an array of those values, `{}` an empty array. A composite holding such a field is answered whole as its JSON form, its other fields included. A `tsrange` keeps its wall-clock text, and so does a time inside a `jsonb` |
+
+rel converts such a value when it knows its type before running the query : a column, a column of a to-one join reached through `.`, a composite sub-field, an `index` or `slice` of one of these, a `coalesce` of them, or the call of a function or computed field returning one value of a declared type. Any other expression producing one (an operator, a cast, a function returning `anyelement`) fails the request with a `500` : cast it to `text`.
 
 Rows stream as they are read, like the JSON ones. If the query fails before the first row the answer is a JSON error ;
 after it, the body just stops.

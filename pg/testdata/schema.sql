@@ -457,3 +457,14 @@ create table key_item (
 );
 create index idx_key_item_owner on key_item (owner_id);
 create index idx_key_item_tag on key_item (tag_id);
+
+-- Extension types (server/rel_cbor_ext_test.go) : no CBOR form of their own, answered in CBOR as the JSON response gives them.
+create extension if not exists ltree;
+create extension if not exists citext;
+create extension if not exists hstore;
+create type ext_pair as (path ltree, at timestamptz, raw bytea);
+create table ext_owner (id serial primary key, path ltree, paths ltree[], label citext not null, attrs hstore, pair ext_pair, pairs ext_pair[]);
+create function ext_owner_root(o ext_owner) returns ltree language sql stable as $$ select subltree(o.path, 0, 1) $$;
+create function ext_root_path() returns ltree language sql stable as $$ select 'r.s'::ltree $$;
+create table ext_item (id serial primary key, owner_id int references ext_owner (id), label citext not null, paths ltree[]);
+create index idx_ext_item_owner on ext_item (owner_id);

@@ -498,8 +498,8 @@ func floorDiv(a, b int64) int64 {
 }
 
 // nativeCBORType reports whether a value of type t has a CBOR form of its own : the scalar types appendValue maps,
-// CBOR column types, enums, domains of those, and arrays and composites made only of them. A column of any other type is read
-// as its JSON form (to_jsonb) when the rows are produced in CBOR.
+// CBOR column types, enums, domains of those, and arrays and composites made only of them. A value of any other type
+// whose type rel knows is read as its JSON form (to_jsonb) when the rows are produced in CBOR.
 func nativeCBORType(t *pg.Type) bool { return nativeCBORTypeDepth(t, 0) }
 
 func nativeCBORTypeDepth(t *pg.Type, depth int) bool {

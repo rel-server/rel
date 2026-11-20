@@ -3,7 +3,7 @@ package tsgen
 import "testing"
 
 // baseScalarTypes is keyed by type name, so a misspelt key silently types nothing. Every key must be a
-// real type of the database (citext comes from an extension the test database does not install).
+// real type of the database (citext comes from an extension, outside pg_catalog).
 func TestBaseScalarTypes_EveryKeyIsARealType(t *testing.T) {
 	known := map[string]bool{}
 	for _, typ := range testDb.TypeMapByOid {

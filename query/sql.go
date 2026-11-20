@@ -72,7 +72,9 @@ func CompileSelectFormat(root *QueryNode, format OutputFormat) (*writer.SQLWrite
 
 	if root.IsFunction() && !root.Function.ReturnsSet && root.Relation == nil {
 		c.w.Write("select ")
-		if err := c.compileFunctionCall(root.Function, root.FunctionArguments, root.FunctionArgumentMap, root.Parent); err != nil {
+		if err := c.inJSONFormIfNoCBOR(scalarReturnType(root.Function), func() error {
+			return c.compileFunctionCall(root.Function, root.FunctionArguments, root.FunctionArgumentMap, root.Parent)
+		}); err != nil {
 			return nil, err
 		}
 		return c.w, nil
@@ -197,9 +199,9 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 				c.w.Id(f.key)
 			}
 		} else {
-			// A scalar select : to_jsonb(...) in JSON, since streamRows writes this column raw ; as is in CBOR.
+			// A scalar select : to_jsonb(...) in JSON, since streamRows writes this column raw ; in CBOR as is, unless its type has no CBOR form.
 			if c.format == FormatCBOR {
-				if err := c.compileExpr(node.Select, node); err != nil {
+				if err := c.compileOutputExpr(node.Select, node); err != nil {
 					return err
 				}
 				c.w.Write(" as __scalar")
@@ -485,21 +487,78 @@ func selectFieldsFor(node *QueryNode) ([]selectField, error) {
 func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f selectField) error {
 	switch {
 	case f.column != nil:
-		if c.format == FormatCBOR && !nativeCBORType(f.column.Type) {
-			// no CBOR form for this type : its JSON form, which a jsonb field carries as is
-			c.w.Write("to_jsonb(")
+		return c.inJSONFormIfNoCBOR(f.column.Type, func() error {
 			c.qualify(alias, f.column.Name)
-			c.w.Write(")")
 			return nil
-		}
-		c.qualify(alias, f.column.Name)
-		return nil
+		})
 	default:
 		if child := embedChildOf(f); child != nil {
 			return c.compileEmbedField(child, node, alias)
 		}
-		return c.compileExpr(f.expr, node)
+		return c.compileOutputExpr(f.expr, node)
 	}
+}
+
+// compileOutputExpr compiles an expression whose value goes into the result as is.
+func (c *sqlCompiler) compileOutputExpr(e Expression, node *QueryNode) error {
+	return c.inJSONFormIfNoCBOR(outputPgType(e), func() error { return c.compileExpr(e, node) })
+}
+
+// inJSONFormIfNoCBOR writes the value compile writes, wrapped in to_jsonb when the rows are CBOR and t has no CBOR
+// form : the encoder cannot read such a type's binary form, and to_jsonb gives what the JSON response holds.
+func (c *sqlCompiler) inJSONFormIfNoCBOR(t *pg.Type, compile func() error) error {
+	if c.format != FormatCBOR || t == nil || nativeCBORType(t) {
+		return compile()
+	}
+	c.w.Write("to_jsonb(")
+	err := compile()
+	c.w.Write(")")
+	return err
+}
+
+// outputPgType is e's type when rel knows it without Postgres : a column, a composite sub-field, an element or slice
+// of either, a coalesce of them, or the call of a function returning one non-polymorphic value. nil otherwise.
+func outputPgType(e Expression) *pg.Type {
+	switch v := e.(type) {
+	case *GetExpr:
+		if v.ResolvedColumn != nil {
+			return v.ResolvedColumn.Type
+		}
+	case FoldedExpr:
+		if v.Op == FoldDot {
+			return outputPgType(v.Right)
+		}
+	case CoalesceExpr:
+		for _, a := range v.Args {
+			if t := outputPgType(a); t != nil {
+				return t
+			}
+		}
+	case IndexExpr:
+		if u := outputPgType(v.Array).Underlying(); u.IsArray() {
+			return u.ElementType
+		}
+	case SliceExpr:
+		return outputPgType(v.Array)
+	case *CallExpr:
+		return scalarReturnType(v.ResolvedFunction)
+	default:
+		switch r := bareResolvedField(e).(type) {
+		case ColumnPath:
+			return r.CurrentType()
+		case ComputedFieldRef:
+			return scalarReturnType(r.Function)
+		}
+	}
+	return nil
+}
+
+// scalarReturnType is the type of the one value f returns, nil when f returns a set or a polymorphic type.
+func scalarReturnType(f *pg.Function) *pg.Type {
+	if f == nil || f.ReturnsSet || f.ReturnType == nil || isPolymorphic(f.ReturnType) {
+		return nil
+	}
+	return f.ReturnType
 }
 
 // embedChildOf returns the child node f refers to (f.embed, or a bare-alias computed field) or nil.
