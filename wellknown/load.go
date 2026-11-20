@@ -2,6 +2,7 @@ package wellknown
 
 import (
 	"encoding/json"
+	"github.com/rel-server/rel/declcomment"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -125,6 +126,23 @@ func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]
 	}
 }
 
+// paramTS is p's declared TypeScript type ; a broken one, or one on a param whose type rel already types, is
+// logged and left out, as a column's is.
+func paramTS(queryName, name string, p query.RawWellKnownParam) declcomment.TypeDecl {
+	if p.TS == nil {
+		return declcomment.TypeDecl{}
+	}
+	d, err := declcomment.Decode(p.TS)
+	if err == nil && d.Type != "" && TSWireTypeForParam(p.Type) != "unknown" {
+		err = oops.Errorf("a declared type only applies to a json, jsonb or cbor param, or one of a type rel does not know, not %q", p.Type)
+	}
+	if err != nil {
+		log.Warn("well-known param's ts declaration ignored", "name", queryName, "param", name, "error", err.Error())
+		return declcomment.TypeDecl{}
+	}
+	return d
+}
+
 // compile compiles one resolved definition's read statement and checks its $params against Params both ways.
 func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled, error) {
 	params := make(map[string]ParamDef, len(def.Params))
@@ -137,7 +155,7 @@ func compile(def query.RawWellKnownDefinition, root *query.QueryNode) (*Compiled
 				return nil, oops.With("param", name).Code(errcode.WellKnownParamTypeMismatch).Errorf("declared default: %w", err)
 			}
 		}
-		params[name] = ParamDef{Type: p.Type, HasDefault: p.HasDefault, Default: p.Default}
+		params[name] = ParamDef{Type: p.Type, HasDefault: p.HasDefault, Default: p.Default, TS: paramTS(def.Name, name, p)}
 	}
 
 	sw, err := query.CompileSelect(root)

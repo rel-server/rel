@@ -554,6 +554,7 @@ func assemble(k *koanf.Koanf) (*Config, error) {
 	cfg.Http.TypeScript.Enable = root.GetBoolOrDefault("http.typescript.enable", cfg.Dev)
 	cfg.TypeScript.Schemas = root.GetStringOrDefault("typescript.schemas", "")
 	cfg.TypeScript.Codec = root.GetStringOrDefault("typescript.codec", "")
+	cfg.TypeScript.Types = readTypeDecls(root, "typescript.types", &errs)
 
 	cfg.Http.Cors.AllowedOrigins = root.GetStringOrDefault("http.cors.allowed_origins", "")
 	cfg.Http.Cors.AllowedMethods = root.GetStringOrDefault("http.cors.allowed_methods", DefaultHttpCorsAllowedMethods)
@@ -647,6 +648,65 @@ func readStringMap(root *ConfigReader, path string) map[string]string {
 		if s, err := child.GetString(""); err == nil {
 			out[key] = s
 		}
+	}
+	return out
+}
+
+// readTypeDecls reads typescript.types.<schema>.<relation>.<column> : nested, or one quoted key holding dots
+// ("public.doc.body"), split the same way. A value is a string (the type) or an object of comment, type and from.
+func readTypeDecls(root *ConfigReader, path string, errs *[]error) map[string]TypeDecl {
+	out := map[string]TypeDecl{}
+	var walk func(r *ConfigReader, segments []string)
+	walk = func(r *ConfigReader, segments []string) {
+		full := path + "." + strings.Join(segments, ".")
+		if len(segments) == 3 {
+			if !r.isObject() {
+				if s, err := r.GetString(""); err == nil {
+					out[strings.Join(segments, ".")] = TypeDecl{Type: s}
+				} else {
+					r.recordMalformed(err)
+				}
+				return
+			}
+			var d TypeDecl
+			fields, _ := r.GetIterator("")
+			for field, child := range fields {
+				s, err := child.GetString("")
+				if err != nil {
+					*errs = append(*errs, oops.With("key", full).Errorf("config: %q: %q must be a string", full, field))
+					continue
+				}
+				switch field {
+				case "comment":
+					d.Comment = s
+				case "type":
+					d.Type = s
+				case "from":
+					d.From = s
+				default:
+					*errs = append(*errs, oops.With("key", full).Errorf("config: %q: unknown field %q (known: comment, type, from)", full, field))
+				}
+			}
+			out[strings.Join(segments, ".")] = d
+			return
+		}
+		if len(segments) > 3 {
+			*errs = append(*errs, oops.With("key", full).Errorf("config: %q: a %s key is schema.relation.column", full, path))
+			return
+		}
+		if !r.isObject() {
+			*errs = append(*errs, oops.With("key", full).Errorf("config: %q: a %s key is schema.relation.column", full, path))
+			return
+		}
+		it, _ := r.GetIterator("")
+		for key, child := range it {
+			walk(child, append(append([]string{}, segments...), strings.Split(key, ".")...))
+		}
+	}
+	if r, err := root.GetObject(path); err == nil {
+		walk(r, nil)
+	} else if !errors.Is(err, errNotFound) {
+		*errs = append(*errs, err)
 	}
 	return out
 }

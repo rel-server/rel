@@ -190,7 +190,7 @@ map's own rename too: `select: { display_name: ["col", "name"] }` still requires
 `wellknown()` builds a call to a registered [well-known query](../query-language/well-known-queries.md) instead
 of an ad hoc relation — same `Querier`, but its params and result shape come from the query's
 own registered definition rather than from what you pass to `relation()`.
-A param declared `int8`/`bigint`, `numeric`, `timestamptz`, `timestamp`, `date` or `bytea` takes the value a column of that type reads as with your [codec](#codecs) : a `Date` for a `timestamptz` with `cbor`, a `Uint8Array` for a `bytea`, text with `json`. Other declared types take a `number`, `string` or `boolean`.
+A param declared `int8`/`bigint`, `numeric`, `timestamptz`, `timestamp`, `date` or `bytea` takes the value a column of that type reads as with your [codec](#codecs) : a `Date` for a `timestamptz` with `cbor`, a `Uint8Array` for a `bytea`, text with `json`. Other declared types take a `number`, `string` or `boolean`. A `json`, `jsonb` or `cbor` param takes `unknown`, or its [declared type](#declared-types); with the `json` codec a `cbor` param is `never`, since only a CBOR request can carry its value.
 
 ### Naming a row's type
 
@@ -570,6 +570,47 @@ const literal = 1 as PropertyId // a literal id is cast explicitly
 - A view column that is an unmodified pass-through of an id column (`select id`, `select e.id as entry_id ... join ...`, or a view over such a view) has the same id type. An expression (`id + 0`, `id::bigint`) is a plain number again. Postgres itself says which table column each view column comes from, so no SQL is parsed.
 - Function arguments and function results keep the plain `number`/`Int8`: they accept an id but don't produce one.
 - Nothing changes at runtime. The id type only exists in the type checker, so `1 as PropertyId` is free.
+
+### Declared types
+
+A `json`, `jsonb` or [CBOR](../query-language/index.md#cbor-columns) column is typed `unknown`: Postgres doesn't know what it holds. You can tell the client in the column's comment:
+
+```sql
+comment on column app.users.prefs is 'column:: type: "{ theme: string; compact: boolean }", comment: "display preferences"';
+comment on column app.users.settings is 'column:: type: "Settings", from: "./settings"';
+comment on column app.users.tags is 'column: {"type": "string[]"}';
+```
+
+The comment is HUML after `column::`, or a JSON object after `column:`, as in a [route declaration](../http/reference.md). Its fields:
+
+| Field | |
+|---|---|
+| `type` | A TypeScript type, written into `database.ts` as is. It is the whole column's type, so a `jsonb[]` column is declared `Foo[]`. rel adds `\| null` to a nullable column. |
+| `from` | A module `type` is imported from: `type` must then be a single name that module exports (`import type { Settings } from "./settings"`). The path is written as is, so a relative one is relative to where `database.ts` lands (`typescript.helper_path`, `--typescript-out`, or wherever you save the endpoint's output). |
+| `comment` | The `/** */` text the column gets in place of its comment. |
+
+The same goes for:
+
+- a domain over `json`, `jsonb` or CBOR, with `type::` : `comment on domain app.settings is 'type:: type: "Settings", from: "./settings"'`. Every column, function argument and result of that domain gets the type, and a column's own declaration wins over its domain's. An enum or composite type takes a `type::` comment with only `comment`.
+- a table or view, with `table::`, which only takes `comment`.
+- a well-known query's param, with a `ts` object next to its `type`: see [Well-known queries](../query-language/well-known-queries.md). A selected column keeps its declared type in a well-known query's rows, as in any other query.
+- the `typescript.types` configuration, keyed by `schema.table.column` (a table or a composite type): a string is the type, an object takes `type`, `from` and `comment`. It wins over the column's comment, field by field, with a warning in the log.
+
+```toml
+[typescript.types]
+"app.users.prefs" = "{ theme: string }"
+
+[typescript.types.app.users.settings]
+type = "Settings"
+from = "./settings"
+```
+
+- A comment without the prefix stays plain doc text. A prefixed comment that does not parse, has an unknown field, a line break in `type` or `from`, or a `from` whose `type` is not a single name, is left out entirely and logged, at startup and on every reload (and by `--typescript-out`). So is a `type` on a column, domain or param that isn't `json`, `jsonb` or CBOR, and a `typescript.types` key that names no column; their `comment` still applies.
+- rel never checks a value against its declared type, neither reading nor writing. To have Postgres enforce one, add a `CHECK` constraint, for instance with [`pg_jsonschema`](https://github.com/supabase/pg_jsonschema)'s `jsonb_matches_schema`.
+- rel doesn't check the TypeScript either: a broken `type` breaks the compilation of `database.ts`, not rel.
+- Two imported names that are the same, or the same as a name `database.ts` already uses, are aliased: the second `Settings` is imported `as Settings__2`.
+- A configured key can't name a table or column that holds a dot.
+- With the `json` [codec](#codecs), a CBOR column is `never`, whatever it declares, nullable or not: the server refuses to send or receive its value in JSON. Writing a value into it fails to compile. Selecting it doesn't, but the server answers that query with `CBOR_COLUMN_NEEDS_CBOR`. A function argument, result or composite field of a CBOR type is `never` too.
 
 ## Calling a function directly
 

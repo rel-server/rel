@@ -91,6 +91,12 @@ func (r *ConfigReader) Exists(path string) bool {
 	return ok
 }
 
+// isObject reports whether r's own scope holds an object, without logging or recording anything.
+func (r *ConfigReader) isObject() bool {
+	_, ok := r.k.Get(r.path).(map[string]any)
+	return ok
+}
+
 // GetObject scopes to path ; an error if path is absent or not an object.
 func (r *ConfigReader) GetObject(path string) (*ConfigReader, error) {
 	full := r.join(path)

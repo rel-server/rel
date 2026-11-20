@@ -366,6 +366,12 @@ func assertTypeChecks(t *testing.T, out string) {
 // there once), and is skipped when that directory is missing.
 func assertTypeChecksWithLib(t *testing.T, out, lib string) {
 	t.Helper()
+	assertTypeChecksWithFiles(t, out, lib, nil)
+}
+
+// assertTypeChecksWithFiles is assertTypeChecksWithLib with more files next to database.ts, checked with it.
+func assertTypeChecksWithFiles(t *testing.T, out, lib string, files map[string]string) {
+	t.Helper()
 	if _, err := exec.LookPath("tsc"); err != nil {
 		t.Skip("tsc not found in PATH ; skipping generated-output type-check")
 	}
@@ -374,6 +380,12 @@ func assertTypeChecksWithLib(t *testing.T, out, lib string) {
 	dbTsPath := filepath.Join(dir, "database.ts")
 	if err := os.WriteFile(dbTsPath, []byte(out), 0o644); err != nil {
 		t.Fatalf("writing generated database.ts: %v", err)
+	}
+
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	types := "[]"
@@ -401,7 +413,7 @@ func assertTypeChecksWithLib(t *testing.T, out, lib string) {
     "lib": [` + lib + `],
     "types": ` + types + `
   },
-  "include": ["database.ts"]
+  "include": ["*.ts"]
 }`
 	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
 		t.Fatalf("writing tsconfig.json: %v", err)

@@ -34,6 +34,8 @@ type TypeInfoJSON struct {
 	Name     string
 	Kind     string // "scalar" | "enum" | "domain" | "array" | "composite"
 	Comment  string
+	TSType   string   // domain, declared
+	TSFrom   string   // domain, declared
 	Labels   []string // enum
 	Base     string   // domain
 	NotNull  bool     // domain
@@ -53,6 +55,12 @@ func (t *TypeInfoJSON) MarshalJSON() ([]byte, error) {
 	case "domain":
 		m["base"] = t.Base
 		m["not_null"] = t.NotNull
+		if t.TSType != "" {
+			m["ts_type"] = t.TSType
+		}
+		if t.TSFrom != "" {
+			m["ts_from"] = t.TSFrom
+		}
 	case "array":
 		m["element"] = t.Element
 	case "composite":
@@ -84,6 +92,8 @@ type ColumnInfoJSON struct {
 	Name         string `json:"name"`
 	Type         string `json:"type"`
 	Comment      string `json:"comment,omitempty"`
+	TSType       string `json:"ts_type,omitempty"`
+	TSFrom       string `json:"ts_from,omitempty"`
 	IsNullable   bool   `json:"is_nullable"`
 	IsPrimaryKey bool   `json:"is_primary_key"`
 	IsIdentity   bool   `json:"is_identity"`
@@ -150,6 +160,9 @@ type WellknownParamInfoJSON struct {
 	PgType     string `json:"pg_type"`
 	Kind       string `json:"kind"` // "number" | "string" | "boolean" | "unknown"
 	HasDefault bool   `json:"has_default"`
+	Comment    string `json:"comment,omitempty"`
+	TSType     string `json:"ts_type,omitempty"`
+	TSFrom     string `json:"ts_from,omitempty"`
 }
 
 // GenerateDatabaseJSON marshals the full database.json payload.
@@ -166,6 +179,7 @@ func buildDatabaseJSON(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) 
 	}
 
 	tc := newJSONTypeCollector()
+	tc.decls = declSource{config: opts.Types}
 
 	relInfos := map[string]*RelationInfoJSON{}
 	built := map[string]bool{}
@@ -258,10 +272,13 @@ func relationKind(r *pg.Relation) string {
 func buildRelationInfo(r *pg.Relation, tc *jsonTypeCollector) *RelationInfoJSON {
 	columns := make([]ColumnInfoJSON, 0, len(r.Columns))
 	for _, c := range r.Columns {
+		d, _ := tc.decls.column(r, c)
 		columns = append(columns, ColumnInfoJSON{
 			Name:         c.Name,
 			Type:         tc.register(c.Type),
-			Comment:      c.Comment,
+			Comment:      d.Comment,
+			TSType:       d.Type,
+			TSFrom:       d.From,
 			IsNullable:   c.IsNullable,
 			IsPrimaryKey: c.IsPrimaryKey,
 			IsIdentity:   c.IsIdentity,
@@ -286,11 +303,16 @@ func buildRelationInfo(r *pg.Relation, tc *jsonTypeCollector) *RelationInfoJSON 
 		indexes = append(indexes, IndexInfoJSON{Name: idx.Name, Unique: idx.IsUnique, Columns: idx.Columns})
 	}
 
+	comment, _ := tc.decls.relation(r)
+	if r.IsStandaloneCompositeType {
+		d, _ := parseDecl(r.Comment, "type", "")
+		comment = d.Comment
+	}
 	return &RelationInfoJSON{
 		Schema:            r.Identifier.Schema,
 		Name:              r.Identifier.Name,
 		Kind:              relationKind(r),
-		Comment:           r.Comment,
+		Comment:           comment,
 		Columns:           columns,
 		PrimaryKey:        pk,
 		UniqueConstraints: unique,
@@ -455,6 +477,9 @@ func buildWellknowns(wkReg *wellknown.Registry) map[string]WellknownInfoJSON {
 				PgType:     p.Type,
 				Kind:       wellknown.TSTypeForParam(p.Type),
 				HasDefault: p.HasDefault,
+				Comment:    p.TS.Comment,
+				TSType:     p.TS.Type,
+				TSFrom:     p.TS.From,
 			})
 		}
 
@@ -471,6 +496,7 @@ func buildWellknowns(wkReg *wellknown.Registry) map[string]WellknownInfoJSON {
 // extraRelations holds each composite type's backing relation, which must appear in `relations` regardless of
 // the whitelist/blacklist.
 type jsonTypeCollector struct {
+	decls          declSource
 	seen           map[string]bool
 	entries        map[string]*TypeInfoJSON
 	extraRelations map[string]*pg.Relation
@@ -496,10 +522,13 @@ func (tc *jsonTypeCollector) register(t *pg.Type) string {
 	// Marked seen before recursing : a composite type may reference itself.
 	tc.seen[key] = true
 
+	d, _ := tc.decls.typ(t)
 	entry := &TypeInfoJSON{
 		Schema:  t.PgIdentifier.Schema,
 		Name:    t.PgIdentifier.Name,
-		Comment: t.Comment,
+		Comment: d.Comment,
+		TSType:  d.Type,
+		TSFrom:  d.From,
 	}
 	tc.entries[key] = entry
 

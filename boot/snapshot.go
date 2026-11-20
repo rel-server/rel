@@ -33,7 +33,19 @@ func Build(db *pg.DbInfos, cfg *config.Config, logger *slog.Logger) (*Snapshot, 
 	if err != nil {
 		return nil, oops.Wrapf(err, "building well-known query registry")
 	}
+	warnTypeScriptDeclarations(db, cfg, logger)
 	return &Snapshot{Db: db, WellKnown: wkReg, Handler: BuildMux(db, cfg, reg, wkReg, logger)}, nil
+}
+
+// warnTypeScriptDeclarations logs, once per build, what the generated TypeScript leaves out of the declared types.
+func warnTypeScriptDeclarations(db *pg.DbInfos, cfg *config.Config, logger *slog.Logger) {
+	opts, err := tsgen.Resolve(cfg, tsgen.Overrides{})
+	if err != nil || logger == nil {
+		return
+	}
+	for _, w := range tsgen.DeclarationWarnings(db, opts) {
+		logger.Warn("typescript: " + w)
+	}
 }
 
 // WriteTypeScriptHelper writes typescript.helper_path if set. Call it only once the snapshot is served. Write

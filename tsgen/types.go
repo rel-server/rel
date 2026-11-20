@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rel-server/rel/declcomment"
 	"github.com/rel-server/rel/pg"
 )
 
@@ -85,21 +86,26 @@ var baseScalarTypes = map[string]string{
 // "schema.name".
 type typeCollector struct {
 	// ids is set by GenerateSchema once the target relations are known ; nil leaves every column untouched.
-	ids   *idResolver
-	seen  map[string]bool
-	order []string
-	decls map[string]string
+	ids *idResolver
+	// decls resolves declared types ; imports collects the names they import.
+	decls   declSource
+	imports *importSet
+	// jsonWire types a CBOR value never : a JSON client can neither read nor write one.
+	jsonWire bool
+	seen     map[string]bool
+	order    []string
+	out      map[string]string
 }
 
 func newTypeCollector() *typeCollector {
-	return &typeCollector{seen: map[string]bool{}, decls: map[string]string{}}
+	return &typeCollector{seen: map[string]bool{}, out: map[string]string{}, imports: &importSet{}}
 }
 
 func (tc *typeCollector) declarations() string {
 	sort.Strings(tc.order)
 	var b strings.Builder
 	for _, key := range tc.order {
-		b.WriteString(tc.decls[key])
+		b.WriteString(tc.out[key])
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -118,6 +124,12 @@ func tsTypeExpr(t *pg.Type, tc *typeCollector) string {
 
 	if t.IsDomain() {
 		return namedTypeExpr(t, tc, func() string {
+			if tc.cborUnreadable(t) {
+				return "never"
+			}
+			if d, _ := tc.decls.typ(t); d.Type != "" {
+				return declaredTypeExpr(d, tc)
+			}
 			if t.CBOR && !t.BaseType.CBOR {
 				return "unknown" // a cbor domain over bytea holds a CBOR value, not bytes
 			}
@@ -141,6 +153,12 @@ func tsTypeExpr(t *pg.Type, tc *typeCollector) string {
 		})
 	}
 
+	if t.CBOR { // postcbor's own type
+		if tc.jsonWire {
+			return "never"
+		}
+		return "unknown"
+	}
 	if ts, ok := baseScalarTypes[t.PgIdentifier.Name]; ok {
 		return ts
 	}
@@ -159,7 +177,8 @@ func namedTypeExpr(t *pg.Type, tc *typeCollector, body func() string) string {
 	tc.seen[key] = true
 	tc.order = append(tc.order, key)
 
-	comment := docComment(t.Comment, "")
+	d, _ := tc.decls.typ(t)
+	comment := docComment(d.Comment, "")
 	rhs := body()
 	var decl string
 	switch {
@@ -168,21 +187,34 @@ func namedTypeExpr(t *pg.Type, tc *typeCollector, body func() string) string {
 	default:
 		decl = fmt.Sprintf("%stype %s = %s\n", comment, name, rhs)
 	}
-	tc.decls[key] = decl
+	tc.out[key] = decl
 	return name
 }
 
-// docComment renders s as a /** ... */ line, indented by indent ; empty when s is empty.
+// docComment renders s as a /** ... */ line, indented by indent ; empty when s is empty. A `*/` in s would end
+// the comment early : it is written `*\/`.
 func docComment(s, indent string) string {
 	if s == "" {
 		return ""
 	}
-	return indent + "/** " + strings.ReplaceAll(s, "\n", " ") + " */\n"
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "\r", ""), "\n", " ")
+	return indent + "/** " + strings.ReplaceAll(s, "*/", "*\\/") + " */\n"
 }
 
-// columnTSType is a column's read type, with `| null` unless the column is really not null.
-func columnTSType(c *pg.Column, tc *typeCollector) string {
+// columnTSType is a column's read type, with `| null` unless the column is really not null. A declared type
+// replaces the column type's own ; a CBOR value under JSON is never, null included.
+func columnTSType(c *pg.Column, d declcomment.TypeDecl, tc *typeCollector) string {
+	if tc.cborUnreadable(c.Type) {
+		tsTypeExpr(c.Type, tc) // still registers the Type__ declarations it names
+		return "never"
+	}
 	expr := tsTypeExpr(c.Type, tc)
+	if d.Type != "" {
+		expr = declaredTypeExpr(d, tc)
+		if !c.IsReallyNotNull() && d.From == "" && !declcomment.IsIdentifier(d.Type) {
+			expr = "(" + expr + ")" // `() => void | null` would read as a function returning null
+		}
+	}
 	if id := tc.ids.typeExpr(c); id != "" {
 		expr = id
 	}
@@ -196,8 +228,9 @@ func columnTSType(c *pg.Column, tc *typeCollector) string {
 func relationColumnsBlock(r *pg.Relation, tc *typeCollector) string {
 	var b strings.Builder
 	for _, c := range r.Columns {
-		b.WriteString(docComment(c.Comment, "  "))
-		fmt.Fprintf(&b, "  %s: %s\n", identifierField(c.Name), columnTSType(c, tc))
+		d, _ := tc.decls.column(r, c)
+		b.WriteString(docComment(d.Comment, "  "))
+		fmt.Fprintf(&b, "  %s: %s\n", identifierField(c.Name), columnTSType(c, d, tc))
 	}
 	return b.String()
 }

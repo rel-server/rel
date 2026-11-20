@@ -41,6 +41,16 @@ type TypeScript struct {
 	// `date`|`temporal`, `bigint`) for the endpoint, helper_path and --typescript-out alike ; the endpoint's `codec`
 	// param replaces it for one request. Validated by tsgen.ParseCodec.
 	Codec string
+	// Types is typescript.types.<schema>.<relation>.<column>, keyed "schema.relation.column" : a declared type that
+	// wins over the column's own `column::` comment.
+	Types map[string]TypeDecl
+}
+
+// TypeDecl is a typescript.types entry : a string is its Type alone.
+type TypeDecl struct {
+	Comment string
+	Type    string
+	From    string
 }
 
 // Reload is reload.* : the external command run before every reload, startup included.

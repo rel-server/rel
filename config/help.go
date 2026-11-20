@@ -227,6 +227,7 @@ Dynamic namespaces (not enumerated above — "*" matches an entire schema) :
   route.<schema>.<function>.template=<path>    default Jet template, used when the response doesn't set its own
   route.<schema>.<function>.stream_upload=y|n  disk-streamed single-upload flow, called twice
   route.<schema>.<function>.middleware=y|n     runs ahead of every route, static file, or /rel request under its own path prefix
+  typescript.types.<schema>.<table>.<column>=<type>  a column's declared TypeScript type, or .type/.from/.comment
   openid.<name>.issuer=<url>                   OIDC issuer URL ; /.well-known/openid-configuration is discovered from it
   openid.<name>.client_id=<id>                 default $FILE$/secrets/openid-<name>.id:./openid-<name>.id
   openid.<name>.client_secret=<secret>         default $FILE$/secrets/openid-<name>.secret:./openid-<name>.secret

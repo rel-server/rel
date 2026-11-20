@@ -27,10 +27,13 @@ Decisions are in `docs/adr/0012` to `0014`. This is what to build.
 
 ## Declared types (tsgen)
 
-- A comment prefixed by its object kind is HUML (or JSON after `:` and `{`), as `route::` is : `column::`, `table::`. Without a prefix, a comment stays plain doc text.
-- Fields : `comment` (the `/** */` text), `type` (any TS type expression, emitted as written), `from` (optional : `type` is then a name imported from that module). `table::` has only `comment` for now.
-- Same declaration form for route `body` and `returns` (in `route::`) and for well-known params and result fields.
-- Applies to `json`, `jsonb` and `cbor` columns ; undeclared stays as today (`unknown` for `cbor`).
-- Config `tsgen.types."schema.table.column"` wins over a comment, with a warning.
-- rel never checks a value against its declared type ; the docs point to Postgres `CHECK` constraints (`pg_jsonschema`, postcbor's equivalent).
-- Docs : how to declare a type, inline and imported.
+- Done : a comment prefixed by its object kind is HUML (or JSON after `:` and `{`), as `route::` is (`declcomment.Extract`, shared with routes) : `column::`, `table::`, `type::`. Without a prefix, a comment stays plain doc text.
+- Done : fields `comment` (the `/** */` text), `type` (any TS type expression, emitted as written, the whole column's type), `from` (optional : `type` is then a name imported from that module, aliased `Name__2` when it collides with another import or any name the file uses). `table::` has only `comment` ; `type::` takes a type on a domain only.
+- Done : applies to `json`, `jsonb` and `cbor` columns and domains over them ; undeclared stays as today (`unknown` for `cbor`). A column's declaration wins over its domain's.
+- Done : config `typescript.types.<schema>.<table>.<column>` (nested, or one quoted dotted key) wins over a comment, field by field, with a warning. A key naming no column is a warning.
+- Done : a well-known param's `ts` object, on a json, jsonb or cbor param or one of a type rel does not know. Result fields need nothing : a selected column keeps its declared type through `shapes.ts`.
+- Done : `database.json` carries `ts_type`, `ts_from` and the parsed `comment`.
+- Done : a broken declaration is left out and logged once per snapshot build, and by `--typescript-out` ; generation itself is silent.
+- Done : under the `json` codec, a CBOR value is `never` (column, nullable or not, domain, param) : a write fails to compile, a select does not, and the server refuses it.
+- Later : route `body` and `returns` declarations, once tsgen types routes (it has no route types today).
+- rel never checks a value against its declared type ; the docs point to Postgres `CHECK` constraints (`pg_jsonschema`).

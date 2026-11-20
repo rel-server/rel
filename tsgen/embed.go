@@ -28,7 +28,7 @@ func splitImports(src string) (body string, packages []string) {
 
 // GenerateDatabaseTS produces database.ts, one self-sufficient file : pg_values.ts + querier.ts + the generated
 // schema + query.ts + shapes.ts, then the codec chunks opts.Codec asks for and their `PgWire` members. Its only
-// imports are the packages a codec needs (cbor-x, lossless-json).
+// imports are the packages a codec needs (cbor-x, lossless-json) and the names declared types import.
 func GenerateDatabaseTS(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) string {
 	var imports []string
 	section := func(src string) string {
@@ -42,7 +42,8 @@ func GenerateDatabaseTS(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry)
 	body.WriteString("\n")
 	body.WriteString(section(tsembed.QuerierTS))
 	body.WriteString("\n")
-	body.WriteString(GenerateSchema(db, opts, wkReg))
+	schema, declImports := generateSchema(db, opts, wkReg)
+	body.WriteString(schema)
 	body.WriteString(section(tsembed.QueryTS))
 	body.WriteString("\n")
 	body.WriteString(section(tsembed.ShapesTS))
@@ -66,6 +67,8 @@ func GenerateDatabaseTS(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry)
 		body.WriteString("\n")
 	}
 
+	declared, whole := declImports.resolve(body.String())
+
 	var b strings.Builder
 	b.WriteString("// biome-ignore-all lint: auto-generated file, do not edit\n")
 	b.WriteString("// biome-ignore-all format: auto-generated file, do not edit\n")
@@ -78,9 +81,10 @@ func GenerateDatabaseTS(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry)
 			b.WriteString(imp)
 		}
 	}
-	if len(seen) > 0 {
+	b.WriteString(declared)
+	if len(seen) > 0 || declared != "" {
 		b.WriteString("\n")
 	}
-	b.WriteString(body.String())
+	b.WriteString(whole)
 	return b.String()
 }

@@ -84,7 +84,7 @@ A column whose type is a domain named `cbor` over `bytea` (in any schema), or th
 - **Reading** : a CBOR response carries the stored item as it is, inside the rows like any other value. A stored value that is not exactly one well-formed CBOR item (a `bytea` domain written from SQL accepts any bytes) fails the response.
 - **From JSON** : a query whose JSON response would hold a CBOR column's value is refused before it runs, with `400` and the code `CBOR_COLUMN_NEEDS_CBOR`. This includes the default selection : `*` on a table with a CBOR column, from JSON, is refused, so select the other columns, or leave the CBOR ones out with an except-list (`["*~", ["payload"]]`). A cast is an explicit way out : `["::", [".", "payload"], "jsonb"]` reads a postcbor column as JSON, with what that cast loses. A JSON write whose selection holds a CBOR column is refused with the same code, even when its rows leave the column out : leave it out of the selection too. A filter or a sort on a CBOR column is not output and is not refused, but comparing CBOR values is not designed yet.
 
-The TypeScript type of a CBOR column is `unknown`.
+The TypeScript type of a CBOR column is `unknown` unless it [declares one](../typescript/index.md#declared-types), and `never` in a client generated with the `json` codec.
 
 ## In this section
 

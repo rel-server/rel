@@ -43,7 +43,7 @@ func Resolve(cfg *config.Config, ov Overrides) (Options, error) {
 		return Options{}, oops.Wrapf(err, "typescript.codec")
 	}
 
-	return Options{Schemas: schemas, Blacklist: cfg.Blacklist, Codec: codec}, nil
+	return Options{Schemas: schemas, Blacklist: cfg.Blacklist, Codec: codec, Types: cfg.TypeScript.Types}, nil
 }
 
 // narrowSchemas is the `schemas` override intersected with typescript.schemas' whitelist ; a name outside the

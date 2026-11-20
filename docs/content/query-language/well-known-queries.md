@@ -60,6 +60,10 @@ its own declared parameters. Each entry in `params` can set:
 - **`default`** — omitted entirely means the param is required (`WELL_KNOWN_PARAM_REQUIRED` if
   the caller doesn't supply it); `default: null` means optional, defaulting to SQL `NULL`;
   any other `default` value is used as-is when the caller omits the param.
+- **`ts`** — the param's [declared TypeScript type](../typescript/index.md#declared-types), for the generated
+  client only : `ts: {type: "Settings", from: "./settings", comment: "..."}`. It applies to a `json`, `jsonb` or
+  `cbor` param, or one of a type rel does not know (a domain, say), the ones the client would type `unknown`. On
+  another param, or with an unknown field, it is logged and left out ; the query still loads.
 
 In a request sent as `application/cbor`, a param also takes the CBOR value of its type, passed on as the text a JSON caller would send : tag 1 or 0 for a `timestamptz` or `timestamp`, tag 100 for a `date`, tag 37 for a `uuid`, and a byte string (as `\x` and hex digits) for a type rel does not check, such as `bytea`. A date and time is written in the connection's time zone, so under a `timestamp` cast it is that zone's wall clock, as in a write's `data`. If rel cannot load that zone, a param declared `timestamp` is refused.
 

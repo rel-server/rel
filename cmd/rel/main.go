@@ -165,6 +165,9 @@ func runTypeScriptExport(cfg *config.Config, out, codecOverride string) error {
 	if err != nil {
 		return err
 	}
+	for _, w := range tsgen.DeclarationWarnings(db, opts) {
+		slog.Warn("typescript: " + w)
+	}
 	generated := tsgen.GenerateDatabaseTS(db, opts, wkReg)
 
 	if out == "-" {

@@ -58,7 +58,7 @@ resolution yourself.
 type TypeInfo = { schema: string; name: string } & (
   | { kind: "scalar"; comment?: string }
   | { kind: "enum"; comment?: string; labels: string[] }
-  | { kind: "domain"; comment?: string; base: string; not_null: boolean }
+  | { kind: "domain"; comment?: string; base: string; not_null: boolean; ts_type?: string; ts_from?: string }
   | { kind: "array"; element: string }
   | { kind: "composite"; comment?: string; relation: string }
 )
@@ -100,6 +100,8 @@ interface ColumnInfo {
   name: string
   type: string
   comment?: string
+  ts_type?: string
+  ts_from?: string
   is_nullable: boolean
   is_primary_key: boolean
   is_identity: boolean
@@ -125,6 +127,8 @@ care about shape.
 The relation's own `comment` and each column's own `comment` are their respective `COMMENT ON
 TABLE`/`COMMENT ON COLUMN` text — the same source `database.ts` surfaces as a `/** ... */` doc
 comment — omitted entirely when unset, never an empty string.
+
+A [declared type](index.md#declared-types) is `ts_type`, and `ts_from` the module it is imported from, on a column or a domain, omitted when there is none. A `column::`, `table::` or `type::` comment gives its `comment` field there, not its own text, and a typescript.types entry is applied, as in `database.ts`. `ts_type` is not set to `never` under any codec: `database.json` has none.
 
 `columns` is declared order. `type` is a key into `types`. `is_nullable` is the raw introspected
 value (`information_schema.columns.is_nullable`); a domain's own `not_null`
@@ -261,6 +265,9 @@ interface WellknownParamInfo {
   pg_type: string
   kind: "number" | "string" | "boolean" | "unknown"
   has_default: boolean
+  comment?: string
+  ts_type?: string
+  ts_from?: string
 }
 ```
 
@@ -272,4 +279,5 @@ query's declared parameters; `pg_type` is the declared param's own type string v
 arbitrary author-written Postgres type name, e.g. `"int"`, never resolved against the
 introspected `types` registry), and `kind` is the same coarse bucket used for the wire-level type
 check — not a `types` key, since a well-known param's declared type was never introspected from a
-real column or argument in the first place.
+real column or argument in the first place. `comment`, `ts_type` and `ts_from` are the param's `ts`
+declaration, each omitted when unset.

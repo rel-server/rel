@@ -3,13 +3,11 @@ package route
 // Route declarations, read from a COMMENT ON FUNCTION or the config route.<schema>.<function>.* namespace.
 
 import (
-	"strings"
-
 	"github.com/bytedance/sonic"
-	"github.com/huml-lang/go-huml"
 	"github.com/samber/oops"
 
 	"github.com/rel-server/rel/config"
+	"github.com/rel-server/rel/declcomment"
 )
 
 // Declaration is a route's declared shape, minus function/schema, which always come from where it is declared.
@@ -39,62 +37,13 @@ func declFromConfig(d config.RouteDecl) Declaration {
 // parseCommentDeclaration reads a Declaration out of a function's COMMENT ON text. (nil, nil) means the comment
 // holds no route declaration ; an error means one was detected but failed to parse.
 func parseCommentDeclaration(comment string) (*Declaration, error) {
-	trimmed := strings.TrimSpace(comment)
-	rest, ok := strings.CutPrefix(trimmed, "route")
-	if !ok {
-		return nil, nil
-	}
-
-	switch {
-	case strings.HasPrefix(rest, "::"):
-		return parseHumlDeclaration(trimmed)
-	case isJSONObjectAfterColon(rest):
-		return parseJSONDeclaration(rest)
-	default:
-		return nil, nil
-	}
-}
-
-// isJSONObjectAfterColon reports whether rest (what follows "route") is ":", optional whitespace, then "{", so a
-// doc comment beginning "route: see below" isn't mistaken for a declaration.
-func isJSONObjectAfterColon(rest string) bool {
-	rest, ok := strings.CutPrefix(rest, ":")
-	if !ok {
-		return false
-	}
-	return strings.HasPrefix(strings.TrimSpace(rest), "{")
-}
-
-// parseHumlDeclaration parses the whole comment, starting "route::", as one inline HUML document and lifts its
-// "route" key.
-func parseHumlDeclaration(trimmed string) (*Declaration, error) {
-	var doc map[string]any
-	if err := huml.Unmarshal([]byte(trimmed), &doc); err != nil {
-		return nil, oops.Wrapf(err, "route: parsing HUML route declaration")
-	}
-	routeVal, ok := doc["route"]
-	if !ok {
-		return nil, oops.Errorf("route: HUML route declaration has no \"route\" key")
-	}
-	// Re-encoded through JSON so both formats decode through the same json tags.
-	raw, err := sonic.Marshal(routeVal)
-	if err != nil {
-		return nil, oops.Wrapf(err, "route: re-encoding HUML route declaration")
+	raw, found, err := declcomment.Extract(comment, "route")
+	if !found || err != nil {
+		return nil, err
 	}
 	var decl Declaration
 	if err := sonic.Unmarshal(raw, &decl); err != nil {
-		return nil, oops.Wrapf(err, "route: decoding HUML route declaration")
-	}
-	return &decl, nil
-}
-
-// parseJSONDeclaration parses rest, "route" stripped but still carrying the leading ":", as a JSON object.
-func parseJSONDeclaration(rest string) (*Declaration, error) {
-	rest, _ = strings.CutPrefix(rest, ":")
-	rest = strings.TrimSpace(rest)
-	var decl Declaration
-	if err := sonic.Unmarshal([]byte(rest), &decl); err != nil {
-		return nil, oops.Wrapf(err, "route: decoding JSON route declaration")
+		return nil, oops.Wrapf(err, "route: decoding route declaration")
 	}
 	return &decl, nil
 }

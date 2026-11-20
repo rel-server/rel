@@ -6,6 +6,7 @@
 package wellknown
 
 import (
+	"github.com/rel-server/rel/declcomment"
 	"github.com/rel-server/rel/query"
 	"github.com/rel-server/rel/writer"
 )
@@ -15,6 +16,8 @@ type ParamDef struct {
 	Type       string
 	HasDefault bool
 	Default    []byte
+	// TS is the declared TypeScript type ("ts"), for the generated client only.
+	TS declcomment.TypeDecl
 }
 
 // Compiled is one loaded and validated well-known query. An invalid or duplicate one is simply absent from the

@@ -8,6 +8,7 @@ import (
 
 	"github.com/rel-server/rel/config"
 	"github.com/rel-server/rel/pg"
+	"github.com/rel-server/rel/query"
 	"github.com/rel-server/rel/wellknown"
 )
 
@@ -20,6 +21,9 @@ type Options struct {
 
 	// Codec is the codec options of the generated database.ts (ParseCodec) ; the zero value is plain JSON.
 	Codec Codec
+
+	// Types is typescript.types, keyed "schema.relation.column".
+	Types map[string]config.TypeDecl
 }
 
 func (o Options) schemaAllowed(schema string) bool {
@@ -59,9 +63,18 @@ func (o Options) targetFunction(f *pg.Function) bool {
 	return !o.Blacklist.IsFunctionBlacklisted(f.Identifier.Schema, f.Identifier.Name)
 }
 
-// GenerateSchema renders the schema section of database.ts, from db filtered by opts.
+// GenerateSchema renders the schema section of database.ts, from db filtered by opts, its imports first.
 func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) string {
+	body, imports := generateSchema(db, opts, wkReg)
+	head, body := imports.resolve(body)
+	return head + body
+}
+
+// generateSchema is GenerateSchema with each imported name still a placeholder, for the whole file to resolve.
+func generateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) (string, *importSet) {
 	tc := newTypeCollector()
+	tc.decls = declSource{config: opts.Types}
+	tc.jsonWire = opts.Codec.normalized().Wire == "json"
 
 	relations := targetRelations(db, opts)
 	fns := targetFunctions(db, opts)
@@ -92,8 +105,8 @@ func GenerateSchema(db *pg.DbInfos, opts Options, wkReg *wellknown.Registry) str
 	b.WriteString(computedProperties)
 	b.WriteString(functions)
 	b.WriteString(functionsByName)
-	b.WriteString(renderWellknowns(wkReg))
-	return b.String()
+	b.WriteString(renderWellknowns(wkReg, tc))
+	return b.String(), tc.imports
 }
 
 // wellknownConstIdent derives a TS identifier for a well-known query's const from its name, which may hold any
@@ -114,10 +127,18 @@ func wellknownConstIdent(name string) string {
 	return b.String()
 }
 
+// inlineDocComment is docComment on the line of what it documents.
+func inlineDocComment(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.TrimSuffix(docComment(s, ""), "\n") + " "
+}
+
 // renderWellknowns renders the Wellknowns section : each query's raw JSON is embedded as a `const ... as const`
 // literal, and shapes.ts infers the row shape from it, since the literal carries its own relation/function.
 // Always emitted, even empty : shapes.ts references it unconditionally.
-func renderWellknowns(wkReg *wellknown.Registry) string {
+func renderWellknowns(wkReg *wellknown.Registry, tc *typeCollector) string {
 	entries := wkReg.All()
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 
@@ -143,7 +164,14 @@ func renderWellknowns(wkReg *wellknown.Registry) string {
 			if p.HasDefault {
 				opt = "?"
 			}
-			paramFields[i] = fmt.Sprintf("%s%s: %s", identifierField(name), opt, wellknown.TSWireTypeForParam(p.Type))
+			ts := wellknown.TSWireTypeForParam(p.Type)
+			switch {
+			case tc.jsonWire && query.IsCBORTypeName(p.Type):
+				ts = "never"
+			case p.TS.Type != "":
+				ts = declaredTypeExpr(p.TS, tc)
+			}
+			paramFields[i] = fmt.Sprintf("%s%s%s: %s", inlineDocComment(p.TS.Comment), identifierField(name), opt, ts)
 		}
 		paramsType := "EmptyObject"
 		if len(paramFields) > 0 {
@@ -197,7 +225,8 @@ func renderRelationInterfaces(relations []*pg.Relation, tc *typeCollector) strin
 	var b strings.Builder
 	for _, r := range relations {
 		name := relationInterfaceName(r.Identifier.Schema, r.Identifier.Name, r.IsViewLike())
-		b.WriteString(docComment(r.Comment, ""))
+		comment, _ := tc.decls.relation(r)
+		b.WriteString(docComment(comment, ""))
 		body := relationColumnsBlock(r, tc)
 		if body == "" {
 			// A zero-column relation (CREATE TABLE t()) is an alias to EmptyObject.

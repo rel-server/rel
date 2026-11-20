@@ -13,6 +13,7 @@ type RawWellKnownParam struct {
 	Type       string
 	HasDefault bool
 	Default    []byte // raw JSON, meaningful only when HasDefault is true
+	TS         []byte // raw JSON of "ts", the declared TypeScript type ; nil when absent
 }
 
 // RawWellKnownDefinition is one parsed, not yet resolved, entry of a well-known query file.
@@ -93,6 +94,13 @@ func parseWellKnownDefinition(n *ast.Node) (RawWellKnownDefinition, error) {
 					return RawWellKnownDefinition{}, oops.With("name", name, "param", pname).Wrapf(err, `wellknown: %q: param %q: "type" must be a string`, name, pname)
 				}
 				param.Type = s
+			}
+			if ts := pnode.Get("ts"); ts.Exists() && ts.TypeSafe() != ast.V_NULL {
+				raw, err := ts.Raw()
+				if err != nil {
+					return RawWellKnownDefinition{}, oops.With("name", name, "param", pname).Wrapf(err, `wellknown: %q: param %q: "ts"`, name, pname)
+				}
+				param.TS = []byte(raw)
 			}
 			if d := pnode.Get("default"); d.Exists() {
 				raw, err := d.Raw()

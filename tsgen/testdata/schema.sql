@@ -173,3 +173,35 @@ create view hotel.ledger_entry_ids as select id, owner_ledger from hotel.ledger_
 create materialized view hotel.ledger_entry_totals as
 	select e.id as entry_id, e.ledger_id, p.slug
 	from hotel.ledger_entries e, hotel.properties p;
+
+-- Declared types (tsgen/declared.go)
+create schema decl;
+create domain decl.cbor as bytea;
+create domain decl.settings as jsonb;
+comment on domain decl.settings is 'type:: type: "Settings", from: "./settings", comment: "user settings"';
+create table decl.doc (
+    id int primary key,
+    meta jsonb,
+    body decl.cbor,
+    raw decl.cbor not null,
+    tags jsonb[] not null,
+    settings decl.settings,
+    callback jsonb,
+    other jsonb not null,
+    querier jsonb,
+    configured jsonb,
+    n int,
+    broken jsonb,
+    plain jsonb
+);
+comment on table decl.doc is 'table:: comment: "documents"';
+comment on column decl.doc.meta is 'column:: type: "{ a: number }", comment: "the meta"';
+comment on column decl.doc.body is 'column:{"type": "Body", "from": "./body"}';
+comment on column decl.doc.tags is 'column:: type: "string[]"';
+comment on column decl.doc.callback is 'column:: type: "() => void"';
+comment on column decl.doc.other is 'column:: type: "Settings", from: "./other"';
+comment on column decl.doc.querier is 'column:: type: "Querier", from: "./q"';
+comment on column decl.doc.configured is 'column:: type: "number"';
+comment on column decl.doc.n is 'column:: type: "string", comment: "a count"';
+comment on column decl.doc.broken is 'column:: type: "X", tipe: "Y"';
+comment on column decl.doc.plain is 'ends */ early';

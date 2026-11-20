@@ -257,7 +257,7 @@ export function func<
   Q,
   DraftShapeFromQuery<Q, ResolveCalledFunctionModel<F>>
 > {
-  const [schema, fn_name] = fn.split(".")
+  const [schema, fn_name] = (fn as string).split(".")
   const query = {
     ...request,
     schema,
@@ -275,7 +275,7 @@ export function call<F extends FunctionName, const Args extends FunctionArgs<Fun
   fn: F,
   args: Args,
 ): Promise<RootShapeFromFunctionMember<MatchOverload<Functions[F], Args>, Record<string, never>>> {
-  const [schema, fn_name] = fn.split(".")
+  const [schema, fn_name] = (fn as string).split(".")
   const query = {
     schema,
     function: fn_name,
