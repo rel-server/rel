@@ -223,8 +223,10 @@ func (d *cborDecoder) simpleItem(ai byte, val uint64, indef bool) (int32, error)
 		return d.add(cnode{item: itFalse}), nil
 	case ai == 21:
 		return d.add(cnode{item: itTrue}), nil
-	case ai == 22 || ai == 23: // null, and undefined which reads as null
+	case ai == 22:
 		return d.add(cnode{item: itNull}), nil
+	case ai == 23: // undefined : null, except that a map member holding it is absent, as JSON drops it
+		return d.add(cnode{item: itNull, extra: cborUndefined}), nil
 	case ai == 25:
 		return d.add(cnode{item: itFloat, extra: math.Float64bits(float16ToFloat64(uint16(val)))}), nil
 	case ai == 26:
@@ -858,6 +860,11 @@ func (c *cnode) StrictFloat64() (float64, error) {
 
 func (c *cnode) kid(i int) *cnode { return &c.doc.nodes[c.doc.kids[i]] }
 
+// cborUndefined is the extra of the itNull node decoded from undefined.
+const cborUndefined = 1
+
+func (c *cnode) undefined() bool { return c.item == itNull && c.extra == cborUndefined }
+
 func (c *cnode) ArrayItems() ([]Node, error) {
 	if c.item != itArray {
 		return nil, errNotArray
@@ -875,7 +882,8 @@ func (c *cnode) ObjectGet(key string) (Node, bool) {
 	}
 	for i := 0; i < int(c.b); i++ {
 		if string(c.kid(c.a+2*i).bytes()) == key {
-			return c.kid(c.a + 2*i + 1), true
+			v := c.kid(c.a + 2*i + 1)
+			return v, !v.undefined()
 		}
 	}
 	return nil, false
@@ -886,8 +894,10 @@ func (c *cnode) ObjectEach(fn func(string, Node) error) error {
 		return errNotObject
 	}
 	for i := 0; i < int(c.b); i++ {
-		if err := fn(string(c.kid(c.a+2*i).bytes()), c.kid(c.a+2*i+1)); err != nil {
-			return err
+		if v := c.kid(c.a + 2*i + 1); !v.undefined() {
+			if err := fn(string(c.kid(c.a+2*i).bytes()), v); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -983,10 +993,15 @@ func (c *cnode) writeJSON(b *strings.Builder) error {
 			return string(c.kid(c.a+2*order[x]).bytes()) < string(c.kid(c.a+2*order[y]).bytes())
 		})
 		b.WriteByte('{')
-		for n, i := range order {
+		n := 0
+		for _, i := range order {
+			if c.kid(c.a + 2*i + 1).undefined() {
+				continue
+			}
 			if n > 0 {
 				b.WriteByte(',')
 			}
+			n++
 			enc, err := json.Marshal(string(c.kid(c.a + 2*i).bytes()))
 			if err != nil {
 				return errNoJSONForm("a key that is not valid UTF-8")

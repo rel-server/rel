@@ -464,13 +464,13 @@ type ExpressionMapShape<
       {
         [K in keyof Obj as ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
           ? never
-          : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol> extends true
+          : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol, Obj> extends true
             ? never
             : K]?: ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol>
       } & {
         [K in keyof Obj as ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol> extends Omitted
           ? never
-          : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol> extends true
+          : IsRequiredEntry<Obj[K], Rel, Join, Depth, ReqCol, Obj> extends true
             ? K
             : never]: ExpressionShape<M, Obj[K], Rel, Join, Depth, ReqCol>
       }
@@ -652,7 +652,7 @@ type BackingColumnOf<E, Rel extends object> = E extends readonly [
       : never
     : never
 
-// The join a single-hop "."/"dot" names. A join is never optional in the write shape.
+// The join a single-hop "."/"dot" names.
 type BackingJoinOf<E, Join extends { [name: string]: unknown }> = E extends readonly [
   "." | "dot",
   infer Name extends string,
@@ -669,14 +669,16 @@ type IsNestedExpressionMap<E> = E extends { [name: string]: unknown }
     : true
   : false
 
-// Whether a select map entry is required on write : always for a join, for a column iff ReqCol names it, for a
-// nested map iff it has a required key inside. `[X] extends [never]` because ReqCol may itself be `never`.
+// Whether a select map entry is required on write : for a column iff ReqCol names it, for a nested map iff it has a
+// required key inside, for a join iff it fills a required column the map doesn't list (an absent join key leaves
+// that column to the row). `[X] extends [never]` because ReqCol may itself be `never`.
 type IsRequiredEntry<
   E,
   Rel extends object,
   Join extends { [name: string]: unknown },
   Depth extends number,
   ReqCol extends string,
+  Obj,
 > = [BackingJoinOf<E, Join>] extends [never]
   ? [BackingColumnOf<E, Rel>] extends [never]
     ? IsNestedExpressionMap<E> extends true
@@ -687,7 +689,26 @@ type IsRequiredEntry<
     : BackingColumnOf<E, Rel> extends ReqCol
       ? true
       : false
-  : true
+  : [
+        Exclude<
+          RequiredJoinColumns<Join[BackingJoinOf<E, Join>], Rel, ReqCol>,
+          { [K in keyof Obj]: BackingColumnOf<Obj[K], Rel> }[keyof Obj]
+        >,
+      ] extends [never]
+    ? false
+    : true
+
+// The required columns a non-nullable outgoing (`>`) join fills : a row leaving the join out must give them itself.
+// `never` for every other join.
+type RequiredJoinColumns<J, Rel extends object, ReqCol extends string> = J extends {
+  shortcut: infer S extends string
+}
+  ? ParsedShortcut<S>["marker"] extends ">"
+    ? IsNullableJoin<S, Rel> extends true
+      ? never
+      : ReferencingColumnsOfShortcut<S> & ReqCol
+    : never
+  : never
 
 // Required columns of a joined relation, minus the ones the join fills in : on an incoming join (`<`/`*`) the
 // server copies the parent's key into the referencing columns.
@@ -745,8 +766,37 @@ type WriteJoinShapes<
   Depth extends number,
   WithProtoMembers extends boolean = false,
 > = {
-  [A in keyof Join]: WriteJoinMemberShape<Join[A], Rel, Digits[Depth], WithProtoMembers>
+  [A in keyof Join]?: WriteJoinMemberShape<Join[A], Rel, Digits[Depth], WithProtoMembers>
 }
+
+// For each join filling required columns : the join given, or left out with those columns given instead. An
+// intersection of one union per such join ; `unknown` when there is none.
+type JoinOrColumns<
+  Rel extends object,
+  Join extends { [name: string]: unknown },
+  Depth extends number,
+  ReqCol extends string,
+  WithProtoMembers extends boolean,
+> = IntersectParams<
+  {
+    [A in keyof Join]: [RequiredJoinColumns<Join[A], Rel, ReqCol>] extends [never]
+      ? never
+      : (
+          x:
+            | { [P in A]: WriteJoinMemberShape<Join[A], Rel, Digits[Depth], WithProtoMembers> }
+            | ({ [P in A]?: undefined } & {
+                [C in RequiredJoinColumns<Join[A], Rel, ReqCol> & keyof Rel]: Rel[C]
+              }),
+        ) => void
+  }[keyof Join]
+>
+
+// The intersection of the parameter types of a union of one-parameter functions, `unknown` for none.
+type IntersectParams<F> = [F] extends [never]
+  ? unknown
+  : [F] extends [(x: infer I) => void]
+    ? I
+    : never
 
 // OwnShape with only the ReqCol columns required.
 type WriteOwnShape<Rel extends object, ReqCol extends string> = Pick<Rel, ReqCol & keyof Rel> &
@@ -771,7 +821,8 @@ type WriteFullShape<
   ReqCol extends string = never,
   WithProtoMembers extends boolean = false,
 > = WriteOwnShape<Rel, Exclude<ReqCol, OutgoingFilledKeys<Rel, Join>>> &
-  WriteJoinShapes<Rel, Join, Depth, WithProtoMembers>
+  WriteJoinShapes<Rel, Join, Depth, WithProtoMembers> &
+  JoinOrColumns<Rel, Join, Depth, ReqCol, WithProtoMembers>
 
 // "."/"dot" on write : a single hop to a column or join is writable ; a computed field or a multi-hop chain is
 // Omitted. Must match the server's writability walk.

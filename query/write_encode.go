@@ -45,6 +45,7 @@ const (
 	oidBytea       = 17
 	oidName        = 19
 	oidInt8        = 20
+	oidInt8Array   = 1016
 	oidInt2        = 21
 	oidInt4        = 23
 	oidText        = 25

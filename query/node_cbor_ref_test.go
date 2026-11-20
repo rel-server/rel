@@ -22,7 +22,7 @@ import (
 
 var refDecMode = func() cbor.DecMode {
 	dm, err := cbor.DecOptions{
-		DefaultMapType:  reflect.TypeOf(map[string]any{}), // a map key that is not text is an error
+		DefaultMapType:  reflect.TypeOf(refMap{}), // a map key that is not text is an error
 		TagsMd:          cbor.TagsAllowed,
 		TimeTag:         cbor.DecTagOptional, // tags 0 and 1 become a time.Time
 		IntDec:          cbor.IntDecConvertSignedOrBigInt,
@@ -35,6 +35,23 @@ var refDecMode = func() cbor.DecMode {
 	return dm
 }()
 
+// refMap is a decoded map. A member holding undefined is absent ; the library decodes undefined as nil, like null,
+// so each member is decoded from its own bytes.
+type refMap map[string]refMember
+
+type refMember struct {
+	v         any
+	undefined bool
+}
+
+func (m *refMember) UnmarshalCBOR(data []byte) error {
+	if len(data) == 1 && data[0] == 0xf7 {
+		m.undefined = true
+		return nil
+	}
+	return refDecMode.Unmarshal(data, &m.v)
+}
+
 // newRefCBORNode decodes one CBOR data item, which must be all of data.
 func newRefCBORNode(data []byte) (Node, error) {
 	var v any
@@ -45,7 +62,7 @@ func newRefCBORNode(data []byte) (Node, error) {
 }
 
 // refCBORNode wraps one decoded value : nil, bool, int64, uint64, big.Int, float64, string, []byte, []any,
-// map[string]any, time.Time (tags 0 and 1) or cbor.Tag (any other tag).
+// refMap, time.Time (tags 0 and 1) or cbor.Tag (any other tag).
 type refCBORNode struct{ v any }
 
 func (c refCBORNode) Kind() NodeKind {
@@ -62,7 +79,7 @@ func (c refCBORNode) Kind() NodeKind {
 		return KindBytes
 	case []any:
 		return KindArray
-	case map[string]any:
+	case refMap:
 		return KindObject
 	case time.Time:
 		return KindInstant
@@ -271,24 +288,27 @@ func (c refCBORNode) ArrayItems() ([]Node, error) {
 }
 
 func (c refCBORNode) ObjectGet(key string) (Node, bool) {
-	m, ok := c.v.(map[string]any)
+	m, ok := c.v.(refMap)
 	if !ok {
 		return nil, false
 	}
 	v, ok := m[key]
-	if !ok {
+	if !ok || v.undefined {
 		return nil, false
 	}
-	return refCBORNode{v}, true
+	return refCBORNode{v.v}, true
 }
 
 func (c refCBORNode) ObjectEach(fn func(string, Node) error) error {
-	m, ok := c.v.(map[string]any)
+	m, ok := c.v.(refMap)
 	if !ok {
 		return errNotObject
 	}
 	for k, v := range m {
-		if err := fn(k, refCBORNode{v}); err != nil {
+		if v.undefined {
+			continue
+		}
+		if err := fn(k, refCBORNode{v.v}); err != nil {
 			return err
 		}
 	}
@@ -377,10 +397,12 @@ func refWriteCBORJSON(b *strings.Builder, v any) error {
 			}
 		}
 		b.WriteByte(']')
-	case map[string]any:
+	case refMap:
 		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
+		for k, v := range x {
+			if !v.undefined {
+				keys = append(keys, k)
+			}
 		}
 		sort.Strings(keys)
 		b.WriteByte('{')
@@ -394,7 +416,7 @@ func refWriteCBORJSON(b *strings.Builder, v any) error {
 			}
 			b.Write(enc)
 			b.WriteByte(':')
-			if err := refWriteCBORJSON(b, x[k]); err != nil {
+			if err := refWriteCBORJSON(b, x[k].v); err != nil {
 				return err
 			}
 		}

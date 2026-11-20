@@ -24,9 +24,38 @@ type extractorPlan struct {
 type nodePlan struct {
 	table      *tempTable
 	extractors []extractorPlan
+	joins      []joinPlan
 	vals       []Node // scratch : one slot per table column
 	mask       []int64
+	keyed      []int64              // scratch : the row's keyed words, nil when the node has no writable join
+	joinVals   []Node               // scratch : the value of each join's key, nil when absent
 	synth      map[int]*synthObject // scratch : composites built from sub-field extractors
+}
+
+// joinPlan is one writable nested join of a node : the payload key holding it, and its bit in the keyed words.
+type joinPlan struct {
+	key      string
+	child    *QueryNode
+	bit      int
+	incoming bool
+}
+
+// keyedJoins lists node's writable nested joins ; a join's index is its bit in the keyed words of node's rows.
+func keyedJoins(node *QueryNode, ids map[*QueryNode]int) []*QueryNode {
+	var out []*QueryNode
+	for _, list := range [][]*QueryNode{node.OutgoingNodes, node.IncomingNodes} {
+		for _, c := range list {
+			if _, ok := ids[c]; ok {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
+// joinBit is child's bit in the keyed words of its parent's rows.
+func joinBit(child *QueryNode, ids map[*QueryNode]int) int {
+	return slices.Index(keyedJoins(child.Parent, ids), child)
 }
 
 func newNodePlan(node *QueryNode, t *tempTable) (*nodePlan, error) {
@@ -160,6 +189,8 @@ type writeRows struct {
 	batches   map[*tempTable]*rowBatch
 	populated map[int]bool // node ids that received a row
 	submitted map[int]int  // rows per node id
+	// keyed and omitted are, per nested join's node id, whether some parent row has its key, and whether some lacks it.
+	keyed, omitted map[int]bool
 	// tableNodes is the node ids that received rows, per temp table.
 	tableNodes map[*tempTable]map[int]bool
 	nextRowID  int
@@ -186,6 +217,7 @@ func denormalizeNode(root *QueryNode, ids map[*QueryNode]int, payload Node, tabl
 		plans: map[*QueryNode]*nodePlan{},
 		out: &writeRows{
 			batches: map[*tempTable]*rowBatch{}, populated: map[int]bool{}, submitted: map[int]int{},
+			keyed: map[int]bool{}, omitted: map[int]bool{},
 			tableNodes: map[*tempTable]map[int]bool{},
 			nextRowID:  startRowID,
 		},
@@ -219,6 +251,29 @@ func (d *denormalizer) planFor(node *QueryNode) (*nodePlan, error) {
 	if err != nil {
 		return nil, err
 	}
+	fields, err := selectFieldsFor(node)
+	if err != nil {
+		return nil, err
+	}
+	byChild := map[*QueryNode]string{}
+	for _, f := range fields {
+		if child := embedChildOf(f); child != nil {
+			byChild[child] = f.key
+		}
+	}
+	joins := keyedJoins(node, d.ids)
+	for bit, c := range joins {
+		key, ok := byChild[c]
+		if !ok {
+			d.out.omitted[d.ids[c]] = true // not in the select : every row lacks it
+			continue
+		}
+		p.joins = append(p.joins, joinPlan{key: key, child: c, bit: bit, incoming: isIncoming(node, c)})
+	}
+	if len(joins) > 0 {
+		p.keyed = make([]int64, (len(joins)+63)/64)
+		p.joinVals = make([]Node, len(p.joins))
+	}
 	d.plans[node] = p
 	return p, nil
 }
@@ -241,13 +296,16 @@ func (d *denormalizer) walkNode(node *QueryNode, raw Node, parentID *int32) erro
 	rowID := int32(d.out.nextRowID)
 	d.out.nextRowID++
 	plan.fill(raw)
+	if err := d.readJoinKeys(node, plan, raw); err != nil {
+		return err
+	}
 
 	batch := d.out.batches[plan.table]
 	if batch == nil {
 		batch = plan.table.newBatch(d.general, 16)
 		d.out.batches[plan.table] = batch
 	}
-	meta := rowMeta{RowID: rowID, NodeID: int32(nodeID)}
+	meta := rowMeta{RowID: rowID, NodeID: int32(nodeID), Keyed: plan.keyed}
 	if parentID != nil {
 		meta.ParentID, meta.HasParent = *parentID, true
 	}
@@ -266,35 +324,47 @@ func (d *denormalizer) walkNode(node *QueryNode, raw Node, parentID *int32) erro
 		d.out.rootRowID = rowID
 	}
 
-	fields, err := selectFieldsFor(node)
-	if err != nil {
-		return err
-	}
-	for _, f := range fields {
-		child := embedChildOf(f)
-		if child == nil {
+	// joinVals is per node and the walk only goes down, so recursing leaves this row's values in place.
+	for i, j := range plan.joins {
+		value := plan.joinVals[i]
+		if value == nil || value.Kind() == KindNull {
 			continue
 		}
-		value, ok := raw.ObjectGet(f.key)
-		if !ok || value.Kind() == KindNull {
-			continue
-		}
-		if isIncoming(node, child) {
-			if value.Kind() != KindArray {
-				return oops.With("node", node.InnerName, "relation", f.key).Errorf("write: expected an array for incoming relation %q", f.key)
-			}
+		if j.incoming {
 			items, err := value.ArrayItems()
 			if err != nil {
-				return oops.With("node", node.InnerName, "relation", f.key).Wrapf(err, "write: expected an array for incoming relation")
+				return oops.With("node", node.InnerName, "relation", j.key).Wrapf(err, "write: expected an array for incoming relation")
 			}
 			for i := range items {
-				if err := d.walkNode(child, items[i], &rowID); err != nil {
+				if err := d.walkNode(j.child, items[i], &rowID); err != nil {
 					return err
 				}
 			}
-		} else if err := d.walkNode(child, value, &rowID); err != nil {
+		} else if err := d.walkNode(j.child, value, &rowID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// readJoinKeys sets raw's keyed bits and joinVals, and records which joins some row has or lacks. A key with null
+// (or an empty array) counts as present : it clears, where an absent key leaves the join untouched.
+func (d *denormalizer) readJoinKeys(node *QueryNode, plan *nodePlan, raw Node) error {
+	clear(plan.keyed)
+	for i, j := range plan.joins {
+		value, ok := raw.ObjectGet(j.key)
+		childID := d.ids[j.child]
+		if !ok {
+			plan.joinVals[i] = nil
+			d.out.omitted[childID] = true
+			continue
+		}
+		if j.incoming && value.Kind() != KindArray && value.Kind() != KindNull {
+			return oops.With("node", node.InnerName, "relation", j.key).Errorf("write: expected an array for incoming relation %q", j.key)
+		}
+		plan.joinVals[i] = value
+		plan.keyed[j.bit/64] |= int64(1) << uint(j.bit%64)
+		d.out.keyed[childID] = true
 	}
 	return nil
 }

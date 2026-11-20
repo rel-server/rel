@@ -343,8 +343,7 @@ See [Writing data back](../query-language/writing.md#where-driven-writes-update-
 
 A row you are still working on — not saved yet, or edited and not yet written back — is a
 *draft*. A `Querier`'s `.draft()` method doesn't build or create anything itself — it typechecks a
-row you already built against this query's own write shape (every required column, and every join,
-present) and attaches the same `proto` accessors a row you `.get()` would have:
+row you already built against this query's own write shape (every required column present) and attaches the same `proto` accessors a row you `.get()` would have:
 
 ```ts
 const properties = relation("hotel.properties", {
@@ -390,6 +389,7 @@ rated.star_rating // number | null — required, still the column's own type (no
 - A `proto` accessor key (such as `created_at_as_date`) is not accepted in `data`: a key in the object would shadow the accessor, so its setter would never run, and the key would be sent to the server as an unknown field. Assign through the accessor on the returned row instead.
 - On a nested row reached through an incoming join (`<` or `*` shortcut), the column that join fills (`rooms[].property_id` under `properties`) is optional: the server writes the parent's key into it. The same relation written as the root still requires it.
 - The same goes for the referencing columns of a row's own outgoing (`>` shortcut) joins when the join is part of the row: `rooms[].property_id` may be left out if `property` is given, because the server writes the referenced row first and uses its key. Without the join in the shape, the column stays required. A `select` map that lists joins one by one keeps those columns required.
+- A join is optional in the write shape. Leaving it out leaves its rows alone : a to-many join's existing rows are not deleted, and a to-one join's referencing columns keep their value or take the row's own (see [Joins a row leaves out](../query-language/writing.md#joins-a-row-leaves-out)). `[]` or `null` clears it. The exception is a to-one join that fills a required column (`property` filling `rooms[].property_id`) : the row must give either the join or the column. Through a `select` map, such a join is required unless the map lists the column too.
 - A key set to `undefined` counts as not supplied. `null` is a real value and counts as supplied.
 - A key the write shape doesn't have is a type error, at the root and inside joins: `nmae: "x"` is flagged on that key.
 - If one key has the wrong type, only that key is flagged; the other keys you supplied still count as supplied on the result.

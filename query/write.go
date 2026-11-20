@@ -234,7 +234,7 @@ func ExecuteWriteNode(ctx context.Context, conn Querier, root *QueryNode, payloa
 	}
 
 	dc := &dmlCompiler{
-		conn: conn, ids: ids, temps: tables, tableNodes: state.tableNodes, populated: rows.populated, paramValues: paramValues, submitted: rows.submitted,
+		conn: conn, ids: ids, temps: tables, tableNodes: state.tableNodes, populated: rows.populated, keyed: rows.keyed, omitted: rows.omitted, paramValues: paramValues, submitted: rows.submitted,
 		collectStats: opts.Stats, collectSQL: opts.Sql, explainAnalyze: opts.QueryPlan,
 		nextRowID: rows.nextRowID,
 	}

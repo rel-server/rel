@@ -445,3 +445,15 @@ create table defaults_t (
 -- One table at two nodes of a write (query/write_multinode_test.go) : a tree whose rows reference their parent row.
 create table tree_t (id serial primary key, parent_id int references tree_t (id), name text not null);
 create index idx_tree_parent on tree_t (parent_id);
+
+-- Nested write join keys (query/write_join_key_test.go) : a row under an incoming join that also has a nullable outgoing join.
+create table key_owner (id serial primary key, name text not null);
+create table key_tag (id serial primary key, name text not null);
+create table key_item (
+	id serial primary key,
+	owner_id int not null references key_owner (id),
+	tag_id int references key_tag (id),
+	name text not null
+);
+create index idx_key_item_owner on key_item (owner_id);
+create index idx_key_item_tag on key_item (tag_id);

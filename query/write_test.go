@@ -512,13 +512,13 @@ func TestExecuteWriteStateParamsStats_Delete(t *testing.T) {
 
 	node := mustResolveQuery(t, fmt.Sprintf(`{
 		"relation": "director", "schema": "public",
-		"select": ["*~"],
+		"select": {"id": ["col", "id"], "name": ["col", "name"], "movies": [".", "movies"]},
 		"where": ["=", ["col", "id"], %d],
 		"write_mode": "update-existing",
 		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "write_mode": "deleteonly"}}
 	}`, directorID))
-	// Payload carries no movies at all — deleteonly removes every existing one.
-	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "Stats Delete Director"}]`)
+	// An empty movies array : deleteonly removes every existing one.
+	payload := []byte(`[{"id": ` + itoa(directorID) + `, "name": "Stats Delete Director", "movies": []}]`)
 
 	result, err := ExecuteWriteStateParamsStats(ctx, conn, node, payload, &WriteState{}, nil, true)
 	if err != nil {
@@ -538,7 +538,7 @@ func TestExecuteWriteStateParamsStats_Delete(t *testing.T) {
 		t.Errorf(`expected path ["movies"], got %#v`, moviesStat.Path)
 	}
 	if moviesStat.Submitted != 0 {
-		t.Errorf("expected submitted=0 (unpopulated, deleted via parent's population), got %d", moviesStat.Submitted)
+		t.Errorf("expected submitted=0 (an empty array has no rows), got %d", moviesStat.Submitted)
 	}
 	if moviesStat.Deleted != 2 {
 		t.Errorf("expected deleted=2, got %d", moviesStat.Deleted)
@@ -623,42 +623,6 @@ func TestExecuteWrite_MergeDeletesAbsentRows(t *testing.T) {
 	}
 	if len(titles) != 2 || titles[0] != "Keep Me Renamed" || titles[1] != "New One" {
 		t.Fatalf("expected [Keep Me Renamed, New One], got %v", titles)
-	}
-}
-
-// TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren proves an
-// incoming child entirely OMITTED from the payload still gets every row deleted — phase 2 gates on the PARENT's population, not the child's own.
-func TestExecuteWrite_MergeAbsentIncomingKeyDeletesAllChildren(t *testing.T) {
-	conn := acquireWriteConn(t)
-	ctx := context.Background()
-
-	var directorID int
-	if err := conn.QueryRow(ctx, `insert into director (name) values ('Absent Movies Director') returning id`).Scan(&directorID); err != nil {
-		t.Fatalf("insert director: %v", err)
-	}
-	if _, err := conn.Exec(ctx, `insert into movie (director_id, title) values ($1, 'Should Be Deleted')`, directorID); err != nil {
-		t.Fatalf("insert movie: %v", err)
-	}
-
-	node := mustResolveQuery(t, `{
-		"relation": "director", "schema": "public",
-		"select": {"id": ["col", "id"], "movies": [".", "movies"]},
-		"write_mode": "update-existing",
-		"join": {"movies": {"relation": "movie", "schema": "public", "on": {"director_id": "id"}, "select": ["*~"]}}
-	}`)
-	// "movies" key entirely absent — not even "[]".
-	payload := fmt.Appendf(nil, `[{"id": %d}]`, directorID)
-
-	if _, err := ExecuteWrite(ctx, conn, node, payload); err != nil {
-		t.Fatalf("ExecuteWrite: %v", err)
-	}
-
-	var count int
-	if err := conn.QueryRow(ctx, `select count(*) from movie where director_id = $1`, directorID).Scan(&count); err != nil {
-		t.Fatalf("select back: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("expected every movie deleted (payload supplied no movies at all), got %d left", count)
 	}
 }
 

@@ -20,6 +20,9 @@ import (
 // Postgres allows at most 1600 columns in a table.
 const maxTempColumns = 1600
 
+// generalMetaColumns counts the general temp table's metadata columns : row id, node id, parent id, keyed.
+const generalMetaColumns = 4
+
 // tempColumn is one column of the destination table, as a temp table holds it.
 type tempColumn struct {
 	name   string
@@ -52,6 +55,7 @@ type tempTable struct {
 func (t *tempTable) rowIDCol() string    { return t.prefix + "row_id" }
 func (t *tempTable) nodeIDCol() string   { return t.prefix + "node_id" }
 func (t *tempTable) parentIDCol() string { return t.prefix + "parent_id" }
+func (t *tempTable) keyedCol() string    { return t.prefix + "keyed" }
 func (t *tempTable) maskCol(word int) string {
 	return fmt.Sprintf("%smask%d", t.prefix, word)
 }
@@ -70,9 +74,9 @@ func newTempTable(rel *pg.Relation) (*tempTable, error) {
 			}
 		}
 	}
-	if n := 3 + len(rel.Columns) + t.maskWords; n > maxTempColumns {
+	if n := generalMetaColumns + len(rel.Columns) + t.maskWords; n > maxTempColumns {
 		return nil, oops.With("relation", rel.Identifier.String(), "columns", len(rel.Columns)).
-			Errorf("write: %s has too many columns to write through temp tables (%d, the limit is %d)", rel.Identifier.String(), len(rel.Columns), maxTempColumns-3-t.maskWords)
+			Errorf("write: %s has too many columns to write through temp tables (%d, the limit is %d)", rel.Identifier.String(), len(rel.Columns), maxTempColumns-generalMetaColumns-t.maskWords)
 	}
 	t.colIdx = make(map[*pg.Column]int, len(rel.Columns))
 	for i, c := range rel.Columns {
@@ -112,7 +116,7 @@ func (t *tempTable) createStatements() []string {
 	for w := 0; w < t.maskWords; w++ {
 		masks.WriteString(", " + quoteIdent(t.maskCol(w)) + " int8")
 	}
-	meta := fmt.Sprintf("%s int4, %s int4, %s int4, ", quoteIdent(t.rowIDCol()), quoteIdent(t.nodeIDCol()), quoteIdent(t.parentIDCol()))
+	meta := fmt.Sprintf("%s int4, %s int4, %s int4, %s int8[], ", quoteIdent(t.rowIDCol()), quoteIdent(t.nodeIDCol()), quoteIdent(t.parentIDCol()), quoteIdent(t.keyedCol()))
 	onCommit := "delete rows"
 	if keepRowsAtCommit {
 		onCommit = "preserve rows"
@@ -246,10 +250,12 @@ func (t *tempTable) loadSQL(general bool) string {
 	return fmt.Sprintf("insert into %s select * from unnest($1::%s[])", q, q)
 }
 
-// rowMeta is the metadata of a general row. ParentID is only meaningful when HasParent is set.
+// rowMeta is the metadata of a general row. ParentID is only meaningful when HasParent is set. Keyed has one bit
+// per nested join of the row's node, set when the row's payload has that join's key (see joinPlan) ; nil is NULL.
 type rowMeta struct {
 	RowID, NodeID, ParentID int32
 	HasParent               bool
+	Keyed                   []int64
 }
 
 // rowBatch builds the binary array of rows to load into one temp table.
@@ -288,7 +294,7 @@ func (b *rowBatch) addRow(meta rowMeta, vals []Node, mask []int64, ec *encodeCon
 	b.buf = append(b.buf, 0, 0, 0, 0)
 	nfields := len(t.cols) + t.maskWords
 	if b.general {
-		nfields += 3
+		nfields += generalMetaColumns
 	}
 	b.buf = appendInt32(b.buf, int32(nfields))
 	if b.general {
@@ -299,6 +305,7 @@ func (b *rowBatch) addRow(meta rowMeta, vals []Node, mask []int64, ec *encodeCon
 		} else {
 			b.buf = appendNullField(b.buf, oidInt4)
 		}
+		b.buf = appendInt8ArrayField(b.buf, meta.Keyed)
 	}
 	for i, c := range t.cols {
 		v := vals[i]
@@ -327,6 +334,25 @@ func (b *rowBatch) addRow(meta rowMeta, vals []Node, mask []int64, ec *encodeCon
 func appendNullField(dst []byte, oid uint32) []byte {
 	dst = binaryAppendUint32(dst, oid)
 	return appendInt32(dst, -1)
+}
+
+// appendInt8ArrayField appends a one-dimension int8[] record field, NULL when words is nil.
+func appendInt8ArrayField(dst []byte, words []int64) []byte {
+	if words == nil {
+		return appendNullField(dst, oidInt8Array)
+	}
+	dst = binaryAppendUint32(dst, oidInt8Array)
+	dst = appendInt32(dst, int32(20+12*len(words)))
+	dst = appendInt32(dst, 1) // one dimension
+	dst = appendInt32(dst, 0) // no NULL element
+	dst = binaryAppendUint32(dst, oidInt8)
+	dst = appendInt32(dst, int32(len(words)))
+	dst = appendInt32(dst, 1) // lower bound
+	for _, w := range words {
+		dst = appendInt32(dst, 8)
+		dst = appendInt64(dst, w)
+	}
+	return dst
 }
 
 func appendIntField(dst []byte, oid uint32, v int64, size int) []byte {
@@ -408,6 +434,14 @@ func (t *tempTable) maskTest(alias string, slot pg.MaskSlot) string {
 
 // qualifiedGeneral is the general temp table's name as SQL.
 func (t *tempTable) qualifiedGeneral() string { return t.general.qualified() }
+
+// keyedRef is the keyed words of the row seen through alias.
+func (t *tempTable) keyedRef(alias string) string { return alias + "." + quoteIdent(t.keyedCol()) }
+
+// keyedTest is the SQL condition that the keyed words ref have the bit of a join's key.
+func keyedTest(ref string, bit int) string {
+	return fmt.Sprintf("coalesce(%s[%d] & %s::int8, 0) <> 0", ref, bit/64+1, maskBitLiteral(bit%64))
+}
 
 // rowIDRef, nodeIDRef and parentIDRef are the metadata columns seen through alias.
 func (t *tempTable) rowIDRef(alias string) string  { return alias + "." + quoteIdent(t.rowIDCol()) }

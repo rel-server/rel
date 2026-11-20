@@ -591,10 +591,10 @@ export type PropertyWithDotJoinWriteShape = Parameters<
 export type _AssertDotJoinWritableInWriteShape = Expect<
   HasKey<PropertyWithDotJoinWriteShape, "rooms">
 >
-// A join is required in the write shape, also through a select map.
+// A join is optional in the write shape, also through a select map : a row leaving it out leaves it untouched.
 type IsRequiredKey<T, K extends keyof T> = Record<never, never> extends Pick<T, K> ? false : true
-export type _AssertDotJoinIsRequiredInWriteShape = Expect<
-  IsRequiredKey<PropertyWithDotJoinWriteShape, "rooms">
+export type _AssertDotJoinIsOptionalInWriteShape = Expect<
+  IsRequiredKey<PropertyWithDotJoinWriteShape, "rooms"> extends false ? true : false
 >
 // A computed field through "." is dropped from the write shape.
 export type _AssertDotComputedFieldOmittedFromWriteShape = Expect<
@@ -640,6 +640,50 @@ export type _AssertOutgoingNonNullableFkJoinIsNotNullable = Expect<
 >
 void propertyWithAllJoinKinds
 void propertySettingsWithOutgoingJoin
+
+// A join filling a required column (`property_id`) : a row gives the join, or leaves it out and gives the column.
+type SettingsWriteRow = Parameters<typeof propertySettingsWithOutgoingJoin.write>[0][number]
+export type _AssertOutgoingJoinGivenMakesFkOptional = Expect<
+  IsRequiredKey<Exclude<SettingsWriteRow, { property?: undefined }>, "property"> extends true
+    ? IsRequiredKey<
+        Exclude<SettingsWriteRow, { property?: undefined }>,
+        "property_id"
+      > extends false
+      ? true
+      : false
+    : false
+>
+export type _AssertOutgoingJoinAbsentMakesFkRequired = Expect<
+  IsRequiredKey<Extract<SettingsWriteRow, { property?: undefined }>, "property_id">
+>
+function assertOutgoingJoinOrColumn() {
+  void propertySettingsWithOutgoingJoin.write([{ currency: "EUR", property_id: PROPERTY_1 }])
+  // @ts-expect-error neither the join nor the column it fills
+  void propertySettingsWithOutgoingJoin.write([{ currency: "EUR" }])
+}
+void assertOutgoingJoinOrColumn
+
+// Through a select map, the join is required unless the map lists the column it fills.
+const settingsJoinOnly = relation("hotel.property_settings", (join) => ({
+  select: { currency: ["col", "currency"], property: [".", "property"] },
+  join: { property: join("hotel.properties>id:property_id") },
+}))
+const settingsJoinAndColumn = relation("hotel.property_settings", (join) => ({
+  select: {
+    currency: ["col", "currency"],
+    property_id: ["col", "property_id"],
+    property: [".", "property"],
+  },
+  join: { property: join("hotel.properties>id:property_id") },
+}))
+export type _AssertSelectMapJoinRequiredWithoutItsColumn = Expect<
+  IsRequiredKey<Parameters<typeof settingsJoinOnly.write>[0][number], "property">
+>
+export type _AssertSelectMapJoinOptionalWithItsColumn = Expect<
+  IsRequiredKey<Parameters<typeof settingsJoinAndColumn.write>[0][number], "property"> extends false
+    ? true
+    : false
+>
 
 // A nested select group holding a required column (`name`) is required on write.
 const projectFields = {
@@ -887,13 +931,13 @@ assertRuntimeParseMatchesTypeLevelParse()
 // Through a "*" join, "room_type_id" stays required ; "property_id", filled by the join, is optional.
 export type _AssertStarShortcutJoinRequiredColumnStaysMandatory = Expect<
   IsRequiredKey<
-    Parameters<typeof propertyWithNestedProto.write>[0][number]["rooms"][number],
+    NonNullable<Parameters<typeof propertyWithNestedProto.write>[0][number]["rooms"]>[number],
     "room_type_id"
   >
 >
 export type _AssertStarShortcutJoinKeyIsOptional = Expect<
   IsRequiredKey<
-    Parameters<typeof propertyWithNestedProto.write>[0][number]["rooms"][number],
+    NonNullable<Parameters<typeof propertyWithNestedProto.write>[0][number]["rooms"]>[number],
     "property_id"
   > extends false
     ? true
@@ -1113,7 +1157,9 @@ export type _AssertDraftNestedIsOneRow = Expect<
 >
 export type _AssertDraftNestedHasJoinProto = Expect<HasKey<typeof nestedRoom, "label">>
 export type _AssertDraftNestedMatchesDraftType = Expect<
-  [typeof nestedRoom] extends [(typeof propertyTwoLevels.$draft)["rooms"][number]] ? true : false
+  [typeof nestedRoom] extends [NonNullable<(typeof propertyTwoLevels.$draft)["rooms"]>[number]]
+    ? true
+    : false
 >
 
 // A nested draft goes into its parent's array, and the parent is accepted by write().

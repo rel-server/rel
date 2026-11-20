@@ -182,7 +182,7 @@ For each destination table, two temp tables exist per connection. They are used 
 ### Columns
 
 - A table column keeps its name, with no `NOT NULL`, default, primary key, unique or check constraint. A text-mode column is declared `text`.
-- The metadata columns are `<prefix>row_id int`, `<prefix>node_id int`, `<prefix>parent_id int`, and the mask words `<prefix>mask0`, `<prefix>mask1`, … as `bigint`.
+- The metadata columns are `<prefix>row_id int`, `<prefix>node_id int`, `<prefix>parent_id int`, `<prefix>keyed bigint[]` (one bit per writable nested join of the row's node, set when the row's payload has that join's key, null or empty included ; NULL when the node has none), and the mask words `<prefix>mask0`, `<prefix>mask1`, … as `bigint`. The fast table has no metadata columns.
 - `<prefix>` is `__rel_`. If any column of the table starts with the prefix, the prefix gets one more `_` until none does.
 - There are no indexes. Parent and child lookups by `row_id` are joins over the request's own rows.
 - The general table is created `on commit delete rows`. The fast table never receives rows.

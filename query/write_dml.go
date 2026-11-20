@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -29,6 +30,10 @@ type dmlCompiler struct {
 
 	// populated holds the node ids that received a row from denormalize.
 	populated map[int]bool
+
+	// keyed and omitted are, per nested join's node id, whether some parent row has the join's key, and whether
+	// some lacks it (writeRows).
+	keyed, omitted map[int]bool
 
 	// These back the `stats` response ; submitted is keyed by __node_id. statOrder keeps first-touch order
 	// across both phases, since a node touched by both (MERGE's upsert then delete) has a single Stat.
@@ -365,8 +370,8 @@ func (dc *dmlCompiler) phase1(ctx context.Context, node *QueryNode) error {
 	return nil
 }
 
-// phase2 : incoming children deepest-first, then this node's own delete. Delete gates on the parent's population :
-// an absent subtree means "delete everything here", not "skip".
+// phase2 : incoming children deepest-first, then this node's own delete. Below the root a delete runs only when a
+// parent row has the join's key : an empty array or null deletes every child of that row, an absent key none.
 func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *QueryNode) error {
 	nodeID, ok := dc.ids[node]
 	if !ok {
@@ -385,7 +390,7 @@ func (dc *dmlCompiler) phase2(ctx context.Context, node *QueryNode, parent *Quer
 		}
 	}
 	if hasDeleteComponent(node.WriteMode) {
-		if parent == nil || dc.populated[dc.ids[parent]] {
+		if parent == nil || dc.keyed[nodeID] {
 			if err := dc.runDelete(ctx, node, parent); err != nil {
 				return oops.With("node", node.InnerName).Wrapf(err, "write: delete")
 			}
@@ -457,7 +462,11 @@ func columnsFor(node *QueryNode, allowlist []string) ([]ColumnPath, error) {
 		}
 	}
 	// Outgoing-child FK columns are never in Shape.Extractors, so they bypass the allowlist like identity columns do.
+	// A readonly join writes nothing, its FK included.
 	for _, c := range node.OutgoingNodes {
+		if c.WriteMode == READONLY {
+			continue
+		}
 		for _, jc := range c.JoinColumns {
 			cp := ColumnPath{Node: node, Path: []*pg.Column{jc.Distant}}
 			key := cp.Key()
@@ -496,10 +505,13 @@ func withKeysColumns(node *QueryNode, cols []ColumnPath) []ColumnPath {
 	return dedupeColumnPaths(cols, wrapColumns(node, keysColumns(node)))
 }
 
-// outgoingKeySource finds the outgoing child whose recovered key supplies
+// outgoingKeySource finds the writable outgoing child whose recovered key supplies
 // node's col (the outgoing "on" mapping, parent's side).
 func outgoingKeySource(node *QueryNode, col *pg.Column) (child *QueryNode, keyCol *pg.Column) {
 	for _, c := range node.OutgoingNodes {
+		if c.WriteMode == READONLY {
+			continue
+		}
 		for _, jc := range c.JoinColumns {
 			if jc.Distant == col {
 				return c, jc.Local
@@ -533,6 +545,7 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 	t := dc.tempOf(node)
 
 	needsPar := false
+	someOmitted := false // a row lacks an outgoing join's key, so its FK columns follow the ordinary rules
 	outgoingAliases := map[*QueryNode]string{}
 	var outgoingOrder []*QueryNode // deterministic emission order
 	for _, cp := range cols {
@@ -548,6 +561,20 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 				outgoingAliases[child] = fmt.Sprintf("oc%d", len(outgoingAliases))
 				outgoingOrder = append(outgoingOrder, child)
 			}
+			someOmitted = someOmitted || dc.omitted[dc.ids[child]]
+		}
+	}
+	// upsert and merge read the existing row, so an FK column whose key a row lacks keeps its value on update
+	needsCur := someOmitted && (node.WriteMode == UPSERT || node.WriteMode == MERGE)
+	var curMatch []string
+	if needsCur {
+		for _, col := range identityColumns(node) {
+			v := t.colRef("tmp", col)
+			if distant, ok := incomingKeySource(node, col); ok {
+				v = dc.tempOf(node.Parent).colRef("par", distant)
+				needsPar = true
+			}
+			curMatch = append(curMatch, "cur."+quoteIdent(col.Name)+" = "+v)
 		}
 	}
 
@@ -562,6 +589,11 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 			w.Write(",\n")
 			w.Write(t.maskWordRef("tmp", i))
 			w.Write(fmt.Sprintf(" as __m%d", i))
+		}
+		if someOmitted {
+			w.Write(",\n")
+			w.Write(t.keyedRef("tmp"))
+			w.Write(" as __keyed")
 		}
 	}
 	for _, cp := range cols {
@@ -610,6 +642,13 @@ func (dc *dmlCompiler) writeResolvedCTE(w *writer.SQLWriter, node *QueryNode, co
 		w.Write(t.rowIDRef("tmp"))
 		w.Write("\n")
 	}
+	if needsCur {
+		w.Write("left join ")
+		w.Write(node.Relation.Identifier.EscapedString())
+		w.Write(" cur on ")
+		w.Write(strings.Join(curMatch, " and "))
+		w.Write("\n")
+	}
 	if conds := dc.nodeCond(node, "tmp"); conds != nil {
 		writeWhere(w, conds)
 		w.Write("\n")
@@ -638,13 +677,90 @@ func (dc *dmlCompiler) writeColumnCase(w *writer.SQLWriter, node *QueryNode, cp 
 		return nil
 	}
 	if child, keyCol := outgoingKeySource(node, col); child != nil {
-		w.Write("(")
+		if !dc.omitted[dc.ids[child]] {
+			w.Write("(")
+			w.Write(dc.tempOf(child).colRef(outgoingAliases[child], keyCol))
+			w.Write(")::")
+			w.Write(typeName)
+			return nil
+		}
+		// The key given or null : the child's key, NULL when there is no child row. The key absent : an ordinary column.
+		w.Write("case when ")
+		w.Write(keyedTest(t.keyedRef("tmp"), joinBit(child, dc.ids)))
+		w.Write(" then (")
 		w.Write(dc.tempOf(child).colRef(outgoingAliases[child], keyCol))
 		w.Write(")::")
 		w.Write(typeName)
+		switch node.WriteMode {
+		case UPDATE_EXISTING, MERGE_UPDATE: // writeUpdateValue keeps the current value of a column the row lacks
+			w.Write(" else ")
+			w.Write(t.colRef("tmp", col))
+		case UPSERT, MERGE: // the existing row's value, unless the row supplies the column the update may set
+			ident := identityColumns(node)
+			w.Write(" when cur.")
+			w.Id(ident[0].Name)
+			w.Write(" is not null then ")
+			if allowed(updateAllowlist(node), col) {
+				slot, _ := node.Relation.MaskSlotFor(col)
+				w.Write("case when ")
+				w.Write(t.maskTest("tmp", slot))
+				w.Write(" then ")
+				w.Write(t.colRef("tmp", col))
+				w.Write(" else cur.")
+				w.Id(col.Name)
+				w.Write(" end")
+			} else {
+				w.Write("cur.")
+				w.Id(col.Name)
+			}
+			w.Write(" else ")
+			if err := dc.writeInsertValue(w, node, col); err != nil {
+				return err
+			}
+		default:
+			w.Write(" else ")
+			if err := dc.writeInsertValue(w, node, col); err != nil {
+				return err
+			}
+		}
+		w.Write(" end")
 		return nil
 	}
+	return dc.writeOrdinaryValue(w, node, col)
+}
 
+// writeInsertValue writes the value a new row takes for a plain column : the ordinary rule when the insert may set
+// it, else what a missing column takes.
+func (dc *dmlCompiler) writeInsertValue(w *writer.SQLWriter, node *QueryNode, col *pg.Column) error {
+	if allowed(node.InsertColumns, col) {
+		return dc.writeOrdinaryValue(w, node, col)
+	}
+	if col.DefaultExpression != "" {
+		w.Write(col.DefaultExpression)
+		return nil
+	}
+	w.Write("null::")
+	w.Write(col.Type.PgIdentifier.EscapedString())
+	return nil
+}
+
+// allowed reports whether an insert_columns/update_columns allowlist (empty = no filtering) lets col through.
+func allowed(allowlist []string, col *pg.Column) bool {
+	return len(allowlist) == 0 || slices.Contains(allowlist, col.Name)
+}
+
+// updateAllowlist is update_columns, or insert_columns when it is not set.
+func updateAllowlist(node *QueryNode) []string {
+	if len(node.UpdateColumns) == 0 {
+		return node.InsertColumns
+	}
+	return node.UpdateColumns
+}
+
+// writeOrdinaryValue writes a plain column's value from the row : its default when the row lacks it (or gives null
+// in a NOT NULL column), else the payload's value.
+func (dc *dmlCompiler) writeOrdinaryValue(w *writer.SQLWriter, node *QueryNode, col *pg.Column) error {
+	t := dc.tempOf(node)
 	if col.DefaultExpression != "" {
 		slot, ok := node.Relation.MaskSlotFor(col)
 		if !ok {
@@ -671,29 +787,38 @@ func (dc *dmlCompiler) writeColumnCase(w *writer.SQLWriter, node *QueryNode, cp 
 
 // writeUpdateValue writes the new value of cp in runUpdate's SET : the payload's
 // value when the row supplies the column, the row's current value when it does
-// not. A column filled from a parent/child key is always supplied.
+// not. A column filled from a parent's key is always supplied, one filled from a child's key when the row has the join's key.
 func (dc *dmlCompiler) writeUpdateValue(w *writer.SQLWriter, node *QueryNode, cp ColumnPath) {
 	flat := columnPathFlatName(cp)
-	if len(cp.Path) == 1 && isKeyLinked(node, cp.Path[0]) {
-		w.Write("resolved.")
-		w.Id(flat)
-		return
-	}
 	slot, _ := node.Relation.MaskSlotFor(cp.Path...)
-	w.Write(fmt.Sprintf("case when (resolved.__m%d & %s::int8) <> 0 then resolved.", slot.Word, maskBitLiteral(slot.Bit)))
+	supplied := fmt.Sprintf("(resolved.__m%d & %s::int8) <> 0", slot.Word, maskBitLiteral(slot.Bit))
+	if len(cp.Path) == 1 {
+		if _, ok := incomingKeySource(node, cp.Path[0]); ok {
+			w.Write("resolved.")
+			w.Id(flat)
+			return
+		}
+		if child, _ := outgoingKeySource(node, cp.Path[0]); child != nil {
+			if !dc.omitted[dc.ids[child]] {
+				w.Write("resolved.")
+				w.Id(flat)
+				return
+			}
+			// a row lacking the join's key sets the column only when it supplies it and the update may set it
+			cond := keyedTest("resolved.__keyed", joinBit(child, dc.ids))
+			if allowed(updateAllowlist(node), cp.Path[0]) {
+				cond += " or " + supplied
+			}
+			supplied = cond
+		}
+	}
+	w.Write("case when ")
+	w.Write(supplied)
+	w.Write(" then resolved.")
 	w.Id(flat)
 	w.Write(" else ")
 	WriteQualifiedPath(w, "t", cp.Path)
 	w.Write(" end")
-}
-
-// isKeyLinked reports whether col gets its value from a parent's or an outgoing child's recovered key, not the payload.
-func isKeyLinked(node *QueryNode, col *pg.Column) bool {
-	if _, ok := incomingKeySource(node, col); ok {
-		return true
-	}
-	child, _ := outgoingKeySource(node, col)
-	return child != nil
 }
 
 // keysColumns is identityColumns(node) plus every column an incoming child's JoinColumns needs.
@@ -901,11 +1026,7 @@ func (dc *dmlCompiler) recoverKeys(ctx context.Context, node *QueryNode) error {
 
 // runUpdate : a single update ... from ... returning, since the row's identity is known before it runs.
 func (dc *dmlCompiler) runUpdate(ctx context.Context, node *QueryNode) error {
-	updateAllowlist := node.UpdateColumns
-	if len(updateAllowlist) == 0 {
-		updateAllowlist = node.InsertColumns
-	}
-	cols, err := columnsFor(node, updateAllowlist)
+	cols, err := columnsFor(node, updateAllowlist(node))
 	if err != nil {
 		return err
 	}
@@ -1017,11 +1138,7 @@ func (dc *dmlCompiler) runUpsert(ctx context.Context, node *QueryNode) error {
 	}
 	// As in runInsert, every keysColumns member must be in the resolved CTE and written by the insert side.
 	insertCols = withKeysColumns(node, insertCols)
-	updateAllowlist := node.UpdateColumns
-	if len(updateAllowlist) == 0 {
-		updateAllowlist = node.InsertColumns
-	}
-	updateCols, err := columnsFor(node, updateAllowlist)
+	updateCols, err := columnsFor(node, updateAllowlist(node))
 	if err != nil {
 		return err
 	}
@@ -1292,7 +1409,8 @@ func writeTargetPath(w *writer.SQLWriter, cp ColumnPath) {
 
 // ---- phase 2 : delete -----------------------------------------------------------------
 
-// runDelete deletes node's rows absent from the payload, scoped to parent (nil at root) by node's FK-to-parent columns.
+// runDelete deletes node's rows absent from the payload, scoped to parent (nil at root) by node's FK-to-parent columns,
+// and to the parent rows that have the join's key.
 func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *QueryNode) error {
 	identCols, err := requireIdentityColumns(node, "deleteonly/merge")
 	if err != nil {
@@ -1324,7 +1442,11 @@ func (dc *dmlCompiler) runDelete(ctx context.Context, node *QueryNode, parent *Q
 			w.Write(" from ")
 			w.Write(pt.qualifiedGeneral())
 			w.Write(" p")
-			writeWhere(w, dc.nodeCond(parent, "p"))
+			conds := dc.nodeCond(parent, "p")
+			if dc.omitted[dc.ids[node]] { // only the parent rows that have the join's key
+				conds = append(conds, keyedTest(pt.keyedRef("p"), joinBit(node, dc.ids)))
+			}
+			writeWhere(w, conds)
 			w.Write("))")
 			wroteCond = true
 		}
@@ -1422,11 +1544,7 @@ func (dc *dmlCompiler) runDeleteWhere(ctx context.Context, node *QueryNode) erro
 
 // patchSetColumns returns the writable columns the patch names, from the presence words of its row.
 func patchSetColumns(node *QueryNode, mask []int64) ([]ColumnPath, error) {
-	allowlist := node.UpdateColumns
-	if len(allowlist) == 0 {
-		allowlist = node.InsertColumns
-	}
-	cols, err := columnsFor(node, allowlist)
+	cols, err := columnsFor(node, updateAllowlist(node))
 	if err != nil {
 		return nil, err
 	}

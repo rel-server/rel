@@ -73,12 +73,12 @@ func TestTempTable_MaskWordsAndColumnLimit(t *testing.T) {
 			t.Errorf("%d columns: %d mask columns in the DDL, want %d (two tables)", c.cols, got, 2*c.words)
 		}
 	}
-	// 3 metadata columns and 25 mask words leave room for 1572 columns
-	if _, err := newTempTable(fakeRelation(t, 990003, 1573)); err == nil {
-		t.Error("1573 columns cannot fit with the metadata and mask columns, but were accepted")
+	// 4 metadata columns and 25 mask words leave room for 1571 columns
+	if _, err := newTempTable(fakeRelation(t, 990003, 1572)); err == nil {
+		t.Error("1572 columns cannot fit with the metadata and mask columns, but were accepted")
 	}
-	if _, err := newTempTable(fakeRelation(t, 990003, 1572)); err != nil {
-		t.Errorf("1572 columns should fit: %v", err)
+	if _, err := newTempTable(fakeRelation(t, 990003, 1571)); err != nil {
+		t.Errorf("1571 columns should fit: %v", err)
 	}
 }
 
@@ -194,7 +194,8 @@ func TestLoad_WideTableMaskWords(t *testing.T) {
 	topBit := uint64(1) << 63
 	mask := []int64{int64(topBit | 1<<5), 1, 1 << 1}
 	b := tt.newBatch(true, 2)
-	if err := b.addRow(rowMeta{RowID: 10, NodeID: 3, ParentID: 9, HasParent: true}, vals, mask, nil); err != nil {
+	keyed := []int64{int64(topBit | 1), 1 << 1}
+	if err := b.addRow(rowMeta{RowID: 10, NodeID: 3, ParentID: 9, HasParent: true, Keyed: keyed}, vals, mask, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.addRow(rowMeta{RowID: 11, NodeID: 3}, make([]Node, 130), []int64{0, 0, 0}, nil); err != nil {
@@ -227,6 +228,18 @@ func loadReadWide(t *testing.T, conn *pgxpool.Conn, tt *tempTable, b *rowBatch) 
 	var parentIsNull bool
 	if err := conn.QueryRow(ctx, `select __rel_parent_id is null and c5 is null from `+tt.general.qualified()+` where __rel_row_id = 11`).Scan(&parentIsNull); err != nil || !parentIsNull {
 		t.Errorf("row 11: parent and c5 should be NULL (%v, %v)", parentIsNull, err)
+	}
+	// keyed words : bits 0 and 63 of the first word, bit 1 of the second ; a bit past the words, or a NULL array, is unset
+	for _, c := range []struct {
+		row  int
+		bit  int
+		want bool
+	}{{10, 0, true}, {10, 1, false}, {10, 63, true}, {10, 64, false}, {10, 65, true}, {10, 128, false}, {11, 0, false}} {
+		var got bool
+		q := `select ` + keyedTest(tt.keyedRef("w"), c.bit) + ` from ` + tt.general.qualified() + ` w where __rel_row_id = $1`
+		if err := conn.QueryRow(ctx, q, c.row).Scan(&got); err != nil || got != c.want {
+			t.Errorf("row %d bit %d: keyed %v (%v), want %v", c.row, c.bit, got, err, c.want)
+		}
 	}
 }
 

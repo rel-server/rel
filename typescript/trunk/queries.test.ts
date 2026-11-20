@@ -395,6 +395,32 @@ describe("draftNested()", () => {
     expect(written?.rooms[0]?.label).toBe("room N-1")
   })
 
+  test("a row leaving its join out leaves the join's rows alone, an empty array deletes them", async () => {
+    const [roomType] = await relation("hotel.room_types").get()
+    if (!roomType) throw new Error("fixture room type missing")
+    const room = propertyWithRooms.draftNested(["rooms"], {
+      room_type_id: roomType.id,
+      room_number: "K-1",
+    })
+    const parent = propertyWithRooms.draft({ name: uniqueName("Keep rooms"), rooms: [] })
+    parent.rooms.push(room)
+    const [created] = await propertyWithRooms.write([parent])
+    if (!created) throw new Error("nothing written")
+    const again = relation("hotel.properties", {
+      write_mode: "upsert",
+      join: { rooms: join("hotel.properties", "hotel.rooms*id:property_id", { select: ["*~"] }) },
+    })
+
+    const [kept] = await again.write([{ id: created.id, name: created.name }])
+    expect(kept?.rooms).toHaveLength(1)
+    const [stillKept] = await again.write([
+      { id: created.id, name: created.name, rooms: undefined },
+    ])
+    expect(stillKept?.rooms).toHaveLength(1)
+    const [cleared] = await again.write([{ id: created.id, name: created.name, rooms: [] }])
+    expect(cleared?.rooms).toHaveLength(0)
+  })
+
   test("an outgoing join supplies the referencing column on write", async () => {
     const [roomType] = await relation("hotel.room_types").get()
     if (!roomType) throw new Error("fixture room type missing")

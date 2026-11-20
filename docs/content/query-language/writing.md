@@ -46,7 +46,21 @@ A row only writes the columns it supplies. What a missing column means depends o
 
 - **`update-existing`, `merge-update`** — an update changes what it names. A column the row leaves out keeps its current value, and an explicit `null` sets it to `NULL`. The same holds for each field of a composite column.
 - **`insert`, `merge-new`** — a missing column takes its `DEFAULT`, or `NULL` if it has none. An explicit `null` in a `NOT NULL` column that has a default also takes the default.
-- **`upsert`, `merge`** — the row is prepared as a new row first, so a missing column is filled the way an insert would fill it (its `DEFAULT`, else `NULL`). If the row already exists, that prepared value then overwrites the stored one. To keep a column's current value, send the full row, or use `update-existing`.
+- **`upsert`, `merge`** — the row is prepared as a new row first, so a missing column is filled the way an insert would fill it (its `DEFAULT`, else `NULL`). If the row already exists, that prepared value then overwrites the stored one. To keep a column's current value, send the full row, or use `update-existing`. The foreign key of an outgoing join whose key the row leaves out is the exception, below.
+
+### Joins a row leaves out
+
+A nested join's key in a row (`"movies"`, `"studio"`) means one of three things, at every depth:
+
+| The row's key | Incoming join (an array) | Outgoing join (an object) |
+|---|---|---|
+| a value | the rows written as usual ; with a delete component (`merge`, `merge-new`, `merge-update`, `deleteonly`), that row's children missing from the array are deleted | the referenced row is written, and the row's foreign key set to its key |
+| `null`, or `[]` for an incoming join | with a delete component, every child of that row is deleted | the row's foreign key is set to `NULL` |
+| absent | that row's children are left alone, never deleted | the foreign key is an ordinary column, see below |
+
+When the row leaves an outgoing join's key out, its foreign key columns follow the rules of any column : the row's own value for them if the `select` lists them and the row supplies them (subject to `insert_columns`/`update_columns`), else the mode's rule for a missing column. On update (`update-existing`, `merge-update`) that is the current value. On insert it is the `DEFAULT`, else `NULL`. Under `upsert` and `merge` a row that already exists keeps its current foreign key, unlike its other missing columns, and a new row takes the default. A join the `select` doesn't name is absent from every row.
+
+A key given wins over the foreign key column's own value: `{"studio_id": 3, "studio": null}` sets `studio_id` to `NULL`.
 
 ## Value forms by column type
 
@@ -87,6 +101,8 @@ A request sent as `application/cbor` takes every form above, a number being a CB
 | `timestamp` | a text string, or tag 1 / tag 0, read as the wall clock it shows in the connection's session time zone (the reverse of how a response writes it). A wall clock skipped by a clock change does not come back unchanged : `02:30` on the night a zone springs forward is read as `03:30`. If the session zone is one rel cannot load, an instant is refused. |
 | `json`, `jsonb` | any CBOR value JSON can hold : maps with text keys, arrays, text, integers, finite floats, booleans, null, bignums, tag 4 decimals. A byte string, a date or time, another tag, `NaN` or an infinity is refused. |
 | [CBOR columns](index.md#cbor-columns) | any CBOR item, stored as written, structures rewritten as maps. Only from a CBOR request. |
+
+A map member whose value is `undefined` is absent, as JSON drops such a member : a row's column or [join key](#joins-a-row-leaves-out), a composite field, a member of a `json` value. Anywhere else `undefined` is `null`. A CBOR column stores it as written.
 | any other type | as in the table above, a byte string reading as `\x` and hex digits, tag 37 as a hyphenated UUID, tag 1 as an ISO 8601 UTC time, tag 100 as a date, numbers as plain decimal digits. |
 
 Any other tag is refused, and a byte string for a column that does not take one.
@@ -175,7 +191,9 @@ it.
 
 **Phase 2 — every delete, only after phase 1 has finished for the whole request.** A
 `write_mode` with a delete component (`merge`, `merge-new`, `merge-update`, `deleteonly`)
-deletes rows that exist under its parent in the database but weren't mentioned in the payload.
+deletes rows that exist under its parent in the database but weren't mentioned in the payload,
+only under the parent rows whose payload has the join's key (see [Joins a row leaves
+out](#joins-a-row-leaves-out)).
 These deletes run after every insert/update/upsert across the *entire* query tree, not just
 this relation's own branch — and deepest-first: a relation's delete only runs once every
 relation nested under it has already had its chance to delete. This mirrors how Postgres itself
@@ -203,6 +221,10 @@ silent data loss.
 - A joined relation's **own foreign-key column** to its parent (the `on` column, e.g.
   `room_types.property_id`) is written from the join with the parent's key, whether or not `select`
   lists it ; a payload value for it is ignored.
+- A relation's foreign-key column to an **outgoing** join (e.g. `properties.chain_id`) is written
+  from the joined row's key when the row has the join's key, whether or not `select` lists it.
+  When the row leaves that key out, the column is an ordinary one (see [Joins a row leaves
+  out](#joins-a-row-leaves-out)). A `readonly` outgoing join never writes it.
 - A **query** is writable only if every relation in it is writable — root and every joined
   relation, at every depth. One unwritable relation anywhere in the tree makes the *whole*
   write request fail, not just that relation's own piece of it - unless it is explicitely

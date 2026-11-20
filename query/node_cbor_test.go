@@ -274,6 +274,25 @@ func TestCBORNode_JSONText(t *testing.T) {
 	}
 }
 
+// A map member holding undefined is absent, as JSON drops it ; elsewhere undefined is null.
+func TestCBORNode_UndefinedMemberIsAbsent(t *testing.T) {
+	// {"a": undefined, "b": [undefined], "c": 1}
+	n, err := NewCBORNode([]byte{0xa3, 0x61, 'a', 0xf7, 0x61, 'b', 0x81, 0xf7, 0x61, 'c', 0x01})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := n.ObjectGet("a"); ok {
+		t.Error(`ObjectGet("a") found the undefined member`)
+	}
+	var keys []string
+	if err := n.ObjectEach(func(k string, _ Node) error { keys = append(keys, k); return nil }); err != nil || strings.Join(keys, ",") != "b,c" {
+		t.Errorf("ObjectEach keys %v (%v), want b,c", keys, err)
+	}
+	if got, err := n.(*cnode).jsonText(); err != nil || got != `{"b":[null],"c":1}` {
+		t.Errorf("jsonText = %q, %v", got, err)
+	}
+}
+
 func TestCBORNode_Accessors(t *testing.T) {
 	n := cborOf(t, map[string]any{"a": []any{int64(1), "two"}, "b": nil})
 	if v, ok := n.ObjectGet("a"); !ok || v.Kind() != KindArray {
