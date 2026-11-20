@@ -1999,7 +1999,7 @@
   <span class="md-ellipsis">
     
   
-  Batching queries
+  Sequences (batching queries)
 
     
   </span>
@@ -3004,8 +3004,8 @@ decodes to the array <code>[1, 2, 3]</code>; there's no <code>params.tags.0=</co
 building one up piece by piece. <code>GET /rel</code> is read-only, so a well-known write query only ever
 runs over <code>POST</code>.</p>
 <h2 id="mixing-with-other-queries">Mixing with other queries<a class="headerlink" href="#mixing-with-other-queries" title="Permanent link">&para;</a></h2>
-<p>A well-known query composes freely with plain relations inside a <a href="../batching/">batched
-request</a> — both share the same transaction as anything else in the batch:</p>
+<p>A well-known query composes freely with plain relations inside a
+<a href="../batching/">sequence</a> — both share the same transaction as anything else in it:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">[</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="p">{</span>
 </span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">"query"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"wellknown"</span><span class="p">:</span><span class="w"> </span><span class="s2">"checkin_guest"</span><span class="w"> </span><span class="p">},</span>

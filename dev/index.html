@@ -627,10 +627,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#batch-unrelated-writes-still-atomic" class="md-nav__link">
+  <a href="#a-sequence-of-unrelated-writes-still-atomic" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Batch unrelated writes, still atomic
+        A sequence of unrelated writes, still atomic
       </span>
     </span>
   </a>
@@ -2036,7 +2036,7 @@
   <span class="md-ellipsis">
     
   
-  Batching queries
+  Sequences (batching queries)
 
     
   </span>
@@ -2804,10 +2804,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#batch-unrelated-writes-still-atomic" class="md-nav__link">
+  <a href="#a-sequence-of-unrelated-writes-still-atomic" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Batch unrelated writes, still atomic
+        A sequence of unrelated writes, still atomic
       </span>
     </span>
   </a>
@@ -2935,11 +2935,11 @@ relation, whether an omitted child row is left alone or deleted.</p>
 has an id. Rel resolves the dependency order inside the transaction and threads the generated
 key through to its children itself. No client-side orchestration, no multi-request dance to
 get an id back before you can insert what depends on it.</p>
-<h2 id="batch-unrelated-writes-still-atomic">Batch unrelated writes, still atomic<a class="headerlink" href="#batch-unrelated-writes-still-atomic" title="Permanent link">&para;</a></h2>
+<h2 id="a-sequence-of-unrelated-writes-still-atomic">A sequence of unrelated writes, still atomic<a class="headerlink" href="#a-sequence-of-unrelated-writes-still-atomic" title="Permanent link">&para;</a></h2>
 <p>A request isn't limited to one query tree. Send several — unrelated shapes, different
-relations, no common root — in one request, and they all run in the same transaction: every
+relations, no common root — in one request, a sequence, and they all run in the same transaction: every
 write across every query, plus every read-back, start to finish. Nothing partially succeeds.
-If any one of them fails, the whole batch rolls back, so you never have to reason about a
+If any one of them fails, the whole sequence rolls back, so you never have to reason about a
 client left holding a half-applied write.</p>
 <h2 id="postgres-stays-in-charge">Postgres stays in charge<a class="headerlink" href="#postgres-stays-in-charge" title="Permanent link">&para;</a></h2>
 <p>Rel introspects your schema at startup — tables, foreign keys, constraints, functions — and
@@ -3028,8 +3028,7 @@ else. See <a href="#feature-list">Feature list</a> below for the rest of what sh
   queries</a>.</li>
 <li>Row counts, <code>EXPLAIN</code> plans, the compiled SQL text itself, and a dry-run rollback, each an
   opt-in flag on any query — see <a href="query-language/complex-query/">Complex queries</a>.</li>
-<li>Several unrelated queries or writes, batched into one transaction — see <a href="query-language/batching/">Batching
-  queries</a>.</li>
+<li>Several unrelated queries or writes, sent as a sequence in one transaction — see <a href="query-language/batching/">Sequences</a>.</li>
 </ul>
 <p><strong>HTTP layer</strong> — see <a href="http/">HTTP routes</a></p>
 <ul>

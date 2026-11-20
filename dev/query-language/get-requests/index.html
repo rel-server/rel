@@ -1895,7 +1895,7 @@
   <span class="md-ellipsis">
     
   
-  Batching queries
+  Sequences (batching queries)
 
     
   </span>
@@ -2936,7 +2936,7 @@
 <code>Relation</code> tree. Nothing new is expressible this way; it's a second, URL-friendly spelling of
 a subset of what <code>POST /rel</code> already accepts, useful for a request you want cacheable, bookmarkable,
 or embeddable in a plain <code>&lt;a href&gt;</code> — a login-gated report link, say, or a <code>curl</code> one-liner.</p>
-<p><code>GET /rel</code> is read-only: no <code>data</code>, no batching several queries in one request, and
+<p><code>GET /rel</code> is read-only: no <code>data</code>, no sequence of several queries in one request, and
 <code>write_mode</code>/<code>on_conflict</code>/<code>insert_columns</code>/<code>update_columns</code> are rejected outright, at any
 depth. Use <a href="../writing/"><code>POST /rel</code></a> for anything that writes.</p>
 <h2 id="structural-layer">Structural layer<a class="headerlink" href="#structural-layer" title="Permanent link">&para;</a></h2>
@@ -3060,7 +3060,7 @@ since it has no query tree of its own to decode.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../batching/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Batching queries">
+          <a href="../batching/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Sequences (batching queries)">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -3070,7 +3070,7 @@ since it has no query tree of its own to decode.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Batching queries
+                Sequences (batching queries)
               </div>
             </div>
           </a>

@@ -1903,6 +1903,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Columns a row leaves out">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#joins-a-row-leaves-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Joins a row leaves out
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2016,7 +2033,7 @@
   <span class="md-ellipsis">
     
   
-  Batching queries
+  Sequences (batching queries)
 
     
   </span>
@@ -2770,6 +2787,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Columns a row leaves out">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#joins-a-row-leaves-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Joins a row leaves out
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3038,8 +3072,38 @@ already made writable.</p>
 <ul>
 <li><strong><code>update-existing</code>, <code>merge-update</code></strong> — an update changes what it names. A column the row leaves out keeps its current value, and an explicit <code>null</code> sets it to <code>NULL</code>. The same holds for each field of a composite column.</li>
 <li><strong><code>insert</code>, <code>merge-new</code></strong> — a missing column takes its <code>DEFAULT</code>, or <code>NULL</code> if it has none. An explicit <code>null</code> in a <code>NOT NULL</code> column that has a default also takes the default.</li>
-<li><strong><code>upsert</code>, <code>merge</code></strong> — the row is prepared as a new row first, so a missing column is filled the way an insert would fill it (its <code>DEFAULT</code>, else <code>NULL</code>). If the row already exists, that prepared value then overwrites the stored one. To keep a column's current value, send the full row, or use <code>update-existing</code>.</li>
+<li><strong><code>upsert</code>, <code>merge</code></strong> — the row is prepared as a new row first, so a missing column is filled the way an insert would fill it (its <code>DEFAULT</code>, else <code>NULL</code>). If the row already exists, that prepared value then overwrites the stored one. To keep a column's current value, send the full row, or use <code>update-existing</code>. The foreign key of an outgoing join whose key the row leaves out is the exception, below.</li>
 </ul>
+<h3 id="joins-a-row-leaves-out">Joins a row leaves out<a class="headerlink" href="#joins-a-row-leaves-out" title="Permanent link">&para;</a></h3>
+<p>A nested join's key in a row (<code>"movies"</code>, <code>"studio"</code>) means one of three things, at every depth:</p>
+<table>
+<thead>
+<tr>
+<th>The row's key</th>
+<th>Incoming join (an array)</th>
+<th>Outgoing join (an object)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a value</td>
+<td>the rows written as usual ; with a delete component (<code>merge</code>, <code>merge-new</code>, <code>merge-update</code>, <code>deleteonly</code>), that row's children missing from the array are deleted</td>
+<td>the referenced row is written, and the row's foreign key set to its key</td>
+</tr>
+<tr>
+<td><code>null</code>, or <code>[]</code> for an incoming join</td>
+<td>with a delete component, every child of that row is deleted</td>
+<td>the row's foreign key is set to <code>NULL</code></td>
+</tr>
+<tr>
+<td>absent</td>
+<td>that row's children are left alone, never deleted</td>
+<td>the foreign key is an ordinary column, see below</td>
+</tr>
+</tbody>
+</table>
+<p>When the row leaves an outgoing join's key out, its foreign key columns follow the rules of any column : the row's own value for them if the <code>select</code> lists them and the row supplies them (subject to <code>insert_columns</code>/<code>update_columns</code>), else the mode's rule for a missing column. On update (<code>update-existing</code>, <code>merge-update</code>) that is the current value. On insert it is the <code>DEFAULT</code>, else <code>NULL</code>. Under <code>upsert</code> and <code>merge</code> a row that already exists keeps its current foreign key, unlike its other missing columns, and a new row takes the default. A join the <code>select</code> doesn't name is absent from every row.</p>
+<p>A key given wins over the foreign key column's own value: <code>{"studio_id": 3, "studio": null}</code> sets <code>studio_id</code> to <code>NULL</code>.</p>
 <h2 id="value-forms-by-column-type">Value forms by column type<a class="headerlink" href="#value-forms-by-column-type" title="Permanent link">&para;</a></h2>
 <p>rel reads each value of a payload itself and hands Postgres its binary form, so what a column accepts is
 defined per type. Anything Postgres can read as text but that is not listed here as accepted is refused with an error naming
@@ -3157,12 +3221,10 @@ that does not read as the type).</p>
 <td><a href="../#cbor-columns">CBOR columns</a></td>
 <td>any CBOR item, stored as written, structures rewritten as maps. Only from a CBOR request.</td>
 </tr>
-<tr>
-<td>any other type</td>
-<td>as in the table above, a byte string reading as <code>\x</code> and hex digits, tag 37 as a hyphenated UUID, tag 1 as an ISO 8601 UTC time, tag 100 as a date, numbers as plain decimal digits.</td>
-</tr>
 </tbody>
 </table>
+<p>A map member whose value is <code>undefined</code> is absent, as JSON drops such a member : a row's column or <a href="#joins-a-row-leaves-out">join key</a>, a composite field, a member of a <code>json</code> value. Anywhere else <code>undefined</code> is <code>null</code>. A CBOR column stores it as written.
+| any other type | as in the table above, a byte string reading as <code>\x</code> and hex digits, tag 37 as a hyphenated UUID, tag 1 as an ISO 8601 UTC time, tag 100 as a date, numbers as plain decimal digits. |</p>
 <p>Any other tag is refused, and a byte string for a column that does not take one.</p>
 <p>For <code>timestamp</code> and <code>timestamptz</code> strings:</p>
 <ul>
@@ -3239,7 +3301,9 @@ manager row is written first, being an outgoing reference, then the staff row th
 it.</p>
 <p><strong>Phase 2 — every delete, only after phase 1 has finished for the whole request.</strong> A
 <code>write_mode</code> with a delete component (<code>merge</code>, <code>merge-new</code>, <code>merge-update</code>, <code>deleteonly</code>)
-deletes rows that exist under its parent in the database but weren't mentioned in the payload.
+deletes rows that exist under its parent in the database but weren't mentioned in the payload,
+only under the parent rows whose payload has the join's key (see <a href="#joins-a-row-leaves-out">Joins a row leaves
+out</a>).
 These deletes run after every insert/update/upsert across the <em>entire</em> query tree, not just
 this relation's own branch — and deepest-first: a relation's delete only runs once every
 relation nested under it has already had its chance to delete. This mirrors how Postgres itself
@@ -3265,6 +3329,10 @@ silent data loss.</p>
 <li>A joined relation's <strong>own foreign-key column</strong> to its parent (the <code>on</code> column, e.g.
   <code>room_types.property_id</code>) is written from the join with the parent's key, whether or not <code>select</code>
   lists it ; a payload value for it is ignored.</li>
+<li>A relation's foreign-key column to an <strong>outgoing</strong> join (e.g. <code>properties.chain_id</code>) is written
+  from the joined row's key when the row has the join's key, whether or not <code>select</code> lists it.
+  When the row leaves that key out, the column is an ordinary one (see <a href="#joins-a-row-leaves-out">Joins a row leaves
+  out</a>). A <code>readonly</code> outgoing join never writes it.</li>
 <li>A <strong>query</strong> is writable only if every relation in it is writable — root and every joined
   relation, at every depth. One unwritable relation anywhere in the tree makes the <em>whole</em>
   write request fail, not just that relation's own piece of it - unless it is explicitely

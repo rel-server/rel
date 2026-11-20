@@ -2010,7 +2010,7 @@
   <span class="md-ellipsis">
     
   
-  Batching queries
+  Sequences (batching queries)
 
     
   </span>
@@ -2998,7 +2998,7 @@ usable from a plain link (or, here, a <code>curl</code> one-liner with no <code>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span><span class="s1">'http://localhost:8080/rel?relation=properties&amp;schema=hotel&amp;where=gte(star_rating,4)&amp;select=id,name,star_rating,chain,room_types&amp;join.chain.relation=chains&amp;join.chain.schema=hotel&amp;join.chain.on.id=chain_id&amp;join.room_types.relation=room_types&amp;join.room_types.schema=hotel&amp;join.room_types.on.property_id=id'</span>
 </span></code></pre></div>
 <p>This decodes to exactly the same query tree as the <code>POST</code> body above, and returns the same rows.
-<code>GET /rel</code> only ever reads — no <code>data</code>, no batching, no write-only fields — see <a href="../query-language/get-requests/">Querying with
+<code>GET /rel</code> only ever reads — no <code>data</code>, no sequences, no write-only fields — see <a href="../query-language/get-requests/">Querying with
 GET</a> for the full grammar (<code>where=</code>'s operator-as-call
 syntax, <code>select=</code>'s <code>*</code>/<code>*~</code> shorthands, and more).</p>
 <h2 id="writing-nested-before-the-parent-even-has-an-id">Writing, nested, before the parent even has an id<a class="headerlink" href="#writing-nested-before-the-parent-even-has-an-id" title="Permanent link">&para;</a></h2>

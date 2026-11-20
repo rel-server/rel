@@ -31,7 +31,7 @@
     
     
       
-        <title>Batching queries - Rel</title>
+        <title>Sequences (batching queries) - Rel</title>
       
     
     
@@ -126,7 +126,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Batching queries
+              Sequences (batching queries)
             
           </span>
         </div>
@@ -1904,7 +1904,7 @@
   <span class="md-ellipsis">
     
   
-  Batching queries
+  Sequences (batching queries)
 
     
   </span>
@@ -1923,7 +1923,7 @@
   <span class="md-ellipsis">
     
   
-  Batching queries
+  Sequences (batching queries)
 
     
   </span>
@@ -2851,9 +2851,9 @@
   
 
 
-<h1 id="batching-queries-in-one-request">Batching queries in one request<a class="headerlink" href="#batching-queries-in-one-request" title="Permanent link">&para;</a></h1>
-<p>The request body can be a single query or an array of them — different shapes, different
-relations, no shared root — and they all run inside one transaction:</p>
+<h1 id="sequences-batching-queries">Sequences (batching queries)<a class="headerlink" href="#sequences-batching-queries" title="Permanent link">&para;</a></h1>
+<p>The request body can be a single query or an array of them, a sequence — different shapes,
+different relations, no shared root — and they all run inside one transaction:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">[</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="nt">"query"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"relation"</span><span class="p">:</span><span class="w"> </span><span class="s2">"properties"</span><span class="p">,</span><span class="w"> </span><span class="nt">"schema"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hotel"</span><span class="p">,</span><span class="w"> </span><span class="nt">"select"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"*~"</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Marina Bay Grand Hotel"</span><span class="w"> </span><span class="p">}]</span><span class="w"> </span><span class="p">},</span>
@@ -2861,13 +2861,13 @@ relations, no shared root — and they all run inside one transaction:</p>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">]</span>
 </span></code></pre></div>
 <p>Mixing a plain <code>Relation</code> with a <code>WellKnownQuery</code> call (<code>{"wellknown": "...", "params": {...}}</code>)
-in the same batch is fine — see <a href="../well-known-queries/">Well-known queries</a> for how those are
-registered and typed. If any item in the batch fails, the whole batch rolls back.</p>
+in the same sequence is fine — see <a href="../well-known-queries/">Well-known queries</a> for how those are
+registered and typed. If any item in the sequence fails, the whole sequence rolls back. The TypeScript client builds one with <a href="../../typescript/#sequences"><code>sequence()</code></a>.</p>
 <h2 id="response-shape">Response shape<a class="headerlink" href="#response-shape" title="Permanent link">&para;</a></h2>
-<p>A batch of more than one item comes back as a top-level JSON array, one entry per request item,
+<p>A sequence of more than one item comes back as a top-level JSON array, one entry per request item,
 in request order — each entry is exactly what that item would have returned on its own: a bare
 row array/object for a plain query, or an envelope object (<code>result</code>/<code>count</code>/<code>stats</code>/<code>sql</code>/
-<code>query_plan</code>) for a <a href="../complex-query/">complex query</a>. A single-item request — batched or not —
+<code>query_plan</code>) for a <a href="../complex-query/">complex query</a>. A single-item request — a sequence or not —
 never gets this extra array wrapper; <code>Query[]</code> with exactly one element responds the same way a
 bare <code>Query</code> would.</p>
 <h2 id="when-a-request-fails">When a request fails<a class="headerlink" href="#when-a-request-fails" title="Permanent link">&para;</a></h2>

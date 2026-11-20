@@ -1890,7 +1890,7 @@
   <span class="md-ellipsis">
     
   
-  Batching queries
+  Sequences (batching queries)
 
     
   </span>
@@ -2590,6 +2590,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sequences
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#codecs" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -3173,6 +3184,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sequences
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#codecs" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -3601,8 +3623,7 @@ partial of the row; one with <code>write_mode: "delete"</code> takes no argument
 <h3 id="building-a-new-row">Building a new row<a class="headerlink" href="#building-a-new-row" title="Permanent link">&para;</a></h3>
 <p>A row you are still working on — not saved yet, or edited and not yet written back — is a
 <em>draft</em>. A <code>Querier</code>'s <code>.draft()</code> method doesn't build or create anything itself — it typechecks a
-row you already built against this query's own write shape (every required column, and every join,
-present) and attaches the same <code>proto</code> accessors a row you <code>.get()</code> would have:</p>
+row you already built against this query's own write shape (every required column present) and attaches the same <code>proto</code> accessors a row you <code>.get()</code> would have:</p>
 <div class="language-ts highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="nx">proto</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">    </span><span class="p">...</span><span class="nx">timestampTzAccessor</span><span class="p">(</span><span class="s2">"created_at"</span><span class="p">),</span>
@@ -3642,6 +3663,7 @@ supplied it:</p>
 <li>A <code>proto</code> accessor key (such as <code>created_at_as_date</code>) is not accepted in <code>data</code>: a key in the object would shadow the accessor, so its setter would never run, and the key would be sent to the server as an unknown field. Assign through the accessor on the returned row instead.</li>
 <li>On a nested row reached through an incoming join (<code>&lt;</code> or <code>*</code> shortcut), the column that join fills (<code>rooms[].property_id</code> under <code>properties</code>) is optional: the server writes the parent's key into it. The same relation written as the root still requires it.</li>
 <li>The same goes for the referencing columns of a row's own outgoing (<code>&gt;</code> shortcut) joins when the join is part of the row: <code>rooms[].property_id</code> may be left out if <code>property</code> is given, because the server writes the referenced row first and uses its key. Without the join in the shape, the column stays required. A <code>select</code> map that lists joins one by one keeps those columns required.</li>
+<li>A join is optional in the write shape. Leaving it out leaves its rows alone : a to-many join's existing rows are not deleted, and a to-one join's referencing columns keep their value or take the row's own (see <a href="../query-language/writing/#joins-a-row-leaves-out">Joins a row leaves out</a>). <code>[]</code> or <code>null</code> clears it. The exception is a to-one join that fills a required column (<code>property</code> filling <code>rooms[].property_id</code>) : the row must give either the join or the column. Through a <code>select</code> map, such a join is required unless the map lists the column too.</li>
 <li>A key set to <code>undefined</code> counts as not supplied. <code>null</code> is a real value and counts as supplied.</li>
 <li>A key the write shape doesn't have is a type error, at the root and inside joins: <code>nmae: "x"</code> is flagged on that key.</li>
 <li>If one key has the wrong type, only that key is flagged; the other keys you supplied still count as supplied on the result.</li>
@@ -3938,6 +3960,29 @@ you pass pick which overload's return type you get back.</p>
 <p><code>func()</code>'s own <code>arguments</code> field is checked the same way, with one difference: each argument may also be a
 <code>["$param", name]</code> placeholder, since a <code>func()</code> query is built once and can be reused with different
 <code>.get(params)</code>/<code>.write(params, data)</code> values, unlike <code>call()</code>, which runs immediately.</p>
+<h2 id="sequences">Sequences<a class="headerlink" href="#sequences" title="Permanent link">&para;</a></h2>
+<p><code>sequence()</code> sends several queries as one request, run in one transaction. Make the <code>get()</code>, <code>write()</code> and <code>call()</code> calls in its callback as you would anywhere else and return them; it resolves to what the callback returned, each promise replaced by its result:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">call</span><span class="p">,</span><span class="w"> </span><span class="nx">relation</span><span class="p">,</span><span class="w"> </span><span class="nx">sequence</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./database"</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.properties"</span><span class="p">)</span>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="kd">const</span><span class="w"> </span><span class="nx">rooms</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.rooms"</span><span class="p">)</span>
+</span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a>
+</span><span id="__span-26-6"><a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="kd">const</span><span class="w"> </span><span class="p">[</span><span class="nx">written</span><span class="p">,</span><span class="w"> </span><span class="nx">allRooms</span><span class="p">,</span><span class="w"> </span><span class="nx">available</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">sequence</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-26-7"><a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="w">  </span><span class="nx">properties</span><span class="p">.</span><span class="nx">write</span><span class="p">([</span><span class="nx">properties</span><span class="p">.</span><span class="nx">draft</span><span class="p">({</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">"Harbour Annex"</span><span class="w"> </span><span class="p">})]),</span>
+</span><span id="__span-26-8"><a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a><span class="w">  </span><span class="nx">rooms</span><span class="p">.</span><span class="nx">get</span><span class="p">(),</span>
+</span><span id="__span-26-9"><a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="w">  </span><span class="nx">call</span><span class="p">(</span><span class="s2">"hotel.rooms_available"</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">property_id</span><span class="o">:</span><span class="w"> </span><span class="kt">1</span><span class="w"> </span><span class="p">}),</span>
+</span><span id="__span-26-10"><a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a><span class="p">])</span>
+</span></code></pre></div>
+<p>Each result is typed and gets its own query's <code>proto</code>, as on its own.</p>
+<ul>
+<li>If one query fails, all of them are rolled back, and every promise rejects with that one <code>RelRequestError</code> : the sequence's and those of the calls inside it.</li>
+<li>The callback must be synchronous. An <code>async</code> one is refused with nothing sent; a query made after an <code>await</code> would already have gone out on its own.</li>
+<li>Every query made while the callback runs is sent, whether it returns it or not.</li>
+<li>The request goes to the first query's <code>baseUrl</code>, written with its codec, <code>sendStructures</code> and <code>compressAbove</code>. A query with another <code>baseUrl</code> or codec throws, and nothing is sent. So does anything else the callback throws.</li>
+<li>A <code>sequence()</code> inside a sequence's callback throws.</li>
+<li>An empty sequence sends nothing and resolves to <code>[]</code>.</li>
+</ul>
+<p>See <a href="../query-language/batching/">Sequences</a> for what the server does with one.</p>
 <h2 id="codecs">Codecs<a class="headerlink" href="#codecs" title="Permanent link">&para;</a></h2>
 <p>Three independent choices decide how values travel and what they are on the client. They are given as a comma-separated
 list of tokens, in any order, in the <code>codec</code> GET parameter of <code>GET /rel/database.ts</code>, in <code>typescript.codec</code> and in <code>--typescript-codec</code>
@@ -4043,19 +4088,19 @@ changing the type of every <code>int4</code> and <code>float8</code> too. When a
 <h3 id="changing-how-a-value-is-read-or-written">Changing how a value is read or written<a class="headerlink" href="#changing-how-a-value-is-read-or-written" title="Permanent link">&para;</a></h3>
 <p>Every query writes its request and reads its response through <code>Querier.prototype.codec</code>; assign it once, or per query like
 <code>baseUrl</code> (a per-query codec must yield the same kinds of value the generated types say):</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span>
-</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>
-</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ledger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.ledgers"</span><span class="p">)</span>
-</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="nx">ledger</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span><span class="w">   </span><span class="c1">// only this query</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="nx">Querier</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ledger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">relation</span><span class="p">(</span><span class="s2">"hotel.ledgers"</span><span class="p">)</span>
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="nx">ledger</span><span class="p">.</span><span class="nx">codec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">myCodec</span><span class="w">   </span><span class="c1">// only this query</span>
 </span></code></pre></div>
 <p>A codec is an object of this shape:</p>
-<div class="language-ts highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Codec</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="w">  </span><span class="nx">contentType?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                              </span><span class="c1">// sent as Content-Type and Accept ; left out, neither is sent</span>
-</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="w">  </span><span class="nx">accept?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                                   </span><span class="c1">// sent as Accept instead of contentType</span>
-</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="w">  </span><span class="nx">binary?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">                                  </span><span class="c1">// decode() takes the response bytes, not its text</span>
-</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="w">  </span><span class="nx">encode</span><span class="p">(</span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">,</span><span class="w"> </span><span class="nx">options</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">structures?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span>
-</span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="w">  </span><span class="nx">decode</span><span class="p">(</span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span>
-</span><span id="__span-27-7"><a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="p">}</span>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Codec</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span><span class="nx">contentType?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                              </span><span class="c1">// sent as Content-Type and Accept ; left out, neither is sent</span>
+</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">  </span><span class="nx">accept?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w">                                   </span><span class="c1">// sent as Accept instead of contentType</span>
+</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">  </span><span class="nx">binary?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w">                                  </span><span class="c1">// decode() takes the response bytes, not its text</span>
+</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">  </span><span class="nx">encode</span><span class="p">(</span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">,</span><span class="w"> </span><span class="nx">options</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">structures?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span>
+</span><span id="__span-28-6"><a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="w">  </span><span class="nx">decode</span><span class="p">(</span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">Uint8Array</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span>
+</span><span id="__span-28-7"><a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>A failed request (status 400 or more) is always JSON text, whatever was asked, and never reaches <code>decode</code>: it becomes a
 <code>RelRequestError</code> whose <code>body</code> is that text.</p>
