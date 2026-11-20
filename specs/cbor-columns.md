@@ -34,6 +34,6 @@ Decisions are in `docs/adr/0012` to `0014`. This is what to build.
 - Done : a well-known param's `ts` object, on a json, jsonb or cbor param or one of a type rel does not know. Result fields need nothing : a selected column keeps its declared type through `shapes.ts`.
 - Done : `database.json` carries `ts_type`, `ts_from` and the parsed `comment`.
 - Done : a broken declaration is left out and logged once per snapshot build, and by `--typescript-out` ; generation itself is silent.
-- Done : under the `json` codec, a CBOR value is `never` (column, nullable or not, domain, param) : a write fails to compile, a select does not, and the server refuses it.
+- Done : under the `json` codec, a CBOR value is `never` (column, nullable or not, domain, param) : a write fails to compile ; a select does not (an explicit select drops the key from the row type, the default selection keeps it as never), and the server refuses it.
 - Later : route `body` and `returns` declarations, once tsgen types routes (it has no route types today).
-- rel never checks a value against its declared type ; the docs point to Postgres `CHECK` constraints (`pg_jsonschema`).
+- rel never checks a value against its declared type ; the docs point to Postgres `CHECK` constraints (`pg_jsonschema` ; postcbor's equivalent once it has one).

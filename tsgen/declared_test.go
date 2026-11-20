@@ -34,7 +34,7 @@ func declWellknowns(t *testing.T) *wellknown.Registry {
 			"params": {"s": {"type": "jsonb", "ts": {"type": "Settings", "from": "./settings", "comment": "the settings"}}},
 			"query": {"schema": "decl", "relation": "doc", "select": {"meta": [".", "meta"]}, "where": ["=", [".", "meta"], ["$param", "s", "jsonb"]]}}`,
 		"doc_by_id.json": `{"name": "doc_by_id",
-			"params": {"id": {"type": "int", "ts": {"type": "string"}}, "m": {"type": "jsonb", "ts": {"tipe": "X"}}},
+			"params": {"id": {"type": "int", "ts": {"type": "string", "comment": "the id"}}, "m": {"type": "jsonb", "ts": {"tipe": "X"}}},
 			"query": {"schema": "decl", "relation": "doc", "select": {"id": [".", "id"]},
 				"where": ["and", ["=", [".", "id"], ["$param", "id", "int"]], ["=", [".", "meta"], ["$param", "m", "jsonb"]]]}}`,
 	} {
@@ -67,7 +67,7 @@ func TestGenerateSchema_DeclaredTypes(t *testing.T) {
 		"  raw: Type__Decl__Cbor\n",
 		"  tags: string[]\n",
 		"  settings: Type__Decl__Settings | null\n",
-		"  callback: (() => void) | null\n",
+		"  /** multi-line */\n  callback: (() => void) | null\n",
 		"  other: Settings\n",
 		"  querier: Querier | null\n",
 		"  /** from the config */\n  configured: string | null\n",
@@ -75,7 +75,7 @@ func TestGenerateSchema_DeclaredTypes(t *testing.T) {
 		"  broken: unknown | null\n",
 		"  /** ends *\\/ early */\n  plain: unknown | null\n",
 		"params: { /** the settings */ s: Settings__2 }",
-		"params: { id: number; m: unknown }",
+		"params: { /** the id */ id: number; m: unknown }",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)
@@ -106,8 +106,21 @@ func TestGenerateSchema_DeclaredTypes_CBORUnderJSON(t *testing.T) {
 	}
 }
 
-const declUse = `import type { Relations, Wellknowns } from "./database"
+const declUse = `import { relation } from "./database"
+import type { Relations, Wellknowns } from "./database"
 type Doc = Relations["decl.doc"]
+type IsNever<T> = [T] extends [never] ? true : false
+const docs = relation("decl.doc", { select: { id: ["col", "id"], meta: ["col", "meta"] } })
+type DocRow = typeof docs.$row
+export const rowIsNotNever: IsNever<DocRow> = false
+export const row: DocRow = { id: 1, meta: { a: 1 } }
+// @ts-expect-error a selected column keeps its declared type
+export const badRow: DocRow = { id: 1, meta: { a: "x" } }
+export const drafted = docs.draft({ id: 1, meta: { a: 1 } })
+// @ts-expect-error a written column keeps its declared type
+docs.draft({ id: 1, meta: { a: "x" } })
+const all = relation("decl.doc")
+export const defaultRowIsNotNever: IsNever<typeof all.$row> = false
 export const meta: Doc["meta"] = { a: 1 }
 // @ts-expect-error a declared type is checked
 export const badMeta: Doc["meta"] = { a: "x" }
@@ -151,12 +164,24 @@ func TestGenerateDatabaseTS_DeclaredTypes_TypeChecks(t *testing.T) {
 	}
 	assertTypeChecksWithFiles(t, out, `"ESNext", "dom"`, withFiles(map[string]string{"use.ts": declUse + `
 export const body: Doc["body"] = { body: true }
+const withBody = relation("decl.doc", { select: { id: ["col", "id"], body: ["col", "body"] } })
+withBody.draft({ id: 1, body: { body: true } })
+// @ts-expect-error a CBOR column keeps its declared type
+withBody.draft({ id: 1, body: { body: 1 } })
 `}))
 
 	out = GenerateDatabaseTS(testDb, declOptions(t, "json"), wk)
 	assertTypeChecksWithFiles(t, out, `"ESNext", "dom"`, withFiles(map[string]string{"use.ts": declUse + `
 // @ts-expect-error a CBOR column is never under JSON
 export const body: Doc["body"] = { body: true }
+const withBody = relation("decl.doc", { select: { id: ["col", "id"], body: ["col", "body"] } })
+export const withBodyIsNotNever: IsNever<typeof withBody.$row> = false
+// @ts-expect-error writing a CBOR column fails to compile under JSON
+withBody.draft({ id: 1, body: { body: true } })
+// selecting one does not ; the row has no such key, and the server refuses the query
+export const selectedBody: "body" extends keyof typeof withBody.$row ? "kept" : "dropped" = "dropped"
+// the default selection keeps it, never
+export const defaultBody: IsNever<(typeof all.$row)["body"]> = true
 // @ts-expect-error even when not null
 export const raw: Doc["raw"] = new Uint8Array()
 `}))

@@ -198,7 +198,7 @@ comment on table decl.doc is 'table:: comment: "documents"';
 comment on column decl.doc.meta is 'column:: type: "{ a: number }", comment: "the meta"';
 comment on column decl.doc.body is 'column:{"type": "Body", "from": "./body"}';
 comment on column decl.doc.tags is 'column:: type: "string[]"';
-comment on column decl.doc.callback is 'column:: type: "() => void"';
+comment on column decl.doc.callback is E'column::\n  type: "() => void"\n  comment: "multi-line"\n';
 comment on column decl.doc.other is 'column:: type: "Settings", from: "./other"';
 comment on column decl.doc.querier is 'column:: type: "Querier", from: "./q"';
 comment on column decl.doc.configured is 'column:: type: "number"';

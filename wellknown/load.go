@@ -126,19 +126,20 @@ func loadFile(rctx *query.ResolveContext, path, ext string, byName map[string][]
 	}
 }
 
-// paramTS is p's declared TypeScript type ; a broken one, or one on a param whose type rel already types, is
-// logged and left out, as a column's is.
+// paramTS is p's declared TypeScript type ; a broken one is logged and left out, and a type on a param whose type
+// rel already types is logged and dropped, its comment kept, as a column's is.
 func paramTS(queryName, name string, p query.RawWellKnownParam) declcomment.TypeDecl {
 	if p.TS == nil {
 		return declcomment.TypeDecl{}
 	}
 	d, err := declcomment.Decode(p.TS)
-	if err == nil && d.Type != "" && TSWireTypeForParam(p.Type) != "unknown" {
-		err = oops.Errorf("a declared type only applies to a json, jsonb or cbor param, or one of a type rel does not know, not %q", p.Type)
-	}
 	if err != nil {
 		log.Warn("well-known param's ts declaration ignored", "name", queryName, "param", name, "error", err.Error())
 		return declcomment.TypeDecl{}
+	}
+	if d.Type != "" && TSWireTypeForParam(p.Type) != "unknown" {
+		log.Warn("well-known param's declared type ignored : it only applies to a json, jsonb or cbor param, or one of a type rel does not know", "name", queryName, "param", name, "type", p.Type)
+		d.Type, d.From = "", ""
 	}
 	return d
 }

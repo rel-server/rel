@@ -57,13 +57,16 @@ type TypeDecl struct {
 	From string `json:"from"`
 }
 
-// Decode reads a TypeDecl from a JSON object, refusing a field it does not know.
+// Decode reads a TypeDecl from a JSON object, refusing a field it does not know and text after the object.
 func Decode(raw []byte) (TypeDecl, error) {
 	var d TypeDecl
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&d); err != nil {
 		return TypeDecl{}, oops.Wrapf(err, "decoding the declaration")
+	}
+	if dec.More() {
+		return TypeDecl{}, oops.Errorf("decoding the declaration: text after the object")
 	}
 	return d, d.Validate()
 }

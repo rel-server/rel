@@ -13,6 +13,7 @@ func TestExtract(t *testing.T) {
 		{"  column:: type: \"X\", comment: \"c\"", `{"comment":"c","type":"X"}`, true, false},
 		{`column: {"type": "X"}`, `{"type": "X"}`, true, false},
 		{"column:: type: ", "", true, true},
+		{"column::\n  type: \"X\"\n  comment: \"c\"\n", `{"comment":"c","type":"X"}`, true, false},
 	} {
 		raw, found, err := Extract(c.comment, "column")
 		if found != c.found || (err != nil) != c.err || (!c.err && string(raw) != c.raw) {
@@ -35,6 +36,7 @@ func TestDecode(t *testing.T) {
 		{`{"from": "./s"}`, false},
 		{`{"type": "S", "from": "./s\""}`, false},
 		{`[1]`, false},
+		{`{"type": "X"} trailing words`, false},
 	} {
 		if _, err := Decode([]byte(c.raw)); (err == nil) != c.ok {
 			t.Errorf("%s : %v", c.raw, err)

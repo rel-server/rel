@@ -610,7 +610,8 @@ from = "./settings"
 - rel doesn't check the TypeScript either: a broken `type` breaks the compilation of `database.ts`, not rel.
 - Two imported names that are the same, or the same as a name `database.ts` already uses, are aliased: the second `Settings` is imported `as Settings__2`.
 - A configured key can't name a table or column that holds a dot.
-- With the `json` [codec](#codecs), a CBOR column is `never`, whatever it declares, nullable or not: the server refuses to send or receive its value in JSON. Writing a value into it fails to compile. Selecting it doesn't, but the server answers that query with `CBOR_COLUMN_NEEDS_CBOR`. A function argument, result or composite field of a CBOR type is `never` too.
+- Postgres doesn't copy a column's comment to a view selecting it, so a view's column is `unknown` until it is declared itself, with its own comment or a `typescript.types` key.
+- With the `json` [codec](#codecs), a CBOR column is `never`, whatever it declares, nullable or not: the server refuses to send or receive its value in JSON. Writing a value into it fails to compile. Selecting it doesn't: the column is missing from the row type of a `select` that names it, and `never` in the default selection's; the server answers either query with `CBOR_COLUMN_NEEDS_CBOR`. A function argument, result or composite field of a CBOR type is `never` too.
 
 ## Calling a function directly
 
