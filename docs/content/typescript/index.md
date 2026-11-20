@@ -638,6 +638,34 @@ you pass pick which overload's return type you get back.
 `["$param", name]` placeholder, since a `func()` query is built once and can be reused with different
 `.get(params)`/`.write(params, data)` values, unlike `call()`, which runs immediately.
 
+## Sequences
+
+`sequence()` sends several queries as one request, run in one transaction. Make the `get()`, `write()` and `call()` calls in its callback as you would anywhere else and return them; it resolves to what the callback returned, each promise replaced by its result:
+
+```ts
+import { call, relation, sequence } from "./database"
+
+const properties = relation("hotel.properties")
+const rooms = relation("hotel.rooms")
+
+const [written, allRooms, available] = await sequence(() => [
+  properties.write([properties.draft({ name: "Harbour Annex" })]),
+  rooms.get(),
+  call("hotel.rooms_available", { property_id: 1 }),
+])
+```
+
+Each result is typed and gets its own query's `proto`, as on its own.
+
+- If one query fails, all of them are rolled back, and every promise rejects with that one `RelRequestError` : the sequence's and those of the calls inside it.
+- The callback must be synchronous. An `async` one is refused with nothing sent; a query made after an `await` would already have gone out on its own.
+- Every query made while the callback runs is sent, whether it returns it or not.
+- The request goes to the first query's `baseUrl`, written with its codec, `sendStructures` and `compressAbove`. A query with another `baseUrl` or codec throws, and nothing is sent. So does anything else the callback throws.
+- A `sequence()` inside a sequence's callback throws.
+- An empty sequence sends nothing and resolves to `[]`.
+
+See [Sequences](../query-language/batching.md) for what the server does with one.
+
 ## Codecs
 
 Three independent choices decide how values travel and what they are on the client. They are given as a comma-separated

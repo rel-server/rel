@@ -114,7 +114,7 @@ curl 'http://localhost:8080/rel?relation=properties&schema=hotel&where=gte(star_
 ```
 
 This decodes to exactly the same query tree as the `POST` body above, and returns the same rows.
-`GET /rel` only ever reads — no `data`, no batching, no write-only fields — see [Querying with
+`GET /rel` only ever reads — no `data`, no sequences, no write-only fields — see [Querying with
 GET](../query-language/get-requests.md) for the full grammar (`where=`'s operator-as-call
 syntax, `select=`'s `*`/`*~` shorthands, and more).
 

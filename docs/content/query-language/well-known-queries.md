@@ -116,8 +116,8 @@ runs over `POST`.
 
 ## Mixing with other queries
 
-A well-known query composes freely with plain relations inside a [batched
-request](batching.md) — both share the same transaction as anything else in the batch:
+A well-known query composes freely with plain relations inside a
+[sequence](batching.md) — both share the same transaction as anything else in it:
 
 ```json
 [

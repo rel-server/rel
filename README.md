@@ -26,12 +26,12 @@ has an id. Rel resolves the dependency order inside the transaction and threads 
 key through to its children itself. No client-side orchestration, no multi-request dance to
 get an id back before you can insert what depends on it.
 
-## Batch unrelated writes, still atomic
+## A sequence of unrelated writes, still atomic
 
 A request isn't limited to one query tree. Send several — unrelated shapes, different
-relations, no common root — in one request, and they all run in the same transaction: every
+relations, no common root — in one request, a sequence, and they all run in the same transaction: every
 write across every query, plus every read-back, start to finish. Nothing partially succeeds.
-If any one of them fails, the whole batch rolls back, so you never have to reason about a
+If any one of them fails, the whole sequence rolls back, so you never have to reason about a
 client left holding a half-applied write.
 
 ## Postgres stays in charge
@@ -89,7 +89,7 @@ curl http://localhost:8080/rel \
 ```
 
 See [Getting started](https://rel-server.github.io/rel/getting-started/) for the full
-walkthrough, including nested and batched writes.
+walkthrough, including nested writes and sequences.
 
 ## How it compares
 
@@ -113,7 +113,7 @@ walkthrough, including nested and batched writes.
 - Named, pre-parsed, typed queries registered server-side.
 - Row counts, `EXPLAIN` plans, the compiled SQL text itself, and a dry-run rollback, each an
   opt-in flag on any query.
-- Several unrelated queries or writes, batched into one transaction.
+- Several unrelated queries or writes, sent as a sequence in one transaction.
 
 **HTTP layer** — see [HTTP routes](https://rel-server.github.io/rel/http/)
 

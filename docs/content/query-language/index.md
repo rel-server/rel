@@ -106,6 +106,6 @@ The TypeScript type of a CBOR column is `unknown` unless it [declares one](../ty
 - **[Distinctness](distinctness.md)** — `distinct`/`distinct_on`, and pairing it with
   `order_by`.
 - **[Writing data back](writing.md)** — write modes, `on_conflict`, writability.
-- **[Batching queries in one request](batching.md)** — several queries, one transaction.
+- **[Sequences (batching queries)](batching.md)** — several queries, one transaction.
 - **[Querying with `GET`](get-requests.md)** — the same read-only queries as a URL query string.
 - **[Well-known queries](well-known-queries.md)** — named, pre-parsed, typed queries.

@@ -682,32 +682,124 @@ export class Querier<
     return this._send({ query: this.doQuery(params), data })
   }
 
-  private async _send(query: unknown) {
-    const { codec } = this
-    let body: string | Uint8Array = codec.encode(query, { structures: this.sendStructures })
-    const headers: Record<string, string> = {}
-    if (codec.contentType) {
-      headers["Content-Type"] = codec.contentType
-      headers.Accept = codec.accept ?? codec.contentType
+  // Inside a sequence() callback the item is recorded instead of sent.
+  private _send(query: unknown): Promise<Shape> {
+    if (collecting) {
+      return record(collecting, this, this.query as ProtoQuery, query) as Promise<Shape>
     }
-    if (body.length > this.compressAbove && typeof CompressionStream !== "undefined") {
-      body = await gzip(body)
-      headers["Content-Encoding"] = "gzip"
-    }
-    const res = await fetch(`${this.baseUrl.replace(/\/+$/, "")}/rel`, {
-      credentials: "include",
-      method: "POST",
-      body: body as BodyInit,
-      headers,
-    })
-    if (res.status >= 400) {
-      throw new RelRequestError(res.status, await res.text())
-    }
-    const data = codec.decode(
-      codec.binary ? new Uint8Array(await res.arrayBuffer()) : await res.text(),
-    )
-    return applyProto(data, this.query as ProtoQuery) as Shape
+    return post(this, query).then((data) => applyProto(data, this.query as ProtoQuery) as Shape)
   }
+}
+
+// What a request is sent with : the settings of the query that sends it, or of a sequence's first item.
+type Transport = Pick<Querier, "baseUrl" | "codec" | "sendStructures" | "compressAbove">
+
+const relUrl = (baseUrl: string) => `${baseUrl.replace(/\/+$/, "")}/rel`
+
+async function post(t: Transport, query: unknown): Promise<unknown> {
+  const { codec } = t
+  let body: string | Uint8Array = codec.encode(query, { structures: t.sendStructures })
+  const headers: Record<string, string> = {}
+  if (codec.contentType) {
+    headers["Content-Type"] = codec.contentType
+    headers.Accept = codec.accept ?? codec.contentType
+  }
+  if (body.length > t.compressAbove && typeof CompressionStream !== "undefined") {
+    body = await gzip(body)
+    headers["Content-Encoding"] = "gzip"
+  }
+  const res = await fetch(relUrl(t.baseUrl), {
+    credentials: "include",
+    method: "POST",
+    body: body as BodyInit,
+    headers,
+  })
+  if (res.status >= 400) {
+    throw new RelRequestError(res.status, await res.text())
+  }
+  return codec.decode(codec.binary ? new Uint8Array(await res.arrayBuffer()) : await res.text())
+}
+
+type SequenceItem = {
+  transport: Transport
+  proto: ProtoQuery
+  wire: unknown
+  resolve(value: unknown): void
+  reject(error: unknown): void
+}
+
+// The items recorded by the sequence() whose callback is running.
+let collecting: SequenceItem[] | null = null
+
+// One request has one baseUrl and codec : the first item's. sendStructures/compressAbove only change how the body
+// is written, so the first item's are used without checking the others.
+function record(
+  items: SequenceItem[],
+  transport: Transport,
+  proto: ProtoQuery,
+  wire: unknown,
+): Promise<unknown> {
+  const first = items[0]?.transport
+  if (
+    first &&
+    (first.codec !== transport.codec || relUrl(first.baseUrl) !== relUrl(transport.baseUrl))
+  ) {
+    throw new Error("sequence: every query must have the same baseUrl and codec as the first one")
+  }
+  const promise = new Promise((resolve, reject) => {
+    items.push({ transport, proto, wire, resolve, reject })
+  })
+  // A failure is reported by the sequence itself ; an item the callback did not return must not also be unhandled.
+  promise.catch(() => {})
+  return promise
+}
+
+/**
+ Sends every get()/write()/call() made while `fn` runs as one request, run in one transaction : if one fails, all of
+ them are rolled back and every one of their promises rejects with the same error. Resolves to what `fn` returns,
+ its promises awaited. `fn` must be synchronous ; a query made after an `await` would be sent on its own. All the
+ queries must share the first one's `baseUrl` and `codec`. If `fn` throws, nothing is sent. Cannot be nested.
+ */
+export function sequence<const T extends readonly unknown[]>(
+  fn: () => T,
+): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> {
+  if (collecting) {
+    throw new Error("sequence() cannot be called inside another sequence's callback")
+  }
+  const items: SequenceItem[] = []
+  collecting = items
+  let returned: T
+  try {
+    returned = fn()
+    if (typeof (returned as { then?: unknown } | null)?.then === "function") {
+      throw new Error("sequence callback must be synchronous")
+    }
+  } catch (error) {
+    for (const item of items) item.reject(error)
+    return Promise.reject(error)
+  } finally {
+    collecting = null
+  }
+  // The sequence follows the request, whether `fn` returned what it recorded or not.
+  let sent: Promise<unknown> = Promise.resolve()
+  const [first] = items
+  if (first) {
+    // A one-item request is sent bare : the server would answer a one-item array unwrapped anyway.
+    const single = items.length === 1
+    sent = post(first.transport, single ? first.wire : items.map((item) => item.wire))
+      .then((data) => {
+        items.forEach((item, i) => {
+          item.resolve(applyProto(single ? data : (data as unknown[])[i], item.proto))
+        })
+      })
+      .catch((error) => {
+        for (const item of items) item.reject(error)
+        throw error
+      })
+  }
+  return sent.then(() => Promise.all(returned)) as Promise<{
+    -readonly [K in keyof T]: Awaited<T[K]>
+  }>
 }
 
 // "/" (this origin) unless changed : see the `baseUrl` declaration above.

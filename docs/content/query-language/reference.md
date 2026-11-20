@@ -22,7 +22,7 @@ type Query = Relation | ComplexQuery | WellKnownQuery | Query[]
 | A `Relation` | A read (see [Shaping a query](shaping.md)), or, wrapped in a `ComplexQuery`, a write. |
 | A `WellKnownQuery` | A call to a named, pre-parsed query — see [Well-known queries](well-known-queries.md). |
 | A `ComplexQuery` | Optionally write `data` back through `query` (a `Relation` or a `WellKnownQuery`), and/or shape the response beyond the plain selection — see [Writing data back](writing.md) and [Complex queries](complex-query.md). |
-| `Query[]` | Several queries in one request, one transaction — see [Batching queries](batching.md). |
+| `Query[]` | Several queries in one request, one transaction — see [Sequences](batching.md). |
 
 ## `Relation`
 

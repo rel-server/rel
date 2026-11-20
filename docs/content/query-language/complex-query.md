@@ -155,7 +155,7 @@ A write's `sql` includes one entry per relation actually touched (`insert`/`upda
 Runs this query inside its own savepoint, rolled back immediately after it executes — useful for
 a side-effecting function/view (a read) or a dry run you want the numbers for but not the data
 (a write, paired with `stats`, `sql`, or `query_plan`). Nothing else in the same
-[batch](batching.md) is affected. `result`/`stats`/`query_plan` still report what actually
+[sequence](batching.md) is affected. `result`/`stats`/`query_plan` still report what actually
 happened, right up until the rollback undid it.
 
 `rollback` on its own never turns on the envelope — pair it with another flag (or leave `returns`

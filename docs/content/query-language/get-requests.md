@@ -11,7 +11,7 @@ Every query on the preceding pages was a JSON body on `POST /rel`. The same read
 a subset of what `POST /rel` already accepts, useful for a request you want cacheable, bookmarkable,
 or embeddable in a plain `<a href>` — a login-gated report link, say, or a `curl` one-liner.
 
-`GET /rel` is read-only: no `data`, no batching several queries in one request, and
+`GET /rel` is read-only: no `data`, no sequence of several queries in one request, and
 `write_mode`/`on_conflict`/`insert_columns`/`update_columns` are rejected outright, at any
 depth. Use [`POST /rel`](writing.md) for anything that writes.
 

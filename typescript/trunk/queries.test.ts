@@ -4,12 +4,15 @@
 // once per codec against one database, so it asserts on the fixture rows (ids 1 to 3) and on rows it names uniquely.
 import { describe, expect, test } from "bun:test"
 import {
+  type Int8,
   Querier,
   RelRequestError,
   asTimestamptz,
+  call,
   func,
   join,
   relation,
+  sequence,
   wellknown,
 } from "../database"
 
@@ -301,24 +304,24 @@ describe("draft() and write()", () => {
   })
 })
 
-describe("compressAbove", () => {
-  // the body fetch is given, and the headers it is sent with
-  const sentBodies = async (run: () => Promise<unknown>) => {
-    const sent: { encoding: string | null; size: number }[] = []
-    const realFetch = globalThis.fetch
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const body = init?.body as string | Uint8Array
-      sent.push({ encoding: new Headers(init?.headers).get("Content-Encoding"), size: body.length })
-      return realFetch(input, init)
-    }) as typeof fetch
-    try {
-      await run()
-    } finally {
-      globalThis.fetch = realFetch
-    }
-    return sent
+// the body fetch is given, and the headers it is sent with
+const sentBodies = async (run: () => Promise<unknown>) => {
+  const sent: { encoding: string | null; size: number }[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const body = init?.body as string | Uint8Array
+    sent.push({ encoding: new Headers(init?.headers).get("Content-Encoding"), size: body.length })
+    return realFetch(input, init)
+  }) as typeof fetch
+  try {
+    await run()
+  } finally {
+    globalThis.fetch = realFetch
   }
+  return sent
+}
 
+describe("compressAbove", () => {
   test("a body over the threshold is sent gzipped and the server reads it", async () => {
     const name = uniqueName(`Gzipped ${"x".repeat(2000)}`)
     let written: unknown[] = []
@@ -513,5 +516,151 @@ describe("well-known queries", () => {
       content: from.content,
     }).get()
     expect(rows.map((r) => Number(r.id))).toEqual(latest.map((r) => Number(r.id)).reverse())
+  })
+})
+
+// ---- sequence() ----
+
+describe("sequence()", () => {
+  const labelled = relation("hotel.properties", {
+    proto: {
+      get label(): string {
+        return `property ${this.name}`
+      },
+    },
+  })
+
+  // remembers a promise made inside a callback, to await once the sequence has settled
+  const keep = (kept: Promise<unknown>[], promise: Promise<unknown>) => {
+    kept.push(promise)
+    return promise
+  }
+
+  test("a read, a write, function calls and a well-known query answer in one request, each with its own proto", async () => {
+    const name = uniqueName("Sequence")
+    const [sample] = await relation("hotel.codec_samples", {
+      select: ["*~"],
+      where: ["=", ["col", "label"], "bench"],
+      order_by: [["desc", ["col", "id"]]],
+      limit: 1,
+    }).get()
+    if (!sample?.taken_tz || !sample.content) throw new Error("bench rows missing")
+    const since = { label: "bench", from: sample.taken_tz, content: sample.content }
+    let result: unknown
+    const sent = await sentBodies(async () => {
+      const r = await sequence(() => [
+        labelled.get(),
+        labelled.write([labelled.draft({ name })]),
+        roomsAvailable.get({ property_id: "1" }),
+        call("hotel.rooms_available", { property_id: 1 as Int8 }),
+        wellknown("samples_since", since).get(),
+      ])
+      type _ = Expect<
+        Equal<
+          typeof r,
+          [
+            Awaited<ReturnType<typeof labelled.get>>,
+            Awaited<ReturnType<typeof labelled.get>>,
+            Awaited<ReturnType<typeof roomsAvailable.get>>,
+            (typeof r)[3],
+            Awaited<ReturnType<ReturnType<typeof wellknown<"samples_since">>["get"]>>,
+          ]
+        >
+      >
+      result = r
+    })
+    expect(sent).toHaveLength(1)
+    const [read, written, rooms, called, samples] = result as [
+      { label: string }[],
+      { name: string; label: string }[],
+      { room_number: string }[],
+      { room_number: string }[],
+      { id: unknown }[],
+    ]
+    expect(read.find((r) => r.label === "property Marina Bay Grand Hotel")).toBeDefined()
+    expect(written.map((r) => r.label)).toEqual([`property ${name}`])
+    expect(rooms.map((r) => r.room_number).sort()).toEqual(["101", "102", "201"])
+    expect(called.map((r) => r.room_number).sort()).toEqual(["101", "102", "201"])
+    expect(samples.map((r) => Number(r.id))).toEqual([Number(sample.id)])
+  })
+
+  test("a failing item rolls back an earlier write and rejects every promise with its error", async () => {
+    const name = uniqueName("Rolled back")
+    const bad = { star_rating: 2 } as unknown as Parameters<
+      typeof writableProperties.write
+    >[0][number]
+    const kept: Promise<unknown>[] = []
+    const error = await sequence(() => [
+      keep(kept, writableProperties.write([writableProperties.draft({ name })])),
+      writableProperties.write([bad]),
+    ]).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(RelRequestError)
+    expect(kept).toHaveLength(1)
+    expect(await kept[0]?.catch((e: unknown) => e)).toBe(error)
+    const found = await relation("hotel.properties", { where: ["=", ["col", "name"], name] }).get()
+    expect(found).toHaveLength(0)
+  })
+
+  test("a query the callback does not return is still sent, and its failure rejects the sequence", async () => {
+    const name = uniqueName("Unreturned")
+    const ok = await sequence(() => {
+      writableProperties.write([writableProperties.draft({ name })])
+      return [] as const
+    })
+    expect(ok).toEqual([])
+    const found = await relation("hotel.properties", { where: ["=", ["col", "name"], name] }).get()
+    expect(found).toHaveLength(1)
+
+    const bad = { star_rating: 2 } as unknown as Parameters<
+      typeof writableProperties.write
+    >[0][number]
+    const error = await sequence(() => {
+      writableProperties.write([bad])
+      return [] as const
+    }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(RelRequestError)
+  })
+
+  test("a different baseUrl or codec, an async callback and a nested sequence send nothing", async () => {
+    const elsewhere = relation("hotel.properties")
+    elsewhere.baseUrl = "http://127.0.0.1:1"
+    const otherCodec = relation("hotel.properties")
+    otherCodec.codec = { ...Querier.prototype.codec }
+    const errors: unknown[] = []
+    const sent = await sentBodies(async () => {
+      // each callback records a first query, then fails
+      const kept: Promise<unknown>[] = []
+      const callbacks = [
+        () => [keep(kept, propertiesBare.get()), elsewhere.get()],
+        () => [keep(kept, propertiesBare.get()), otherCodec.get()],
+        (async () => [keep(kept, propertiesBare.get())]) as never,
+        () => [keep(kept, propertiesBare.get()), sequence(() => [propertiesBare.get()])],
+      ] as (() => unknown[])[]
+      for (const fn of callbacks) {
+        const outcome = await sequence(fn).catch((e: unknown) => e)
+        errors.push(outcome)
+        expect(await kept.pop()?.catch((e: unknown) => e)).toBe(outcome)
+      }
+    })
+    expect(sent).toHaveLength(0)
+    expect(errors.map((e) => (e as Error).message)).toEqual([
+      "sequence: every query must have the same baseUrl and codec as the first one",
+      "sequence: every query must have the same baseUrl and codec as the first one",
+      "sequence callback must be synchronous",
+      "sequence() cannot be called inside another sequence's callback",
+    ])
+  })
+
+  test("one item answers as a one-item tuple, and an empty sequence sends nothing", async () => {
+    let one: unknown
+    let none: unknown
+    const sent = await sentBodies(async () => {
+      one = await sequence(() => [labelled.get()])
+      none = await sequence(() => [])
+    })
+    expect(sent).toHaveLength(1)
+    const [rows] = one as [{ label: string }[]]
+    expect(rows.find((r) => r.label === "property Marina Bay Grand Hotel")).toBeDefined()
+    expect(none).toEqual([])
   })
 })
