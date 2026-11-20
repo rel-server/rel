@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/rel-server/rel/cborenc"
@@ -197,4 +199,41 @@ func complexHandler(t *testing.T, configure func(*config.Config)) http.Handler {
 		configure(&cfg)
 	}
 	return NewRelHandler(testDb, &cfg, nil)
+}
+
+// A scalar select whose value is NULL is a JSON null in the response, alone or among other rows, streamed or in a
+// complex query's result.
+func TestRelHandler_NullScalarSelectIsJSONNull(t *testing.T) {
+	var studio int
+	if err := testDb.Pool.QueryRow(context.Background(), `with s as (insert into studio (name) values ('Null Scalar Studio') returning id)
+		insert into director (name, studio_id) select 'Null Scalar A', null union all select 'Null Scalar B', id from s returning studio_id`).Scan(new(any)); err != nil {
+		t.Fatal(err)
+	}
+	if err := testDb.Pool.QueryRow(context.Background(), `select studio_id from director where name = 'Null Scalar B'`).Scan(&studio); err != nil {
+		t.Fatal(err)
+	}
+	read := func(names string) string {
+		return `{"relation": "director", "schema": "public", "select": ["col", "studio_id"], "where": ["in", ["col", "name"], ` + names + `], "order_by": [["col", "name"]]}`
+	}
+	for name, c := range map[string]struct {
+		body string
+		want string
+	}{
+		"alone":   {read(`"Null Scalar A"`), `[null]`},
+		"among":   {read(`"Null Scalar A", "Null Scalar B"`), fmt.Sprintf(`[null,%d]`, studio)},
+		"complex": {`{"query": ` + read(`"Null Scalar A", "Null Scalar B"`) + `, "count": true}`, fmt.Sprintf(`{"result":[null,%d]}`, studio)},
+	} {
+		rec := postRel(t, c.body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s : status %d : %s", name, rec.Code, rec.Body.String())
+		}
+		var got, want any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("%s : not JSON (%v) : %s", name, err, rec.Body.String())
+		}
+		_ = json.Unmarshal([]byte(c.want), &want)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s : %s, want %s", name, rec.Body.String(), c.want)
+		}
+	}
 }

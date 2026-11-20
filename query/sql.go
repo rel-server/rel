@@ -39,6 +39,10 @@ type sqlCompiler struct {
 
 	// format is how the rows come out : JSON text built by Postgres, or records read by a ResultEncoder.
 	format OutputFormat
+
+	// rawOutputOf is the distinct node whose select list is being written without the JSON form conversion, which a
+	// select around it applies once the duplicates are gone.
+	rawOutputOf *QueryNode
 }
 
 func newSQLCompiler() *sqlCompiler {
@@ -72,7 +76,7 @@ func CompileSelectFormat(root *QueryNode, format OutputFormat) (*writer.SQLWrite
 
 	if root.IsFunction() && !root.Function.ReturnsSet && root.Relation == nil {
 		c.w.Write("select ")
-		if err := c.inJSONFormIfNoCBOR(scalarReturnType(root.Function), func() error {
+		if err := c.inJSONFormIfNoCBOR(nil, scalarReturnType(root.Function), func() error {
 			return c.compileFunctionCall(root.Function, root.FunctionArguments, root.FunctionArgumentMap, root.Parent)
 		}); err != nil {
 			return nil, err
@@ -166,6 +170,18 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 	c.laterals = laterals
 	defer func() { c.laterals = prevLaterals }()
 
+	converted := c.convertedAfterDistinct(node)
+	if converted != nil {
+		inner := c.allocAlias()
+		c.writeJSONFormSelect(converted, inner)
+		prev := c.rawOutputOf
+		c.rawOutputOf = node
+		defer func() {
+			c.rawOutputOf = prev
+			c.w.Write(") ").Write(inner)
+		}()
+	}
+
 	c.w.Write("select ")
 	if c.countMode {
 		c.w.Write("1")
@@ -199,18 +215,24 @@ func (c *sqlCompiler) compileNodeCorrelated(node *QueryNode, alias string, onPar
 				c.w.Id(f.key)
 			}
 		} else {
-			// A scalar select : to_jsonb(...) in JSON, since streamRows writes this column raw ; in CBOR as is, unless its type has no CBOR form.
+			// A scalar select : JSON text in JSON, since the row is written raw (a NULL as the text null, not as
+			// nothing) ; in CBOR as is, unless its type has no CBOR form.
 			if c.format == FormatCBOR {
 				if err := c.compileOutputExpr(node.Select, node); err != nil {
 					return err
 				}
 				c.w.Write(" as __scalar")
-			} else {
-				c.w.Write("to_jsonb(")
+			} else if c.rawOutputOf == node {
 				if err := c.compileExpr(node.Select, node); err != nil {
 					return err
 				}
-				c.w.Write(") as __scalar")
+				c.w.Write(" as __scalar")
+			} else {
+				c.w.Write("coalesce(to_jsonb(")
+				if err := c.compileExpr(node.Select, node); err != nil {
+					return err
+				}
+				c.w.Write("), 'null') as __scalar")
 			}
 		}
 	}
@@ -487,7 +509,7 @@ func selectFieldsFor(node *QueryNode) ([]selectField, error) {
 func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f selectField) error {
 	switch {
 	case f.column != nil:
-		return c.inJSONFormIfNoCBOR(f.column.Type, func() error {
+		return c.inJSONFormIfNoCBOR(node, f.column.Type, func() error {
 			c.qualify(alias, f.column.Name)
 			return nil
 		})
@@ -499,21 +521,93 @@ func (c *sqlCompiler) compileSelectField(node *QueryNode, alias string, f select
 	}
 }
 
-// compileOutputExpr compiles an expression whose value goes into the result as is.
+// compileOutputExpr compiles an expression of node's select whose value goes into the result as is.
 func (c *sqlCompiler) compileOutputExpr(e Expression, node *QueryNode) error {
-	return c.inJSONFormIfNoCBOR(outputPgType(e), func() error { return c.compileExpr(e, node) })
+	return c.inJSONFormIfNoCBOR(node, outputPgType(e), func() error { return c.compileExpr(e, node) })
 }
 
-// inJSONFormIfNoCBOR writes the value compile writes, wrapped in to_jsonb when the rows are CBOR and t has no CBOR
-// form : the encoder cannot read such a type's binary form, and to_jsonb gives what the JSON response holds.
-func (c *sqlCompiler) inJSONFormIfNoCBOR(t *pg.Type, compile func() error) error {
-	if c.format != FormatCBOR || t == nil || nativeCBORType(t) {
+// inJSONFormIfNoCBOR writes the value compile writes for node's select, wrapped in to_jsonb when the rows are CBOR
+// and t has no CBOR form : the encoder cannot read such a type's binary form, and to_jsonb gives what the JSON
+// response holds.
+func (c *sqlCompiler) inJSONFormIfNoCBOR(node *QueryNode, t *pg.Type, compile func() error) error {
+	if !c.needsJSONForm(t) || (node != nil && node == c.rawOutputOf) {
 		return compile()
 	}
 	c.w.Write("to_jsonb(")
 	err := compile()
 	c.w.Write(")")
 	return err
+}
+
+func (c *sqlCompiler) needsJSONForm(t *pg.Type) bool {
+	return c.format == FormatCBOR && t != nil && !nativeCBORType(t)
+}
+
+// convertedAfterDistinct returns, for a distinct node with a value to convert to its JSON form (a CBOR value with no
+// CBOR form, any scalar select in JSON), the names of its outputs and which of them convert ; nil otherwise.
+// distinct and order_by must see the values themselves : jsonb compares differently (citext's case), and with
+// distinct an order_by term must be a selected value.
+func (c *sqlCompiler) convertedAfterDistinct(node *QueryNode) []convertedOutput {
+	if c.countMode || !node.Distinct {
+		return nil
+	}
+	var outs []convertedOutput
+	some := false
+	if !isShapeProducingSelect(node.Select) {
+		outs = []convertedOutput{{"__scalar", c.format == FormatJSON || c.needsJSONForm(outputPgType(node.Select))}}
+		some = outs[0].convert
+	} else {
+		fields, err := selectFieldsFor(node)
+		if err != nil {
+			return nil // compileNodeCorrelated reports it
+		}
+		for _, f := range fields {
+			var t *pg.Type
+			switch {
+			case f.column != nil:
+				t = f.column.Type
+			case embedChildOf(f) == nil:
+				t = outputPgType(f.expr)
+			}
+			o := convertedOutput{f.key, c.needsJSONForm(t)}
+			some = some || o.convert
+			outs = append(outs, o)
+		}
+	}
+	if !some {
+		return nil
+	}
+	return outs
+}
+
+type convertedOutput struct {
+	name    string
+	convert bool
+}
+
+// writeJSONFormSelect opens the select that converts the outputs of the distinct query it wraps, named alias. A JSON
+// scalar is written raw, so a NULL must be the text null.
+func (c *sqlCompiler) writeJSONFormSelect(outs []convertedOutput, alias string) {
+	open, end := "to_jsonb(", ")"
+	if c.format == FormatJSON {
+		open, end = "coalesce(to_jsonb(", "), 'null')"
+	}
+	c.w.Write("select ")
+	for i, o := range outs {
+		if i > 0 {
+			c.w.Write(", ")
+		}
+		if o.convert {
+			c.w.Write(open)
+		}
+		c.qualify(alias, o.name)
+		if o.convert {
+			c.w.Write(end)
+		}
+		c.w.Write(" as ")
+		c.w.Id(o.name)
+	}
+	c.w.Write(" from (")
 }
 
 // outputPgType is e's type when rel knows it without Postgres : a column, a composite sub-field, an element or slice

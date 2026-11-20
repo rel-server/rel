@@ -1,8 +1,11 @@
 package server
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -77,10 +80,8 @@ func TestRelHandler_CBORExtensionTypesAsJSONForm(t *testing.T) {
 	owners := `"where": ["like", ["col", "label"], "Ext Owner%"], "order_by": [["col", "label"]]`
 	check("root *~", both("root *~", `{"relation": "ext_owner", "schema": "public", "select": ["*~", ["id"]], `+owners+`}`), []any{full, empty, null})
 	check("root col", both("root col", `{"relation": "ext_owner", "schema": "public", "select": {`+cols+`}, `+owners+`}`), []any{full, empty, null})
-	// not the NULL row : the JSON response writes nothing for a NULL scalar
-	check("root scalar", both("root scalar", `{"relation": "ext_owner", "schema": "public", "select": ["col", "paths"],
-		"where": ["in", ["col", "label"], "Ext Owner", "Ext Owner empty"], "order_by": [["col", "label"]]}`),
-		[]any{[]any{"a.b", "c"}, []any{}})
+	check("root scalar", both("root scalar", `{"relation": "ext_owner", "schema": "public", "select": ["col", "paths"], `+owners+`}`),
+		[]any{[]any{"a.b", "c"}, []any{}, nil})
 
 	withItems := map[string]any{"items": items}
 	for k, v := range full {
@@ -121,4 +122,64 @@ func TestRelHandler_CBORExtensionTypesAsJSONForm(t *testing.T) {
 		t.Fatalf("function root : status %d : %s", fn.Code, fn.Body.String())
 	}
 	check("function root", decodeCBOR[any](t, fn.Body.Bytes()), "r.s")
+}
+
+// distinct compares the values the columns hold, whatever the response's form : citext's 'Dist A' and 'dist a' are
+// one row in CBOR as in JSON, and an order_by on the column stays valid. Which of the two is answered is Postgres'
+// choice, so labels are compared lowercased.
+func TestRelHandler_DistinctComparesColumnValues(t *testing.T) {
+	ctx := t.Context()
+	var owner int
+	if err := testDb.Pool.QueryRow(ctx, `insert into ext_owner (label, path) values ('Dist A', 'a'), ('dist a', 'a'), ('Dist B', 'b') returning id`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testDb.Pool.Exec(ctx, `insert into ext_item (owner_id, label) values ($1, 'Dup'), ($1, 'dup'), ($1, 'Single')`, owner); err != nil {
+		t.Fatal(err)
+	}
+	var lower func(v any) any
+	lower = func(v any) any {
+		switch x := v.(type) {
+		case string:
+			return strings.ToLower(x)
+		case []any:
+			out := make([]any, len(x))
+			for i, e := range x {
+				out[i] = lower(e)
+			}
+			return out
+		case map[string]any:
+			out := map[string]any{}
+			for k, e := range x {
+				out[k] = lower(e)
+			}
+			return out
+		}
+		return v
+	}
+	where := `"where": ["like", ["col", "label"], "Dist %"]`
+	for name, c := range map[string]struct{ body, want string }{
+		"root": {`{"relation": "ext_owner", "schema": "public", "distinct": true, "select": {"label": ["col", "label"], "path": ["col", "path"]}, ` + where + `,
+			"order_by": [["desc", ["col", "label"]]], "limit": 5}`, `[{"label": "dist b", "path": "b"}, {"label": "dist a", "path": "a"}]`},
+		"scalar": {`{"relation": "ext_owner", "schema": "public", "distinct": true, "select": ["col", "label"], ` + where + `, "order_by": [["col", "label"]]}`,
+			`["dist a", "dist b"]`},
+		"join": {fmt.Sprintf(`{"relation": "ext_owner", "schema": "public", "select": {"items": [".", "items"]}, "where": ["=", ["col", "id"], %d],
+			"join": {"items": {"relation": "ext_item", "schema": "public", "on": {"owner_id": "id"}, "distinct": true, "order_by": [["col", "label"]],
+				"select": {"label": ["col", "label"]}}}}`, owner), `[{"items": [{"label": "dup"}, {"label": "single"}]}]`},
+	} {
+		j := postAccepting(t, testHandler, c.body, "")
+		cb := postAccepting(t, testHandler, c.body, "application/cbor")
+		if j.Code != http.StatusOK || cb.Code != http.StatusOK {
+			t.Fatalf("%s : status JSON %d, CBOR %d : %s %s", name, j.Code, cb.Code, j.Body.String(), cb.Body.String())
+		}
+		var want any
+		if err := json.Unmarshal([]byte(c.want), &want); err != nil {
+			t.Fatal(err)
+		}
+		if got := lower(decodeJSON[any](t, j.Body.Bytes())); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s JSON : %#v, want %#v", name, got, want)
+		}
+		if got := lower(decodeCBOR[any](t, cb.Body.Bytes())); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s CBOR : %#v, want %#v", name, got, want)
+		}
+	}
 }
